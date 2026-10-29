@@ -1,5 +1,30 @@
 # Rolling GitHub pipeline release
 
+## Manual AGP resolution diagnostic
+
+`agp_resolution_diagnostic` is an optional, nonblocking manual job using the
+same Gradle launcher image tag as release builds. It has no artifact dependencies,
+does not recreate signing files, and runs only bounded Google Maven POM requests
+and Gradle `help --info --stacktrace`, not assembly, signing, or publication.
+It does not print routing tables, DNS configuration, proxy environment variables,
+HTTP headers, or response bodies. Review diagnostic logs before sharing them.
+
+Run this job only in an already-authorized pipeline; do not create or retry a
+release pipeline for diagnostics, since normal pipeline publication rules still
+apply. The job reports its source SHA. Compare runner/image/network context with
+the failing job; a matching image tag alone does not establish a matching digest.
+No automatic retry, dependency downgrade, or repository mirror is configured.
+
+AGP `8.13.2` and all build configuration files were identical between successful
+`c48ba2544d25c7419c2832d4089efa20a35e2700` (job `7666745`) and failed
+`dd55f2197d6353fdc1091ba95440139faf310542` (job `7670484`). Both public POMs
+were reachable from the investigation workstation, which does not establish
+runner reachability. Curl reports HTTP status and connection errors; Gradle
+output distinguishes Java-side resolution failures. Successful POM requests
+alone do not prove all transitive artifacts are reachable.
+
+## Rolling release behavior
+
 Successful **protected `main` push pipelines** from
 `git.tak.gov/core/weartak-core/wearos-tak-civ` publish the final production-signed
 `main_release` APK only to the fixed public personal GitHub repository
