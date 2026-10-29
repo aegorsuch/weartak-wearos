@@ -45,6 +45,7 @@ class PhysioControlsLayoutTest {
         val density = 340f / 160
         val monitoring = mutableStateOf(true)
         val alerting = mutableStateOf(false)
+        val environmentalAlerts = mutableStateOf(false)
         val metric = mutableStateOf<TopDisplayMetric?>(null)
         val warning = mutableStateOf(false)
         var thresholdOpens = 0
@@ -63,8 +64,9 @@ class PhysioControlsLayoutTest {
                         if (metric.value == null) {
                             Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 32.dp)
                                 .verticalScroll(rememberScrollState())) {
-                                MetricMonitoringControls(monitoring.value, alerting.value,
-                                    { monitoring.value = it }, { alerting.value = it }, { thresholdOpens++ },
+                                MetricMonitoringControls(monitoring.value, alerting.value, environmentalAlerts.value,
+                                    { monitoring.value = it }, { alerting.value = it },
+                                    { environmentalAlerts.value = it }, { thresholdOpens++ },
                                     { environmentalOpens++ })
                                 TopMetricChoice("Heart Rate", "Off-Wrist", true) {}
                             }
@@ -91,37 +93,43 @@ class PhysioControlsLayoutTest {
                 }
             }
         }
-        fun assertTextFits(label: String) {
+        fun assertTextFits(label: String, maxLines: Int = 1) {
             val layouts = mutableListOf<TextLayoutResult>()
             compose.onNodeWithText(label).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertFalse("$label clipped vertically at $pixels/$fontScale", layouts.single().didOverflowHeight)
             assertFalse("$label clipped horizontally at $pixels/$fontScale", layouts.single().didOverflowWidth)
-            assertEquals("$label must stay on one line", 1, layouts.single().lineCount)
+            assertTrue("$label exceeds $maxLines lines", layouts.single().lineCount <= maxLines)
             assertFalse(layouts.single().isLineEllipsized(0))
             assertEquals(label, layouts.single().layoutInput.text.text)
             assertTrue("Readable scaled label size",
                 layouts.single().layoutInput.style.fontSize.value * fontScale >= 10f)
         }
-        assertTextFits(monitorLabel)
-        assertTextFits(alertsLabel)
-        assertTextFits(environmentalLabel)
-        val monitorBounds = compose.onNodeWithText(monitorLabel).fetchSemanticsNode().boundsInRoot
-        val alertBounds = compose.onNodeWithText(alertsLabel).fetchSemanticsNode().boundsInRoot
+        assertTextFits(monitorLabel, 2)
+        assertTextFits(alertsLabel, 2)
+        assertTextFits(environmentalLabel, 2)
+        val monitorBounds = compose.onNodeWithText(monitorLabel).getUnclippedBoundsInRoot()
+        val alertBounds = compose.onNodeWithText(alertsLabel).getUnclippedBoundsInRoot()
         assertTrue("Alerts must lead", alertBounds.top < monitorBounds.top)
         val environmental = compose.onNodeWithText(environmentalLabel)
-        assertTrue(environmental.fetchSemanticsNode().boundsInRoot.top < alertBounds.top)
-        assertEquals(2, compose.onAllNodes(isToggleable()).fetchSemanticsNodes().size)
-        environmental.performClick()
+        assertTrue(environmental.getUnclippedBoundsInRoot().top < alertBounds.top)
+        assertEquals(3, compose.onAllNodes(isToggleable()).fetchSemanticsNodes().size)
+        environmental.performScrollTo().performClick()
         assertEquals(1, environmentalOpens)
         assertTrue(monitoring.value)
         assertFalse(alerting.value)
-        compose.onAllNodes(isToggleable()).fetchSemanticsNodes().forEach {
-            assertTrue("Keep 48dp touch target", it.touchBoundsInRoot.height / density >= 48f)
+        assertFalse(environmentalAlerts.value)
+        repeat(3) { index ->
+            val toggle = compose.onAllNodes(isToggleable())[index].performScrollTo()
+            assertTrue("Keep 48dp touch target",
+                toggle.fetchSemanticsNode().touchBoundsInRoot.height / density >= 48f)
         }
-        compose.onNodeWithContentDescription(thresholdsLabel).performClick()
+        compose.onNodeWithContentDescription(thresholdsLabel).performScrollTo().performClick()
         assertEquals(1, thresholdOpens)
         assertFalse(alerting.value)
-        compose.onAllNodes(isToggleable())[0].performClick()
+        compose.onAllNodes(isToggleable())[0].performScrollTo().performClick()
+        assertTrue(environmentalAlerts.value)
+        assertFalse(alerting.value)
+        compose.onAllNodes(isToggleable())[1].performScrollTo().performClick()
         assertTrue(alerting.value)
         assertTrue(monitoring.value)
         compose.onNodeWithText(monitorLabel).performScrollTo().performClick()

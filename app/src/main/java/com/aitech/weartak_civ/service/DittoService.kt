@@ -150,7 +150,7 @@ class DittoService : Service() {
             configureDitto()
             powerMonitor = DittoPowerMonitor(this, dataRepository, ioScope, ::onPowerStateChanged)
             powerState = powerMonitor!!.initial(runBlocking { dataRepository.getBatteryWarnPercentage.first() })
-            powerSuppressedState.value = powerPolicy.suppressed(powerState, android.os.SystemClock.elapsedRealtime())
+            setPowerSuppression(powerPolicy.suppressionReason(powerState, android.os.SystemClock.elapsedRealtime()))
             subscribeToCollections()
             storeObservers = DittoStoreObservers(
                 ditto.store, ioScope, DittoCotReceiver(
@@ -221,13 +221,14 @@ class DittoService : Service() {
 
     internal fun startPeerSync(): Boolean = synchronized(peerLock) {
         if (peerStopped || dataRepository.shouldSuppressWatchTransportNow()) return@synchronized false
-        if (powerPolicy.suppressed(powerState, android.os.SystemClock.elapsedRealtime())) {
-            powerSuppressedState.value = true
+        val reason = powerPolicy.suppressionReason(powerState, android.os.SystemClock.elapsedRealtime())
+        if (reason != null) {
+            setPowerSuppression(reason)
             return@synchronized true
         }
         ditto.startSync()
         recordDittoLifecycle(DittoDiagnosticPhase.SYNC, true)
-        powerSuppressedState.value = false
+        setPowerSuppression(null)
         syncActiveState.value = true
         true
     }
@@ -235,17 +236,21 @@ class DittoService : Service() {
     internal fun onPowerStateChanged(state: DittoPowerState) = synchronized(peerLock) {
         powerState = state
         if (peerStopped || !ownsDitto || dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
-        val suppressed = powerPolicy.suppressed(state, android.os.SystemClock.elapsedRealtime())
-        if (suppressed == powerSuppressedState.value && syncActiveState.value == !suppressed) return@synchronized
+        val reason = powerPolicy.suppressionReason(state, android.os.SystemClock.elapsedRealtime())
+        val suppressed = reason != null
+        if (suppressed == powerSuppressedState.value && syncActiveState.value == !suppressed) {
+            setPowerSuppression(reason)
+            return@synchronized
+        }
         try {
             if (suppressed) {
                 ditto.stopSync()
                 syncActiveState.value = false
-                powerSuppressedState.value = true
+                setPowerSuppression(reason)
                 dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
             } else {
                 ditto.startSync()
-                powerSuppressedState.value = false
+                setPowerSuppression(null)
                 syncActiveState.value = true
                 trackGate.reset()
                 updateTrackDocument()
@@ -325,7 +330,7 @@ class DittoService : Service() {
             }
         }
         syncActiveState.value = false
-        powerSuppressedState.value = false
+        setPowerSuppression(null)
         networkMonitor?.close()
         networkMonitor = null
         powerMonitor?.close()
@@ -769,7 +774,7 @@ class DittoService : Service() {
             val how = "m-g"
 
 
-            // 2) Merged version (original + ditto + remarks/biometrics/track)
+            // 2) Merged version (original + ditto + remarks/physiology/track)
             val cotDetail = CotDetailBuilder.dittoTrack(
                 // your original args:
                 monitoredPhysio = pliSnapshot.monitoredPhysio,
@@ -918,6 +923,12 @@ class DittoService : Service() {
         val syncActive = syncActiveState.asStateFlow()
         private val powerSuppressedState = MutableStateFlow(false)
         val powerSuppressed = powerSuppressedState.asStateFlow()
+        private val powerSuppressionReasonState = MutableStateFlow<DittoPowerSuppression?>(null)
+        internal val powerSuppressionReason = powerSuppressionReasonState.asStateFlow()
+        private fun setPowerSuppression(reason: DittoPowerSuppression?) {
+            powerSuppressionReasonState.value = reason
+            powerSuppressedState.value = reason != null
+        }
         private const val DISPATCH_INTERVAL = 3_000L // 3 seconds
         private const val DITTO_TRACK_FLUSH_WAIT_MS = 1_000L
         lateinit var localPeerKeyString: String

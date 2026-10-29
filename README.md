@@ -6,15 +6,32 @@ The app can connect directly to a TAK server and can optionally use SITX, Ditto 
 
 ### Physiological telemetry
 
+The home metric picker is titled **Metric Shown**. Its Environmental Alerts and
+Physiological Alerts split chips open their settings from the label and toggle
+alerting independently from the switch. Physiological Monitoring uses the same
+split-chip styling; either target changes monitoring. Both alert settings screens
+put their master switch first. The Environmental Alerts switches share one saved
+setting, which defaults off for a fresh install and preserves existing enabled
+subtype preferences on upgrade. Turning it off gates
+immersion and atmospheric-pressure alerts without changing the saved individual
+switches or thresholds. Nested switches show off and are disabled while the
+master is off; turning it back on restores those choices. Other alert defaults
+remain off, while saved choices and physiological monitoring are unchanged.
+
 Standalone PLI (TAK servers, multicast and direct CoT) and Ditto track `r` details
-share the same `<biometrics>` device block with heart rate (`hr`), skin temperature
+share the same `<physiology>` device block with heart rate (`hr`), skin temperature
 in Fahrenheit (`skt`) and exertion (`exert`). These readings require physiological
 monitoring, worn state, enabled source sensors and valid samples no older than
 120 seconds or more than 30 seconds in the future, matching self-status policy.
 Unavailable readings are omitted; model/UID remain for reflected-watch identity
 detection. The BATDOK switch controls only the separate ATMIST additions, not
-biometrics. Self-status remarks are unchanged. Battery remains in `<status>` and
-the shared `<biometrics><device><bat>` field, independent of monitoring.
+physiology. Self-status remarks are unchanged. Battery remains in `<status>` and
+the shared `<physiology><device><bat>` field, independent of monitoring.
+Physiology Dashboard consumers should listen for `<detail><physiology>`.
+Alert/cancel metadata also uses `<physiology alert...>`, preserving its attributes
+and device children. Inbound alerts accept `<physiology>` with legacy
+`<biometrics>` fallback; PLI identity detection accepts both tags. Legacy JSON
+schema keys remain unchanged.
 
 Esri and Tablet Command use the same monitored snapshot and existing schema keys.
 They export the same HR, skin temperature and exertion as TAK, plus the existing
@@ -24,7 +41,7 @@ device identity remain independent of monitoring.
 
 IBI, HRV, SpO2, ambient/core temperature, VO2/VO2max, sweat loss/duration, sleep
 score/durations, energy score and fat/muscle mass remain `-1`, with empty timestamp
-fields: they are not part of the TAK biometrics contract. No new MOPP, elevation,
+fields: they are not part of the TAK physiology contract. No new MOPP, elevation,
 calorie or sample timestamp keys are added to these legacy schemas; they have no
 established corresponding fields here. MOPP remains in TAK/Ditto remarks.
 
@@ -147,6 +164,14 @@ status artwork, subtitles, switch state, lock handling and settings navigation
 are preserved. This checklist does not add transport polling or change the main
 screen or watchface complication indicators.
 
+Ditto's checklist subtitle shows **Off-Wrist** when off-wrist detection alone
+pauses sync, and **Suppressed** for other active power gates (including low
+battery, bedtime and power save). Its switch stays on; charging or alert
+overrides restore the normal identity subtitle. Disabled Ditto keeps its
+identity subtitle. TAK server rows and their checklist summary already show
+**Off-Wrist** during eligible off-body waiting gaps, without hiding connection
+failures or relabeling Companion handoff and other route gates.
+
 While a live phone-managed Companion bond locks network controls, their
 checklist subtitles show **Bonded**, replacing any prior subtitle (or adding
 one when empty). The TAK master and plugin forwarding equivalents use the
@@ -170,7 +195,7 @@ Companion service.
 On the top-level Plugins screen, the live phone-management bond disables both
 actions and replaces the subtitle with **Bonded** only for these stable
 `BuiltInPlugin` IDs: `DITTO` (Ditto Edge Sync), `EVERYWHERE_COMMS` (Everywhere),
-`GOTENNA` (goTenna), `SOMEWEAR_LABS` (Somewear Labs), and `DATA_SYNC` (Data Sync).
+`SOMEWEAR_LABS` (Somewear Labs), and `DATA_SYNC` (Data Sync).
 The mapping does not use display names or match installed plugins by name.
 Every other entry, including Companion and installed plugins, is unchanged.
 Releasing the bond restores each original subtitle and both actions.
@@ -233,11 +258,14 @@ CoT transports by sender/message ID. Expired mesh messages are ignored and
 locally evicted without deleting inbox history. See [the chat wire schema](DITTO_CHAT.md)
 for the shared WearOS/iOS document contract and addressing rules.
 
-Plugins are listed alphabetically, including installed plugins. Everywhere, GoTenna and Somewear Labs are
-unfunded placeholders: each displays **Unfunded Request**, and their switches remain off without activating any integration.
-Installed plugins use split chips: tap the row to open the plugin's launcher activity, or use the switch
-to load/unload it. Swipe the row to access remove and info. Plugins without a launchable activity
-(or whose activity cannot be opened) reveal those actions on tap instead. Opening an activity does not load the plugin.
+Plugins are listed alphabetically, including installed plugins. Everywhere and Somewear Labs remain
+unfunded placeholders. Installed plugins use split chips: use the switch to load or unload the plugin.
+If a loaded plugin advertises the SDK `hostedMainUi` capability, tapping its row opens a generic host-rendered
+page from its main UI schema; otherwise, tapping opens the plugin's launcher activity. Hosted pages render
+SDK `STATUS`, `KEY_VALUE_LIST`, and `ACTION` cards. Actions run only after a wearer tap. Host does not
+define plugin-specific controls or collect secret text input. Swipe the row to access remove and info.
+Plugins without a launchable activity (or whose activity cannot be opened) reveal those actions on tap instead.
+Opening an activity does not load the plugin.
 Plugin authors can override the menu subtitle by placing this metadata **inside the plugin's
 `<service>` element** (the service advertising `com.weartak.plugin.action.PLUGIN_SERVICE`):
 
@@ -389,7 +417,7 @@ preferences are unchanged; this does not unpair or rename any device.
 Commands uses original WearTAK megaphone artwork (`ic_commands_megaphone.xml`), not a vendor mark.
 Commands retains **Unfunded Request** in the plugin menu; Data Sync shows its real enabled/paused state.
 Opening Commands shows informational, wrapping command examples beneath Allowed Callsigns in the scrollable settings list.
-The six integration rows use the artwork below, fitted proportionally into 24 dp without theme tint.
+The five branded integrations use the artwork below, fitted proportionally into 24 dp without theme tint.
 The user confirmed permission to use these identified assets on 2026-10-21; this is user-confirmed
 permission, not a claim of a public redistribution license. Only Ditto is the exact ATAK plugin icon;
 the other marks are approved official-company backups, not claimed as ATAK plugin artwork.
@@ -397,7 +425,6 @@ the other marks are approved official-company backups, not claimed as ATAK plugi
 | Integration | Artwork and provenance | Preparation |
 | --- | --- | --- |
 | Somewear Labs | [Official 192 px symbol](https://somewearlabs.com/wp-content/uploads/2026/07/cropped-somewear-favicon-rounded-corners-192x192.png) | Unchanged PNG, `ic_integration_somewear.png`. |
-| GoTenna | [Official original favicon](https://gotenna.com/cdn/shop/files/favicon.webp?v=1680207627) | Native 100 x 100 WebP, requested with `Accept: image/webp`; no enlargement. `ic_integration_gotenna.webp`. |
 | Everywhere | [Official white logo](https://everywherecomms.com/cdn/shop/files/everywhere_logo_white.png?v=1727986047) | Left 232 x 232 globe crop from the 1517 x 232 logo, proportionally reduced to 192 px; no redrawing. `ic_integration_everywhere.png`. |
 | DART and FALCON | [Official Certus Innovations symbol](https://images.squarespace-cdn.com/content/v1/687cf63b5a78985697612a02/8c2c76c6-79ac-4cf4-8dca-a3e9f8f0293c/CI-Icon-Arrow_white%2Bteal.png) | 1920 px artwork proportionally reduced to 192 px, retaining white/teal and transparency. Both use `ic_integration_certus.png`; labels distinguish the products. Product identity: [DART](https://www.certusinnovations.com/products/dart), [FALCON](https://www.certusinnovations.com/products/falcon). |
 | Ditto Edge Sync | Installed `com.dittofederal.atak.plugin.ditto` APK, `drawable/ic_ditto_menu` (`0x7f07006b`), compiled `res/AC.xml` | `ic_integration_ditto.xml` preserves all four original paths and `#F6F6F6` fills. Transparent margins trimmed from the 376 x 416 viewport to the artwork bounds (284 x 324), with proportional intrinsic size. |
@@ -448,6 +475,16 @@ Latitude/longitude must be in range. Unsupported versions, types, raw-XML-only
 documents, missing aliases, malformed XML, DTDs/entities, and invalid timestamps
 are rejected with diagnostics; there is no fallback parser. Compatibility with
 other producers is limited to this shape, not a claim of general ATAK Ditto support.
+
+Ditto connectivity/presence alone does not provide a map position: a peer must
+publish a supported, current PLI document. Received users still obey **Layers >
+Users**, team-color and role filters. Standard and LEO role selections are saved
+independently, so editing one section no longer hides the other after reopening
+the map. For the old shared role preference, a nonempty selection containing only
+one section's roles is retained for that section; the overwritten other section
+uses its defaults. Old empty, mixed or unrecognized selections are preserved
+conservatively. New saved selections, including an empty section, take precedence.
+Missing or unrecognized team/role metadata remains subject to the existing filters.
 
 Maximum reconstructed CoT is **256 KiB UTF-8**; maximum snapshot is **4,096
 documents** and **2,097,152 detail characters** per collection. An oversized
@@ -869,12 +906,13 @@ samples or a measured energy saving.
 
 ## GitHub pipeline release
 
-Protected `develop` push pipelines can publish the signed WearOS APK to the rolling
-**TAK.gov Forge CI/CD Pipeline Release** in the GitHub mirror. Project policy treats these
-as stable builds, not prereleases. See [CI release setup and retention](ci/README.md)
-for both the company mirror and the additional public
-[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) mirror.
-The personal publisher first fast-forwards its `develop` to the exact canonical
+Protected `main` push pipelines publish the signed WearOS APK only to the rolling
+**TAK.gov Forge CI/CD Pipeline Release** in the public
+[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) repository.
+Project policy treats these as stable builds, not prereleases. See
+[CI release setup and retention](ci/README.md) for pipeline setup and safeguards.
+Existing company Releases and tags remain untouched. The publisher first fast-forwards
+personal `main` to the exact canonical
 pipeline source, then publishes the same verified signed APK using a separate
 repository-scoped CI credential. It does not build or sign independently. The CI
 documentation covers required administrator configuration, provenance and verified replacement behavior.
@@ -914,7 +952,7 @@ provisioning, explicit ongoing management opt-in, chat, marker deletion, or watc
 management retention, unrelated-peer isolation, and stale/unbonded write rejection.
 Paired-hardware missing-key recovery, repeated watch restart, and system unpair
 acceptance remain pending. Do not install a feature APK before this change lands
-in canonical `gov/develop`.
+in canonical `gov/main`.
 
 Validation (2026-10-12, base `702ee4a`): offline `:app:testDebugUnitTest`
 with `*Companion*`, `*PhoneManagedSettings*`, `*CompanionChat*`, and
@@ -2482,7 +2520,7 @@ with WearTAK's service manager and known external power.
 
 ### WEARTAK-130: chat commands
 
-Tool Preferences > Plugins > **Commands** (off by default) lets another TAK user change watch settings by sending chat commands. **Allowed Callsigns** is a case-insensitive list shown alphabetically; add one callsign at a time or remove an entry. Existing comma-separated allow lists remain supported. All commands accept direct messages, All Chat Rooms broadcasts, and groups containing the watch UID. Only messages from allowed callsigns are acted on. Messages from other senders, stale messages (older than 5 minutes) and replays are dropped silently.
+Tool Preferences > Plugins > **Commands** (off by default) lets another TAK user change watch settings by sending chat commands. **Allowed Callsigns** is a case-insensitive list shown alphabetically; add one callsign at a time, tap an entry to edit it, or use its right-side trash icon to remove it. Existing comma-separated allow lists remain supported. All commands accept direct messages, All Chat Rooms broadcasts, and groups containing the watch UID. Only messages from allowed callsigns are acted on. Messages from other senders, stale messages (older than 5 minutes) and replays are dropped silently.
 
 TAK servers, Wi-Fi multicast, Ditto GeoChat, SIT(x), and the paired phone's raw-CoT
 gateway and legacy `chat_received` bridge share one command runtime. Replies use
@@ -2629,11 +2667,13 @@ Profile commands take the same values as the settings screens (case-insensitive)
 The callsign, team and role fields (including in `setprofile`) are refused when settings are managed by the phone.
 
 Allowed Callsigns uses the same full-screen text-entry page as other settings
-when adding an entry, with the standard confirm/cancel controls instead of a
-dialog. Keyboard **Done** also validates and adds the callsign, so saving does
+when adding or editing an entry, with the standard confirm/cancel controls instead of a
+dialog. Tapping an existing entry opens the keyboard with its current value.
+Keyboard **Done** also validates and saves the callsign, so saving does
 not depend on a button behind the keyboard. Invalid (outside the existing
 1-32-character callsign format) or case-insensitive duplicate entries stay on the
-entry page with an error. Cancel/back does not save.
+entry page with an error. An edited callsign can retain its own name, but cannot
+duplicate another entry. Cancel/back does not save. Removal is immediate.
 
 `#weartakcommandloadprofile name=odin-weartak` applies a preset saved on the watch as `Android/data/<package>/files/presets/<name>.json`. Presets are provisioned with adb and are never part of this repository, because they can hold server credentials:
 

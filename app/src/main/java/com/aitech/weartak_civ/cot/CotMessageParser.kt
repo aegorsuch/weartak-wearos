@@ -51,7 +51,7 @@ object CotMessageParser {
                 }
             }
             if (detail.getElementsByTagName("emergency").length > 0) return null
-            // WearTAK's own PLI carries biometrics/device identity even if an upstream UID is rewritten.
+            // Match physiology and legacy biometrics device identity even if an upstream UID is rewritten.
             val devices = detail.getElementsByTagName("device")
             for (index in 0 until devices.length) {
                 val device = devices.item(index) as Element
@@ -154,8 +154,8 @@ object CotMessageParser {
                 .firstOrNull { it.attribute("relation") in listOf("p-p", "p-r") }
         }
         val senderText = emergency?.textContent?.trim()?.takeIf(String::isNotBlank)
-        val biometrics = child("biometrics")
-        val biometricDeviceUid = (biometrics?.getElementsByTagName("uid")?.item(0) as? Element)
+        val physiology = child("physiology") ?: child("biometrics")
+        val physiologyDeviceUid = (physiology?.getElementsByTagName("uid")?.item(0) as? Element)
             ?.textContent?.trim()?.takeIf(String::isNotBlank)
         val creator = child("creator")
         val point = child("point")?.let { p ->
@@ -173,13 +173,13 @@ object CotMessageParser {
         }
         return CotEmergencyEvent(
             uid, type, time, start, stale, point,
-            // WearTAK cancellations carry the sender only in biometrics/device/uid.
-            link?.attribute("uid") ?: creator?.attribute("uid") ?: biometricDeviceUid,
+            // WearTAK cancellations carry the sender only in physiology (legacy biometrics)/device/uid.
+            link?.attribute("uid") ?: creator?.attribute("uid") ?: physiologyDeviceUid,
             link?.attribute("parent_callsign") ?: creator?.attribute("callsign")
                 ?: senderText ?: child("contact")?.attribute("callsign")?.substringBefore('\n'),
-            standardType?.displayName ?: biometrics?.attribute("alertCategory") ?: biometrics?.attribute("alertType")
+            standardType?.displayName ?: physiology?.attribute("alertCategory") ?: physiology?.attribute("alertType")
                 ?: emergency?.attribute("type") ?: type,
-            emergency?.attribute("type") ?: biometrics?.attribute("alertDescription")
+            emergency?.attribute("type") ?: physiology?.attribute("alertDescription")
                 ?: child("remarks")?.textContent?.trim()
                 ?: child("contact")?.attribute("callsign")?.substringAfter('\n', "")?.takeIf(String::isNotBlank)
                 ?: standardType?.displayName,

@@ -44,8 +44,7 @@ internal fun alertPreferenceEntries(context: Context, page: String): List<Pair<S
         )
         "physiological_alerts" -> listOf(
             "exertion_alerts" to R.string.exertion_alerts,
-            "heart_rate_alerts" to R.string.heart_rate_alerts,
-            "physiological_master" to R.string.physiological_alerts
+            "heart_rate_alerts" to R.string.heart_rate_alerts
         )
         else -> error("Unsupported alert preference page: $page")
     }

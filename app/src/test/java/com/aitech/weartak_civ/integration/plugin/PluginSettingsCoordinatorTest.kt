@@ -4,6 +4,8 @@ import android.os.Bundle
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.data.DataRepository
 import com.weartak.plugin.sdk.HostSettingsContract
+import com.weartak.plugin.sdk.model.MainUiCardParcel
+import com.weartak.plugin.sdk.model.PluginMainUiSchemaParcel
 import com.weartak.plugin.sdk.model.PluginCapabilitiesParcel
 import com.weartak.plugin.sdk.model.SettingsFieldParcel
 import com.weartak.plugin.sdk.model.SettingsFieldTypes
@@ -77,6 +79,61 @@ class PluginSettingsCoordinatorTest {
             else -> SettingsSchemaParcel()
         }
         fakePlugin.setSettingsSchemaForTest(schema)
+    }
+
+    @Test
+    fun hostedMainUiDispatchesAnyPluginDefinedEnabledActionOnExplicitRequest() {
+        val pluginId = "org.example.telemetry"
+        fakePlugin.pluginCapabilities = PluginCapabilitiesParcel(hostedMainUi = true)
+        fakePlugin.setMainUiSchemaForTest(
+            PluginMainUiSchemaParcel(
+                cards = listOf(
+                    MainUiCardParcel(
+                        cardType = "ACTION",
+                        cardId = "sync",
+                        title = "Synchronize",
+                        content = hostedActionContent(
+                            actionId = "telemetry.sync",
+                            actionLabel = "Synchronize",
+                            args = mapOf("batchId" to "batch-17"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        coordinator.registerPlugin(pluginId, fakePlugin)
+
+        assertTrue(coordinator.supportsHostedMainUi(pluginId))
+        assertTrue(coordinator.getHostedMainUi(pluginId) is HostedPluginMainUiResult.Ready)
+        assertTrue(fakePlugin.mainUiActions.isEmpty())
+        assertTrue(
+            coordinator.invokeHostedMainUiAction(pluginId, "sync") is HostedPluginMainUiResult.Ready
+        )
+        assertEquals("telemetry.sync", fakePlugin.mainUiActions.single().first)
+        assertEquals("batch-17", fakePlugin.mainUiActions.single().second!!.getString("batchId"))
+
+        fakePlugin.setMainUiSchemaForTest(
+            PluginMainUiSchemaParcel(
+                cards = listOf(
+                    MainUiCardParcel(
+                        cardType = "ACTION",
+                        cardId = "sync",
+                        title = "Synchronize",
+                        content = hostedActionContent(
+                            actionId = "telemetry.sync",
+                            actionLabel = "Synchronize",
+                            enabled = false,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(
+            coordinator.invokeHostedMainUiAction(pluginId, "sync") is HostedPluginMainUiResult.Failed
+        )
+        assertEquals(1, fakePlugin.mainUiActions.size)
+        fakePlugin.pluginCapabilities = PluginCapabilitiesParcel()
+        assertFalse(coordinator.supportsHostedMainUi(pluginId))
     }
 
     @Test

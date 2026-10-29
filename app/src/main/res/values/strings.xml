@@ -135,6 +135,7 @@
     <string name="no_chat_command_callsigns" translatable="false">No callsigns allowed</string>
     <string name="invalid_chat_command_callsign" translatable="false">Enter a valid callsign (1-32 letters, numbers, spaces, ., _ or -)</string>
     <string name="duplicate_chat_command_callsign" translatable="false">That callsign is already allowed</string>
+    <string name="remove_chat_command_callsign" translatable="false">Remove %1$s</string>
     <string name="chat_command_examples" translatable="false">Command Examples</string>
     <string name="command_profiles" translatable="false">Profiles</string>
     <string name="command_profiles_loading" translatable="false">Loading saved profiles...</string>
@@ -739,7 +740,7 @@
     <string name="metric_lat_long">Lat/Long</string>
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">No fix</string>
-    <string name="top_display_metric">Top display</string>
+    <string name="top_display_metric">Metric Shown</string>
     <string name="crm_reserve">CRM Reserve</string>
     <string name="metric_alerts">Alerts</string>
     <string name="metric_alert_thresholds">Change alert thresholds</string>
@@ -954,7 +955,12 @@
     <string name="no_custom_pdl_saved">No custom PDL saved</string>
     <string name="ditto_community_subtitle">Community</string>
     <string name="everywhere_comms" translatable="false">Everywhere</string>
-    <string name="gotenna" translatable="false">GoTenna</string>
+    <string name="plugin_not_installed">Plugin is not installed</string>
+    <string name="plugin_not_connected">Plugin is not connected</string>
+    <string name="plugin_hosted_ui_unsupported">Plugin does not provide a hosted page</string>
+    <string name="plugin_page_load">Load plugin</string>
+    <string name="plugin_page_loading">Loading plugin page...</string>
+    <string name="plugin_page_empty">No plugin controls available</string>
     <string name="sensor_manager">Sensor Manager</string>
     <string name="scan_sensor">Scan</string>
     <string name="sensor_manager_preview">Button is Placeholder</string>

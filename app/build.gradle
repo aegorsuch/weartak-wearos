@@ -235,7 +235,9 @@ android {
 }
 
 dependencies {
-    implementation files(rootProject.file('weartak-plugin-sdk-release.aar'))
+    def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
+            .orElse(rootProject.file('weartak-plugin-sdk-release.aar').absolutePath)
+    implementation files(pluginSdkAarPath.get())
     implementation files('libs/samsung-health-sensor-api-1.4.1.aar')
     implementation files('libs/hail-sdk.aar')
 

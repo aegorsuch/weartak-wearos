@@ -23,10 +23,10 @@ def environment():
     return {
         "CI_SERVER_HOST": "git.tak.gov",
         "CI_PROJECT_PATH": "core/weartak-core/wearos-tak-civ",
-        "CI_COMMIT_BRANCH": "develop",
+        "CI_COMMIT_BRANCH": "main",
         "CI_COMMIT_REF_PROTECTED": "true",
         "CI_PIPELINE_SOURCE": "push",
-        "WEARTAK_GITHUB_TOKEN": "mock-token",
+        "WEARTAK_PERSONAL_GITHUB_TOKEN": "mock-personal-token",
         "CI_PROJECT_ID": "42",
         "CI_PIPELINE_ID": "456",
         "CI_PIPELINE_IID": "12",
@@ -54,13 +54,14 @@ class FakeGitHub:
     def __init__(self, state=None):
         self.calls = []
         self.tag = True
-        self.repository = {"full_name": p.REPO, "private": True, "archived": False, "disabled": False}
+        self.repository = {
+            "full_name": p.PERSONAL_REPO, "private": False, "archived": False, "disabled": False,
+        }
         self.release = None
         self.items = []
         self.content = {}
         self.bad_download = False
         self.fail = None
-        self.dispatches = []
         self.synced_sources = []
         self.sync_failure = False
         if state:
@@ -96,9 +97,6 @@ class FakeGitHub:
             return copy.deepcopy(self.release)
         if method == "GET" and path == "releases/1":
             return copy.deepcopy(self.release)
-        if method == "POST" and path == "dispatches":
-            self.dispatches.append(data)
-            return None
         if method == "DELETE" and path.startswith("releases/assets/"):
             self.items = [a for a in self.items if a["id"] != int(path.rsplit("/", 1)[1])]
             return None
@@ -113,7 +111,7 @@ class FakeGitHub:
         content = self.content[asset_id]
         return len(content), "bad" if self.bad_download else hashlib.sha256(content).hexdigest()
 
-    def sync_develop(self, source_sha):
+    def sync_main(self, source_sha):
         self.calls.append(("SYNC", source_sha, None))
         if self.sync_failure:
             raise p.PublishError("Injected non-fast-forward source failure")
@@ -169,7 +167,7 @@ class PublisherTests(unittest.TestCase):
             self.assertIn(value, body)
         methods = [c[0] for c in api.calls]
         self.assertLess(methods.index("DOWNLOAD"), methods.index("PATCH"))
-        self.assertEqual(api.synced_sources, [])
+        self.assertEqual(api.synced_sources, [self.state["source_sha"]])
 
     def personal_api(self, state=None):
         api = FakeGitHub(state)
@@ -178,27 +176,26 @@ class PublisherTests(unittest.TestCase):
 
     def test_personal_uses_same_verified_artifact_after_exact_source_sync_without_dispatch(self):
         api = self.personal_api()
-        p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+        p.publish(api, self.state, *p.artifact(self.root))
         self.assertEqual(api.synced_sources, [self.state["source_sha"]])
         self.assertEqual(api.download_digest(100), (self.apk.stat().st_size, self.digest))
         self.assertEqual(api.items[0]["name"], "WearTAK-5.8.0.3-p12.apk")
         self.assertEqual(p.state_from(api.release, self.state["project_id"])["sha256"], self.digest)
-        self.assertEqual(api.dispatches, [])
         methods = [call[0] for call in api.calls]
         self.assertLess(methods.index("SYNC"), methods.index("POST"))
 
     def test_personal_requires_public_exact_destination_before_source_or_asset_writes(self):
-        for change in ({"private": True}, {"private": None}, {"full_name": p.REPO},
+        for change in ({"private": True}, {"private": None}, {"full_name": "other/repository"},
                        {"archived": True}, {"disabled": True}):
             api = self.personal_api()
             api.repository.update(change)
             with self.assertRaises(p.PublishError):
-                p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+                p.publish(api, self.state, *p.artifact(self.root))
             self.assert_no_writes(api)
 
     def test_personal_older_pipeline_never_rewinds_source_or_release(self):
         api = self.personal_api(dict(self.state, pipeline_iid=13))
-        p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+        p.publish(api, self.state, *p.artifact(self.root))
         self.assert_no_writes(api)
         self.assertEqual(api.synced_sources, [])
 
@@ -208,40 +205,35 @@ class PublisherTests(unittest.TestCase):
         api.sync_failure = True
         previous = copy.deepcopy(api.release)
         with self.assertRaises(p.PublishError):
-            p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+            p.publish(api, self.state, *p.artifact(self.root))
         self.assertEqual(api.release, previous)
         self.assertEqual(api.items, [asset(9, 11)])
         self.assertFalse(any(call[0] in ("POST", "PATCH", "DELETE") for call in api.calls))
 
-    def test_personal_has_no_company_token_fallback_or_arbitrary_destination(self):
+    def test_fixed_personal_destination_requires_its_own_token(self):
         env = environment()
+        self.assertEqual(p.configuration(env), self.state)
+        company_only = dict(env)
+        company_only.pop("WEARTAK_PERSONAL_GITHUB_TOKEN")
+        company_only["WEARTAK_GITHUB_TOKEN"] = "company-only"
         with self.assertRaisesRegex(p.PublishError, "WEARTAK_PERSONAL_GITHUB_TOKEN"):
-            p.configuration(env, p.PERSONAL_REPO)
-        env.pop("WEARTAK_GITHUB_TOKEN")
-        env["WEARTAK_PERSONAL_GITHUB_TOKEN"] = "mock-personal-token"
-        self.assertEqual(p.configuration(env, p.PERSONAL_REPO), self.state)
-        for destination in ("other/repository", "https://github.com/" + p.PERSONAL_REPO):
-            with self.assertRaises(p.PublishError):
-                p.configuration(env, destination)
-            with self.assertRaises(p.PublishError):
-                p.GitHub("mock-personal-token", destination)
+            p.configuration(company_only)
+        with self.assertRaises(TypeError):
+            p.GitHub("mock-personal-token", "Ascent-Integrated-Tech/wearos-tak-civ")
         with patch.dict(p.os.environ, env, clear=True), patch.object(p.Path, "cwd", return_value=self.root), \
                 patch.object(p, "GitHub") as github, patch.object(p, "publish") as publish:
-            self.assertEqual(p.main(["--personal"]), 0)
-            github.assert_called_once_with("mock-personal-token", p.PERSONAL_REPO)
-            self.assertEqual(publish.call_args.kwargs["destination"], p.PERSONAL_REPO)
+            self.assertEqual(p.main(), 0)
+            github.assert_called_once_with("mock-personal-token")
+            publish.assert_called_once()
 
-    def test_verified_release_notifies_testers_after_cleanup(self):
-        api = FakeGitHub(self.state | {"pipeline_iid": 11, "pipeline_id": "455"})
-        api.items = [asset(9, 11)]
+    def test_cli_rejects_all_destination_overrides(self):
+        self.assertEqual(p.main(["--personal"]), 1)
+        self.assertEqual(p.main(["--repository", "owner/repo"]), 1)
+
+    def test_publish_never_dispatches_to_another_repository(self):
+        api = self.personal_api()
         self.publish(api)
-        self.assertEqual(api.dispatches, [{
-            "event_type": p.DISPATCH_EVENT,
-            "client_payload": {"pipeline_id": "456", "release_id": 1},
-        }])
-        writes = [c for c in api.calls if c[0] != "GET"]
-        self.assertEqual(writes[-1][:2], ("POST", "dispatches"))
-        self.assertIn(("DELETE", "releases/assets/9"), [c[:2] for c in writes])
+        self.assertFalse(any(call[1] == "dispatches" for call in api.calls))
 
     def test_manual_prose_survives_legacy_migration_and_repeated_updates(self):
         api = FakeGitHub()
@@ -320,25 +312,15 @@ class PublisherTests(unittest.TestCase):
                 self.publish(api)
             self.assert_no_writes(api)
 
-    def test_unverified_or_skipped_release_does_not_notify_testers(self):
+    def test_unverified_or_skipped_release_does_not_publish(self):
         api = FakeGitHub()
         api.bad_download = True
         with self.assertRaises(p.PublishError):
             self.publish(api)
-        self.assertEqual(api.dispatches, [])
+        self.assertEqual(api.items[0]["state"], "uploaded")
         newer = FakeGitHub(self.state | {"pipeline_iid": 13, "pipeline_id": "457"})
         self.publish(newer)
-        self.assertEqual(newer.dispatches, [])
-
-    def test_notification_failure_is_reported_and_retry_notifies_once(self):
-        api = FakeGitHub()
-        api.fail = lambda method, path: path == "dispatches"
-        with self.assertRaisesRegex(p.PublishError, "release-testing notification failed"):
-            self.publish(api)
-        self.assertFalse(api.release["draft"])
-        api.fail = None
-        self.publish(api)
-        self.assertEqual(len(api.dispatches), 1)
+        self.assert_no_writes(newer)
 
     def test_only_older_owned_assets_deleted_after_verification(self):
         api = FakeGitHub(dict(self.state, pipeline_iid=11))
@@ -382,9 +364,8 @@ class PublisherTests(unittest.TestCase):
             self.publish(api)
         self.assert_no_writes(api)
 
-    def test_explicitly_approved_public_destination_can_publish(self):
-        api = FakeGitHub()
-        api.repository["private"] = False
+    def test_fixed_public_personal_destination_can_publish(self):
+        api = self.personal_api()
         self.publish(api)
         self.assertFalse(api.release["draft"])
         self.assertEqual(api.release["name"], f"{p.TITLE} (5.8.0.3-p12)")
@@ -410,7 +391,7 @@ class PublisherTests(unittest.TestCase):
                        {"archived": None}, {"disabled": None}):
             api = FakeGitHub()
             api.repository.update(change)
-            with self.assertRaisesRegex(p.PublishError, "explicitly approved, active"):
+            with self.assertRaisesRegex(p.PublishError, "active public repository"):
                 self.publish(api)
             self.assert_no_writes(api)
 
@@ -534,6 +515,7 @@ class PublisherTests(unittest.TestCase):
                 with self.assertRaises(p.PublishError):
                     p.configuration(invalid)
         for key, value in (("CI_PIPELINE_SOURCE", "merge_request_event"),
+                           ("CI_COMMIT_BRANCH", "develop"),
                            ("CI_COMMIT_REF_PROTECTED", "false"),
                            ("CI_PROJECT_PATH", "fork/project"),
                            ("CI_SERVER_HOST", "other.example"),
@@ -613,7 +595,7 @@ class SourceSyncTests(unittest.TestCase):
     previous = "a" * 40
 
     def api(self, readback=None):
-        api = p.GitHub("mock-personal-token", p.PERSONAL_REPO)
+        api = p.GitHub("mock-personal-token")
         references = [
             {"object": {"type": "commit", "sha": self.previous}},
             {"object": {"type": "commit", "sha": readback or self.source}},
@@ -628,16 +610,16 @@ class SourceSyncTests(unittest.TestCase):
         return [self.result(self.source), self.result(), self.result(self.previous),
                 self.result(), self.result()]
 
-    def test_exact_non_force_develop_only_with_secret_safe_scoped_git_environment(self):
+    def test_exact_non_force_main_only_with_secret_safe_scoped_git_environment(self):
         api = self.api()
         with patch.dict(p.os.environ, {"GH_TOKEN": "unrelated", "RELEASE_STORE_PASSWORD": "unrelated",
                                      "WEARTAK_GITHUB_TOKEN": "company-only"}, clear=False), \
                 patch.object(p.subprocess, "run", side_effect=self.results()) as run:
-            api.sync_develop(self.source)
+            api.sync_main(self.source)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(commands[-1], [
             "git", "push", "--no-follow-tags", "--recurse-submodules=no",
-            f"https://github.com/{p.PERSONAL_REPO}.git", f"{self.source}:refs/heads/develop",
+            f"https://github.com/{p.PERSONAL_REPO}.git", f"{self.source}:refs/heads/main",
         ])
         self.assertIn(["git", "merge-base", "--is-ancestor", self.previous, self.source], commands)
         for command in commands:
@@ -655,7 +637,7 @@ class SourceSyncTests(unittest.TestCase):
         api = self.api()
         api.request.side_effect = [{"object": {"type": "commit", "sha": self.source}}] * 2
         with patch.object(p.subprocess, "run", return_value=self.result(self.source)) as run:
-            api.sync_develop(self.source)
+            api.sync_main(self.source)
         self.assertEqual(run.call_count, 1)
         self.assertEqual(api.request.call_count, 2)
 
@@ -665,7 +647,7 @@ class SourceSyncTests(unittest.TestCase):
             api = self.api()
             with patch.object(p.subprocess, "run", side_effect=results) as run:
                 with self.assertRaises(p.PublishError):
-                    api.sync_develop(self.source)
+                    api.sync_main(self.source)
             self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
 
     def test_divergent_history_and_push_race_fail_without_force_retry_or_secret_output(self):
@@ -675,7 +657,7 @@ class SourceSyncTests(unittest.TestCase):
             results[failing_step] = self.result(returncode=1)
             with patch.object(p.subprocess, "run", side_effect=results) as run:
                 with self.assertRaises(p.PublishError) as caught:
-                    api.sync_develop(self.source)
+                    api.sync_main(self.source)
             self.assertNotIn("sensitive transport detail", str(caught.exception))
             self.assertEqual(run.call_count, failing_step + 1)
             self.assertFalse(any("--force" in call.args[0] for call in run.call_args_list))
@@ -684,13 +666,12 @@ class SourceSyncTests(unittest.TestCase):
         api = self.api(readback="b" * 40)
         with patch.object(p.subprocess, "run", side_effect=self.results()) as run:
             with self.assertRaisesRegex(p.PublishError, "readback"):
-                api.sync_develop(self.source)
+                api.sync_main(self.source)
         self.assertEqual(run.call_count, 5)
 
-    def test_company_source_sync_is_never_enabled(self):
-        with self.assertRaises(p.PublishError), patch.object(p.subprocess, "run") as run:
-            p.GitHub("mock-company-token").sync_develop(self.source)
-        run.assert_not_called()
+    def test_publisher_has_no_company_repository_configuration(self):
+        self.assertFalse(hasattr(p, "REPO"))
+        self.assertEqual(p.GitHub("mock-personal-token").repository_name, p.PERSONAL_REPO)
 
 
 if __name__ == "__main__":

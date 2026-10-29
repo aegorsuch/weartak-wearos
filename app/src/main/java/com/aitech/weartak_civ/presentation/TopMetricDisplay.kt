@@ -72,7 +72,8 @@ internal fun FittedTopMetricText(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.body1.copy(
         fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White),
-    minFontSize: TextUnit = 0.25.sp
+    minFontSize: TextUnit = 0.25.sp,
+    maxLines: Int = 1
 ) {
     BasicText(
         text = value,
@@ -81,8 +82,8 @@ internal fun FittedTopMetricText(
             color = if (style.color == Color.Unspecified) LocalContentColor.current else style.color,
             lineHeight = TextUnit.Unspecified
         ),
-        maxLines = 1,
-        softWrap = false,
+        maxLines = maxLines,
+        softWrap = maxLines > 1,
         autoSize = TextAutoSize.StepBased(
             minFontSize = minFontSize, maxFontSize = style.fontSize, stepSize = 0.25.sp
         )

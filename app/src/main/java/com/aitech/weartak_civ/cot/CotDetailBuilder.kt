@@ -19,10 +19,10 @@ object CotDetailBuilder {
     })
 
     // Keep device identity even without vitals: CoT consumers use it to identify WearTAK.
-    fun biometrics(uid: String, physio: DataRepository.PhysioData?, battery: Int?): String {
+    fun physiology(uid: String, physio: DataRepository.PhysioData?, battery: Int?): String {
         fun number(value: Number, format: String) =
             String.format(Locale.US, format, value.toDouble()).trimEnd('0').trimEnd('.')
-        return "<biometrics><device><model>WEAROS</model><uid>${CotXml.escape(uid)}</uid>" +
+        return "<physiology><device><model>WEAROS</model><uid>${CotXml.escape(uid)}</uid>" +
             buildString {
                 physio?.heartRateBpm?.takeIf { it in 20..250 }?.let { append("<hr>$it</hr>") }
                 physio?.skinTempF?.takeIf { it.isFinite() && it in 59f..113f }?.let {
@@ -32,7 +32,7 @@ object CotDetailBuilder {
                     append("<exert>${number(it, "%.2f")}</exert>")
                 }
                 battery?.takeIf { it in 0..100 }?.let { append("<bat>$it</bat>") }
-            } + "</device></biometrics>"
+            } + "</device></physiology>"
     }
 
     fun dittoTrack(
@@ -62,7 +62,7 @@ object CotDetailBuilder {
             CotXml.element("__group", listOf("role" to CotXml.escape(role), "name" to CotXml.escape(team))) +
             status(battery) +
             "<remarks>${CotXml.escape(remarks)}</remarks>" +
-            biometrics(uid, monitoredPhysio, battery) +
+            physiology(uid, monitoredPhysio, battery) +
             CotXml.element("track", listOf("course" to course, "speed" to speed)) +
             CotXml.element("ditto", listOf(
                 "a" to CotXml.escape(dittoA), "ip" to CotXml.escape(dittoIp),

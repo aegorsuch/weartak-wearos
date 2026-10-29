@@ -40,9 +40,9 @@ class CepEngineWarmUpTest {
         every { repo.getExertionThresholdAlert } returns flowOf(80)
         every { repo.getHighAtmPressureAlertThreshold } returns flowOf(950)
         every { repo.getLowAtmPressureAlertThreshold } returns flowOf(100)
-        every { repo.getEnableImmersionAlerts } returns flowOf(false)
-        every { repo.getEnableLowAtmPressureAlert } returns flowOf(false)
-        every { repo.getEnableHighAtmPressureAlert } returns flowOf(false)
+        every { repo.effectiveEnableImmersionAlerts } returns flowOf(false)
+        every { repo.effectiveEnableLowAtmPressureAlert } returns flowOf(false)
+        every { repo.effectiveEnableHighAtmPressureAlert } returns flowOf(false)
         coEvery { repo.getCepSustainOverridesOnce() } returns DataRepository.CepSustainOverrides(
             main = mapOf("rule_x" to 42L),
             warn = emptyMap()
@@ -107,9 +107,9 @@ class CepEngineWarmUpTest {
         engine.start()
 
         coVerify(exactly = 1) { repo.getCepSustainOverridesOnce() }
-        verify(exactly = 1) { repo.getEnableImmersionAlerts }
-        verify(exactly = 1) { repo.getEnableLowAtmPressureAlert }
-        verify(exactly = 1) { repo.getEnableHighAtmPressureAlert }
+        verify(exactly = 1) { repo.effectiveEnableImmersionAlerts }
+        verify(exactly = 1) { repo.effectiveEnableLowAtmPressureAlert }
+        verify(exactly = 1) { repo.effectiveEnableHighAtmPressureAlert }
         engine.cancel()
     }
 

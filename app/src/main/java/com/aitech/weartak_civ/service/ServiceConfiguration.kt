@@ -132,9 +132,9 @@ class ServiceConfiguration(
         ServiceType.OFF_BODY_DETECT -> flowOf(true).distinctUntilChanged()
         ServiceType.COMPANION_APP -> dataRepository.getEnableCompanionAppService.distinctUntilChanged()
         ServiceType.PRESSURE -> combine(
-            dataRepository.getEnableImmersionAlerts.distinctUntilChanged(),
-            dataRepository.getEnableLowAtmPressureAlert.distinctUntilChanged(),
-            dataRepository.getEnableHighAtmPressureAlert.distinctUntilChanged()
+            dataRepository.effectiveEnableImmersionAlerts.distinctUntilChanged(),
+            dataRepository.effectiveEnableLowAtmPressureAlert.distinctUntilChanged(),
+            dataRepository.effectiveEnableHighAtmPressureAlert.distinctUntilChanged()
         ) { immersionOn, lowPressureOn, highPressureOn ->
             immersionOn || lowPressureOn || highPressureOn
         }.distinctUntilChanged()

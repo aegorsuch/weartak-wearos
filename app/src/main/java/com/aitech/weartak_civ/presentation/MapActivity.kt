@@ -2049,70 +2049,12 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
 //        )
 //    }
 
-    // Standard roles currently selected for display
-    val defaultVisibleUserRoles = setOf (
-//        mutableStateOf(
-                "Forward Observer",
-                "HQ",
-                "K9",
-                "Medic",
-                "RTO",
-                "Sniper",
-                "Team Lead",
-                "Team Member"
-//            )
-        )
-
-    // Loads the last selected role filters
+    val userRolePreferences = remember(mapPreferences) { MapUserRolePreferences(mapPreferences) }
     var visibleUserRoles by remember {
-        mutableStateOf(
-            mapPreferences.getStringSet(
-                "visible_user_roles",
-                defaultVisibleUserRoles
-            )?.toSet() ?: defaultVisibleUserRoles
-        )
+        mutableStateOf(userRolePreferences.standardRoles())
     }
-
-
-//    // Standard roles currently selected for display
-//    var visibleUserRoles by remember {
-//        mutableStateOf(
-//            setOf(
-//                "Forward Observer",
-//                "HQ",
-//                "K9",
-//                "Medic",
-//                "RTO",
-//                "Sniper",
-//                "Team Lead",
-//                "Team Member"
-//            )
-//        )
-//    }
-
-    val defaultVisibleUserRolesLEO =
-        setOf (
-                "Armed Surveillance",
-                "Assistant Team Leader",
-                "Aviation",
-                "Bomb Tech",
-                "Command Post",
-                "Critical Response",
-                "Hazards",
-                "Negotiator",
-                "Surveillance",
-                "Tactical Communicator",
-                "TOC"
-        )
-
-    // Loads the last selected role filters
     var visibleUserRolesLEO by remember {
-        mutableStateOf(
-            mapPreferences.getStringSet(
-                "visible_user_roles",
-                defaultVisibleUserRolesLEO
-            )?.toSet() ?: defaultVisibleUserRolesLEO
-        )
+        mutableStateOf(userRolePreferences.leoRoles())
     }
     val projection = cameraState.projection
 
@@ -2387,15 +2329,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     }
 
     // Standard roles displayed in the normal role section
-    val defaultRoleNames = setOf(
-        "Forward Observer", "HQ", "K9", "Medic", "RTO", "Sniper", "Team Lead", "Team Member"
-    )
-
-    val leoRoleNames = setOf(
-        "Armed Surveillance", "Assistant Team Leader", "Aviation", "Bomb Tech",
-        "Command Post", "Critical Response", "Hazards", "Negotiator",
-        "Surveillance", "Tactical Communicator", "TOC"
-    )
+    val defaultRoleNames = MapUserRolePreferences.STANDARD_ROLES
+    val leoRoleNames = MapUserRolePreferences.LEO_ROLES
 
     val presentUserRoles = remember(roleCounts, myRole) {
         roleCounts.keys.filter { it in defaultRoleNames }.toSet() +
@@ -2936,12 +2871,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     visibleUserRoles = updatedRoles
 
                     // save the selected role
-                    mapPreferences.edit()
-                        .putStringSet(
-                            "visible_user_roles",
-                            updatedRoles
-                        )
-                        .apply()
+                    userRolePreferences.saveStandardRoles(updatedRoles)
                 },
 
                 // Shows or hides users with the selected LEO role
@@ -2957,12 +2887,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     visibleUserRolesLEO = updatedRoles
 
                     // save the selected role
-                    mapPreferences.edit()
-                        .putStringSet(
-                            "visible_user_roles",
-                            updatedRoles
-                        )
-                        .apply()
+                    userRolePreferences.saveLeoRoles(updatedRoles)
 
                 },
 

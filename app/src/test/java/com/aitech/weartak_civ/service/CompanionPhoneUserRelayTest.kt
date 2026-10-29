@@ -123,7 +123,8 @@ class CompanionPhoneUserRelayTest {
             cot("remote").replace("</detail>", "<uid Droid='test-watch'/></detail>"),
             cot("remote").replace("</detail>", "<uid Droid='phone-self'/></detail>"),
             cot("remote").replace("</detail>", "<emergency type='911'/></detail>"),
-            cot("remote").replace("</detail>", "<biometrics><device><model>WEAROS</model></device></biometrics></detail>")
+            cot("remote").replace("</detail>", "<biometrics><device><model>WEAROS</model></device></biometrics></detail>"),
+            cot("remote").replace("</detail>", "<physiology><device><model>WEAROS</model></device></physiology></detail>")
         ).forEach { handle("phone_user_cot", userPayload(it)) }
         assertTrue(repo.receivedUserList.value.isEmpty())
 

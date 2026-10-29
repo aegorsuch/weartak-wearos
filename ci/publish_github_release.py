@@ -1,4 +1,4 @@
-"""Publish the verified canonical APK to explicitly approved GitHub mirrors."""
+"""Publish the verified canonical APK to the fixed personal GitHub mirror."""
 
 import base64
 import hashlib
@@ -13,12 +13,8 @@ import urllib.parse
 import urllib.request
 
 
-REPO = "Ascent-Integrated-Tech/wearos-tak-civ"
 PERSONAL_REPO = "aegorsuch/weartak-wearos"
-TOKEN_VARIABLES = {
-    REPO: "WEARTAK_GITHUB_TOKEN",
-    PERSONAL_REPO: "WEARTAK_PERSONAL_GITHUB_TOKEN",
-}
+TOKEN_VARIABLE = "WEARTAK_PERSONAL_GITHUB_TOKEN"
 # Git tags cannot contain spaces or "/", so the tag is the title in tag-safe form.
 TAG = "TAK.gov-Forge-CI-CD-Pipeline-Release"
 TITLE = "TAK.gov Forge CI/CD Pipeline Release"
@@ -28,8 +24,6 @@ MANAGED_END = "<!-- weartak-release-managed:end -->"
 ASSET_PATTERN = re.compile(r"WearTAK-[0-9A-Za-z._-]*-p([1-9][0-9]*)\.apk")
 LEGACY_ASSET_PATTERN = re.compile(r"weartak-development-p([1-9][0-9]*)-([0-9a-f]{64})\.apk")
 LABEL_PREFIX = "weartak-rolling-v1:"
-# Handled by .github/workflows/release-testing.yml on the GitHub default branch.
-DISPATCH_EVENT = "weartak-release-published"
 OUTPUT = Path("app/build/outputs/apk/release")
 
 
@@ -49,11 +43,9 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class GitHub:
-    def __init__(self, token, repository=REPO):
-        if repository not in TOKEN_VARIABLES:
-            raise PublishError("Unapproved publication destination.")
+    def __init__(self, token):
         self.token = token
-        self.repository_name = repository
+        self.repository_name = PERSONAL_REPO
         self.opener = urllib.request.build_opener(SafeRedirect())
 
     def request(self, method, path, data=None, *, binary=False, missing_ok=False):
@@ -82,9 +74,9 @@ class GitHub:
             # Do not print request headers, tokens, signed URLs, or raw API responses.
             raise PublishError(
                 f"GitHub {method} {path.split('?')[0]} returned HTTP {error.code}. "
-                f"Check protected {TOKEN_VARIABLES[self.repository_name]} "
+                f"Check protected {TOKEN_VARIABLE} "
                 "(repository Contents: write), "
-                "repository access, rolling tag, and API availability."
+                "personal repository access, rolling tag, and API availability."
             ) from None
         except urllib.error.URLError:
             raise PublishError(
@@ -128,7 +120,7 @@ class GitHub:
                 return result
             page += 1
 
-    def sync_develop(self, source_sha):
+    def sync_main(self, source_sha):
         if self.repository_name != PERSONAL_REPO:
             raise PublishError("Automatic source synchronization is personal-mirror only.")
         # Keep credentials out of arguments, URLs, files, helpers and captured output.
@@ -159,7 +151,7 @@ class GitHub:
             )
             if result.returncode:
                 raise PublishError(
-                    "Personal develop synchronization failed its Git source/ancestry/"
+                    "Personal main synchronization failed its Git source/ancestry/"
                     "non-force push check. No force, tag changes or deletion "
                     "will be attempted; inspect canonical history and repository access."
                 )
@@ -167,35 +159,33 @@ class GitHub:
 
         if git("rev-parse", "HEAD") != source_sha:
             raise PublishError("CI checkout does not match the publishing pipeline source.")
-        path = "git/ref/heads/develop"
+        path = "git/ref/heads/main"
         remote = self.request("GET", path)
         remote_sha = remote.get("object", {}).get("sha")
         if (remote.get("object", {}).get("type") != "commit"
                 or not isinstance(remote_sha, str)
                 or not re.fullmatch(r"[0-9a-f]{40}", remote_sha)):
-            raise PublishError("Personal develop must already reference a verified commit.")
+            raise PublishError("Personal main must already reference a verified commit.")
         if remote_sha != source_sha:
             url = f"https://github.com/{PERSONAL_REPO}.git"
-            git("fetch", "--no-tags", "--no-recurse-submodules", url, "refs/heads/develop")
+            git("fetch", "--no-tags", "--no-recurse-submodules", url, "refs/heads/main")
             if git("rev-parse", "FETCH_HEAD") != remote_sha:
-                raise PublishError("Personal develop changed during source inspection; refusing update.")
+                raise PublishError("Personal main changed during source inspection; refusing update.")
             git("merge-base", "--is-ancestor", remote_sha, source_sha)
             git("push", "--no-follow-tags", "--recurse-submodules=no",
-                url, f"{source_sha}:refs/heads/develop")
+                url, f"{source_sha}:refs/heads/main")
         confirmed = self.request("GET", path)
         if confirmed.get("object", {}).get("sha") != source_sha:
-            raise PublishError("Personal develop readback differs from the canonical pipeline source.")
-        print(f"Verified {PERSONAL_REPO} develop={source_sha} (non-force, no other refs changed).")
+            raise PublishError("Personal main readback differs from the canonical pipeline source.")
+        print(f"Verified {PERSONAL_REPO} main={source_sha} (non-force, no other refs changed).")
 
 
-def configuration(env, destination=REPO):
-    if destination not in TOKEN_VARIABLES:
-        raise PublishError("Unapproved publication destination.")
-    token_variable = TOKEN_VARIABLES[destination]
+def configuration(env):
+    token_variable = TOKEN_VARIABLE
     expected = {
         "CI_SERVER_HOST": "git.tak.gov",
         "CI_PROJECT_PATH": "core/weartak-core/wearos-tak-civ",
-        "CI_COMMIT_BRANCH": "develop",
+        "CI_COMMIT_BRANCH": "main",
         "CI_COMMIT_REF_PROTECTED": "true",
         "CI_PIPELINE_SOURCE": "push",
     }
@@ -233,7 +223,7 @@ def artifact(root):
     directory = root / OUTPUT
     apks = list(directory.glob("*.apk"))
     if len(apks) != 1 or apks[0].is_symlink() or not apks[0].is_file():
-        raise PublishError("Expected exactly one signed release APK from develop_release.")
+        raise PublishError("Expected exactly one signed release APK from main_release.")
     apk = apks[0]
     digest = hashlib.sha256(apk.read_bytes()).hexdigest()
     checksum = (directory / "verified-apk.sha256").read_text().strip()
@@ -293,12 +283,12 @@ def managed_asset(asset):
 
 def generated_body(state, version, code):
     return (
-        "Automatically published stable WearOS develop-channel build.\n\n"
+        "Automatically published stable WearOS main-channel build.\n\n"
         f"- APK version: **{version}** (versionCode **{code}**)\n"
         f"- Build: GitLab pipeline **{state['pipeline_id']}** "
         f"(project pipeline **{state['pipeline_iid']}**)\n"
         f"- Pipeline: {state['pipeline_url']}\n"
-        f"- Source commit: `{state['source_sha']}` on TAK.gov `develop`\n"
+        f"- Source commit: `{state['source_sha']}` on TAK.gov `main`\n"
         f"- SHA256: `{state['sha256']}`\n\n"
         "Install the APK above. GitHub's \"Source code\" archives come from the fixed release "
         "anchor tag, not from this build; the source commit above is authoritative and may "
@@ -339,17 +329,15 @@ def update_body(previous_body, previous_state, generated):
     return previous_body[:marker.start()] + managed + previous_body[marker.end():]
 
 
-def publish(api, state, apk, digest, version, code, *, destination=REPO):
-    if destination not in TOKEN_VARIABLES:
-        raise PublishError("Unapproved publication destination.")
+def publish(api, state, apk, digest, version, code):
     repository = api.request("GET", "")
-    if (repository.get("full_name") != destination or
+    if (repository.get("full_name") != PERSONAL_REPO or
             repository.get("archived") is not False or
             repository.get("disabled") is not False or
-            (destination == PERSONAL_REPO and repository.get("private") is not False)):
+            repository.get("private") is not False):
         raise PublishError(
-            "Destination must be the explicitly approved, active repository "
-            f"{destination}; archived, disabled, different or nonpublic personal "
+            "Destination must be the explicitly approved, active public repository "
+            f"{PERSONAL_REPO}; archived, disabled, different or nonpublic "
             "repositories are not allowed."
         )
     # Require an administrator-provisioned fixed tag. Never create/move a ref.
@@ -369,9 +357,6 @@ def publish(api, state, apk, digest, version, code, *, destination=REPO):
                      or previous.get("sha256") != digest)):
             raise PublishError("Same pipeline has different source/artifact; refusing replacement.")
 
-    if destination == PERSONAL_REPO:
-        api.sync_develop(state["source_sha"])
-
     state = dict(state, sha256=digest)
     short = display_version(version, state["pipeline_iid"])
     title = f"{TITLE} ({short})"
@@ -380,6 +365,7 @@ def publish(api, state, apk, digest, version, code, *, destination=REPO):
         previous if release else None,
         generated_body(state, version, code),
     )
+    api.sync_main(state["source_sha"])
     if not release:
         release = api.request("POST", "releases", {
             "tag_name": TAG, "name": title, "body": body,
@@ -424,31 +410,15 @@ def publish(api, state, apk, digest, version, code, *, destination=REPO):
         if owner is not None and owner < state["pipeline_iid"]:
             api.request("DELETE", f"releases/assets/{old['id']}")
     print(f"Published {title}: version {version} ({code}), SHA256 {digest}")
-    if destination == PERSONAL_REPO:
-        return
-    # Only a verified build reaches testers. The workflow re-reads the release itself and
-    # deduplicates per pipeline, so retrying a failed notification is safe.
-    try:
-        api.request("POST", "dispatches", {
-            "event_type": DISPATCH_EVENT,
-            "client_payload": {"pipeline_id": state["pipeline_id"], "release_id": release_id},
-        })
-    except PublishError:
-        raise PublishError(
-            "The release is published, but the release-testing notification failed. "
-            "Retry this job; the release and tester checklist are not duplicated."
-        ) from None
 
 
 def main(argv=()):
     try:
-        if list(argv) not in ([], ["--personal"]):
-            raise PublishError("Only the fixed --personal destination option is supported.")
-        destination = PERSONAL_REPO if argv else REPO
-        state = configuration(os.environ, destination)
+        if list(argv):
+            raise PublishError("Publisher always targets the fixed personal repository.")
+        state = configuration(os.environ)
         apk, digest, version, code = artifact(Path.cwd())
-        publish(GitHub(os.environ[TOKEN_VARIABLES[destination]], destination),
-                state, apk, digest, version, code, destination=destination)
+        publish(GitHub(os.environ[TOKEN_VARIABLE]), state, apk, digest, version, code)
     except (PublishError, OSError, ValueError, KeyError, TypeError, urllib.error.URLError) as error:
         # urllib transport errors can contain signed URLs; do not echo their details.
         message = str(error) if isinstance(error, PublishError) else type(error).__name__

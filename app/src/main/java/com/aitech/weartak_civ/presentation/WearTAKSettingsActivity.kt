@@ -4,6 +4,7 @@ import kotlin.math.roundToInt
 import com.aitech.weartak_civ.ui.formatter.UnitFormatter
 import com.aitech.weartak_civ.ui.formatter.UnitPrefs
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -421,6 +422,7 @@ fun WearTAKSettingsNav(
 
     val enableBatteryAlerts by settingsVm.savedEnableBatteryAlerts.collectAsState()
     val enablePhysioAlerts by settingsVm.savedEnablePhysiologicalAlerts.collectAsState()
+    val enableEnvironmentalAlerts by settingsVm.savedEnableEnvironmentalAlerts.collectAsState()
     val highHrThreshold by settingsVm.savedRestingHrHighAlertBpmThreshold.collectAsState()
     val highHrWarningLength by settingsVm.savedHighRestingHrWarningThresholdLength.collectAsState()
     val highHrAlertLength by settingsVm.savedHighRestingHrAlertThresholdLength.collectAsState()
@@ -1477,11 +1479,11 @@ fun WearTAKSettingsNav(
             val takSubtitleOverride = takStatusOverride?.let { stringResource(it) }
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
             val companionStatus = companionPluginStatus(enableCompanionAppService)
-            val dittoPowerSuppressed by com.aitech.weartak_civ.service.DittoService.powerSuppressed
+            val dittoPowerSuppressionReason by com.aitech.weartak_civ.service.DittoService.powerSuppressionReason
                 .collectAsStateWithLifecycle()
             val dittoSubtitle = stringResource(dittoPdlSubtitle(dittoPdlSource, dittoCustomPdl.isNotBlank()))
-            val dittoSuppressed = enableDittoService && dittoPowerSuppressed
-            val suppressedLabel = stringResource(R.string.connection_route_suppressed)
+            val dittoSuppression = dittoSuppressionLabel(enableDittoService, dittoPowerSuppressionReason)
+            val suppressedLabel = dittoSuppression?.let { stringResource(it) }
             val enabledLabel = stringResource(R.string.enabled)
             val disabledLabel = stringResource(R.string.disabled)
             val takIndicator = TakServerIndicator.resolve(
@@ -1509,10 +1511,11 @@ fun WearTAKSettingsNav(
                         else -> stringResource(R.string.network_no_group)
                     }, enableSitx, settingsVm::storeEnableSitx),
                 NetworkConnectivityRow("ditto", stringResource(R.string.ditto),
-                    if (dittoSuppressed) suppressedLabel else dittoSubtitle,
+                    suppressedLabel ?: dittoSubtitle,
                     enableDittoService, settingsVm::storeEnableDittoService,
-                    statusDescription = if (dittoSuppressed) "$dittoSubtitle, $suppressedLabel" else dittoSubtitle,
-                    suppressed = dittoSuppressed),
+                    statusDescription = if (suppressedLabel != null) "$dittoSubtitle, $suppressedLabel" else dittoSubtitle,
+                    suppressed = dittoSuppression != null,
+                    suppressionLabel = dittoSuppression ?: R.string.connection_route_suppressed),
                 NetworkConnectivityRow("companion", stringResource(R.string.companion_app),
                     "", enableCompanionAppService, settingsVm::storeEnableCompanionAppService,
                     statusDescription = companionStatus)
@@ -2332,37 +2335,22 @@ fun WearTAKSettingsNav(
                             key = { index -> sortedCallsigns[index] }
                         ) { index ->
                             val callsign = sortedCallsigns[index]
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.DarkGray, RoundedCornerShape(24.dp))
-                                    .padding(start = 16.dp, end = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = callsign,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                IconButton(
-                                    onClick = {
-                                        settingsVm.storeChatCommandCallsigns(
-                                            ChatCommandAuthorizer.sortedAllowList(
-                                                chatCommandCallsigns.filterNot {
-                                                    ChatCommandAuthorizer.normalize(it) ==
-                                                        ChatCommandAuthorizer.normalize(callsign)
-                                                }
-                                            )
+                            CommandCallsignRow(
+                                callsign = callsign,
+                                onEdit = {
+                                    navController.navigate("chat_command_callsign_edit/${Uri.encode(callsign)}")
+                                },
+                                onRemove = {
+                                    settingsVm.storeChatCommandCallsigns(
+                                        ChatCommandAuthorizer.sortedAllowList(
+                                            chatCommandCallsigns.filterNot {
+                                                ChatCommandAuthorizer.normalize(it) ==
+                                                    ChatCommandAuthorizer.normalize(callsign)
+                                            }
                                         )
-                                    }
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Close,
-                                        contentDescription = stringResource(R.string.remove)
                                     )
                                 }
-                            }
+                            )
                         }
                     }
                     item {
@@ -2384,6 +2372,15 @@ fun WearTAKSettingsNav(
         }
         composable("chat_command_callsign_add") {
             CommandCallsignEntryPage(navController, chatCommandCallsigns) {
+                settingsVm.storeChatCommandCallsigns(it)
+            }
+        }
+        composable("chat_command_callsign_edit/{callsign}") { entry ->
+            CommandCallsignEntryPage(
+                navController,
+                chatCommandCallsigns,
+                originalCallsign = requireNotNull(entry.arguments?.getString("callsign"))
+            ) {
                 settingsVm.storeChatCommandCallsigns(it)
             }
         }
@@ -2539,18 +2536,17 @@ fun WearTAKSettingsNav(
             WearTAKPageWithBackArrow(
                 stringResource(R.string.physiological_alerts),
                 columnContent = {
+                    item {
+                        WearTAKToggleChip(
+                            checkedLive = enablePhysioAlerts,
+                            onCheckedChange = settingsVm::storeEnablePhysiologicalAlerts,
+                            title = stringResource(R.string.physiological_alerts),
+                            description = stringResource(R.string.on_off)
+                        )
+                    }
                     items(entries.size) { index ->
                         val (route, label) = entries[index]
-                        if (route == "physiological_master") {
-                            WearTAKToggleChip(
-                                checkedLive = enablePhysioAlerts,
-                                onCheckedChange = { settingsVm.storeEnablePhysiologicalAlerts(it) },
-                                title = label,
-                                description = stringResource(R.string.on_off)
-                            )
-                        } else {
-                            WearTAKTitleChip(route = route, title = label, navController = navController)
-                        }
+                        WearTAKTitleChip(route = route, title = label, navController = navController)
                     }
                 },
                 navController,
@@ -2809,6 +2805,14 @@ fun WearTAKSettingsNav(
             WearTAKPageWithBackArrow(
                 stringResource(R.string.environmental_alerts),
                 columnContent = {
+                    item {
+                        WearTAKToggleChip(
+                            checkedLive = enableEnvironmentalAlerts,
+                            onCheckedChange = settingsVm::storeEnableEnvironmentalAlerts,
+                            title = stringResource(R.string.environmental_alerts),
+                            description = stringResource(R.string.on_off)
+                        )
+                    }
                     items(entries.size) { index ->
                         val (route, label) = entries[index]
                         WearTAKTitleChip(route = route, title = label, navController = navController)
@@ -2823,7 +2827,8 @@ fun WearTAKSettingsNav(
                 columnContent = {
                     item {
                         WearTAKToggleChip(
-                            checkedLive = enableImmersionAlerts,
+                            checkedLive = enableEnvironmentalAlerts && enableImmersionAlerts,
+                            enabled = enableEnvironmentalAlerts,
                             onCheckedChange = { settingsVm.storeEnableImmersionAlerts(it) },
                             title = stringResource(R.string.immersion_alerts),
                             description = stringResource(R.string.service_on_off)
@@ -2839,7 +2844,8 @@ fun WearTAKSettingsNav(
                 columnContent = {
                     item {
                         WearTAKToggleChip(
-                            checkedLive = enableLowAtmPressureAlert,
+                            checkedLive = enableEnvironmentalAlerts && enableLowAtmPressureAlert,
+                            enabled = enableEnvironmentalAlerts,
                             onCheckedChange = { settingsVm.storeEnableLowAtmPressureAlert(it) },
                             title = stringResource(R.string.low_atm_pressure_alert),
                             description = stringResource(R.string.on_off)
@@ -2858,7 +2864,8 @@ fun WearTAKSettingsNav(
                     Spacer(Modifier.height(10.dp))}
                     item {
                         WearTAKToggleChip(
-                            checkedLive = enableHighAtmPressureAlert,
+                            checkedLive = enableEnvironmentalAlerts && enableHighAtmPressureAlert,
+                            enabled = enableEnvironmentalAlerts,
                             onCheckedChange = { settingsVm.storeEnableHighAtmPressureAlert(it) },
                             title = stringResource(R.string.high_atm_pressure_alert),
                             description = stringResource(R.string.on_off)
@@ -3094,6 +3101,7 @@ fun WearTAKSettingsNav(
             val enableMopp by settingsVm.savedEnableMopp.collectAsState()
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
             val moppStatus by dataRepository.getMoppStatus.collectAsState(initial = null)
+            val pluginMenuScope = rememberCoroutineScope()
             val menuEntries = (
                 listOf(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMMANDS, stringResource(R.string.chat_commands)),
@@ -3104,11 +3112,10 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, stringResource(R.string.ditto)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, stringResource(R.string.everywhere_comms)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, stringResource(R.string.uas_detection)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.GOTENNA, stringResource(R.string.gotenna)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.MOPP, stringResource(R.string.mopp)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SENSOR_MANAGER, stringResource(R.string.sensor_manager)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, stringResource(R.string.somewear_labs)),
-                ) + pluginList.map { PluginMenuEntry.Installed(it) }
+                ) + pluginList.installedPluginMenuEntries()
             ).alphabetizedPluginEntries()
             val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner) {
@@ -3238,7 +3245,7 @@ fun WearTAKSettingsNav(
                                         onClick = { navController.navigate("crm_thresholds") }
                                     )
                                 }
-                                BuiltInPlugin.EVERYWHERE_COMMS, BuiltInPlugin.GOTENNA, BuiltInPlugin.SOMEWEAR_LABS -> {
+                                BuiltInPlugin.EVERYWHERE_COMMS, BuiltInPlugin.SOMEWEAR_LABS -> {
                                     BuiltInPluginToggleChip(
                                         kind = entry.kind,
                                         phoneManagedSettings = phoneManagedSettings,
@@ -3261,7 +3268,7 @@ fun WearTAKSettingsNav(
                                         pluginitem.value = item
                                         showPopup.value = true
                                     },
-                                    chipType = {
+                                    chipType = { reveal ->
                                         WearTAKSplitToggleChip(
                                             appIcon = {
                                                 item.icon.let {
@@ -3287,9 +3294,13 @@ fun WearTAKSettingsNav(
                                                 }
                                             },
                                             onClick = {
-                                                if (!PluginActivityLauncher.launch(context, item.packageName)) {
-                                                    it.first.launch {
-                                                        it.second.animateTo(targetValue = RevealValue.RightRevealing)
+                                                pluginMenuScope.launch {
+                                                    if (pluginVm.supportsHostedMainUi(item.pluginId)) {
+                                                        navController.navigate(hostedPluginMainUiRoute(item.pluginId))
+                                                    } else if (!PluginActivityLauncher.launch(context, item.packageName)) {
+                                                        reveal.first.launch {
+                                                            reveal.second.animateTo(targetValue = RevealValue.RightRevealing)
+                                                        }
                                                     }
                                                 }
                                             },
@@ -3400,6 +3411,18 @@ fun WearTAKSettingsNav(
 //                    successBoolean
 //                )
             }
+        }
+        composable(
+            route = HOSTED_PLUGIN_MAIN_UI_ROUTE_PATTERN,
+            arguments = listOf(navArgument("pluginId") { type = NavType.StringType }),
+        ) { entry ->
+            val pluginId = entry.arguments?.getString("pluginId").orEmpty()
+            HostedPluginMainUiPage(
+                pluginId = pluginId,
+                plugins = pluginList,
+                pluginVm = pluginVm,
+                navController = navController,
+            )
         }
         composable("mopp") {
             val status by dataRepository.getMoppStatus.collectAsState(initial = null)
@@ -4066,25 +4089,9 @@ fun WearTAKOutlinedTextField(
     string: String, //Textfield text
     label: String, //What the textfield title is
     keyboardType: KeyboardType = KeyboardType.Unspecified, //Optional keyboard type, necessary for non-string text
-    keyboardActions: KeyboardActions = KeyboardActions.Default //Optional action when textfield is confirmed, for example if you'd like to run a Toast
-): TextFieldValue {
-    var textFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(string ?: "null"))
-    }
-    OutlinedTextField(
-        value = textFieldValue,
-        onValueChange = {
-            textFieldValue = it
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Done),
-        label = { Text(text = label, color = colors.primary) },
-        placeholder = { Text(text = label, color = colors.primary) },
-        textStyle = TextStyle(color = colors.primary),
-        keyboardActions = keyboardActions
-    )
-    return textFieldValue
-}
+    keyboardActions: KeyboardActions = KeyboardActions.Default, //Optional action when textfield is confirmed, for example if you'd like to run a Toast
+    autoFocus: Boolean = false
+): TextFieldValue = PlatformTextField(string, label, keyboardType, keyboardActions, autoFocus)
 
 //Used when the user should have the ability to cancel whatever they entered
 @Composable
@@ -4401,7 +4408,8 @@ fun WearTAKStringEntryPage(
     confirmFunction: (String) -> Unit, //What happens when string is confirmed,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     validate: (String) -> String? = { null },
-    confirmOnImeDone: Boolean = false
+    confirmOnImeDone: Boolean = false,
+    autoFocus: Boolean = false
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -4429,7 +4437,8 @@ fun WearTAKStringEntryPage(
         textField = WearTAKOutlinedTextField(
             item,
             label,
-            keyboardActions = if (confirmOnImeDone) KeyboardActions(onDone = { confirm() }) else keyboardActions
+            keyboardActions = if (confirmOnImeDone) KeyboardActions(onDone = { confirm() }) else keyboardActions,
+            autoFocus = autoFocus
         )
         Row(modifier = Modifier.align(Alignment.BottomCenter)) {
             WearTAKConfirmCancelButtons(

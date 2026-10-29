@@ -191,7 +191,7 @@ internal fun NetworkConnectivityIcon(row: NetworkConnectivityRow) {
                 SitxBrandIcon(row.title, Modifier.padding(end = 6.dp))
             } else {
                 val suppressed = row.checked && row.suppressed
-                val suppressedLabel = stringResource(R.string.connection_route_suppressed)
+                val suppressedLabel = stringResource(row.suppressionLabel)
                 Box(modifier) {
                     Image(painterResource(resource), contentDescription = row.title,
                         colorFilter = if (suppressed) ColorFilter.tint(Color.Gray) else null,
