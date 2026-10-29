@@ -23,7 +23,7 @@ def environment():
     return {
         "CI_SERVER_HOST": "git.tak.gov",
         "CI_PROJECT_PATH": "core/weartak-core/wearos-tak-civ",
-        "CI_COMMIT_BRANCH": "develop",
+        "CI_COMMIT_BRANCH": "main",
         "CI_COMMIT_REF_PROTECTED": "true",
         "CI_PIPELINE_SOURCE": "push",
         "WEARTAK_GITHUB_TOKEN": "mock-token",
@@ -113,7 +113,7 @@ class FakeGitHub:
         content = self.content[asset_id]
         return len(content), "bad" if self.bad_download else hashlib.sha256(content).hexdigest()
 
-    def sync_develop(self, source_sha):
+    def sync_main(self, source_sha):
         self.calls.append(("SYNC", source_sha, None))
         if self.sync_failure:
             raise p.PublishError("Injected non-fast-forward source failure")
@@ -534,6 +534,7 @@ class PublisherTests(unittest.TestCase):
                 with self.assertRaises(p.PublishError):
                     p.configuration(invalid)
         for key, value in (("CI_PIPELINE_SOURCE", "merge_request_event"),
+                           ("CI_COMMIT_BRANCH", "develop"),
                            ("CI_COMMIT_REF_PROTECTED", "false"),
                            ("CI_PROJECT_PATH", "fork/project"),
                            ("CI_SERVER_HOST", "other.example"),
@@ -628,16 +629,16 @@ class SourceSyncTests(unittest.TestCase):
         return [self.result(self.source), self.result(), self.result(self.previous),
                 self.result(), self.result()]
 
-    def test_exact_non_force_develop_only_with_secret_safe_scoped_git_environment(self):
+    def test_exact_non_force_main_only_with_secret_safe_scoped_git_environment(self):
         api = self.api()
         with patch.dict(p.os.environ, {"GH_TOKEN": "unrelated", "RELEASE_STORE_PASSWORD": "unrelated",
                                      "WEARTAK_GITHUB_TOKEN": "company-only"}, clear=False), \
                 patch.object(p.subprocess, "run", side_effect=self.results()) as run:
-            api.sync_develop(self.source)
+            api.sync_main(self.source)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(commands[-1], [
             "git", "push", "--no-follow-tags", "--recurse-submodules=no",
-            f"https://github.com/{p.PERSONAL_REPO}.git", f"{self.source}:refs/heads/develop",
+            f"https://github.com/{p.PERSONAL_REPO}.git", f"{self.source}:refs/heads/main",
         ])
         self.assertIn(["git", "merge-base", "--is-ancestor", self.previous, self.source], commands)
         for command in commands:
@@ -655,7 +656,7 @@ class SourceSyncTests(unittest.TestCase):
         api = self.api()
         api.request.side_effect = [{"object": {"type": "commit", "sha": self.source}}] * 2
         with patch.object(p.subprocess, "run", return_value=self.result(self.source)) as run:
-            api.sync_develop(self.source)
+            api.sync_main(self.source)
         self.assertEqual(run.call_count, 1)
         self.assertEqual(api.request.call_count, 2)
 
@@ -665,7 +666,7 @@ class SourceSyncTests(unittest.TestCase):
             api = self.api()
             with patch.object(p.subprocess, "run", side_effect=results) as run:
                 with self.assertRaises(p.PublishError):
-                    api.sync_develop(self.source)
+                    api.sync_main(self.source)
             self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
 
     def test_divergent_history_and_push_race_fail_without_force_retry_or_secret_output(self):
@@ -675,7 +676,7 @@ class SourceSyncTests(unittest.TestCase):
             results[failing_step] = self.result(returncode=1)
             with patch.object(p.subprocess, "run", side_effect=results) as run:
                 with self.assertRaises(p.PublishError) as caught:
-                    api.sync_develop(self.source)
+                    api.sync_main(self.source)
             self.assertNotIn("sensitive transport detail", str(caught.exception))
             self.assertEqual(run.call_count, failing_step + 1)
             self.assertFalse(any("--force" in call.args[0] for call in run.call_args_list))
@@ -684,12 +685,12 @@ class SourceSyncTests(unittest.TestCase):
         api = self.api(readback="b" * 40)
         with patch.object(p.subprocess, "run", side_effect=self.results()) as run:
             with self.assertRaisesRegex(p.PublishError, "readback"):
-                api.sync_develop(self.source)
+                api.sync_main(self.source)
         self.assertEqual(run.call_count, 5)
 
     def test_company_source_sync_is_never_enabled(self):
         with self.assertRaises(p.PublishError), patch.object(p.subprocess, "run") as run:
-            p.GitHub("mock-company-token").sync_develop(self.source)
+            p.GitHub("mock-company-token").sync_main(self.source)
         run.assert_not_called()
 
 

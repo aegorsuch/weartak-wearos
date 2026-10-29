@@ -6,6 +6,18 @@ The app can connect directly to a TAK server and can optionally use SITX, Ditto 
 
 ### Physiological telemetry
 
+The home metric picker is titled **Metric Shown**. Its Environmental Alerts and
+Physiological Alerts split chips open their settings from the label and toggle
+alerting independently from the switch. Physiological Monitoring uses the same
+split-chip styling; either target changes monitoring. Both alert settings screens
+put their master switch first. The Environmental Alerts switches share one saved
+setting, which defaults off for a fresh install and preserves existing enabled
+subtype preferences on upgrade. Turning it off gates
+immersion and atmospheric-pressure alerts without changing the saved individual
+switches or thresholds. Nested switches show off and are disabled while the
+master is off; turning it back on restores those choices. Other alert defaults
+remain off, while saved choices and physiological monitoring are unchanged.
+
 Standalone PLI (TAK servers, multicast and direct CoT) and Ditto track `r` details
 share the same `<biometrics>` device block with heart rate (`hr`), skin temperature
 in Fahrenheit (`skt`) and exertion (`exert`). These readings require physiological
@@ -457,6 +469,16 @@ documents, missing aliases, malformed XML, DTDs/entities, and invalid timestamps
 are rejected with diagnostics; there is no fallback parser. Compatibility with
 other producers is limited to this shape, not a claim of general ATAK Ditto support.
 
+Ditto connectivity/presence alone does not provide a map position: a peer must
+publish a supported, current PLI document. Received users still obey **Layers >
+Users**, team-color and role filters. Standard and LEO role selections are saved
+independently, so editing one section no longer hides the other after reopening
+the map. For the old shared role preference, a nonempty selection containing only
+one section's roles is retained for that section; the overwritten other section
+uses its defaults. Old empty, mixed or unrecognized selections are preserved
+conservatively. New saved selections, including an empty section, take precedence.
+Missing or unrecognized team/role metadata remains subject to the existing filters.
+
 Maximum reconstructed CoT is **256 KiB UTF-8**; maximum snapshot is **4,096
 documents** and **2,097,152 detail characters** per collection. An oversized
 snapshot is rejected as a whole. SDK next-snapshot signalling supplies
@@ -877,12 +899,12 @@ samples or a measured energy saving.
 
 ## GitHub pipeline release
 
-Protected `develop` push pipelines can publish the signed WearOS APK to the rolling
+Protected `main` push pipelines can publish the signed WearOS APK to the rolling
 **TAK.gov Forge CI/CD Pipeline Release** in the GitHub mirror. Project policy treats these
 as stable builds, not prereleases. See [CI release setup and retention](ci/README.md)
 for both the company mirror and the additional public
 [`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) mirror.
-The personal publisher first fast-forwards its `develop` to the exact canonical
+The personal publisher first fast-forwards its `main` to the exact canonical
 pipeline source, then publishes the same verified signed APK using a separate
 repository-scoped CI credential. It does not build or sign independently. The CI
 documentation covers required administrator configuration, provenance and verified replacement behavior.
@@ -922,7 +944,7 @@ provisioning, explicit ongoing management opt-in, chat, marker deletion, or watc
 management retention, unrelated-peer isolation, and stale/unbonded write rejection.
 Paired-hardware missing-key recovery, repeated watch restart, and system unpair
 acceptance remain pending. Do not install a feature APK before this change lands
-in canonical `gov/develop`.
+in canonical `gov/main`.
 
 Validation (2026-10-12, base `702ee4a`): offline `:app:testDebugUnitTest`
 with `*Companion*`, `*PhoneManagedSettings*`, `*CompanionChat*`, and
@@ -2457,7 +2479,7 @@ with WearTAK's service manager and known external power.
 
 ### WEARTAK-130: chat commands
 
-Tool Preferences > Plugins > **Commands** (off by default) lets another TAK user change watch settings by sending chat commands. **Allowed Callsigns** is a case-insensitive list shown alphabetically; add one callsign at a time or remove an entry. Existing comma-separated allow lists remain supported. All commands accept direct messages, All Chat Rooms broadcasts, and groups containing the watch UID. Only messages from allowed callsigns are acted on. Messages from other senders, stale messages (older than 5 minutes) and replays are dropped silently.
+Tool Preferences > Plugins > **Commands** (off by default) lets another TAK user change watch settings by sending chat commands. **Allowed Callsigns** is a case-insensitive list shown alphabetically; add one callsign at a time, tap an entry to edit it, or use its right-side trash icon to remove it. Existing comma-separated allow lists remain supported. All commands accept direct messages, All Chat Rooms broadcasts, and groups containing the watch UID. Only messages from allowed callsigns are acted on. Messages from other senders, stale messages (older than 5 minutes) and replays are dropped silently.
 
 TAK servers, Wi-Fi multicast, Ditto GeoChat, SIT(x), and the paired phone's raw-CoT
 gateway and legacy `chat_received` bridge share one command runtime. Replies use
@@ -2604,11 +2626,13 @@ Profile commands take the same values as the settings screens (case-insensitive)
 The callsign, team and role fields (including in `setprofile`) are refused when settings are managed by the phone.
 
 Allowed Callsigns uses the same full-screen text-entry page as other settings
-when adding an entry, with the standard confirm/cancel controls instead of a
-dialog. Keyboard **Done** also validates and adds the callsign, so saving does
+when adding or editing an entry, with the standard confirm/cancel controls instead of a
+dialog. Tapping an existing entry opens the keyboard with its current value.
+Keyboard **Done** also validates and saves the callsign, so saving does
 not depend on a button behind the keyboard. Invalid (outside the existing
 1-32-character callsign format) or case-insensitive duplicate entries stay on the
-entry page with an error. Cancel/back does not save.
+entry page with an error. An edited callsign can retain its own name, but cannot
+duplicate another entry. Cancel/back does not save. Removal is immediate.
 
 `#weartakcommandloadprofile name=odin-weartak` applies a preset saved on the watch as `Android/data/<package>/files/presets/<name>.json`. Presets are provisioned with adb and are never part of this repository, because they can hold server credentials:
 

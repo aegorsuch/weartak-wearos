@@ -209,7 +209,9 @@ import com.aitech.weartak_civ.events.PliRefreshReason
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "data",
-    produceMigrations = { listOf(TakMasterPreferenceMigration()) }
+    produceMigrations = {
+        listOf(TakMasterPreferenceMigration(), EnvironmentalAlertsPreferenceMigration())
+    }
 )
 private val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 private const val NON_TAK_COT_SOURCE_ID = "non-tak"
@@ -3802,6 +3804,31 @@ class DataRepository(
         context.dataStore.edit { prefs ->
             prefs[ENABLE_HEART_RATE_SERVICE] = enableHeartRateService
         }
+    }
+
+    val getEnableEnvironmentalAlerts: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[ENVIRONMENTAL_ALERTS_ENABLED] ?: false
+    }
+
+    suspend fun storeEnableEnvironmentalAlerts(enable: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[ENVIRONMENTAL_ALERTS_ENABLED] = enable
+        }
+    }
+
+    val effectiveEnableImmersionAlerts: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        (prefs[ENVIRONMENTAL_ALERTS_ENABLED] ?: false) &&
+            (prefs[ENABLE_IMMERSION_ALERTS] ?: DEFAULT_ENABLE_IMMERSION_ALERTS)
+    }
+
+    val effectiveEnableLowAtmPressureAlert: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        (prefs[ENVIRONMENTAL_ALERTS_ENABLED] ?: false) &&
+            (prefs[ENABLE_LOW_ATM_PRESSURE_ALERT] ?: DEFAULT_ENABLE_LOW_ATM_PRESSURE_ALERT)
+    }
+
+    val effectiveEnableHighAtmPressureAlert: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        (prefs[ENVIRONMENTAL_ALERTS_ENABLED] ?: false) &&
+            (prefs[ENABLE_HIGH_ATM_PRESSURE_ALERT] ?: DEFAULT_ENABLE_HIGH_ATM_PRESSURE_ALERT)
     }
 
     val getEnableImmersionAlerts: Flow<Boolean> = context.dataStore.data.map { prefs ->

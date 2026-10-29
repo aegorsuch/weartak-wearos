@@ -188,9 +188,9 @@ private object NoopDiag : CepApplyDiagnostics {
         every { repo.getExertionThresholdAlert } returns flowOf(80)
         every { repo.getHighAtmPressureAlertThreshold } returns flowOf(950)
         every { repo.getLowAtmPressureAlertThreshold } returns flowOf(100)
-        every { repo.getEnableImmersionAlerts } returns flowOf(true)
-        every { repo.getEnableLowAtmPressureAlert } returns flowOf(true)
-        every { repo.getEnableHighAtmPressureAlert } returns flowOf(true)
+        every { repo.effectiveEnableImmersionAlerts } returns flowOf(true)
+        every { repo.effectiveEnableLowAtmPressureAlert } returns flowOf(true)
+        every { repo.effectiveEnableHighAtmPressureAlert } returns flowOf(true)
         coEvery { repo.getCepSustainOverridesOnce() } returns DataRepository.CepSustainOverrides(
             mapOf("rule_x" to 42L),
             emptyMap()

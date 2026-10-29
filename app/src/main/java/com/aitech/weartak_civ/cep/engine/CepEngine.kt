@@ -273,9 +273,9 @@ class CepEngine(
             featureStore.put("thresholds.pressure.high", highHpa.toDouble())
             featureStore.put("thresholds.pressure.low",  lowHpa.toDouble())
 
-            val immersionOn = dataRepository.getEnableImmersionAlerts.first()
-            val lowAtmOn    = dataRepository.getEnableLowAtmPressureAlert.first()
-            val highAtmOn   = dataRepository.getEnableHighAtmPressureAlert.first()
+            val immersionOn = dataRepository.effectiveEnableImmersionAlerts.first()
+            val lowAtmOn    = dataRepository.effectiveEnableLowAtmPressureAlert.first()
+            val highAtmOn   = dataRepository.effectiveEnableHighAtmPressureAlert.first()
             featureStore.put("settings.pressure.immersion_alerts_enabled", if (immersionOn) 1.0 else 0.0)
             featureStore.put("settings.pressure.low_atm_alert_enabled",    if (lowAtmOn)    1.0 else 0.0)
             featureStore.put("settings.pressure.high_atm_alert_enabled",   if (highAtmOn)   1.0 else 0.0)
@@ -678,9 +678,9 @@ class CepEngine(
     }
 
     private suspend fun clearDisabledPressureAlertsFromRepository() {
-        val immersionOn = dataRepository.getEnableImmersionAlerts.first()
-        val lowAtmOn = dataRepository.getEnableLowAtmPressureAlert.first()
-        val highAtmOn = dataRepository.getEnableHighAtmPressureAlert.first()
+        val immersionOn = dataRepository.effectiveEnableImmersionAlerts.first()
+        val lowAtmOn = dataRepository.effectiveEnableLowAtmPressureAlert.first()
+        val highAtmOn = dataRepository.effectiveEnableHighAtmPressureAlert.first()
         clearDisabledPressureAlerts(lowAtmOn = lowAtmOn, highAtmOn = highAtmOn, immersionOn = immersionOn)
     }
 

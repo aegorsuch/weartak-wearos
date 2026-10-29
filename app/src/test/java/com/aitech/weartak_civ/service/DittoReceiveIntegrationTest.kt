@@ -33,6 +33,7 @@ import com.aitech.weartak_civ.integration.plugin.PluginCotIngress
 import com.aitech.weartak_civ.events.TakChatEvent
 import com.aitech.weartak_civ.events.DittoDocumentEvent
 import com.aitech.weartak_civ.presentation.MainActivity
+import com.aitech.weartak_civ.presentation.MapUserRolePreferences
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -425,6 +426,37 @@ class DittoReceiveIntegrationTest {
             results.forEach { verify(exactly = 1) { it.close() } }
             bh.removeAllFromMenu()
         }
+    }
+
+    @Test fun currentPhonePliKeepsItsStandardRoleVisibleAfterLeoFilterIsSaved() = runTest {
+        val f = Fixture(this)
+        try {
+            val preferences = f.app.getSharedPreferences("map-role-ditto-test", Context.MODE_PRIVATE)
+            preferences.edit().clear().commit()
+            MapUserRolePreferences(preferences).saveLeoRoles(setOf("TOC"))
+            for (collection in listOf("track", "mapitem")) {
+                f.emit(collection, f.doc("phone-$collection", "a-f-G-U-C",
+                    detail = "<detail><contact callsign='PHONE'/>" +
+                        "<__group name='Dark Green' role='K9'/></detail>"))
+            }
+            f.drain()
+            val reopened = MapUserRolePreferences(preferences)
+            val users = f.repo.receivedUserList.value
+            assertEquals(2, users.size)
+            users.forEach { user ->
+                assertEquals("PHONE", user.title)
+                assertEquals("Dark Green", user.team)
+                assertEquals("K9", user.role)
+                assertNotNull(user.location)
+                assertTrue(user.sourceServerId!!.startsWith("ditto:"))
+                assertTrue(user.role in reopened.standardRoles() || user.role in reopened.leoRoles())
+            }
+            reopened.saveStandardRoles(reopened.standardRoles() - "K9")
+            val filtered = MapUserRolePreferences(preferences)
+            assertTrue(users.none { it.role in filtered.standardRoles() || it.role in filtered.leoRoles() })
+            assertEquals(setOf("TOC"), filtered.leoRoles())
+            assertTrue(f.logs.toString(), f.logs.none { it.contains("Rejected") })
+        } finally { f.close() }
     }
 
     @Test fun initialSdkSnapshotsReachPliPointsRoutesChatsAndEmergencyRepositories() = runTest {

@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -65,6 +66,7 @@ fun PhysioAlertsApp(exitActivity: () -> Unit, context: Context, settingsVm: Wear
     val selected by settingsVm.savedSelectedPhysioMetric.collectAsState()
     val monitoring by settingsVm.savedEnablePhysiologicalServices.collectAsState()
     val alertsEnabled by settingsVm.savedEnablePhysiologicalAlerts.collectAsState()
+    val environmentalEnabled by settingsVm.savedEnableEnvironmentalAlerts.collectAsState()
     val alerts by repo.physioAndAutoGenAlertList.collectAsState()
     LaunchedEffect(license) {
         if (!isLicenseValid()) {
@@ -83,9 +85,10 @@ fun PhysioAlertsApp(exitActivity: () -> Unit, context: Context, settingsVm: Wear
         },
         columnContent = {
             item {
-                MetricMonitoringControls(monitoring, alertsEnabled,
+                MetricMonitoringControls(monitoring, alertsEnabled, environmentalEnabled,
                     settingsVm::storeEnablePhysiologicalServices,
                     settingsVm::storeEnablePhysiologicalAlerts,
+                    settingsVm::storeEnableEnvironmentalAlerts,
                     onThresholds = {
                         context.startActivity(settingsShortcutIntent(context, "physiological_alerts"))
                     },
@@ -141,31 +144,26 @@ internal fun TopMetricChoice(label: String, value: String, selected: Boolean, on
 internal fun MetricMonitoringControls(
     monitoring: Boolean,
     alertsEnabled: Boolean,
+    environmentalEnabled: Boolean,
     onMonitoring: (Boolean) -> Unit,
     onAlerts: (Boolean) -> Unit,
+    onEnvironmentalToggle: (Boolean) -> Unit,
     onThresholds: () -> Unit,
     onEnvironmental: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Chip(
-            onClick = onEnvironmental,
-            label = { FittedTopMetricText(stringResource(R.string.environmental_alerts),
-                minFontSize = 8.sp) },
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        MetricSettingsControl(
+            title = stringResource(R.string.environmental_alerts),
+            enabled = environmentalEnabled,
+            onToggle = onEnvironmentalToggle,
+            onClick = onEnvironmental
         )
         MetricAlertControls(alertsEnabled, onAlerts, onThresholds)
-        ToggleChip(
-            checked = monitoring,
-            onCheckedChange = onMonitoring,
-            label = { FittedTopMetricText(stringResource(R.string.physiological_monitoring),
-                minFontSize = 8.sp) },
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-            toggleControl = { Switch(checked = monitoring, onCheckedChange = null) },
-            colors = ToggleChipDefaults.toggleChipColors(
-                uncheckedToggleControlColor = ToggleChipDefaults.SwitchUncheckedIconColor
-            ),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        MetricSettingsControl(
+            title = stringResource(R.string.physiological_monitoring),
+            enabled = monitoring,
+            onToggle = onMonitoring,
+            onClick = { onMonitoring(!monitoring) }
         )
     }
 }
@@ -173,15 +171,40 @@ internal fun MetricMonitoringControls(
 @Composable
 internal fun MetricAlertControls(enabled: Boolean, onToggle: (Boolean) -> Unit, onThresholds: () -> Unit) {
     val thresholds = stringResource(R.string.metric_alert_thresholds)
+    MetricSettingsControl(
+        title = stringResource(R.string.physiological_alerts),
+        enabled = enabled,
+        onToggle = onToggle,
+        onClick = onThresholds,
+        actionDescription = thresholds
+    )
+}
+
+@Composable
+internal fun MetricSettingsControl(
+    title: String,
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    actionDescription: String? = null
+) {
     SplitToggleChip(
         checked = enabled,
         onCheckedChange = onToggle,
-        onClick = onThresholds,
+        onClick = onClick,
         label = {
-            FittedTopMetricText(stringResource(R.string.physiological_alerts),
-                modifier = Modifier.semantics { contentDescription = thresholds },
-                minFontSize = 8.sp)
+            FittedTopMetricText(title,
+                modifier = if (actionDescription != null) Modifier.semantics {
+                    contentDescription = actionDescription
+                } else Modifier,
+                minFontSize = 10.sp, maxLines = 2)
         },
+        colors = ToggleChipDefaults.splitToggleChipColors(
+            backgroundColor = if (enabled) MaterialTheme.colors.primary.copy(alpha = 0.5f)
+                .compositeOver(MaterialTheme.colors.surface) else MaterialTheme.colors.surface,
+            checkedToggleControlColor = MaterialTheme.colors.secondary,
+            uncheckedToggleControlColor = ToggleChipDefaults.SwitchUncheckedIconColor
+        ),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
         toggleControl = { Switch(checked = enabled, onCheckedChange = null) },
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)

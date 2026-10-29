@@ -44,8 +44,7 @@ class TopMetricSettingsUiTest {
                 "immersion_alerts" to R.string.immersion_alerts),
             "physiological_alerts" to listOf(
                 "exertion_alerts" to R.string.exertion_alerts,
-                "heart_rate_alerts" to R.string.heart_rate_alerts,
-                "physiological_master" to R.string.physiological_alerts)
+                "heart_rate_alerts" to R.string.heart_rate_alerts)
         )
         for (locale in listOf(java.util.Locale.US, java.util.Locale.GERMAN, java.util.Locale.FRENCH)) {
             val config = android.content.res.Configuration(app.resources.configuration).apply { setLocale(locale) }
@@ -59,7 +58,7 @@ class TopMetricSettingsUiTest {
         }
         assertEquals(listOf("battery_alerts", "environmental_alerts", "physiological_alerts"),
             alertPreferenceEntries(app, "alerting_preferences").map { it.first })
-        assertEquals(listOf("exertion_alerts", "heart_rate_alerts", "physiological_master"),
+        assertEquals(listOf("exertion_alerts", "heart_rate_alerts"),
             alertPreferenceEntries(app, "physiological_alerts").map { it.first })
     }
 
@@ -172,8 +171,8 @@ class TopMetricSettingsUiTest {
             WearTAKCIVTheme {
                 if (pickerOpen.value) {
                     Column {
-                        MetricMonitoringControls(false, false,
-                            { monitoringChanges++ }, { alertChanges++ }, { thresholds++ }, {})
+                        MetricMonitoringControls(false, false, false,
+                            { monitoringChanges++ }, { alertChanges++ }, {}, { thresholds++ }, {})
                         TopMetricChoice("Heart Rate", "Disabled", selected.value == TopDisplayMetric.HEART_RATE) {
                             selected.value = TopDisplayMetric.HEART_RATE
                         }

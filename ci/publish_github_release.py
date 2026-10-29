@@ -128,7 +128,7 @@ class GitHub:
                 return result
             page += 1
 
-    def sync_develop(self, source_sha):
+    def sync_main(self, source_sha):
         if self.repository_name != PERSONAL_REPO:
             raise PublishError("Automatic source synchronization is personal-mirror only.")
         # Keep credentials out of arguments, URLs, files, helpers and captured output.
@@ -159,7 +159,7 @@ class GitHub:
             )
             if result.returncode:
                 raise PublishError(
-                    "Personal develop synchronization failed its Git source/ancestry/"
+                    "Personal main synchronization failed its Git source/ancestry/"
                     "non-force push check. No force, tag changes or deletion "
                     "will be attempted; inspect canonical history and repository access."
                 )
@@ -167,25 +167,25 @@ class GitHub:
 
         if git("rev-parse", "HEAD") != source_sha:
             raise PublishError("CI checkout does not match the publishing pipeline source.")
-        path = "git/ref/heads/develop"
+        path = "git/ref/heads/main"
         remote = self.request("GET", path)
         remote_sha = remote.get("object", {}).get("sha")
         if (remote.get("object", {}).get("type") != "commit"
                 or not isinstance(remote_sha, str)
                 or not re.fullmatch(r"[0-9a-f]{40}", remote_sha)):
-            raise PublishError("Personal develop must already reference a verified commit.")
+            raise PublishError("Personal main must already reference a verified commit.")
         if remote_sha != source_sha:
             url = f"https://github.com/{PERSONAL_REPO}.git"
-            git("fetch", "--no-tags", "--no-recurse-submodules", url, "refs/heads/develop")
+            git("fetch", "--no-tags", "--no-recurse-submodules", url, "refs/heads/main")
             if git("rev-parse", "FETCH_HEAD") != remote_sha:
-                raise PublishError("Personal develop changed during source inspection; refusing update.")
+                raise PublishError("Personal main changed during source inspection; refusing update.")
             git("merge-base", "--is-ancestor", remote_sha, source_sha)
             git("push", "--no-follow-tags", "--recurse-submodules=no",
-                url, f"{source_sha}:refs/heads/develop")
+                url, f"{source_sha}:refs/heads/main")
         confirmed = self.request("GET", path)
         if confirmed.get("object", {}).get("sha") != source_sha:
-            raise PublishError("Personal develop readback differs from the canonical pipeline source.")
-        print(f"Verified {PERSONAL_REPO} develop={source_sha} (non-force, no other refs changed).")
+            raise PublishError("Personal main readback differs from the canonical pipeline source.")
+        print(f"Verified {PERSONAL_REPO} main={source_sha} (non-force, no other refs changed).")
 
 
 def configuration(env, destination=REPO):
@@ -195,7 +195,7 @@ def configuration(env, destination=REPO):
     expected = {
         "CI_SERVER_HOST": "git.tak.gov",
         "CI_PROJECT_PATH": "core/weartak-core/wearos-tak-civ",
-        "CI_COMMIT_BRANCH": "develop",
+        "CI_COMMIT_BRANCH": "main",
         "CI_COMMIT_REF_PROTECTED": "true",
         "CI_PIPELINE_SOURCE": "push",
     }
@@ -233,7 +233,7 @@ def artifact(root):
     directory = root / OUTPUT
     apks = list(directory.glob("*.apk"))
     if len(apks) != 1 or apks[0].is_symlink() or not apks[0].is_file():
-        raise PublishError("Expected exactly one signed release APK from develop_release.")
+        raise PublishError("Expected exactly one signed release APK from main_release.")
     apk = apks[0]
     digest = hashlib.sha256(apk.read_bytes()).hexdigest()
     checksum = (directory / "verified-apk.sha256").read_text().strip()
@@ -293,12 +293,12 @@ def managed_asset(asset):
 
 def generated_body(state, version, code):
     return (
-        "Automatically published stable WearOS develop-channel build.\n\n"
+        "Automatically published stable WearOS main-channel build.\n\n"
         f"- APK version: **{version}** (versionCode **{code}**)\n"
         f"- Build: GitLab pipeline **{state['pipeline_id']}** "
         f"(project pipeline **{state['pipeline_iid']}**)\n"
         f"- Pipeline: {state['pipeline_url']}\n"
-        f"- Source commit: `{state['source_sha']}` on TAK.gov `develop`\n"
+        f"- Source commit: `{state['source_sha']}` on TAK.gov `main`\n"
         f"- SHA256: `{state['sha256']}`\n\n"
         "Install the APK above. GitHub's \"Source code\" archives come from the fixed release "
         "anchor tag, not from this build; the source commit above is authoritative and may "
@@ -370,7 +370,7 @@ def publish(api, state, apk, digest, version, code, *, destination=REPO):
             raise PublishError("Same pipeline has different source/artifact; refusing replacement.")
 
     if destination == PERSONAL_REPO:
-        api.sync_develop(state["source_sha"])
+        api.sync_main(state["source_sha"])
 
     state = dict(state, sha256=digest)
     short = display_version(version, state["pipeline_iid"])

@@ -157,7 +157,7 @@ class PressureService : Service() {
 
     private fun startEnableImmersionAlertsCollector() {
         serviceScope.launch {
-            dataRepository.getEnableImmersionAlerts.distinctUntilChanged().collect { it ->
+            dataRepository.effectiveEnableImmersionAlerts.distinctUntilChanged().collect { it ->
                 Log.i(TAG, "startEnableImmersionAlertsCollector: getEnableImmersionAlerts=$it")
                 enableImmersionAlerts = it
                 if (!enableImmersionAlerts) {
@@ -180,7 +180,7 @@ class PressureService : Service() {
     private fun startPressureCollectors() {
         startEnableImmersionAlertsCollector()
         serviceScope.launch {
-            dataRepository.getEnableLowAtmPressureAlert.distinctUntilChanged().collect { it ->
+            dataRepository.effectiveEnableLowAtmPressureAlert.distinctUntilChanged().collect { it ->
                 Log.i(TAG, "getEnableLowAtmPressureAlert=$it")
                 enableLowAtmPressureAlert = it
                 if (!enableLowAtmPressureAlert) {
@@ -199,7 +199,7 @@ class PressureService : Service() {
             }
         }
         serviceScope.launch {
-            dataRepository.getEnableHighAtmPressureAlert.distinctUntilChanged().collect { it ->
+            dataRepository.effectiveEnableHighAtmPressureAlert.distinctUntilChanged().collect { it ->
                 Log.i(TAG, "getEnableHighAtmPressureAlert=$it")
                 enableHighAtmPressureAlert = it
                 if (!enableHighAtmPressureAlert) {

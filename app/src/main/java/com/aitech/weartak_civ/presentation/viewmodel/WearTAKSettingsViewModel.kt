@@ -1303,6 +1303,22 @@ fun displaySitxGroupDialog(
         }
     }
 
+    val savedEnableEnvironmentalAlerts: StateFlow<Boolean> =
+        dataRepository.getEnableEnvironmentalAlerts.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun storeEnableEnvironmentalAlerts(enable: Boolean) {
+        viewModelScope.launch {
+            dataRepository.storeEnableEnvironmentalAlerts(enable)
+            CepProvider.getOrCreateEngine(
+                WearTakApplication.AppCtx.app.applicationContext
+            ).updatePressureProfile()
+        }
+    }
+
     val savedEnableImmersionAlerts: StateFlow<Boolean> =
         dataRepository.getEnableImmersionAlerts.stateIn(
             scope = viewModelScope,

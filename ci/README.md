@@ -1,8 +1,8 @@
 # Rolling GitHub pipeline release
 
-Successful **protected `develop` push pipelines** from
+Successful **protected `main` push pipelines** from
 `git.tak.gov/core/weartak-core/wearos-tak-civ` publish the final production-signed
-`develop_release` APK to the fixed GitHub mirror
+`main_release` APK to the fixed GitHub mirror
 `Ascent-Integrated-Tech/wearos-tak-civ`. The visible title is
 **TAK.gov Forge CI/CD Pipeline Release (<version>)**, e.g.
 `TAK.gov Forge CI/CD Pipeline Release (5.8.0.3-p105)`, where `<version>` is the APK
@@ -10,7 +10,7 @@ versionName without its `+<sha>` build metadata. The APK is attached as
 `WearTAK-<version>.apk`. The release tag is
 `TAK.gov-Forge-CI-CD-Pipeline-Release` (git tags cannot contain spaces or `/`).
 
-By project policy, `develop` builds are stable: this release uses
+By project policy, `main` builds are stable: this release uses
 `prerelease=false`, not a prerelease. This classification is an explicit project
 decision, not an implication of using Android's release signing/build variant.
 The actual APK versionName/versionCode, canonical source SHA, pipeline ID/IID,
@@ -33,7 +33,7 @@ fixed `--personal` mode described below, not an arbitrary destination override.
    exact identity and active status before every update. Other, archived, disabled
    or unknown-status destinations fail closed. This job never changes repository
    visibility or access; any different destination needs separate approval.
-2. Protect canonical GitLab `develop` and restrict who may push/merge, edit pipeline
+2. Protect canonical GitLab `main` and restrict who may push/merge, edit pipeline
    configuration, use protected runners, or override pipeline variables.
 3. In the GitHub mirror, create the fixed tag `TAK.gov-Forge-CI-CD-Pipeline-Release` on an
    existing mirrored commit, with separate approval. (It replaced the original
@@ -61,7 +61,7 @@ fixed `--personal` mode described below, not an arbitrary destination override.
    GitHub's signed release-asset storage endpoints. The Android build continues
    using the existing TAK Gradle launcher and production-certificate verification.
 7. Review/approve and merge these changes through the normal ticket process.
-   A subsequent authorized protected `develop` push will run publication. Do not
+   A subsequent authorized protected `main` push will run publication. Do not
    trigger a pipeline or publish manually merely to complete setup.
 
 Missing variables, missing anchor tag, invalid artifacts, denied API access, and
@@ -72,9 +72,9 @@ not reported as a successful upload. The script also enforces the source gates.
 
 ## Additional personal mirror
 
-`publish_personal_github_develop` inherits the company's canonical-only protected
-`develop` push rules, successful earlier-stage gate, same-pipeline
-`develop_release` artifact dependency, noninterruptible behavior and
+`publish_personal_github_main` inherits the company's canonical-only protected
+`main` push rules, successful earlier-stage gate, same-pipeline
+`main_release` artifact dependency, noninterruptible behavior and
 `wearos-github-development` serialized resource group. It runs the shared script
 with `--personal`. No second Android build, signer, GitHub Actions build, manual
 dispatch or signing credential in GitHub is introduced. Company publication and
@@ -84,12 +84,12 @@ duplicate tester notification and its GitHub Actions remain disabled.
 The only personal destination is the active **public**
 `aegorsuch/weartak-wearos`. The fixed rolling anchor was provisioned without moving
 the company's tag: `2a7f47f707d3b9419f27f0036caa3cb8024f1f3b`, verified as
-canonical public `develop` ancestry. Neither publisher creates or moves tags.
+canonical public `main` ancestry. Neither publisher creates or moves tags.
 A tag alone is not a GitHub release or an APK upload.
 
 Before personal artifact publication, the job verifies its checkout is the exact
-pipeline source SHA, inspects and fetches the existing personal `develop`, requires
-it to be an ancestor of that source, pushes **only** that commit to `develop`
+pipeline source SHA, inspects and fetches the existing personal `main`, requires
+it to be an ancestor of that source, pushes **only** that commit to `main`
 without force, tag following, submodule pushes or deletions, then verifies the
 remote SHA. Missing/divergent/ahead state or a tip change detected during fetch
 fails closed; the normal non-force push also rejects non-fast-forward races.
@@ -101,8 +101,8 @@ Git authentication is restricted to the fixed repository through the child
 process environment, never command arguments, credential files/helpers or logs;
 redirects, inherited credential helpers and repository hooks are disabled.
 
-Ongoing automatic source synchronization covers **develop only**, at each natural
-protected canonical develop publication. The initial public `master` and 70
+Ongoing automatic source synchronization covers **main only**, at each natural
+protected canonical main publication. The initial public `master` and 70
 canonical/company-matching historical tags are preserved, not automatically
 rewritten or expanded to private/agent branches. The fixed release tag stays
 unchanged; automatic GitHub source archives still refer to its old anchor.
@@ -115,7 +115,7 @@ Do not reuse the company token, another personal repository's token, or a local
 `gh` credential. In the canonical project's
 [Settings > CI/CD > Variables](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/settings/ci_cd),
 add `WEARTAK_PERSONAL_GITHUB_TOKEN`: protected, masked, hidden when supported,
-environment scope `*`, expansion disabled. Canonical `develop` must be protected.
+environment scope `*`, expansion disabled. Canonical `main` must be protected.
 No agent needs to inspect, copy or print its value. GitHub may require additional
 workflow permission for a future source commit that changes `.github/workflows`;
 the Contents-only token must fail rather than silently expanding access.
@@ -130,7 +130,7 @@ succeed and both destinations' APK bytes/checksum and source metadata to match.
 ## Ordering and safe retention
 
 The final `publish` stage waits for **all** earlier jobs to succeed; it downloads
-artifacts only from this pipeline's `develop_release`. That job verifies the
+artifacts only from this pipeline's `main_release`. That job verifies the
 production signing certificate, then writes `verified-apk.sha256`. The publisher
 requires exactly one APK matching this checksum and Gradle release metadata.
 The checksum and metadata are GitLab-only provenance, not additional GitHub assets.
@@ -206,7 +206,7 @@ nothing is duplicated.
 
 `.github/workflows/release-testing.yml` handles it on the GitHub mirror. GitHub only
 runs workflows from the default branch, so `.github/workflows/release-testing.yml`
-and `ci/release-testing/` must also be present on the mirror's `develop` (an approved
+and `ci/release-testing/` must also be present on the mirror's `main` (an approved
 exception to publishing source to GitHub). Keep both copies identical.
 
 The workflow re-reads the release (it never trusts the payload), skips superseded
