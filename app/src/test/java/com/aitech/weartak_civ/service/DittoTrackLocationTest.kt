@@ -174,13 +174,13 @@ class DittoTrackLocationTest {
                 val direct = CotMessageBuilder.pli(snapshot,
                     CotMessageBuilder.PliOptions("WATCH", "Team Member", "Blue", false, ""))
                 assertTrue(direct.contains("<remarks>${snapshot.remarks}</remarks>"))
-                val biometrics = CotDetailBuilder.biometrics("test-watch", snapshot.monitoredPhysio,
+                val physiology = CotDetailBuilder.physiology("test-watch", snapshot.monitoredPhysio,
                     snapshot.systemData.batteryPercent)
-                assertTrue(biometrics.contains("<hr>79</hr><skt>91.1</skt><exert>"))
-                assertTrue(direct.contains(biometrics))
+                assertTrue(physiology.contains("<hr>79</hr><skt>91.1</skt><exert>"))
+                assertTrue(direct.contains(physiology))
                 tick()
                 assertTrue((documents.last()["r"] as String).contains("<remarks>${snapshot.remarks}</remarks>"))
-                assertTrue((documents.last()["r"] as String).contains(biometrics))
+                assertTrue((documents.last()["r"] as String).contains(physiology))
             }
             val now = System.currentTimeMillis()
             var snapshot = repo.snapshotPli()
@@ -207,7 +207,7 @@ class DittoTrackLocationTest {
                 assertLegacy(snapshot, false)
                 tick()
                 val detail = documents.last()["r"] as String
-                assertTrue(detail.contains(CotDetailBuilder.biometrics("test-watch", snapshot.monitoredPhysio,
+                assertTrue(detail.contains(CotDetailBuilder.physiology("test-watch", snapshot.monitoredPhysio,
                     snapshot.systemData.batteryPercent)))
                 for (tag in listOf("hr", "skt", "exert")) assertFalse(detail.contains("<$tag>"))
             }

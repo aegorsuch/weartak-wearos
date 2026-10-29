@@ -19,14 +19,19 @@ master is off; turning it back on restores those choices. Other alert defaults
 remain off, while saved choices and physiological monitoring are unchanged.
 
 Standalone PLI (TAK servers, multicast and direct CoT) and Ditto track `r` details
-share the same `<biometrics>` device block with heart rate (`hr`), skin temperature
+share the same `<physiology>` device block with heart rate (`hr`), skin temperature
 in Fahrenheit (`skt`) and exertion (`exert`). These readings require physiological
 monitoring, worn state, enabled source sensors and valid samples no older than
 120 seconds or more than 30 seconds in the future, matching self-status policy.
 Unavailable readings are omitted; model/UID remain for reflected-watch identity
 detection. The BATDOK switch controls only the separate ATMIST additions, not
-biometrics. Self-status remarks are unchanged. Battery remains in `<status>` and
-the shared `<biometrics><device><bat>` field, independent of monitoring.
+physiology. Self-status remarks are unchanged. Battery remains in `<status>` and
+the shared `<physiology><device><bat>` field, independent of monitoring.
+Physiology Dashboard consumers should listen for `<detail><physiology>`.
+Alert/cancel metadata also uses `<physiology alert...>`, preserving its attributes
+and device children. Inbound alerts accept `<physiology>` with legacy
+`<biometrics>` fallback; PLI identity detection accepts both tags. Legacy JSON
+schema keys remain unchanged.
 
 Esri and Tablet Command use the same monitored snapshot and existing schema keys.
 They export the same HR, skin temperature and exertion as TAK, plus the existing
@@ -36,7 +41,7 @@ device identity remain independent of monitoring.
 
 IBI, HRV, SpO2, ambient/core temperature, VO2/VO2max, sweat loss/duration, sleep
 score/durations, energy score and fat/muscle mass remain `-1`, with empty timestamp
-fields: they are not part of the TAK biometrics contract. No new MOPP, elevation,
+fields: they are not part of the TAK physiology contract. No new MOPP, elevation,
 calorie or sample timestamp keys are added to these legacy schemas; they have no
 established corresponding fields here. MOPP remains in TAK/Ditto remarks.
 
