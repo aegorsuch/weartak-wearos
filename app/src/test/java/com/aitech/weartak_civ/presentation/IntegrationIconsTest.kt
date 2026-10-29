@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.drawable.BitmapDrawable
 import androidx.core.content.res.ResourcesCompat
 import com.aitech.weartak_civ.R
 import org.junit.Assert.assertEquals
@@ -29,7 +28,6 @@ class IntegrationIconsTest {
         BuiltInPlugin.CRM to R.drawable.ic_plugin_gauge,
         BuiltInPlugin.SENSOR_MANAGER to R.drawable.ic_sensor_manager,
         BuiltInPlugin.SOMEWEAR_LABS to R.drawable.ic_integration_somewear,
-        BuiltInPlugin.GOTENNA to R.drawable.ic_integration_gotenna,
         BuiltInPlugin.EVERYWHERE_COMMS to R.drawable.ic_integration_everywhere,
         BuiltInPlugin.DART to R.drawable.ic_integration_certus,
         BuiltInPlugin.FALCON to R.drawable.ic_integration_certus,
@@ -71,11 +69,6 @@ class IntegrationIconsTest {
                     Color.alpha(it) > 128 && Color.green(it) > Color.red(it) + 40 &&
                         Color.blue(it) > Color.red(it) + 40
                 })
-            }
-            if (plugin == BuiltInPlugin.GOTENNA) {
-                assertTrue(drawable is BitmapDrawable)
-                assertEquals(100, (drawable as BitmapDrawable).bitmap.width)
-                assertEquals(100, drawable.bitmap.height)
             }
             canvas.drawText(plugin.name, 8f, index * 64f + 16f, label)
             canvas.drawBitmap(icon, 8f, index * 64f + 28f, null)

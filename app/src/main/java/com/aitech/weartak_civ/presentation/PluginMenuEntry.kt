@@ -14,14 +14,13 @@ internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
     DITTO(R.drawable.ic_integration_ditto),
     EVERYWHERE_COMMS(R.drawable.ic_integration_everywhere),
     FALCON(R.drawable.ic_integration_certus),
-    GOTENNA(R.drawable.ic_integration_gotenna),
     MOPP(R.drawable.ic_mopp),
     SENSOR_MANAGER(R.drawable.ic_sensor_manager),
     SOMEWEAR_LABS(R.drawable.ic_integration_somewear);
 
     val locksDuringPhoneManagement: Boolean
         get() = when (this) {
-            DATA_SYNC, DITTO, EVERYWHERE_COMMS, GOTENNA, SOMEWEAR_LABS -> true
+            DATA_SYNC, DITTO, EVERYWHERE_COMMS, SOMEWEAR_LABS -> true
             else -> false
         }
 }
@@ -64,3 +63,11 @@ internal sealed interface PluginMenuEntry {
 
 internal fun List<PluginMenuEntry>.alphabetizedPluginEntries(): List<PluginMenuEntry> =
     sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
+
+internal fun List<PluginUI>.installedPluginMenuEntries(): List<PluginMenuEntry> =
+    map { PluginMenuEntry.Installed(it) }
+
+internal const val HOSTED_PLUGIN_MAIN_UI_ROUTE_PATTERN = "plugin_main_ui/{pluginId}"
+
+internal fun hostedPluginMainUiRoute(pluginId: String): String =
+    "plugin_main_ui/${android.net.Uri.encode(pluginId)}"

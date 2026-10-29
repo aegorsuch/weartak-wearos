@@ -28,6 +28,7 @@ class FakeWearTakPlugin(
 
     var pluginCapabilities: PluginCapabilitiesParcel = PluginCapabilitiesParcel(hostedSettingsUi = true)
     private var settingsSchema: SettingsSchemaParcel = SettingsSchemaParcel()
+    private var mainUiSchema: PluginMainUiSchemaParcel = PluginMainUiSchemaParcel()
     private val settingsValues = Bundle()
     val hostSettingsReceived = mutableListOf<HostSettingsParcel>()
     val lifecycleCalls = mutableListOf<String>()
@@ -145,7 +146,11 @@ class FakeWearTakPlugin(
         if (hostSettings != null) hostSettingsReceived += hostSettings
     }
 
-    override fun getMainUiSchema(): PluginMainUiSchemaParcel = PluginMainUiSchemaParcel()
+    override fun getMainUiSchema(): PluginMainUiSchemaParcel = mainUiSchema
+
+    fun setMainUiSchemaForTest(schema: PluginMainUiSchemaParcel) {
+        mainUiSchema = schema
+    }
 
     override fun getMainUiState(): Bundle = Bundle()
 
