@@ -16,6 +16,18 @@ release_publisher_tests:
   script:
     - python -m unittest discover -s ci/tests -v
 
+agp_resolution_diagnostic:
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  needs: []
+  dependencies: []
+  allow_failure: true
+  when: manual
+  script:
+    - sh ci/diagnose_agp_resolution.sh
+
 
 # ---------------------------------------------------------------------------
 # Common WearTAK release build
