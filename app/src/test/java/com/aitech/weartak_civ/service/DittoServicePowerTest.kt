@@ -60,6 +60,7 @@ class DittoServicePowerTest {
         assertTrue(DittoService.syncActive.value)
         service.onPowerStateChanged(healthy.copy(worn = false))
         assertTrue(DittoService.powerSuppressed.value)
+        assertEquals(DittoPowerSuppression.OFF_WRIST, DittoService.powerSuppressionReason.value)
         assertFalse(DittoService.syncActive.value)
         verify(exactly = 1) { native.stopSync() }
         verify(exactly = 0) { subscription.close() }
@@ -69,7 +70,22 @@ class DittoServicePowerTest {
         service.onPowerStateChanged(healthy)
         verify(exactly = 2) { native.startSync() }
         assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
         verify(exactly = 0) { repo.setEndpointDisconnected(any()) }
+    }
+
+    @Test fun reasonChangesWhileSuppressedWithoutRestartingSyncAndClearsOnStop() {
+        service.onPowerStateChanged(healthy.copy(sleeping = true))
+        assertEquals(DittoPowerSuppression.POWER, DittoService.powerSuppressionReason.value)
+        service.onPowerStateChanged(healthy.copy(worn = false))
+        assertEquals(DittoPowerSuppression.OFF_WRIST, DittoService.powerSuppressionReason.value)
+        service.onPowerStateChanged(healthy.copy(worn = false, battery = 10))
+        assertEquals(DittoPowerSuppression.POWER, DittoService.powerSuppressionReason.value)
+        verify(exactly = 1) { native.stopSync() }
+        verify(exactly = 0) { native.startSync() }
+        service.onDestroy()
+        assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
     }
 
     @Test fun chargingRecoveryOverridesAllPowerReasonsAndUnpluggingReappliesThem() {
@@ -78,6 +94,7 @@ class DittoServicePowerTest {
         assertTrue(DittoService.powerSuppressed.value)
         service.onPowerStateChanged(off.copy(charging = true))
         assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
         assertTrue(DittoService.syncActive.value)
         service.onPowerStateChanged(off)
         assertTrue(DittoService.powerSuppressed.value)
@@ -88,6 +105,7 @@ class DittoServicePowerTest {
         service.onPowerStateChanged(off)
         assertTrue(service.publishDocument("alert", mapOf("_id" to "sos")))
         assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
         verifyOrder {
             native.startSync()
             store.write(any<(live.ditto.DittoWriteTransaction) -> Unit>())

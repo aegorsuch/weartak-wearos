@@ -5,6 +5,7 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.DittoPdlSource
+import com.aitech.weartak_civ.service.DittoPowerSuppression
 import java.text.Collator
 import java.util.Locale
 
@@ -19,6 +20,7 @@ internal data class NetworkConnectivityRow(
     @DrawableRes val iconRes: Int? = networkConnectivityIcon(key),
     val pluginIcon: Drawable? = null,
     val suppressed: Boolean = false,
+    @StringRes val suppressionLabel: Int = R.string.connection_route_suppressed,
 )
 
 @DrawableRes
@@ -61,4 +63,11 @@ internal fun toggleStateAnnouncement(
 internal fun dittoPdlSubtitle(source: DittoPdlSource, hasCustomPdl: Boolean): Int = when (source) {
     DittoPdlSource.COMMUNITY -> R.string.ditto_community_subtitle
     DittoPdlSource.CUSTOM -> if (hasCustomPdl) R.string.ditto_custom_subtitle else R.string.ditto_no_pdl_subtitle
+}
+
+@StringRes
+internal fun dittoSuppressionLabel(enabled: Boolean, reason: DittoPowerSuppression?): Int? = when {
+    !enabled || reason == null -> null
+    reason == DittoPowerSuppression.OFF_WRIST -> R.string.physio_not_worn
+    else -> R.string.connection_route_suppressed
 }
