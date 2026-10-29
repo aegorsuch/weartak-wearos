@@ -3,10 +3,13 @@ package com.aitech.weartak_civ.service
 import android.app.Application
 import android.os.SystemClock
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.cot.CotDetailBuilder
 import com.aitech.weartak_civ.presentation.MainActivity
 import io.mockk.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 import live.ditto.Ditto
 import live.ditto.DittoSyncSubscription
 import live.ditto.DittoStore
@@ -86,6 +89,49 @@ class DittoServicePowerTest {
         service.onDestroy()
         assertFalse(DittoService.powerSuppressed.value)
         assertNull(DittoService.powerSuppressionReason.value)
+    }
+
+    @Test fun cotMetadataUsesConfiguredWatchIdentityOnlyWhileLocalSyncEligible() = runBlocking {
+        val enabled = MutableStateFlow(true)
+        every { repo.getEnableDittoService } returns enabled
+        @Suppress("UNCHECKED_CAST")
+        val active = field("activeService").get(null) as MutableStateFlow<DittoService?>
+        @Suppress("UNCHECKED_CAST")
+        val changing = field("reconfiguring").get(null) as MutableStateFlow<Boolean>
+        assertNull(DittoService.currentCotMetadata())
+        active.value = service
+        assertNull(service.ownCotMetadata())
+        service.onPowerStateChanged(healthy)
+        assertNull(service.ownCotMetadata())
+        field("dittoVersion").set(service, "runtime-sdk-version")
+        field("dittoDeviceName").set(service, "configured-watch-name")
+        DittoService.localPeerKeyString = "watch-sdk-peer"
+        val expected = CotDetailBuilder.DittoMetadata(
+            "watch-sdk-peer", "configured-watch-name", "runtime-sdk-version")
+        assertEquals(expected, service.ownCotMetadata())
+        assertEquals(expected, DittoService.currentCotMetadata())
+        enabled.value = false
+        assertNull(DittoService.currentCotMetadata())
+        enabled.value = true
+        changing.value = true
+        assertNull(DittoService.currentCotMetadata())
+        changing.value = false
+        every { repo.shouldSuppressWatchTransportNow() } returns true
+        assertNull(DittoService.currentCotMetadata())
+        every { repo.shouldSuppressWatchTransportNow() } returns false
+        for (state in listOf(healthy.copy(worn = false), healthy.copy(battery = 1),
+                healthy.copy(sleeping = true), healthy.copy(powerSave = true))) {
+            service.onPowerStateChanged(state)
+            assertNull(DittoService.currentCotMetadata())
+            service.onPowerStateChanged(healthy)
+            assertEquals(expected, DittoService.currentCotMetadata())
+        }
+        service.prepareForCompanionHandoff()
+        assertTrue(DittoService.syncActive.value)
+        assertNull(DittoService.currentCotMetadata())
+        service.onDestroy()
+        assertNull(service.ownCotMetadata())
+        assertNull(DittoService.currentCotMetadata())
     }
 
     @Test fun chargingRecoveryOverridesAllPowerReasonsAndUnpluggingReappliesThem() {

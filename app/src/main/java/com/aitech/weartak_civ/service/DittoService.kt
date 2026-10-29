@@ -99,11 +99,21 @@ class DittoService : Service() {
     private val transportLock = Any()
     private val trackGate = DittoTrackPublicationGate()
     @Volatile private var peerStopped = false
+    private var companionHandoff = false
     @Volatile private var lastSelfTrackDocument: Map<String, Any?>? = null
 
     private val model = Build.MODEL
     private val manufacturer = Build.MANUFACTURER
     private lateinit var dittoVersion: String
+    private lateinit var dittoDeviceName: String
+
+    internal fun ownCotMetadata(): CotDetailBuilder.DittoMetadata? = synchronized(peerLock) {
+        if (peerStopped || companionHandoff || !syncActiveState.value || reconfiguring.value ||
+            dataRepository.shouldSuppressWatchTransportNow() ||
+            !::dittoVersion.isInitialized || !::dittoDeviceName.isInitialized
+        ) return@synchronized null
+        CotDetailBuilder.DittoMetadata(localPeerKeyString, dittoDeviceName, dittoVersion)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -292,6 +302,7 @@ class DittoService : Service() {
     }
 
     internal suspend fun prepareForCompanionHandoff() {
+        synchronized(peerLock) { companionHandoff = true }
         val expired = try {
             expireSelfTrackBeforeHandoff()
         } catch (error: kotlinx.coroutines.CancellationException) {
@@ -395,6 +406,7 @@ class DittoService : Service() {
         config.peerToPeer.bluetoothLe.enabled = false // Discovery owns bounded BLE windows.
         ditto.deviceName = callsign // set deviceName for presence viewer
         dittoVersion = ditto.sdkVersion // used in the cot detail for ditto
+        dittoDeviceName = ditto.deviceName
         ditto.transportConfig = config
         val websocketUrls = config.connect.websocketUrls.toSet()
         networkMonitor = DittoNetworkMonitor(this) { wifi, internet ->
@@ -790,10 +802,9 @@ class DittoService : Service() {
                 // if you need a custom endpoint/phone (these also have defaults):
                 endpoint = "*:-1:stcp",
                 // ditto payload:
-                dittoA = localPeerKeyString,                     // "a-f-G-U-C"
-                dittoIp = "0.0.0.0",                         // "Undefined"
-                dittoVersion = dittoVersion,                            // "m-g"
-                dittoDeviceName = callsign,
+                dittoA = localPeerKeyString,
+                dittoVersion = dittoVersion,
+                dittoDeviceName = dittoDeviceName,
                 remarks = pliSnapshot.remarks,
             ).let { detail ->
                 if (timeMs - location.timeMillis > 3_000) {
@@ -941,6 +952,12 @@ class DittoService : Service() {
         private val identityMutex = Mutex()
 
         fun getDittoInstance(): Ditto? = dittoInstance
+
+        internal suspend fun currentCotMetadata(): CotDetailBuilder.DittoMetadata? {
+            val service = activeService.value ?: return null
+            if (!service.dataRepository.getEnableDittoService.first()) return null
+            return service.ownCotMetadata()
+        }
 
         internal fun onDittoScreenOpened() {
             activeService.value?.bleDiscovery?.onUiOpened()

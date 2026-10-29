@@ -13,6 +13,31 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.xml.sax.InputSource
 
 class CotMessageBuilderTest {
+    @Test fun pliIncludesOnlySuppliedLocalDittoMetadataAndEscapesAttributes() {
+        val metadata = CotDetailBuilder.DittoMetadata(
+            "watch-peer&'<>\"", "Watch & ' \" < >", "runtime-sdk-version&",
+        )
+        for (local in listOf(metadata, null)) {
+            val xml = CotMessageBuilder.pli(pliSnapshot(),
+                CotMessageBuilder.PliOptions("EAGLE", "Medic", "Blue", false, "",
+                    dittoMetadata = local))
+            val event = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(InputSource(StringReader(xml))).documentElement
+            val elements = event.getElementsByTagName("ditto")
+            assertEquals(if (local == null) 0 else 1, elements.length)
+            assertEquals("watch-1", event.getAttribute("uid"))
+            if (local != null) {
+                val ditto = elements.item(0) as Element
+                assertEquals("detail", ditto.parentNode.nodeName)
+                assertEquals(local.peerId, ditto.getAttribute("a"))
+                assertEquals(local.deviceName, ditto.getAttribute("deviceName"))
+                assertEquals(local.version, ditto.getAttribute("version"))
+                assertEquals("0.0.0.0", ditto.getAttribute("ip"))
+                assertEquals(4, ditto.attributes.length)
+            }
+        }
+    }
+
     @Test fun ownedDeletionMatchesAtakLinkedForcedDeleteContractWithoutChangingTargetIdentity() {
         val uid = "original & ' \" < > pin"
         val now = Instant.parse("2026-10-24T12:00:00Z").toEpochMilli()

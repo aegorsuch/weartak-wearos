@@ -58,6 +58,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -135,7 +136,7 @@ class DittoReceiveIntegrationTest {
             MainActivity.device_uid = "watch"
             MainActivity.versionNumber = "test"
             DittoService.localPeerKeyString = "local-peer"
-            repo = DataRepository(app)
+            repo = DataRepository(app, projectionScope = scope.backgroundScope)
             MainActivity.mainActivity = mockk { every { applicationContext } returns app }
             MainActivity.dataRepository = repo
             val preferences = object : DataStore<Preferences> {
@@ -144,7 +145,7 @@ class DittoReceiveIntegrationTest {
                 override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
                     mutex.withLock { transform(data.value).also { data.value = it } }
             }
-            bh = BloodhoundRepository(app, preferences)
+            bh = BloodhoundRepository(app, preferences, projectionScope = scope.backgroundScope)
             val chatService = Robolectric.buildService(ChatService::class.java).get()
             ChatService::class.java.getDeclaredField("dataRepository").apply {
                 isAccessible = true
@@ -270,6 +271,9 @@ class DittoReceiveIntegrationTest {
         suspend fun drain() {
             withContext(Dispatchers.Default) { withTimeout(10_000) { pending.forEach { it.await() } } }
             pending.clear()
+            // Observer completion precedes the bounded track/marker projection window.
+            scope.advanceTimeBy(1_500)
+            scope.runCurrent()
         }
 
         fun doc(uid: String = "point", type: String = "a-h-G", at: Long = time,
@@ -372,7 +376,7 @@ class DittoReceiveIntegrationTest {
                 }
             }
             val detail = TAKConnectService.TakServerDetail(
-                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", false, "Synthetic", "tak.invalid",
+                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", true, "Synthetic", "tak.invalid",
                 isP12Cert = false, username = "", password = "", p12Cert = null, p12CertPassword = null)
             val attempt = TAKConnectService.ConnectionAttempt(0)
             detail.runtime.currentAttempt = attempt

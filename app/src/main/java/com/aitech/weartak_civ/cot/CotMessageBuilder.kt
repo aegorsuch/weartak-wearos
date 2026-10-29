@@ -17,6 +17,7 @@ object CotMessageBuilder {
         val team: String,
         val includeBatdok: Boolean,
         val hailDetail: String,
+        val dittoMetadata: CotDetailBuilder.DittoMetadata? = null,
     )
 
     fun pli(snapshot: DataRepository.PliSnapshot, options: PliOptions): String {
@@ -76,7 +77,8 @@ object CotMessageBuilder {
                             "speed" to speed
                         )
                     ) +
-                    options.hailDetail
+                    options.hailDetail +
+                    (options.dittoMetadata?.let { CotDetailBuilder.ditto(it) } ?: "")
         return CotXml.event(listOf(
             "version" to "2.0", "uid" to CotXml.escape(uid), "type" to "a-f-G-U-C", "time" to time.startCot,
             "start" to time.startCot, "stale" to time.staleCot, "how" to "m-g",

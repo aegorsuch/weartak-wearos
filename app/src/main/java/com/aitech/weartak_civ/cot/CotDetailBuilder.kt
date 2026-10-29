@@ -6,6 +6,14 @@ import com.aitech.weartak_civ.data.DataRepository
 import java.util.Locale
 
 object CotDetailBuilder {
+    data class DittoMetadata(val peerId: String, val deviceName: String, val version: String)
+
+    fun ditto(metadata: DittoMetadata, ip: String = "0.0.0.0"): String =
+        CotXml.element("ditto", listOf(
+            "a" to CotXml.escape(metadata.peerId), "ip" to CotXml.escape(ip),
+            "version" to CotXml.escape(metadata.version), "deviceName" to CotXml.escape(metadata.deviceName),
+        ))
+
     fun takv(): String = CotXml.element("takv", listOf(
         "os" to Build.VERSION.SDK_INT,
         "version" to CotXml.escape(BuildConfig.VERSION_NAME),
@@ -64,9 +72,6 @@ object CotDetailBuilder {
             "<remarks>${CotXml.escape(remarks)}</remarks>" +
             physiology(uid, monitoredPhysio, battery) +
             CotXml.element("track", listOf("course" to course, "speed" to speed)) +
-            CotXml.element("ditto", listOf(
-                "a" to CotXml.escape(dittoA), "ip" to CotXml.escape(dittoIp),
-                "version" to CotXml.escape(dittoVersion), "deviceName" to CotXml.escape(dittoDeviceName),
-            )),
+            ditto(DittoMetadata(dittoA, dittoDeviceName, dittoVersion), dittoIp),
     )
 }
