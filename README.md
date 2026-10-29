@@ -906,12 +906,13 @@ samples or a measured energy saving.
 
 ## GitHub pipeline release
 
-Protected `main` push pipelines can publish the signed WearOS APK to the rolling
-**TAK.gov Forge CI/CD Pipeline Release** in the GitHub mirror. Project policy treats these
-as stable builds, not prereleases. See [CI release setup and retention](ci/README.md)
-for both the company mirror and the additional public
-[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) mirror.
-The personal publisher first fast-forwards its `main` to the exact canonical
+Protected `main` push pipelines publish the signed WearOS APK only to the rolling
+**TAK.gov Forge CI/CD Pipeline Release** in the public
+[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) repository.
+Project policy treats these as stable builds, not prereleases. See
+[CI release setup and retention](ci/README.md) for pipeline setup and safeguards.
+Existing company Releases and tags remain untouched. The publisher first fast-forwards
+personal `main` to the exact canonical
 pipeline source, then publishes the same verified signed APK using a separate
 repository-scoped CI credential. It does not build or sign independently. The CI
 documentation covers required administrator configuration, provenance and verified replacement behavior.
