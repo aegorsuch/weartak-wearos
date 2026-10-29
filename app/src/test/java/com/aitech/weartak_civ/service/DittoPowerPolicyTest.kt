@@ -34,4 +34,22 @@ class DittoPowerPolicyTest {
         assertFalse(policy.suppressed(offWrist, 61_000))
         assertTrue(policy.suppressed(offWrist, 120_999))
     }
+
+    @Test fun offWristLabelRequiresOffWristToBeTheOnlyPowerGate() {
+        val offWrist = healthy.copy(worn = false)
+        assertEquals(DittoPowerSuppression.OFF_WRIST, policy.suppressionReason(offWrist, 0))
+        assertNull(policy.suppressionReason(DittoPowerState(), 0))
+        assertNull(policy.suppressionReason(healthy, 0))
+        listOf(healthy.copy(sleeping = true), healthy.copy(powerSave = true),
+            healthy.copy(battery = 20)).forEach { state ->
+            assertEquals(DittoPowerSuppression.POWER, policy.suppressionReason(state, 0))
+            assertEquals(DittoPowerSuppression.POWER, policy.suppressionReason(state.copy(worn = false), 0))
+        }
+        assertNull(policy.suppressionReason(offWrist.copy(charging = true), 0))
+        assertNull(policy.suppressionReason(offWrist.copy(alerting = true), 0))
+        policy.resumeForAlert(0)
+        assertNull(policy.suppressionReason(offWrist, 0))
+        assertEquals(DittoPowerSuppression.OFF_WRIST,
+            policy.suppressionReason(offWrist, DittoPowerPolicy.ALERT_GRACE_MS))
+    }
 }

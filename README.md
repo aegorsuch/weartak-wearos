@@ -159,6 +159,14 @@ status artwork, subtitles, switch state, lock handling and settings navigation
 are preserved. This checklist does not add transport polling or change the main
 screen or watchface complication indicators.
 
+Ditto's checklist subtitle shows **Off-Wrist** when off-wrist detection alone
+pauses sync, and **Suppressed** for other active power gates (including low
+battery, bedtime and power save). Its switch stays on; charging or alert
+overrides restore the normal identity subtitle. Disabled Ditto keeps its
+identity subtitle. TAK server rows and their checklist summary already show
+**Off-Wrist** during eligible off-body waiting gaps, without hiding connection
+failures or relabeling Companion handoff and other route gates.
+
 While a live phone-managed Companion bond locks network controls, their
 checklist subtitles show **Bonded**, replacing any prior subtitle (or adding
 one when empty). The TAK master and plugin forwarding equivalents use the

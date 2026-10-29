@@ -1479,11 +1479,11 @@ fun WearTAKSettingsNav(
             val takSubtitleOverride = takStatusOverride?.let { stringResource(it) }
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
             val companionStatus = companionPluginStatus(enableCompanionAppService)
-            val dittoPowerSuppressed by com.aitech.weartak_civ.service.DittoService.powerSuppressed
+            val dittoPowerSuppressionReason by com.aitech.weartak_civ.service.DittoService.powerSuppressionReason
                 .collectAsStateWithLifecycle()
             val dittoSubtitle = stringResource(dittoPdlSubtitle(dittoPdlSource, dittoCustomPdl.isNotBlank()))
-            val dittoSuppressed = enableDittoService && dittoPowerSuppressed
-            val suppressedLabel = stringResource(R.string.connection_route_suppressed)
+            val dittoSuppression = dittoSuppressionLabel(enableDittoService, dittoPowerSuppressionReason)
+            val suppressedLabel = dittoSuppression?.let { stringResource(it) }
             val enabledLabel = stringResource(R.string.enabled)
             val disabledLabel = stringResource(R.string.disabled)
             val takIndicator = TakServerIndicator.resolve(
@@ -1511,10 +1511,11 @@ fun WearTAKSettingsNav(
                         else -> stringResource(R.string.network_no_group)
                     }, enableSitx, settingsVm::storeEnableSitx),
                 NetworkConnectivityRow("ditto", stringResource(R.string.ditto),
-                    if (dittoSuppressed) suppressedLabel else dittoSubtitle,
+                    suppressedLabel ?: dittoSubtitle,
                     enableDittoService, settingsVm::storeEnableDittoService,
-                    statusDescription = if (dittoSuppressed) "$dittoSubtitle, $suppressedLabel" else dittoSubtitle,
-                    suppressed = dittoSuppressed),
+                    statusDescription = if (suppressedLabel != null) "$dittoSubtitle, $suppressedLabel" else dittoSubtitle,
+                    suppressed = dittoSuppression != null,
+                    suppressionLabel = dittoSuppression ?: R.string.connection_route_suppressed),
                 NetworkConnectivityRow("companion", stringResource(R.string.companion_app),
                     "", enableCompanionAppService, settingsVm::storeEnableCompanionAppService,
                     statusDescription = companionStatus)
