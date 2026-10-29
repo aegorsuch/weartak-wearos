@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
@@ -2479,7 +2480,10 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
 
 // MAP RENDERING
 // Draws the map and all map content
-    Box(Modifier.fillMaxSize()) {
+    val chatPickerPaneTitle = if (selectingChatContact) stringResource(R.string.chat_select_person) else null
+    Box(Modifier.fillMaxSize().semantics {
+        chatPickerPaneTitle?.let { paneTitle = it }
+    }) {
 
         // Stores where the user long pressed the map
         var pointerOffset by remember {
@@ -2706,10 +2710,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             )
         }
 
-        if (selectingChatContact) {
+        if (selectingChatContact && receivedMapUsers.none { it.uid != MainActivity.device_uid }) {
             Text(
-                text = stringResource(if (receivedMapUsers.none { it.uid != MainActivity.device_uid })
-                    R.string.chat_select_person_empty else R.string.chat_select_person),
+                text = stringResource(R.string.chat_select_person_empty),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp, start = 35.dp, end = 35.dp)
                     .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(8.dp)).padding(4.dp),
