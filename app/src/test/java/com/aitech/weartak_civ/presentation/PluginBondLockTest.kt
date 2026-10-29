@@ -33,9 +33,9 @@ class PluginBondLockTest {
     @get:Rule val compose = createComposeRule()
 
     private val lockedKinds = setOf(BuiltInPlugin.DITTO, BuiltInPlugin.EVERYWHERE_COMMS,
-        BuiltInPlugin.GOTENNA, BuiltInPlugin.SOMEWEAR_LABS, BuiltInPlugin.DATA_SYNC)
+        BuiltInPlugin.SOMEWEAR_LABS, BuiltInPlugin.DATA_SYNC)
 
-    @Test fun onlyFiveStableBuiltInIdsAreBondLocked() {
+    @Test fun onlyFourStableBuiltInIdsAreBondLocked() {
         assertEquals(lockedKinds, BuiltInPlugin.entries.filter { it.locksDuringPhoneManagement }.toSet())
     }
 
@@ -117,7 +117,7 @@ class PluginBondLockTest {
 
     private fun verifyFit(size: Int) {
         val names = mapOf(BuiltInPlugin.DITTO to "Ditto Edge Sync",
-            BuiltInPlugin.EVERYWHERE_COMMS to "Everywhere", BuiltInPlugin.GOTENNA to "GoTenna",
+            BuiltInPlugin.EVERYWHERE_COMMS to "Everywhere",
             BuiltInPlugin.SOMEWEAR_LABS to "Somewear Labs", BuiltInPlugin.DATA_SYNC to "Data Sync")
         var kind by mutableStateOf(BuiltInPlugin.DITTO)
         compose.setContent {

@@ -4,7 +4,10 @@ import com.aitech.weartak_civ.integration.plugin.PluginLoadingStatus
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class PluginMenuEntryTest {
     @Test
     fun sortsBuiltInsAndInstalledPluginsTogetherIgnoringCase() {
@@ -14,7 +17,6 @@ class PluginMenuEntryTest {
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, "Ditto"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, "Everywhere Comms"),
             installed("alpha", "alpha"),
-            PluginMenuEntry.BuiltIn(BuiltInPlugin.GOTENNA, "GoTenna"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.SENSOR_MANAGER, "Sensor Manager"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.COMMANDS, "Commands"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.COMPANION, "Companion Plugin"),
@@ -26,7 +28,7 @@ class PluginMenuEntryTest {
         )
 
         assertEquals(
-            listOf("alpha", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "Everywhere Comms", "FALCON", "GoTenna", "MOPP", "Sensor Manager", "Somewear Labs", "zulu"),
+            listOf("alpha", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "zulu"),
             entries.alphabetizedPluginEntries().map { it.title },
         )
         assertEquals("Somewear Labs", entries.first().title)
@@ -50,15 +52,39 @@ class PluginMenuEntryTest {
         assertEquals(emptyList<PluginMenuEntry>(), emptyList<PluginMenuEntry>().alphabetizedPluginEntries())
     }
 
-    private fun installed(id: String, title: String) = PluginMenuEntry.Installed(
-        PluginUI(
-            icon = null,
-            title = title,
-            desc = "",
-            loadingStatus = PluginLoadingStatus.NOT_LOADED,
-            pluginId = id,
-            versionName = "",
-            packageName = "",
+    @Test
+    fun installedPluginsKeepPluginProvidedIdentityAndDisplayName() {
+        val entries = listOf(
+            pluginUi("org.example.telemetry", "Telemetry"),
+            pluginUi("org.example.fieldtools", "Field Tools"),
+        ).installedPluginMenuEntries()
+
+        assertEquals(listOf("Telemetry", "Field Tools"), entries.map { it.title })
+        assertEquals(
+            listOf("org.example.telemetry", "org.example.fieldtools"),
+            entries.map { (it as PluginMenuEntry.Installed).plugin.pluginId },
         )
+    }
+
+    @Test
+    fun hostedRouteEncodesArbitraryPluginId() {
+        assertEquals(
+            "plugin_main_ui/org.example.field%2Ftools",
+            hostedPluginMainUiRoute("org.example.field/tools"),
+        )
+    }
+
+    private fun installed(id: String, title: String) = PluginMenuEntry.Installed(
+        pluginUi(id, title),
+    )
+
+    private fun pluginUi(id: String, title: String) = PluginUI(
+        icon = null,
+        title = title,
+        desc = "",
+        loadingStatus = PluginLoadingStatus.NOT_LOADED,
+        pluginId = id,
+        versionName = "",
+        packageName = id,
     )
 }

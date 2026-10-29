@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -48,6 +49,8 @@ class PluginSettingsCoordinator(
     data class ConnectivityToggle(val enabled: Boolean, val binding: IWearTakPlugin)
     private val connectivityTogglesState = MutableStateFlow<Map<String, ConnectivityToggle>>(emptyMap())
     val connectivityToggles = connectivityTogglesState.asStateFlow()
+    private val mainUiChangeRevisionsState = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val mainUiChangeRevisions = mainUiChangeRevisionsState.asStateFlow()
 
     fun setConnectivityEnabled(pluginId: String, expected: ConnectivityToggle, enabled: Boolean): SettingsApplyResultParcel {
         if (pluginRefs[pluginId] !== expected.binding || connectivityToggles.value[pluginId] != expected) {
@@ -73,7 +76,57 @@ class PluginSettingsCoordinator(
     fun unregisterPlugin(pluginId: String) {
         pluginRefs.remove(pluginId)
         cache.remove(pluginId)
+        mainUiChangeRevisionsState.update { it - pluginId }
         updateOutboundCotAvailability()
+    }
+
+    fun notifyMainUiChanged(pluginId: String) {
+        mainUiChangeRevisionsState.update { revisions ->
+            revisions + (pluginId to ((revisions[pluginId] ?: 0L) + 1L))
+        }
+    }
+
+    internal fun supportsHostedMainUi(pluginId: String): Boolean {
+        val plugin = pluginRefs[pluginId] ?: return false
+        return try {
+            plugin.capabilities.hostedMainUi
+        } catch (e: RemoteException) {
+            Log.w(TAG, "main UI capability query failed for $pluginId", e)
+            false
+        }
+    }
+
+    internal fun getHostedMainUi(pluginId: String): HostedPluginMainUiResult {
+        val plugin = pluginRefs[pluginId] ?: return HostedPluginMainUiResult.NotConnected
+        return try {
+            if (!plugin.capabilities.hostedMainUi) return HostedPluginMainUiResult.Unsupported
+            HostedPluginMainUiResult.Ready(HostedPluginMainUiContract.parse(plugin.mainUiSchema))
+        } catch (e: RemoteException) {
+            Log.w(TAG, "main UI query failed for $pluginId", e)
+            HostedPluginMainUiResult.Failed("Unable to load plugin page")
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "main UI contract rejected for $pluginId: ${e.message}")
+            HostedPluginMainUiResult.Failed("Plugin page contract is invalid")
+        }
+    }
+
+    internal fun invokeHostedMainUiAction(pluginId: String, cardId: String): HostedPluginMainUiResult {
+        val plugin = pluginRefs[pluginId] ?: return HostedPluginMainUiResult.NotConnected
+        try {
+            if (!plugin.capabilities.hostedMainUi) return HostedPluginMainUiResult.Unsupported
+            val cards = HostedPluginMainUiContract.parse(plugin.mainUiSchema)
+            val action = cards.firstOrNull { it.cardId == cardId }?.action
+                ?: return HostedPluginMainUiResult.Failed("Plugin action is unavailable")
+            if (!action.enabled) return HostedPluginMainUiResult.Failed("Plugin action is disabled")
+            plugin.invokeMainUiAction(action.actionId, action.args)
+        } catch (e: RemoteException) {
+            Log.w(TAG, "main UI action failed for $pluginId", e)
+            return HostedPluginMainUiResult.Failed("Plugin action failed")
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "main UI action contract rejected for $pluginId: ${e.message}")
+            return HostedPluginMainUiResult.Failed("Plugin page contract is invalid")
+        }
+        return getHostedMainUi(pluginId)
     }
 
     fun getState(pluginId: String): PluginSettingsState? = cache[pluginId]

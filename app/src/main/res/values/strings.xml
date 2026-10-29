@@ -955,7 +955,12 @@
     <string name="no_custom_pdl_saved">No custom PDL saved</string>
     <string name="ditto_community_subtitle">Community</string>
     <string name="everywhere_comms" translatable="false">Everywhere</string>
-    <string name="gotenna" translatable="false">GoTenna</string>
+    <string name="plugin_not_installed">Plugin is not installed</string>
+    <string name="plugin_not_connected">Plugin is not connected</string>
+    <string name="plugin_hosted_ui_unsupported">Plugin does not provide a hosted page</string>
+    <string name="plugin_page_load">Load plugin</string>
+    <string name="plugin_page_loading">Loading plugin page...</string>
+    <string name="plugin_page_empty">No plugin controls available</string>
     <string name="sensor_manager">Sensor Manager</string>
     <string name="scan_sensor">Scan</string>
     <string name="sensor_manager_preview">Button is Placeholder</string>

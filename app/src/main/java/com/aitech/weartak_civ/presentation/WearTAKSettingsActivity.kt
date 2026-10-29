@@ -3101,6 +3101,7 @@ fun WearTAKSettingsNav(
             val enableMopp by settingsVm.savedEnableMopp.collectAsState()
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
             val moppStatus by dataRepository.getMoppStatus.collectAsState(initial = null)
+            val pluginMenuScope = rememberCoroutineScope()
             val menuEntries = (
                 listOf(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMMANDS, stringResource(R.string.chat_commands)),
@@ -3111,11 +3112,10 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, stringResource(R.string.ditto)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, stringResource(R.string.everywhere_comms)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, stringResource(R.string.uas_detection)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.GOTENNA, stringResource(R.string.gotenna)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.MOPP, stringResource(R.string.mopp)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SENSOR_MANAGER, stringResource(R.string.sensor_manager)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, stringResource(R.string.somewear_labs)),
-                ) + pluginList.map { PluginMenuEntry.Installed(it) }
+                ) + pluginList.installedPluginMenuEntries()
             ).alphabetizedPluginEntries()
             val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner) {
@@ -3245,7 +3245,7 @@ fun WearTAKSettingsNav(
                                         onClick = { navController.navigate("crm_thresholds") }
                                     )
                                 }
-                                BuiltInPlugin.EVERYWHERE_COMMS, BuiltInPlugin.GOTENNA, BuiltInPlugin.SOMEWEAR_LABS -> {
+                                BuiltInPlugin.EVERYWHERE_COMMS, BuiltInPlugin.SOMEWEAR_LABS -> {
                                     BuiltInPluginToggleChip(
                                         kind = entry.kind,
                                         phoneManagedSettings = phoneManagedSettings,
@@ -3268,7 +3268,7 @@ fun WearTAKSettingsNav(
                                         pluginitem.value = item
                                         showPopup.value = true
                                     },
-                                    chipType = {
+                                    chipType = { reveal ->
                                         WearTAKSplitToggleChip(
                                             appIcon = {
                                                 item.icon.let {
@@ -3294,9 +3294,13 @@ fun WearTAKSettingsNav(
                                                 }
                                             },
                                             onClick = {
-                                                if (!PluginActivityLauncher.launch(context, item.packageName)) {
-                                                    it.first.launch {
-                                                        it.second.animateTo(targetValue = RevealValue.RightRevealing)
+                                                pluginMenuScope.launch {
+                                                    if (pluginVm.supportsHostedMainUi(item.pluginId)) {
+                                                        navController.navigate(hostedPluginMainUiRoute(item.pluginId))
+                                                    } else if (!PluginActivityLauncher.launch(context, item.packageName)) {
+                                                        reveal.first.launch {
+                                                            reveal.second.animateTo(targetValue = RevealValue.RightRevealing)
+                                                        }
                                                     }
                                                 }
                                             },
@@ -3407,6 +3411,18 @@ fun WearTAKSettingsNav(
 //                    successBoolean
 //                )
             }
+        }
+        composable(
+            route = HOSTED_PLUGIN_MAIN_UI_ROUTE_PATTERN,
+            arguments = listOf(navArgument("pluginId") { type = NavType.StringType }),
+        ) { entry ->
+            val pluginId = entry.arguments?.getString("pluginId").orEmpty()
+            HostedPluginMainUiPage(
+                pluginId = pluginId,
+                plugins = pluginList,
+                pluginVm = pluginVm,
+                navController = navController,
+            )
         }
         composable("mopp") {
             val status by dataRepository.getMoppStatus.collectAsState(initial = null)

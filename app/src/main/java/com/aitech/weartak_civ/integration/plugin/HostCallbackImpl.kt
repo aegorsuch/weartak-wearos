@@ -43,10 +43,12 @@ class HostCallbackImpl(
 
     override fun onPluginMainUiSchemaChanged() {
         PluginDiagnostics.recordMainUiSchemaChanged(pluginId)
+        settingsCoordinator.notifyMainUiChanged(pluginId)
     }
 
     override fun onPluginMainUiStateChanged() {
         PluginDiagnostics.recordMainUiStateChanged(pluginId)
+        settingsCoordinator.notifyMainUiChanged(pluginId)
     }
 
     override fun onPluginStatusChanged(status: PluginStatusParcel?) {
