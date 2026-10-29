@@ -13,7 +13,8 @@ Run this job only in an already-authorized pipeline; do not create or retry a
 release pipeline for diagnostics, since normal pipeline publication rules still
 apply. The job reports its source SHA. Compare runner/image/network context with
 the failing job; a matching image tag alone does not establish a matching digest.
-No automatic retry, dependency downgrade, or repository mirror is configured.
+No automatic retry or dependency downgrade is configured. Repository routing now
+uses the credential-gated TAK Artifactory configuration described below.
 
 AGP `8.13.2` and all build configuration files were identical between successful
 `c48ba2544d25c7419c2832d4089efa20a35e2700` (job `7666745`) and failed
@@ -22,6 +23,60 @@ were reachable from the investigation workstation, which does not establish
 runner reachability. Curl reports HTTP status and connection errors; Gradle
 output distinguishes Java-side resolution failures. Successful POM requests
 alone do not prove all transitive artifacts are reachable.
+
+## AGP resolution fix
+
+The diagnostic added in GitLab MR !558 showed Google POM probes returning HTTP
+200 while Gradle reported Maven Central HTTP 429. An unmerged Google-exclusive
+routing experiment resolved the Android plugin marker but then encountered a
+KSP marker HTTP 429; that experiment is not the production fix. Shared NAT or
+Gradle's general fallback behavior was not established by this evidence.
+
+Platform MR !559, merged as `517190128091a1bd89629d9d88602a93faac4881`,
+changed only `settings.gradle`. It puts the approved repository
+`https://artifacts.tak.gov/artifactory/maven-release` first for both plugin and
+dependency resolution when both a username and password are available:
+
+- Username: `ARTIFACTORY_CONSUME_USER`, then `ARTIFACTORY_USER`, then `TAK_USERNAME`.
+- Password: `ARTIFACTORY_CONSUME_PASSWORD`, then `ARTIFACTORY_PASSWORD`, then `TAK_PASSWORD`.
+
+Username and password fallbacks are evaluated independently. Never log their
+values. Settings print `takArtifactory for plugins: enabled` or
+`takArtifactory for plugins: disabled (no credentials in environment)`.
+Without both credentials, the Artifactory repository is omitted.
+Remaining plugin repositories are filtered Google (`com.android.*`,
+`com.google.*`, `androidx.*`), Plugin Portal, then Maven Central; dependencies
+retain Google, Maven Central and the existing local `libs` repository.
+
+AGP `8.13.2`, Gradle `8.14.5`, CI JDK `17.0.2`, launcher image tag
+`17-2.6.2` and production signing configuration were not changed by this fix.
+[Main pipeline 1817472](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1817472)
+on the merge commit succeeded:
+[release job 7673187](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/jobs/7673187)
+verified the production signature for `WearTAK-5.8.0.3-p454.apk`, and
+[publisher job 7673188](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/jobs/7673188)
+updated the existing personal GitHub rolling release. Matching image tags alone
+do not prove matching image digests or runner network/cache conditions.
+
+## Release container memory
+
+Release job `7675487` on naming-fix merge `e7585a2a` failed with Kubernetes
+`OOMKilled` / exit `137` after compilation and release optimization tasks.
+The runner reported an `8Gi` container limit; the repository specified a
+`4096m` Gradle heap, as in successful p454. Those limits are not equivalent:
+the container also holds JVM native memory, Kotlin compilation and build workers.
+The trace provides no peak-memory measurement or proof of which process caused
+the kill. This was not an AGP resolution failure or a Java heap exception.
+
+The shared release command now caps Gradle workers at two and uses
+`-Pkotlin.compiler.execution.strategy=in-process`, so Kotlin shares the existing
+Gradle heap instead of starting a separate compiler daemon. The `4Gi` heap and
+`8Gi` container limit remain unchanged, as do release minification, resource
+shrinking, signing and publication gates. These are CI-only execution controls;
+local build defaults are unchanged. A successful production pipeline is still
+required to validate this memory mitigation; configuration checks cannot prove
+peak RSS fits the runner limit. If another kill occurs, obtain container
+peak-memory/OOM metrics before choosing further limits or requesting more memory.
 
 ## Rolling release behavior
 
