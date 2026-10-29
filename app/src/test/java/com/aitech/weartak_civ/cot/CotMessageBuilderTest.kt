@@ -13,6 +13,28 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.xml.sax.InputSource
 
 class CotMessageBuilderTest {
+    @Test fun pliPreservesWatchUidAndHumanCallsignWithAtakStyleDittoDeviceName() {
+        val base = pliSnapshot()
+        val uid = "WEAROS_056b9ca33004b318"
+        val snapshot = base.copy(systemData = base.systemData.copy(deviceId = uid))
+        val xml = CotMessageBuilder.pli(snapshot,
+            CotMessageBuilder.PliOptions("ODIN-WEARTAK", "Medic", "Blue", false, "",
+                dittoMetadata = CotDetailBuilder.DittoMetadata("watch-sdk-peer", "T004b318", "runtime-sdk")))
+        val event = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(InputSource(StringReader(xml))).documentElement
+        val ditto = event.getElementsByTagName("ditto").item(0) as Element
+        assertEquals(uid, event.getAttribute("uid"))
+        assertEquals("T004b318", ditto.getAttribute("deviceName"))
+        assertEquals("watch-sdk-peer", ditto.getAttribute("a"))
+        assertEquals("runtime-sdk", ditto.getAttribute("version"))
+        assertEquals("0.0.0.0", ditto.getAttribute("ip"))
+        assertEquals("ODIN-WEARTAK",
+            (event.getElementsByTagName("contact").item(0) as Element).getAttribute("callsign"))
+        val group = event.getElementsByTagName("__group").item(0) as Element
+        assertEquals("Medic", group.getAttribute("role"))
+        assertEquals("Blue", group.getAttribute("name"))
+    }
+
     @Test fun pliIncludesOnlySuppliedLocalDittoMetadataAndEscapesAttributes() {
         val metadata = CotDetailBuilder.DittoMetadata(
             "watch-peer&'<>\"", "Watch & ' \" < >", "runtime-sdk-version&",

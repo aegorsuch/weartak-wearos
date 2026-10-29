@@ -36,7 +36,7 @@ class DittoServicePowerTest {
     private fun field(name: String) = DittoService::class.java.getDeclaredField(name).apply { isAccessible = true }
 
     @Before fun setup() {
-        MainActivity.device_uid = "test-watch"
+        MainActivity.device_uid = "WEAROS_056b9ca33004b318"
         every { repo.shouldSuppressWatchTransportNow() } returns false
         coEvery { repo.snapshotPliLocation() } returns null
         Ditto::class.java.getDeclaredField("sync").apply { isAccessible = true }.set(native, sync)
@@ -103,12 +103,26 @@ class DittoServicePowerTest {
         assertNull(service.ownCotMetadata())
         service.onPowerStateChanged(healthy)
         assertNull(service.ownCotMetadata())
-        field("dittoVersion").set(service, "runtime-sdk-version")
-        field("dittoDeviceName").set(service, "configured-watch-name")
+        every { native.sdkVersion } returns "runtime-sdk-version"
+        val configureIdentity = DittoService::class.java.getDeclaredMethod("configureCotIdentity").apply {
+            isAccessible = true
+        }
+        val originalCallsign = MainActivity.callsign
+        try {
+            for (callsign in listOf("ODIN-WEARTAK", "RENAMED-WATCH")) {
+                MainActivity.callsign = callsign
+                configureIdentity.invoke(service)
+                assertEquals("T004b318", native.deviceName)
+                assertEquals(callsign, MainActivity.callsign)
+            }
+        } finally {
+            MainActivity.callsign = originalCallsign
+        }
         DittoService.localPeerKeyString = "watch-sdk-peer"
         val expected = CotDetailBuilder.DittoMetadata(
-            "watch-sdk-peer", "configured-watch-name", "runtime-sdk-version")
+            "watch-sdk-peer", "T004b318", "runtime-sdk-version")
         assertEquals(expected, service.ownCotMetadata())
+        assertTrue(CotDetailBuilder.ditto(service.ownCotMetadata()!!).contains("deviceName='${native.deviceName}'"))
         assertEquals(expected, DittoService.currentCotMetadata())
         enabled.value = false
         assertNull(DittoService.currentCotMetadata())

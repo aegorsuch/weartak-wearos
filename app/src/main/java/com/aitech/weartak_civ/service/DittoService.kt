@@ -404,9 +404,7 @@ class DittoService : Service() {
     private fun configureDitto() {
         val config = ditto.transportConfig.clone()
         config.peerToPeer.bluetoothLe.enabled = false // Discovery owns bounded BLE windows.
-        ditto.deviceName = callsign // set deviceName for presence viewer
-        dittoVersion = ditto.sdkVersion // used in the cot detail for ditto
-        dittoDeviceName = ditto.deviceName
+        configureCotIdentity()
         ditto.transportConfig = config
         val websocketUrls = config.connect.websocketUrls.toSet()
         networkMonitor = DittoNetworkMonitor(this) { wifi, internet ->
@@ -426,6 +424,13 @@ class DittoService : Service() {
             }
         }
         networkMonitor?.start()
+    }
+
+    private fun configureCotIdentity() {
+        // Match the observed ATAK phone/tablet peer naming pattern, not the human callsign.
+        ditto.deviceName = "T${uuid.takeLast(7)}"
+        dittoVersion = ditto.sdkVersion
+        dittoDeviceName = ditto.deviceName
     }
 
     private fun logTransportSet(config: DittoTransportConfig) {
