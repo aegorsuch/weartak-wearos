@@ -1781,6 +1781,38 @@ the Logging switch does not enable its GNSS measurement callbacks. Only the
 user-facing name changed from Diagnostics; saved consent, default-off state,
 journal contents, storage paths and technical schema identifiers are unchanged.
 
+Ditto diagnostics use this same **Logging** switch, JSONL retention and **Logs**
+export/clear path, with no separate files or consent:
+- `DITTO_LIFECYCLE`: `KIND` is start=0, identity validation=1, initialize=2,
+  start sync=3, power policy=4, transport reconfiguration=5, subscription refresh=6,
+  companion handoff=7, stop sync=8, diagnostic registration/cleanup=9.
+  `RESULT=1` marks entry/success, `0` a failure or suppressed startup.
+- `DITTO_STATE`: current `ACTIVE` sync, power `SUPPRESSED`, and identity
+  reconfiguration `REQUESTED` flags at opt-in/process start and state changes.
+- `DITTO_TRANSPORTS`: configured transport bitmask (`TRANSPORT`):
+  BLE=1, LAN=2, Wi-Fi Aware=4, outbound WebSocket=8. Recorded on configuration
+  changes and when diagnostics attach to a running Ditto peer.
+- `DITTO_PEERS`: remote peer count (`CONNECTED_COUNT`, including indirect peers),
+  direct local connection count (`SOCKET_COUNT`, not Android TCP socket count),
+  and observed connection-type bitmask (`TRANSPORT`): Bluetooth=1, AccessPoint=2,
+  SDK P2PWiFi=4, WebSocket=8. Initial presence and changed numeric projections
+  are captured; connection IDs, roles, peer metadata and names are not retained.
+- `DITTO_SDK_LOG`: SDK callback occurrence counts by severity (`KIND`):
+  error=0, warning=1, info=2, debug=3, verbose=4. Ditto 4.14.6 exposes a
+  process-global custom log callback. WearTAK discards its message argument
+  without parsing or persisting it; PDLs, shared keys, license tokens, payloads
+  and exception text never enter these records. SDK verbosity/enabled settings
+  remain unchanged, so counts include only callbacks the SDK actually emits,
+  not every internal SDK event. Raw SDK file logging/export is not enabled.
+
+The SDK hook and passive presence observer exist only while Logging is enabled
+and DittoService owns its peer; disabling Logging or stopping the service releases
+them. Logging does not start sync, alter transports, discover peers, or request
+network access. Counts/configuration are best-effort snapshots, not proof of
+delivery, sync completion, hardware scanning or Wi-Fi Direct support. These events
+share the existing five-second grouping, bounded queue and overflow reporting;
+rapid state changes can be grouped, with retained metadata flushed on export/off.
+
 The journal contains only compiled event categories and allowlisted numeric
 metadata: app/activity lifecycle, best-effort Java crash occurrence, battery
 percentage/charging/dock changes, location requests/acceptance/rejection/timeouts/
@@ -1868,9 +1900,10 @@ remain separate annotations when no existing callback exposes them.
 There are no raw coordinates, speed/health readings, identity/contact/chat
 contents, command names/arguments, exception messages/stacks, credentials,
 tokens, server addresses or device identifiers in this journal. No logcat
-interception, uploads, listener, wireless-debugging enablement, extra
+interception, uploads, network listener, wireless-debugging enablement, extra
 GPS/sensor/wakelock/network requests or battery polling is added. Existing
-callbacks feed the recorder. Events are limited to one record per category/
+app callbacks and opt-in passive SDK callbacks feed the recorder. Events are
+limited to one record per category/
 source/kind/state per five seconds; repeated occurrences are aggregated as counts,
 including on export/off. The queue is bounded to 128 records, the aggregation
 table to 256 keys, and overflow is explicitly counted. An I/O failure pauses
