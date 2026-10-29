@@ -242,6 +242,10 @@ Configure Ditto Edge Sync under **Preferences > Tool Preferences > Plugins**. Th
 tap the Ditto Edge Sync row to select Community or configure a custom PDL in Ditto Edge Sync Identity. The row subtitle shows
 Community or the saved custom PDL, truncated to fit. Ditto is off by default on fresh installs, and saved
 enablement settings are preserved. PDL Help provides scrollable instructions for copying and pasting a custom identity.
+Outgoing standalone PLI includes a `<ditto>` detail only while the watch's enabled
+Ditto peer is actively syncing. Its peer key, SDK version and configured SDK
+device name come from the local watch SDK, never the phone. The detail is omitted
+while stopped, power-suppressed, changing identity, or handed off to Companion.
 Ditto pauses only while Companion is actually connected. An enabled or reconnecting
 Companion service does not block Ditto, and Ditto never blocks Companion startup.
 On link loss, enabled Ditto resumes; reconnecting pauses it again without changing

@@ -51,6 +51,7 @@ class DittoTrackLocationTest {
         fun field(name: String) = DittoService::class.java.getDeclaredField(name).apply { isAccessible = true }
         field("dataRepository").set(service, repo)
         field("dittoVersion").set(service, "test")
+        field("dittoDeviceName").set(service, "Configured SDK watch")
         @Suppress("UNCHECKED_CAST")
         val startup = field("startupResult").get(null) as MutableStateFlow<Boolean?>
         val previous = startup.value
@@ -86,6 +87,8 @@ class DittoTrackLocationTest {
             assertTrue((document["r"] as String).contains("role='Medic'"))
             assertFalse((document["r"] as String).contains("180"))
             assertTrue((document["r"] as String).contains("<remarks>MOPP3</remarks>"))
+            assertTrue((document["r"] as String).contains(
+                "<ditto a='test-peer' ip='0.0.0.0' version='test' deviceName='Configured SDK watch'/>"))
             for (tag in listOf("hr", "skt", "exert")) assertFalse((document["r"] as String).contains("<$tag>"))
             assertEquals("MOPP3", pairedPli.remarks)
             assertNull(repo.latestLocation.value)
@@ -117,6 +120,7 @@ class DittoTrackLocationTest {
         fun field(name: String) = DittoService::class.java.getDeclaredField(name).apply { isAccessible = true }
         field("dataRepository").set(service, repo)
         field("dittoVersion").set(service, "test")
+        field("dittoDeviceName").set(service, "Configured SDK watch")
         DittoService.localPeerKeyString = "test-peer"
         val documents = mutableListOf<Map<String, Any?>>()
         every { service.writeDocument("track", any()) } answers { documents += secondArg<Map<String, Any?>>() }

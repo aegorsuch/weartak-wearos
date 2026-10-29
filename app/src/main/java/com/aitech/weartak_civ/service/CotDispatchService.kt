@@ -1079,7 +1079,7 @@ class CotDispatchService : Service() {
         val ce: Float // Horizontal Error
     )
 
-    private fun buildPliCot(snapshot: DataRepository.PliSnapshot): String {
+    private suspend fun buildPliCot(snapshot: DataRepository.PliSnapshot): String {
         val callsign = snapshot.systemData.callsign
         val role = snapshot.systemData.role
         val teamValue = snapshot.systemData.team
@@ -1104,7 +1104,8 @@ class CotDispatchService : Service() {
         val hailDetail = buildHailDetail(snapshot.physioData.data, callsign)
         val xml = CotMessageBuilder.pli(
             snapshot,
-            CotMessageBuilder.PliOptions(callsign, role, teamValue, enableBatdokCot, hailDetail),
+            CotMessageBuilder.PliOptions(callsign, role, teamValue, enableBatdokCot, hailDetail,
+                dittoMetadata = DittoService.currentCotMetadata()),
         )
         Log.e("WEARTAK_COT_XML", "XML=$xml")
         return xml
