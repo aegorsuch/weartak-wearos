@@ -246,6 +246,12 @@ Outgoing standalone PLI includes a `<ditto>` detail only while the watch's enabl
 Ditto peer is actively syncing. Its peer key, SDK version and configured SDK
 device name come from the local watch SDK, never the phone. The detail is omitted
 while stopped, power-suppressed, changing identity, or handed off to Companion.
+The watch advertises the same Ditto SDK and CoT device name: `T` followed by the
+last seven characters of its stable TAK UID (`WEAROS_` plus Android ID).
+This matches observed working ATAK phone/tablet naming for peer association;
+it is a sample-based compatibility convention, not a universal SDK contract.
+Human-readable callsigns remain in CoT contact details; peer keys and SDK versions
+are unchanged. Callsign changes do not change this UID-derived peer name.
 Ditto pauses only while Companion is actually connected. An enabled or reconnecting
 Companion service does not block Ditto, and Ditto never blocks Companion startup.
 On link loss, enabled Ditto resumes; reconnecting pauses it again without changing
