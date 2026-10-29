@@ -27,6 +27,7 @@ open class PluginManager(
     private val ingress: PluginIngressPort,
     private val pluginTrust: PluginTrust = CepProvider.pluginTrust(),
     val settingsCoordinator: PluginSettingsCoordinator = PluginSettingsCoordinator(app),
+    private val pluginStateStore: PluginStateStore? = null,
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connections = ConcurrentHashMap<String, PluginConnection>()
@@ -43,11 +44,12 @@ open class PluginManager(
         PluginDiagnostics.markDiscovered(targets.map { it.packageName })
         val targetPkgs = targets.map { it.packageName }.toSet()
         for (existing in connections.keys.toList()) {
-            if (existing !in targetPkgs) {
+            if (existing !in targetPkgs || pluginStateStore?.isEnabled(existing) == false) {
                 unbindPackage(existing)
             }
         }
         for (cn in targets) {
+            if (pluginStateStore?.isEnabled(cn.packageName) == false) continue
             if (connections.containsKey(cn.packageName)) continue
             bind(cn)
         }

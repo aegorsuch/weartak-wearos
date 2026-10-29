@@ -177,6 +177,7 @@ import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_TOGGLED
 import com.aitech.weartak_civ.integration.plugin.PluginCompatibilityStatus
 import com.aitech.weartak_civ.integration.plugin.PluginActivityLauncher
 import com.aitech.weartak_civ.integration.plugin.PluginLoadingStatus
+import com.aitech.weartak_civ.integration.plugin.PluginUninstallRequest
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 import com.aitech.weartak_civ.integration.plugin.PluginViewModel
 import com.aitech.weartak_civ.manager.NetworkManager
@@ -3120,6 +3121,7 @@ fun WearTAKSettingsNav(
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_RESUME) {
+                        pluginVm.refreshBindings()
                         pluginVm.refresh()
                     }
                 }
@@ -3326,13 +3328,34 @@ fun WearTAKSettingsNav(
             )
 
             WearTAKPluginPopupBox(
-                showPopup,
-                pluginitem.value.title,
+                showPopup = showPopup,
+                titleText = pluginitem.value.title,
                 description = pluginitem.value.desc,
                 versionNumber = pluginitem.value.versionName,
                 compatibility = pluginitem.value.compatibility,
                 loadingStatus = pluginitem.value.loadingStatus,
-                errorMessage = pluginitem.value.errorMessage
+                errorMessage = pluginitem.value.errorMessage,
+                onUninstallClick = {
+                    when (val request = pluginVm.uninstallPlugin(pluginitem.value.pluginId)) {
+                        is PluginUninstallRequest.Ready -> {
+                            context.startActivity(
+                                Intent(
+                                    Intent.ACTION_DELETE,
+                                    Uri.parse("package:${request.packageName}"),
+                                ),
+                            )
+                        }
+
+                        is PluginUninstallRequest.Failure -> {
+                            Toast.makeText(
+                                context,
+                                request.reason,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                    showPopup.value = false
+                },
             )
 
             WearTAKAlertDialog(
@@ -3348,7 +3371,7 @@ fun WearTAKSettingsNav(
                 },
                 text = {
                     Text(
-                        "Remove ${pluginitem.value.title}?",
+                        "Uninstall ${pluginitem.value.title}?",
                         textAlign = TextAlign.Center,
                         fontSize = 14.sp
                     )
@@ -3391,15 +3414,31 @@ fun WearTAKSettingsNav(
             )
 
             if (isConfirmed.value) {
-                Log.d(TAG, "plugin removed isSuccess")
-                LaunchedEffect(Unit) {
-                    delay(1000) // Delay for 5 seconds
-                    isConfirmed.value = false // Dismiss the dialog
-                    successBoolean.value = false // Dismiss the dialog
-                    Log.d(TAG, "plugin removed called")
-                    pluginVm.removePlugin(pluginitem.value.pluginId)
-//                    pluginVm.uninstallPlugin(pluginitem.value.pluginId)
-                }
+                    Log.d(TAG, "plugin uninstall confirmed")
+                    LaunchedEffect(Unit) {
+                        delay(1000) // Delay for 5 seconds
+                        isConfirmed.value = false // Dismiss the dialog
+                        successBoolean.value = false // Dismiss the dialog
+                        Log.d(TAG, "plugin uninstall requested")
+                        when (val request = pluginVm.uninstallPlugin(pluginitem.value.pluginId)) {
+                            is PluginUninstallRequest.Ready -> {
+                                context.startActivity(
+                                    Intent(
+                                        Intent.ACTION_DELETE,
+                                        Uri.parse("package:${request.packageName}"),
+                                    ),
+                                )
+                            }
+
+                            is PluginUninstallRequest.Failure -> {
+                                Toast.makeText(
+                                    context,
+                                    request.reason,
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        }
+                    }
                 //TODO: Commenting this out until successboolean is acgtually connected
 //                WearTAKSuccessFailDialog(
 //                    isConfirmed,
@@ -5467,7 +5506,8 @@ fun WearTAKPluginPopupBox(
     versionNumber: String,
     compatibility: PluginCompatibilityStatus,
     loadingStatus: PluginLoadingStatus,
-    errorMessage: String
+    errorMessage: String,
+    onUninstallClick: () -> Unit = {},
 ) {
     if (showPopup.value) {
         Dialog(
@@ -5536,9 +5576,26 @@ fun WearTAKPluginPopupBox(
                                 maxLines = 2,
                                 fontSize = 10.sp,
                                 lineHeight = 11.sp
-                            )
-                        }
+                        )
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = onUninstallClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(0.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Red,
+                            contentColor = Color.Black,
+                        ),
+                    ) {
+                        Text(
+                            text = "Uninstall",
+                            color = Color.Black,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
                 }
             }
         }
