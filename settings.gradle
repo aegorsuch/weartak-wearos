@@ -1,6 +1,21 @@
 pluginManagement {
     repositories {
-        gradlePluginPortal()
+        // Runner pool jobs share one egress IP that Maven Central rate-limits (HTTP 429),
+        // and Gradle aborts on a 429 instead of trying the next repository.
+        def takUser = System.getenv('ARTIFACTORY_CONSUME_USER') ?: System.getenv('ARTIFACTORY_USER') ?: System.getenv('TAK_USERNAME')
+        def takPass = System.getenv('ARTIFACTORY_CONSUME_PASSWORD') ?: System.getenv('ARTIFACTORY_PASSWORD') ?: System.getenv('TAK_PASSWORD')
+        if (takUser && takPass) {
+            maven {
+                name = 'takArtifactory'
+                url = 'https://artifacts.tak.gov/artifactory/maven-release'
+                credentials {
+                    username = takUser
+                    password = takPass
+                }
+            }
+        }
+        println "takArtifactory for plugins: ${takUser && takPass ? 'enabled' : 'disabled (no credentials in environment)'}"
+        // Ahead of the Plugin Portal, which redirects plugin downloads to Maven Central.
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -8,6 +23,7 @@ pluginManagement {
                 includeGroupByRegex("androidx.*")
             }
         }
+        gradlePluginPortal()
         mavenCentral()
     }
 }
@@ -17,6 +33,18 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        def takUser = System.getenv('ARTIFACTORY_CONSUME_USER') ?: System.getenv('ARTIFACTORY_USER') ?: System.getenv('TAK_USERNAME')
+        def takPass = System.getenv('ARTIFACTORY_CONSUME_PASSWORD') ?: System.getenv('ARTIFACTORY_PASSWORD') ?: System.getenv('TAK_PASSWORD')
+        if (takUser && takPass) {
+            maven {
+                name = 'takArtifactory'
+                url = 'https://artifacts.tak.gov/artifactory/maven-release'
+                credentials {
+                    username = takUser
+                    password = takPass
+                }
+            }
+        }
         google()
         mavenCentral()
         repositories {
