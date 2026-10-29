@@ -761,7 +761,7 @@ class DittoService : Service() {
             val how = "m-g"
 
 
-            // 2) Merged version (original + ditto + remarks/biometrics/track)
+            // 2) Merged version (original + ditto + remarks/physiology/track)
             val cotDetail = CotDetailBuilder.dittoTrack(
                 // your original args:
                 monitoredPhysio = pliSnapshot.monitoredPhysio,
