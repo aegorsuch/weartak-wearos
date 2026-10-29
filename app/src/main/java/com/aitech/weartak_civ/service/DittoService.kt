@@ -108,6 +108,7 @@ class DittoService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "DittoService onCreate()")
+        recordDittoLifecycle(DittoDiagnosticPhase.START, true)
         isRunning.set(true)
         startForegroundServiceCompat(
             notificationId = DITTO_SERVICE_NOTIFICATION_ID,
@@ -118,6 +119,7 @@ class DittoService : Service() {
         activeService.value = this
         if (reconfiguring.value || dataRepository.shouldSuppressWatchTransportNow()) {
             Log.i(TAG, "Ditto startup suppressed: identity changing or Companion handoff active")
+            recordDittoLifecycle(DittoDiagnosticPhase.START, false)
             stopSelf()
             return
         }
@@ -144,6 +146,7 @@ class DittoService : Service() {
         localPeerKeyString = ditto.presence.graph.localPeer.peerKeyString
 
         try {
+            DittoDiagnostics(ioScope, application.diagnostics.enabled, ditto, AppDiagnostics::record)
             configureDitto()
             powerMonitor = DittoPowerMonitor(this, dataRepository, ioScope, ::onPowerStateChanged)
             powerState = powerMonitor!!.initial(runBlocking { dataRepository.getBatteryWarnPercentage.first() })
@@ -192,6 +195,7 @@ class DittoService : Service() {
                             }
                         }
                     } catch (error: Exception) {
+                        recordDittoLifecycle(DittoDiagnosticPhase.SUBSCRIPTIONS, false)
                         Log.e(TAG, "Could not restore Ditto chat subscription; stopping peer", error)
                         stopSelf()
                         return@launch
@@ -204,6 +208,7 @@ class DittoService : Service() {
             startupResult.value = true
             Log.i(TAG, "DittoService startSync()")
         } catch (e: Exception) {
+            recordDittoLifecycle(DittoDiagnosticPhase.START, false)
             Log.e(TAG, "DittoService failed to start", e)
             startupResult.value = false
             stopPeer()
@@ -221,6 +226,7 @@ class DittoService : Service() {
             return@synchronized true
         }
         ditto.startSync()
+        recordDittoLifecycle(DittoDiagnosticPhase.SYNC, true)
         powerSuppressedState.value = false
         syncActiveState.value = true
         true
@@ -250,6 +256,7 @@ class DittoService : Service() {
             Log.i(TAG, "Ditto power suppression=$suppressed")
             com.aitech.weartak_civ.presentation.requestStatusIconsComplicationUpdate(this)
         } catch (error: Exception) {
+            recordDittoLifecycle(DittoDiagnosticPhase.POWER, false)
             Log.e(TAG, "Could not apply Ditto power policy; stopping peer", error)
             stopSelf()
         }
@@ -271,6 +278,7 @@ class DittoService : Service() {
             dataRepository.isCompanionConnected.collect { connected ->
                 if (connected) {
                     Log.i(TAG, "Bonded companion ready; stopping watch Ditto peer and workers")
+                    recordDittoLifecycle(DittoDiagnosticPhase.COMPANION, true)
                     stopPeer()
                     stopSelf()
                 }
@@ -309,8 +317,10 @@ class DittoService : Service() {
         if (ownsDitto) {
             try {
                 getDittoInstance()?.stopSync()
+                recordDittoLifecycle(DittoDiagnosticPhase.STOP, true)
                 Log.i(TAG, "Watch Ditto sync stopped (all peer transports)")
             } catch (error: DittoError) {
+                recordDittoLifecycle(DittoDiagnosticPhase.STOP, false)
                 Log.e(TAG, "Error stopping Ditto sync", error)
             }
         }
@@ -391,6 +401,7 @@ class DittoService : Service() {
                         if (next != ditto.transportConfig) ditto.transportConfig = next
                         logTransportSet(next)
                     } catch (error: Exception) {
+                        recordDittoLifecycle(DittoDiagnosticPhase.TRANSPORT, false)
                         Log.e(TAG, "Could not reconfigure Ditto transports; stopping peer", error)
                         stopSelf()
                     }
@@ -404,6 +415,8 @@ class DittoService : Service() {
         val enabled = DittoTransportPolicy.enabled(config)
         if (lastTransportSet != enabled) {
             lastTransportSet = enabled
+            if (AppDiagnostics.recordingEnabled?.value == true)
+                AppDiagnostics.record(DiagnosticEvent.DITTO_TRANSPORTS, dittoTransportMetrics(config))
             Log.i(TAG, "Ditto enabled transports=$enabled (Wi-Fi Direct: not exposed by SDK 4)")
         }
     }
@@ -1052,12 +1065,14 @@ class DittoService : Service() {
                 DittoCommunityLicenseHelper.parse(encodedPdl)
             } catch (error: Exception) {
                 Log.e(TAG, "Invalid PDL")
+                recordDittoLifecycle(DittoDiagnosticPhase.IDENTITY, false)
                 Toast.makeText(applicationContext, "Invalid PDL", Toast.LENGTH_LONG).show()
                 return false
             }
 
             // Stop if the PDL has expired
             if (license.isExpired) {
+                recordDittoLifecycle(DittoDiagnosticPhase.IDENTITY, false)
                 Log.e(TAG, "Expired PDL")
                 Toast.makeText(applicationContext, "Expired PDL", Toast.LENGTH_LONG).show()
                 return false
@@ -1086,9 +1101,11 @@ class DittoService : Service() {
                 )
 
                 dittoInstance = candidate
+                recordDittoLifecycle(DittoDiagnosticPhase.INITIALIZE, true)
                 Log.i(TAG, "Ditto initialized successfully")
                 true
             } catch (error: Exception) {
+                recordDittoLifecycle(DittoDiagnosticPhase.INITIALIZE, false)
                 candidate?.close()
                 Log.e(TAG, "Failed to initialize Ditto")
                 Toast.makeText(applicationContext, "Ditto failed to start", Toast.LENGTH_LONG).show()

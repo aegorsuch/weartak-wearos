@@ -79,6 +79,37 @@ class AppDiagnosticsTest {
         }
     }
 
+    @Test fun dittoRuntimeStateIsCapturedAtOptInAndPowerTransitions() = runBlocking {
+        val diagnostics = AppDiagnostics(app).also { recorder = it }
+        @Suppress("UNCHECKED_CAST")
+        val suppressed = DittoService::class.java.getDeclaredField("powerSuppressedState").run {
+            isAccessible = true
+            get(null) as kotlinx.coroutines.flow.MutableStateFlow<Boolean>
+        }
+        val original = suppressed.value
+        try {
+            suppressed.value = true
+            diagnostics.setEnabled(true)
+            suspend fun states() = JsonParser.parseString(diagnostics.exportJson()).asJsonObject["events"]
+                .asJsonArray.filter { it.asJsonObject["event"].asString == "DITTO_STATE" }
+            withTimeout(5_000) {
+                while (states().none { it.asJsonObject["metrics"].asJsonObject["SUPPRESSED"].asInt == 1 })
+                    delay(10)
+            }
+            suppressed.value = false
+            withTimeout(5_000) {
+                while (states().none { it.asJsonObject["metrics"].asJsonObject["SUPPRESSED"].asInt == 0 })
+                    delay(10)
+            }
+            assertTrue(states().all {
+                it.asJsonObject["metrics"].asJsonObject.has("ACTIVE") &&
+                    it.asJsonObject["metrics"].asJsonObject.has("REQUESTED")
+            })
+        } finally {
+            suppressed.value = original
+        }
+    }
+
     @Test fun payloadsAreNeverReadAndRepeatedEventsAreAggregated() = runBlocking {
         val diagnostics = AppDiagnostics(app).also { recorder = it }
         diagnostics.setEnabled(true)
