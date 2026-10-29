@@ -82,7 +82,8 @@ agp_resolution_diagnostic:
 
   script:
     # Build the same release APK that we previously built manually.
-    - ./gradlew --no-daemon clean assembleRelease
+    # Share the 4Gi Gradle heap with Kotlin and bound workers within the 8Gi container.
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process clean assembleRelease
 
     # Verify that the resulting APK is signed with the established
     # WearTAK Android production certificate.
