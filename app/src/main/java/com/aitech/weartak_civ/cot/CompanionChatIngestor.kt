@@ -21,7 +21,9 @@ object CompanionChatIngestor {
             messageList = listOf(ChatMessage(
                 message = text, uid = sender, callsign = callsign,
                 timeReceived = payload.receivedAt?.takeIf { it > 0L } ?: now,
-                messageId = id
+                messageId = id,
+                messageTime = payload.sentAt?.takeIf { it > 0L }
+                    ?: payload.receivedAt?.takeIf { it > 0L } ?: now
             )),
             newMessagesPresent = true,
             timeLastOpened = 0L,

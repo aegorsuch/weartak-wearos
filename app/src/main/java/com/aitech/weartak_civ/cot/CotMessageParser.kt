@@ -308,6 +308,8 @@ object CotMessageParser {
         val document = parseDocumentOrNull(rawXml) ?: return emptyList()
         if (document.documentElement.tagName != "event") return emptyList()
 
+        val messageTime = document.documentElement.getAttribute("time").let(::parseIsoToEpochMs)
+            .takeIf { it > 0L } ?: receivedAt
         val rooms = mutableListOf<ChatRoom>()
         val chatElements = document.getElementsByTagName("__chat")
         val remarkElements = document.getElementsByTagName("remarks")
@@ -351,7 +353,8 @@ object CotMessageParser {
                         if (isGroup) conversationUid else if (legacyBroadcast) ALL_CHAT_ROOMS else senderUid,
                         if (isGroup) title ?: ALL_CHAT_ROOMS else if (legacyBroadcast) ALL_CHAT_ROOMS else senderCallsign,
                         isGroup || legacyBroadcast,
-                        if (isGroup && !broadcast) participants else emptyList()
+                        if (isGroup && !broadcast) participants else emptyList(),
+                        messageTime
                     )
                 }
             }
@@ -411,7 +414,8 @@ object CotMessageParser {
         conversationUid: String = senderUid,
         conversationTitle: String = senderCallsign,
         isGroup: Boolean = false,
-        participantUids: List<String> = emptyList()
+        participantUids: List<String> = emptyList(),
+        messageTime: Long = receivedAt
     ) = ChatRoom(
         uid = conversationUid,
         title = conversationTitle,
@@ -422,7 +426,8 @@ object CotMessageParser {
                 callsign = senderCallsign,
                 timeReceived = receivedAt,
                 sourceServerId = sourceServerId,
-                messageId = messageId
+                messageId = messageId,
+                messageTime = messageTime
             )
         ),
         newMessagesPresent = true,

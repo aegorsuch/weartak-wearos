@@ -371,13 +371,13 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(api.release["name"], f"{p.TITLE} (5.8.0.3-p12)")
 
     def test_stamped_version_name_is_shortened_for_title_and_asset(self):
-        self.metadata["elements"][0].update(versionName="5.8.0.3-p12+de139f69", versionCode=5830012)
+        self.metadata["elements"][0].update(versionName="5.8.4-p12+de139f69", versionCode=5840012)
         self.write_metadata()
         api = FakeGitHub()
         self.publish(api)
-        self.assertEqual(api.release["name"], "TAK.gov Forge CI/CD Pipeline Release (5.8.0.3-p12)")
-        self.assertEqual(api.items[0]["name"], "WearTAK-5.8.0.3-p12.apk")
-        self.assertIn("5.8.0.3-p12+de139f69", api.release["body"])
+        self.assertEqual(api.release["name"], "TAK.gov Forge CI/CD Pipeline Release (5.8.4-p12)")
+        self.assertEqual(api.items[0]["name"], "WearTAK-5.8.4-p12.apk")
+        self.assertIn("5.8.4-p12+de139f69", api.release["body"])
 
     def test_legacy_named_assets_are_cleaned_up(self):
         api = FakeGitHub(dict(self.state, pipeline_iid=11))

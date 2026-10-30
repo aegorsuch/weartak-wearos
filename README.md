@@ -1561,9 +1561,15 @@ private sends resolve a real ATAK IndividualContact with a GeoChat endpoint and 
 ATAK's native targeted chat API, preserving native phone conversation history.
 Unknown/self/broadcast-like direct contacts are rejected, never broadcast.
 Picker order is All Chat Rooms pinned first, Select User for Chat second, then
-direct/named-group rooms by their latest received remote message descending.
-Incoming messages update this order dynamically; local sends and older replayed
-messages do not promote a room. Empty rooms follow rooms with received messages.
+direct/named-group rooms by their latest message activity descending, including
+local sends. Messages inside each conversation also appear newest first, with
+date headers and previews using the same message timestamps. CoT event time or
+Companion `sentAt` determines chronology when available; legacy messages without
+that timestamp use receipt time. Older timestamped replays do not promote a room.
+Equal timestamps use deterministic sender/message and room UID ordering.
+Receipt timestamps remain separate for unread tracking. Stable message keys
+preserve the reading position when newer messages arrive while scrolling.
+Empty rooms follow rooms with messages; canned preset ordering is unchanged.
 The broadcast room appears only in its pinned entry, not again in the sorted list.
 BLE uses version-1 `msgType: chat_received` inbound and `msgType: chat` outbound,
 with a `payload` object and message ID in `msgUid`/`payload.uid`. Inbound retains
