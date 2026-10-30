@@ -43,6 +43,11 @@ android_mopp_check:
       --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
       --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
       --tests '*PluginSettingsCoordinatorTest'
+      --tests '*MapSourceTest' --tests '*MapCameraTest' --tests '*MapLayerLifecycleTest'
+      --tests '*MapUserActionsTest' --tests '*MarkerReadabilityTest' --tests '*MapTargetSelectionTest'
+      --tests '*LollipopGeometryTest' --tests '*LollipopOverlayTest'
+      --tests '*ElevationTest' --tests '*AwsTerrainProviderTest'
+      --tests '*RouteDetailsViewTest' --tests '*RoutePointDetailsViewTest'
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:
     when: always

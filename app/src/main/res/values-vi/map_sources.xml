@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">Căn giữa và phóng to liên hệ</string>
+    <string name="map_focus_target">Căn giữa và phóng to mục tiêu</string>
+    <string name="map_route_start_failed">Không thể bắt đầu tuyến đường. Kiểm tra tuyến đường và vị trí.</string>
+    <string name="map_sources">Bản đồ</string>
+    <string name="map_view_overhead">Chuyển sang góc nhìn từ trên xuống 2D</string>
+    <string name="map_view_tilted">Chuyển sang góc nhìn nghiêng 3D</string>
+    <string name="map_view_osm_only">Góc nhìn 2D. Chỉ OSM Vector hỗ trợ góc nghiêng</string>
+    <string name="map_overlay_manager">Quản lý lớp</string>
+    <string name="map_credits">Nguồn và bản quyền</string>
+    <string name="map_credits_expanded">Đã mở rộng</string>
+    <string name="map_credits_collapsed">Đã thu gọn</string>
+    <string name="map_credits_expand">Mở rộng nguồn và bản quyền</string>
+    <string name="map_credits_collapse">Thu gọn nguồn và bản quyền</string>
+    <string name="map_credit_link_unavailable">Không có trình duyệt. Mở: %1$s</string>
+    <string name="map_load_failed">Không thể tải bản đồ. Kiểm tra kết nối, thử lại hoặc khôi phục bản đồ gốc.</string>
+    <string name="map_load_timeout">Bản đồ vẫn đang tải. Kiểm tra kết nối, thử lại hoặc khôi phục bản đồ gốc.</string>
+    <string name="map_error_open_layers">Bản đồ không khả dụng. Mở quản lý lớp</string>
+    <string name="map_retry">Thử tải lại bản đồ</string>
+    <string name="map_restore_original">Khôi phục bản đồ gốc</string>
+</resources>

@@ -65,15 +65,15 @@ class ChatPickerActionsTest {
                 onChatContactSelected = { selections += it })
         }
         compose.runOnIdle { users.value = listOf(bob, alice.copy(title = "Alice updated")) }
-        compose.onNodeWithText("Open Chat").performClick()
+        compose.onNodeWithContentDescription("Open Chat").performClick()
         compose.runOnIdle { assertEquals(listOf(DirectChatContact("alice", "Alice updated")), selections) }
         compose.runOnIdle { users.value = listOf(bob) }
-        compose.onNodeWithText("Open Chat").assertIsNotEnabled()
-        compose.onNodeWithTag("map-user-actions").performScrollToNode(hasText("Start Bloodhound"))
-        compose.onNodeWithText("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Open Chat").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Center and zoom to contact").assertIsNotEnabled()
     }
 
-    @Test fun selectedMapUserOffersBloodhoundBelowChatAndUsesLatestUidSnapshot() {
+    @Test fun selectedMapUserOffersCompactOrderedIconsAndUsesLatestUidSnapshot() {
         MainActivity.device_uid = "watch"
         fun user(uid: String, title: String) = DataRepository.ReceivedUser(
             uid, "a-f-G-U-C", "Blue", title, "Team Member", 1, 100,
@@ -87,19 +87,50 @@ class ChatPickerActionsTest {
                 LocalContext.current,
                 onBloodhoundUserSelected = { selections += it; true })
         }
-        compose.onNodeWithTag("map-user-actions").performScrollToNode(hasText("Start Bloodhound"))
-        assertTrue(compose.onNodeWithText("Start Bloodhound").fetchSemanticsNode().positionInRoot.y >
-            compose.onNodeWithText("Open Chat").fetchSemanticsNode().positionInRoot.y)
+        val bloodhound = compose.onNodeWithContentDescription("Start Bloodhound")
+        val chat = compose.onNodeWithContentDescription("Open Chat")
+        val target = compose.onNodeWithContentDescription("Center and zoom to contact")
+        bloodhound.assertIsDisplayed()
+        chat.assertIsDisplayed()
+        target.assertIsDisplayed()
+        val bounds = listOf(bloodhound, chat, target).map { it.fetchSemanticsNode().boundsInRoot }
+        assertTrue(bounds[0].center.x < bounds[1].center.x && bounds[1].center.x < bounds[2].center.x)
+        assertEquals(bounds[0].center.y, bounds[1].center.y, 0.1f)
+        assertEquals(bounds[1].center.y, bounds[2].center.y, 0.1f)
         val updated = alice.copy(title = "Alice updated")
         compose.runOnIdle { users.value = listOf(bob, updated) }
-        compose.onNodeWithText("Start Bloodhound").performClick()
+        compose.onNodeWithContentDescription("Start Bloodhound").performClick()
         compose.runOnIdle { assertEquals(listOf(updated), selections) }
         compose.runOnIdle { users.value = listOf(bob) }
-        compose.onNodeWithText("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
         compose.runOnIdle { users.value = listOf(alice.copy(location = null)) }
-        compose.onNodeWithText("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
         compose.runOnIdle { users.value = listOf(alice.copy(
             location = alice.location?.copy(lat = Double.NaN))) }
-        compose.onNodeWithText("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
+    }
+
+    @Test fun selectedContactTargetUsesLatestLocationWithoutStartingBloodhound() {
+        MainActivity.device_uid = "watch"
+        val alice = DataRepository.ReceivedUser(
+            "fixture-alice", "a-f-G-U-C", "Blue", "Alice", "Team Member", 1, 100,
+            DataRepository.LocationSnapshot(1, 38.0, -77.0, null, null, null, null, null),
+            "fixture", chatEndpoint = "*:4242:tcp")
+        val users = mutableStateOf(listOf(alice))
+        val focused = mutableListOf<DataRepository.ReceivedUser>()
+        var starts = 0
+        compose.setContent {
+            SelectedUser(rememberSwipeDismissableNavController(), alice.uid, users.value,
+                LocalContext.current,
+                onBloodhoundUserSelected = { starts++; true },
+                onFocusUserSelected = { focused += it })
+        }
+        val updated = alice.copy(location = alice.location?.copy(lat = 39.0))
+        compose.runOnIdle { users.value = listOf(updated) }
+        compose.onNodeWithContentDescription("Center and zoom to contact").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(updated), focused)
+            assertEquals(0, starts)
+        }
     }
 }

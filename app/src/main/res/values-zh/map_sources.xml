@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">居中并放大联系人</string>
+    <string name="map_focus_target">居中并放大目标</string>
+    <string name="map_route_start_failed">无法启动路线。请检查路线和位置。</string>
+    <string name="map_sources">地图</string>
+    <string name="map_view_overhead">切换到2D俯视图</string>
+    <string name="map_view_tilted">切换到3D倾斜视图</string>
+    <string name="map_view_osm_only">2D视图。仅OSM Vector支持倾斜视图</string>
+    <string name="map_overlay_manager">图层管理</string>
+    <string name="map_credits">来源与版权</string>
+    <string name="map_credits_expanded">已展开</string>
+    <string name="map_credits_collapsed">已折叠</string>
+    <string name="map_credits_expand">展开来源与版权</string>
+    <string name="map_credits_collapse">折叠来源与版权</string>
+    <string name="map_credit_link_unavailable">没有可用浏览器。请打开：%1$s</string>
+    <string name="map_load_failed">地图加载失败。请检查连接、重试或恢复原始地图。</string>
+    <string name="map_load_timeout">地图仍在加载。请检查连接、重试或恢复原始地图。</string>
+    <string name="map_error_open_layers">地图不可用。请打开图层管理</string>
+    <string name="map_retry">重新加载地图</string>
+    <string name="map_restore_original">恢复原始地图</string>
+</resources>

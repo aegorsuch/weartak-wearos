@@ -146,9 +146,9 @@ class MarkerReadabilityTest {
         }
     }
 
-    @Test fun groupedLabelsOnlyChangePresentationNotFeatureIdentityOrCoordinates() {
+    @Test fun groupedLabelsStayEmptyWithoutChangingFeatureIdentityOrCoordinates() {
         val marker = MapMarkerItem("pin", MarkerType.FRIENDLY.type, title, lat, lon, false,
-            MarkerCotType.DROP, "server", mapLabel = "2 targets", selectionKey = "selected-pin")
+            MarkerCotType.DROP, "server", mapLabel = "", selectionKey = "selected-pin")
         val user = MapUserItem("user", "a-f-G-U-C", "Blue", "Contact One", lat, lon,
             "Team Member", "server", mapLabel = "", selectionKey = "selected-user")
         var checked = false
@@ -158,7 +158,7 @@ class MarkerReadabilityTest {
             SideEffect {
                 val pin = markers.features.single()
                 val contact = users.features.single()
-                assertEquals("2 targets", pin.properties?.get("title")?.toString()?.trim('"'))
+                assertEquals("\"\"", pin.properties?.get("title")?.toString())
                 assertEquals("\"\"", contact.properties?.get("title")?.toString())
                 assertEquals("\"pin\"", pin.properties?.get("id")?.toString())
                 assertEquals("\"selected-pin\"", pin.properties?.get("selectionKey")?.toString())

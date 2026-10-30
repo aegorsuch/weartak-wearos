@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">Centrar y ampliar contacto</string>
+    <string name="map_focus_target">Centrar y ampliar objetivo</string>
+    <string name="map_route_start_failed">No se pudo iniciar la ruta. Comprueba la ruta y la ubicación.</string>
+    <string name="map_sources">Mapas</string>
+    <string name="map_view_overhead">Cambiar a vista cenital 2D</string>
+    <string name="map_view_tilted">Cambiar a vista inclinada 3D</string>
+    <string name="map_view_osm_only">Vista 2D. La inclinación solo está disponible en OSM Vector</string>
+    <string name="map_overlay_manager">Gestor de capas</string>
+    <string name="map_credits">Créditos</string>
+    <string name="map_credits_expanded">Expandido</string>
+    <string name="map_credits_collapsed">Contraído</string>
+    <string name="map_credits_expand">Expandir créditos</string>
+    <string name="map_credits_collapse">Contraer créditos</string>
+    <string name="map_credit_link_unavailable">No hay navegador disponible. Abre: %1$s</string>
+    <string name="map_load_failed">No se pudo cargar el mapa. Comprueba la conexión, reintenta o restaura el mapa original.</string>
+    <string name="map_load_timeout">El mapa sigue cargando. Comprueba la conexión, reintenta o restaura el mapa original.</string>
+    <string name="map_error_open_layers">Mapa no disponible. Abre el gestor de capas</string>
+    <string name="map_retry">Reintentar mapa</string>
+    <string name="map_restore_original">Restaurar mapa original</string>
+</resources>

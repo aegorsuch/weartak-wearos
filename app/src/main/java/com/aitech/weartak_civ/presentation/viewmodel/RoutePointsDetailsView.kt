@@ -69,12 +69,14 @@ fun RoutePointsDetailsView(
     distance: Double? = null,
     orientation: Float = 0f,
     isBloodhounding: Boolean = false,
-    onChat: () -> Unit = {},
     onBloodhound: () -> Unit = {},
     onInPosition: () -> Unit = {},
     onWholeRoute: () -> Unit = {},
+    onTarget: () -> Unit = {},
     onBack: () -> Unit
 ) {
+    val validPosition = latitude.isFinite() && longitude.isFinite() &&
+        latitude in -90.0..90.0 && longitude in -180.0..180.0
     BackHandler(onBack = onBack)
     Box(
         modifier = Modifier
@@ -107,17 +109,13 @@ fun RoutePointsDetailsView(
                 color = Color.White,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp)
             )
-            MarkerBearingDistance(distance, latitude, longitude, orientation)
-            PointBloodhoundAction(isBloodhounding, onBloodhound, onInPosition)
+            if (validPosition) MarkerBearingDistance(distance, latitude, longitude, orientation)
+            else Text(stringResource(R.string.remote_emergency_no_location),
+                color = Color.LightGray, textAlign = TextAlign.Center)
+            PointBloodhoundAction(isBloodhounding, onBloodhound, onInPosition, onTarget,
+                enabled = validPosition)
             if (!sender.isNullOrBlank()) {
                 Text(sender, color = Color.LightGray, fontSize = 13.sp)
-                Button(
-                    onClick = onChat,
-                    modifier = Modifier.padding(vertical = 10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.primary)
-                ) {
-                    Text(stringResource(R.string.chat), color = Color.Black, fontSize = 15.sp)
-                }
             }
             if (!missionName.isNullOrBlank()) {
                 Text(missionName, color = Color.LightGray, fontSize = 13.sp)
