@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ca_trust_advanced">Avancé</string>
+    <string name="ca_trust_advanced_hide">Masquer les options avancées</string>
+    <string name="ca_trust_import">Importer une AC...</string>
+    <string name="ca_trust_untrusted">L’émetteur du certificat du serveur n’est pas approuvé. Si votre serveur utilise une AC privée, importez son certificat public après avoir vérifié son empreinte avec votre administrateur.</string>
+    <string name="ca_trust_default">Confiance CA : paramètres existants</string>
+    <string name="ca_trust_selected">CA approuvée pour ce serveur</string>
+    <string name="ca_trust_stage_hint">CA publique : files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">Vérifier la CA préparée</string>
+    <string name="ca_trust_loading">Lecture de la CA...</string>
+    <string name="ca_trust_endpoint">Faire confiance uniquement à %1$s:%2$s (inscription 8446, API 8443)</string>
+    <string name="ca_trust_expires">Expiration : %1$s</string>
+    <string name="ca_trust_fingerprint">Empreinte SHA-256</string>
+    <string name="ca_trust_warning">Comparez avec votre administrateur via un canal fiable. Approuvez uniquement si les empreintes correspondent. Le nom de serveur/IP doit toujours correspondre. Enregistrez le serveur pour appliquer.</string>
+    <string name="ca_trust_approve">Approuver cette CA</string>
+    <string name="ca_trust_remove">Retirer la CA lors de la sauvegarde</string>
+    <string name="ca_trust_import_error">Importation impossible. Préparez un seul certificat CA PEM ou DER valide et non expiré (64 Kio maximum), puis réessayez.</string>
+    <string name="ca_trust_load_error">Lecture de la CA enregistrée impossible. Rouvrez ce serveur et réessayez ; modifications non enregistrées.</string>
     <string name="manual_alert_add_hint">Saisir une alerte personnalisée</string>
     <string name="chat_preset_add_hint">Saisir un message personnalisé</string>
     <string name="hello_world">Depuis WearTAK-CIV, Bonjour, %1$s</string>

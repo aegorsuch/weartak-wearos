@@ -178,6 +178,7 @@ class TAKConnectService: Service() {
     }
 
     class ConnectionAttempt(val generation: Long) {
+        var failure: TakConnectionFailure? = null
         val outputMutex = Mutex()
         val sessionId: String = java.util.UUID.randomUUID().toString()
         var job: Job? = null
@@ -229,6 +230,8 @@ class TAKConnectService: Service() {
         val channelMutex: Mutex = Mutex(),
         val runtime: ConnectionRuntime = ConnectionRuntime(),
         var duplicateEndpointSuppressed: Boolean = false,
+        var approvedCa: String? = null,
+        val connectionFailureLiveData: MutableLiveData<TakConnectionFailure?> = MutableLiveData(null),
     ) {
         override fun toString() = "TakServerDetail(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
@@ -560,7 +563,7 @@ class TAKConnectService: Service() {
         reconcileTakServers(storedServers, registrationServerId, retryFailed)
     }
 
-    private fun reconcileTakServers(
+    private suspend fun reconcileTakServers(
         storedServers: List<TakServerItem>,
         registrationServerId: String? = null,
         retryFailed: Boolean = false,
@@ -572,8 +575,9 @@ class TAKConnectService: Service() {
             val serverId = requireNotNull(TakServerId.normalizeOrNull(stored.serverId))
             retainedIds += serverId
             val previous = previousById[serverId]
+            val approvedCa = dataRepository.getApprovedServerCa(serverId, stored.address, stored.port)
             if (previous != null && !previous.runtime.terminated &&
-                previous.hasSameRuntimeConfiguration(stored)) {
+                previous.hasSameRuntimeConfiguration(stored) && previous.approvedCa == approvedCa) {
                 previous.name = stored.name
                 dataRepository.takChannels.value
                     .firstOrNull { it.serverId == serverId }
@@ -582,14 +586,14 @@ class TAKConnectService: Service() {
                     }
                 previous
             } else {
-                val replacement = stored.toRuntimeDetail()
+                val replacement = stored.toRuntimeDetail().apply { this.approvedCa = approvedCa }
                 if (previous != null) {
                     if (previous.isEnabled && !stored.isEnabled) {
                         dataRepository.removeTakServerChannels(serverId)
                     }
                     serverRegistration.replaceRuntime(serverId, previous, replacement)
                     invalidateConnection(previous, terminate = true)
-                    if (previous.hasChangedCredentialMaterial(stored)) {
+                    if (previous.hasChangedCredentialMaterial(stored) || previous.approvedCa != approvedCa) {
                         context.deleteFile(certificateCacheFileName(previous))
                         if (TakServerEndpointIdentity.key(previous.address, previous.port) !=
                             TakServerEndpointIdentity.key(stored)) {
@@ -2044,6 +2048,7 @@ class TAKConnectService: Service() {
                 hostnameVerifier = checkNotNull(detail.channelHostnameVerifier) {
                     "TAK Server channel hostname verifier is unavailable"
                 },
+                strictEndpoint = detail.approvedCa != null,
                 session = session,
             )
         }
@@ -2087,6 +2092,7 @@ class TAKConnectService: Service() {
                 requestsAllowed = {
                     dataRepository.getEnableDataSync.first() && missionConnectionReady(detail)
                 },
+                strictHostname = detail.approvedCa != null,
                 session = session
             )
         }
@@ -2473,6 +2479,15 @@ class TAKConnectService: Service() {
         ) {
             synchronized(detail.runtime.lock) {
                 if (isCurrent(detail, attempt)) {
+                    if (status == TakServerRegistration.Status.CONNECTED) {
+                        detail.connectionFailureLiveData.postValue(null)
+                    } else if (status == TakServerRegistration.Status.FAILED && failure != null) {
+                        // Keep the actual failure; enrollment's finally block also publishes a fallback.
+                        if (attempt.failure == null) {
+                            attempt.failure = failure
+                            detail.connectionFailureLiveData.postValue(failure)
+                        }
+                    }
                     serverRegistration.publish(detail.serverId, detail, status, failure)
                 }
             }
@@ -2548,6 +2563,7 @@ class TAKConnectService: Service() {
                 detail.runtime.generation++
                 attempt = ConnectionAttempt(detail.runtime.generation)
                 detail.runtime.currentAttempt = attempt
+                detail.connectionFailureLiveData.postValue(null)
                 attempt.httpSession = TakHttpSession(activeService?.takNetworkPreference?.network?.value) {
                     isCurrent(detail, attempt)
                 }
@@ -2779,7 +2795,7 @@ class TAKConnectService: Service() {
             val nameValueList : MutableList<NameValueEntry> = mutableListOf()
 
             val url = "https://$takServer:8446/Marti/api/tls/config"
-            val client = OkHttpClient()
+            val client = com.aitech.weartak_civ.data.takserver.TakServerCaTrust.enrollmentClient(takServerDetail.approvedCa)
 
             // Basic Authentication
             val credential = Credentials.basic(username, password)
@@ -2841,6 +2857,7 @@ class TAKConnectService: Service() {
 
         // Returns null on ERROR else response body as String
         private fun postCsrAndGetResponse(takServer: String, username: String, password: String, base64CSR: String,
+            approvedCa: String?,
             session: TakHttpSession? = null): String? {
             try {
                 var versionName: String? = null
@@ -2860,7 +2877,7 @@ class TAKConnectService: Service() {
                 Log.d(TAG, "postCsrAndGetResponse CSR request: ($urlString)")
 
                 // Build OkHttpClient
-                val client = OkHttpClient()
+                val client = com.aitech.weartak_civ.data.takserver.TakServerCaTrust.enrollmentClient(approvedCa)
 
                 // Basic Auth header
                 val credential = Credentials.basic(username, password)
@@ -2907,7 +2924,7 @@ class TAKConnectService: Service() {
 
             var result: TakSignedCertificates? = null
 
-            val csrResponse = postCsrAndGetResponse(takServer, username, password, base64CSR,
+            val csrResponse = postCsrAndGetResponse(takServer, username, password, base64CSR, takServerDetail.approvedCa,
                 session)
             if (null != csrResponse) {
                 try {
@@ -3404,7 +3421,7 @@ class TAKConnectService: Service() {
                     Log.d(TAG, "TAK trust root present=${root != null}")
                     val trustKs = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
                         load(null, null)
-                        setCertificateEntry("root", root)
+                        if (root != null) setCertificateEntry("root", root)
                     }
                     val trustManagerFactory = if (null != root) {
                         TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
@@ -3418,7 +3435,9 @@ class TAKConnectService: Service() {
                     val trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
                     trustManagerFactory.init(takServerDetail.keyStore)
                      */
-                    val trustManager = trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull()
+                    val trustManager = takServerDetail.approvedCa?.let {
+                        com.aitech.weartak_civ.data.takserver.TakServerCaTrust.trustManager(it)
+                    } ?: trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull()
 
                     val sslContext = SSLContext.getInstance("TLSv1.3")
                     if (null != trustManager) {
@@ -3464,6 +3483,9 @@ class TAKConnectService: Service() {
                     }
                     Log.d(TAG, "Starting secureSocket handshake")
                     socket.soTimeout = 15_000
+                    if (takServerDetail.approvedCa != null) {
+                        com.aitech.weartak_civ.data.takserver.TakServerCaTrust.configureHostnameVerification(socket)
+                    }
                     socket.startHandshake()
                     socket.soTimeout = 0
                     synchronized(takServerDetail.runtime.lock) {
@@ -3485,8 +3507,9 @@ class TAKConnectService: Service() {
                     }
                     takServerDetail.channelSslContext = sslContext
                     takServerDetail.channelTrustManager = trustManager
-                    takServerDetail.channelHostnameVerifier =
-                        TakSanHostnameVerifier(takServerDetail.address, trustManager)
+                    takServerDetail.channelHostnameVerifier = if (takServerDetail.approvedCa != null) {
+                        OkHttpClient().hostnameVerifier
+                    } else TakSanHostnameVerifier(takServerDetail.address, trustManager)
                     isAnyTakConnected = true
                     isAnyTakConnectedLiveData.postValue(isAnyTakConnected)
                     requestStatusIconsComplicationUpdate(context)

@@ -110,6 +110,20 @@ class ChatEnrollmentSaveTest {
         assertTrue(repo.awaitTakServerList().isEmpty())
     }
 
+    @Test fun normalServerDeleteAndEndpointEditRemoveLocalCaButRenameAndDisableDoNot() = runBlocking {
+        repo.saveChatEnrollment("Ops", "host.example", 8089, "u", "p")
+        val saved = repo.awaitTakServerList().single()
+        val id = requireNotNull(saved.serverId)
+        repo.updateTakServerItem(0, saved.copy(name = "Renamed", isEnabled = false))
+        io.mockk.coVerify(exactly = 0) { secrets.repository.removeApprovedCa(id) }
+        assertEquals(id, repo.awaitTakServerList().single().serverId)
+        repo.updateTakServerItem(0, saved.copy(address = "other.example"))
+        io.mockk.coVerify(exactly = 1) { secrets.repository.removeApprovedCa(id) }
+        repo.removeTakServerItem(repo.awaitTakServerList().single())
+        io.mockk.coVerify(exactly = 2) { secrets.repository.removeApprovedCa(id) }
+        assertTrue(repo.awaitTakServerList().isEmpty())
+    }
+
     @Test fun activePhoneManagementPreventsEnrollmentWithoutMutatingCredentials() = runBlocking {
         repo.saveChatEnrollment("Ops", "host", 8089, "u", "original")
         val before = repo.awaitTakServerList()

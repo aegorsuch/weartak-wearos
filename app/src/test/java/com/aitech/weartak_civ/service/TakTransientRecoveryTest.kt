@@ -54,6 +54,7 @@ class TakTransientRecoveryTest {
         MainActivity.dataRepository = mockk<DataRepository>(relaxed = true) {
             every { isCompanionConnected } returns companion
             every { shouldSuppressWatchTransportNow() } answers { companion.value }
+            coEvery { getApprovedServerCa(any(), any(), any()) } returns null
         }
         oldScope = scopeField.get(null)
         oldStopping = TAKConnectService.serviceStopping
@@ -273,6 +274,7 @@ class TakTransientRecoveryTest {
         mockkObject(TAKConnectService.Companion, recordPrivateCalls = true)
         every { TAKConnectService.Companion["postCsrAndGetResponse"](
             any<String>(), any<String>(), any<String>(), any<String>(),
+            isNull<String>(),
             isNull<com.aitech.weartak_civ.data.takserver.TakHttpSession>()) } throws ConnectException()
         assertThrows(ConnectException::class.java) {
             TAKConnectService.postCsrAndParse(detail(), "test-csr")
@@ -308,13 +310,17 @@ class TakTransientRecoveryTest {
         scopeField.set(null, this)
         val detail = detail().copy(isP12Cert = false, p12Cert = null)
         val socket = mockTlsSocket()
-        every { socket.startHandshake() } throws SSLHandshakeException("test trust rejection")
+        every { socket.startHandshake() } throws SSLHandshakeException("test trust rejection").apply {
+            initCause(java.security.cert.CertPathValidatorException("Trust anchor for certification path not found."))
+        }
         TAKConnectService.getClientCertificateAndConnect(detail)
         advanceUntilIdle()
         assertEquals(TAKConnectService.TAK_SERVER_CONNECTION_FAILED, detail.connectionStatus.get())
         assertNull(detail.runtime.retryJob)
         verify(exactly = 1) { socket.startHandshake() }
         verify(exactly = 0) { TAKConnectService.deleteFile(any()) }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(detail.connectionFailureLiveData.value!!.untrustedServerCa)
     }
 
     @Test fun stalledHandshakeHasReadDeadlineAndRetriesWithoutDeletingCertificate() = runTest {

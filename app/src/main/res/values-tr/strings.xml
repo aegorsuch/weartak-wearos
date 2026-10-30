@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ca_trust_advanced">Gelişmiş</string>
+    <string name="ca_trust_advanced_hide">Gelişmişi gizle</string>
+    <string name="ca_trust_import">CA içe aktar...</string>
+    <string name="ca_trust_untrusted">Sunucu sertifikasının düzenleyicisine güvenilmiyor. Sunucunuz özel bir CA kullanıyorsa parmak izini yöneticinizle doğruladıktan sonra genel CA sertifikasını içe aktarın.</string>
+    <string name="ca_trust_default">CA güveni: mevcut varsayılanlar</string>
+    <string name="ca_trust_selected">Bu sunucu için CA onaylandı</string>
+    <string name="ca_trust_stage_hint">Genel CA: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">Hazırlanan CA sertifikasını incele</string>
+    <string name="ca_trust_loading">CA okunuyor...</string>
+    <string name="ca_trust_endpoint">Yalnızca %1$s:%2$s adresine güven (kayıt 8446, API 8443)</string>
+    <string name="ca_trust_expires">Son geçerlilik: %1$s</string>
+    <string name="ca_trust_fingerprint">SHA-256 parmak izi</string>
+    <string name="ca_trust_warning">Güvenilir bir kanaldan yöneticinizle karşılaştırın. Yalnızca parmak izleri eşleşirse onaylayın. Ana bilgisayar adı/IP yine eşleşmelidir. Uygulamak için sunucuyu kaydedin.</string>
+    <string name="ca_trust_approve">Bu CA sertifikasını onayla</string>
+    <string name="ca_trust_remove">Kaydederken CA onayını kaldır</string>
+    <string name="ca_trust_import_error">CA içe aktarılamıyor. Geçerli, süresi dolmamış tek bir PEM veya DER CA sertifikası (en fazla 64 KiB) hazırlayıp yeniden deneyin.</string>
+    <string name="ca_trust_load_error">Kayıtlı CA güveni yüklenemiyor. Sunucuyu yeniden açıp deneyin; değişiklikler kaydedilmedi.</string>
     <string name="manual_alert_add_hint">Özel uyarı yaz</string>
     <string name="chat_preset_add_hint">Özel mesaj yaz</string>
     <string name="hello_world">WearTAK-CIV\'den, Merhaba %1$s</string>

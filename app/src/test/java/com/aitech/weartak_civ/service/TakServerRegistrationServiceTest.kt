@@ -58,6 +58,7 @@ class TakServerRegistrationServiceTest {
         every { repository.isCompanionConnected } returns companionConnected
         every { repository.shouldSuppressWatchTransportNow() } answers { companionConnected.value }
         coEvery { repository.tryAwaitTakServerList() } answers { listOf(stored) }
+        coEvery { repository.getApprovedServerCa(any(), any(), any()) } returns null
         // Online-path tests mock configuration transport; no test performs network I/O.
         TAKConnectService.isNetworkConnected = false
         TAKConnectService.takServerDetails = mutableListOf()
@@ -116,6 +117,23 @@ class TakServerRegistrationServiceTest {
         assertFalse(observed.value.isLoading)
         assertEquals(TakServerRegistration.Status.FAILED, observed.value.status)
         assertSame(replacement, TAKConnectService.takServerRuntimeDetails.value.single())
+    }
+
+    @Test fun trustChangesReplaceSameServerRuntimeAndTerminateExistingConnection() {
+        coEvery { repository.getApprovedServerCa(any(), any(), any()) } returns null
+        register()
+        val previous = TAKConnectService.getTakServerDetail(serverId)!!
+        coEvery { repository.getApprovedServerCa(serverId, stored.address, stored.port) } returns "approved-test-ca"
+        register()
+        val approved = TAKConnectService.getTakServerDetail(serverId)!!
+        assertTrue(previous.runtime.terminated)
+        assertNotSame(previous, approved)
+        assertEquals(serverId, approved.serverId)
+        assertEquals("approved-test-ca", approved.approvedCa)
+        coEvery { repository.getApprovedServerCa(any(), any(), any()) } returns null
+        register()
+        assertTrue(approved.runtime.terminated)
+        assertNull(TAKConnectService.getTakServerDetail(serverId)!!.approvedCa)
     }
 
     @Test fun alreadyReconciledEditStillCompletesTheRequestedRegistration() {

@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ca_trust_advanced">Avanzado</string>
+    <string name="ca_trust_advanced_hide">Ocultar avanzado</string>
+    <string name="ca_trust_import">Importar CA...</string>
+    <string name="ca_trust_untrusted">El emisor del certificado del servidor no es de confianza. Si su servidor usa una CA privada, importe su certificado público tras verificar la huella con su administrador.</string>
+    <string name="ca_trust_default">Confianza CA: valores existentes</string>
+    <string name="ca_trust_selected">CA aprobada para este servidor</string>
+    <string name="ca_trust_stage_hint">CA pública: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">Revisar CA preparada</string>
+    <string name="ca_trust_loading">Leyendo CA...</string>
+    <string name="ca_trust_endpoint">Confiar solo en %1$s:%2$s (inscripción 8446 y API 8443)</string>
+    <string name="ca_trust_expires">Caduca: %1$s</string>
+    <string name="ca_trust_fingerprint">Huella SHA-256</string>
+    <string name="ca_trust_warning">Compare con su administrador por un canal de confianza. Apruebe solo si las huellas coinciden. El nombre de host/IP debe seguir coincidiendo. Guarde el servidor para aplicar.</string>
+    <string name="ca_trust_approve">Aprobar esta CA</string>
+    <string name="ca_trust_remove">Eliminar CA aprobada al guardar</string>
+    <string name="ca_trust_import_error">No se puede importar la CA. Prepare exactamente un certificado CA PEM o DER válido y no caducado (máximo 64 KiB) y reintente.</string>
+    <string name="ca_trust_load_error">No se puede cargar la CA guardada. Vuelva a abrir el servidor y reintente; no se guardaron los cambios.</string>
     <string name="manual_alert_add_hint">Escribe una alerta personalizada</string>
     <string name="chat_preset_add_hint">Escribe un mensaje personalizado</string>
     <string name="hello_world">Desde WearTAK-CIV, Hola, %1$s</string>

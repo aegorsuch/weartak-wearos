@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ca_trust_advanced">Nâng cao</string>
+    <string name="ca_trust_advanced_hide">Ẩn nâng cao</string>
+    <string name="ca_trust_import">Nhập CA...</string>
+    <string name="ca_trust_untrusted">Tổ chức cấp chứng chỉ máy chủ không đáng tin cậy. Nếu máy chủ dùng CA riêng, hãy nhập chứng chỉ CA công khai sau khi xác minh dấu vân tay với quản trị viên.</string>
+    <string name="ca_trust_default">Tin cậy CA: mặc định hiện có</string>
+    <string name="ca_trust_selected">CA đã được duyệt cho máy chủ này</string>
+    <string name="ca_trust_stage_hint">CA công khai: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">Xem CA đã chuẩn bị</string>
+    <string name="ca_trust_loading">Đang đọc CA...</string>
+    <string name="ca_trust_endpoint">Chỉ tin cậy %1$s:%2$s (đăng ký 8446 và API 8443)</string>
+    <string name="ca_trust_expires">Hết hạn: %1$s</string>
+    <string name="ca_trust_fingerprint">Dấu vân tay SHA-256</string>
+    <string name="ca_trust_warning">So sánh với quản trị viên qua kênh đáng tin cậy. Chỉ duyệt khi dấu vân tay khớp. Tên máy chủ/IP vẫn phải khớp. Lưu máy chủ để áp dụng.</string>
+    <string name="ca_trust_approve">Duyệt CA này</string>
+    <string name="ca_trust_remove">Xóa CA đã duyệt khi lưu</string>
+    <string name="ca_trust_import_error">Không thể nhập CA. Chuẩn bị đúng một chứng chỉ CA PEM hoặc DER hợp lệ, chưa hết hạn (tối đa 64 KiB), rồi thử lại.</string>
+    <string name="ca_trust_load_error">Không thể tải CA đã lưu. Mở lại máy chủ và thử lại; thay đổi chưa được lưu.</string>
     <string name="manual_alert_add_hint">Nhập cảnh báo tùy chỉnh</string>
     <string name="chat_preset_add_hint">Nhập tin nhắn tùy chỉnh</string>
     <string name="hello_world">WearTAK-CIV xin chào %1$s</string>
