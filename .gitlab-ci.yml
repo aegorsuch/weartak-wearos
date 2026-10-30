@@ -16,6 +16,20 @@ release_publisher_tests:
   script:
     - python -m unittest discover -s ci/tests -v
 
+host_lint_debug:
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - chmod +x gradlew
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:lintDebug
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - app/build/reports/lint-results-debug.*
+
 agp_resolution_diagnostic:
   stage: test
   image:
