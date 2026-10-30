@@ -43,25 +43,40 @@ class PluginViewModel(
         withContext(Dispatchers.IO) { coordinator.supportsHostedMainUi(pluginId) }
 
     internal fun refreshHostedMainUi(pluginId: String) {
+        val connection = coordinator.connectionToken(pluginId)
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { coordinator.getHostedMainUi(pluginId) }
-            hostedMainUiState.value = hostedMainUiState.value + (pluginId to result)
+            if (coordinator.connectionToken(pluginId) === connection) {
+                hostedMainUiState.value = hostedMainUiState.value + (pluginId to result)
+            }
         }
     }
 
     internal fun invokeHostedMainUiAction(pluginId: String, cardId: String) {
+        val connection = coordinator.connectionToken(pluginId)
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 coordinator.invokeHostedMainUiAction(pluginId, cardId)
             }
-            hostedMainUiState.value = hostedMainUiState.value + (pluginId to result)
+            if (coordinator.connectionToken(pluginId) === connection) {
+                hostedMainUiState.value = hostedMainUiState.value + (pluginId to result)
+            }
         }
     }
 
     fun addPlugin(pluginId: String) = repository.addPlugin(pluginId)
     fun select(pluginId: String?) = repository.select(pluginId)
-    fun loadPlugin(pluginId: String) = repository.loadPlugin(pluginId)
-    fun unloadPlugin(pluginId: String) = repository.unloadPlugin(pluginId)
-    fun removePlugin(pluginId: String) = repository.removePlugin(pluginId)
+    fun loadPlugin(pluginId: String) {
+        hostedMainUiState.value = hostedMainUiState.value - pluginId
+        repository.loadPlugin(pluginId)
+    }
+    fun unloadPlugin(pluginId: String) {
+        hostedMainUiState.value = hostedMainUiState.value - pluginId
+        repository.unloadPlugin(pluginId)
+    }
+    fun removePlugin(pluginId: String) {
+        hostedMainUiState.value = hostedMainUiState.value - pluginId
+        repository.removePlugin(pluginId)
+    }
     fun uninstallPlugin(pluginId: String): PluginUninstallRequest = repository.uninstallPlugin(pluginId)
 }

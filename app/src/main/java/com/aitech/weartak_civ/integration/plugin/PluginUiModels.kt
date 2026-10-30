@@ -4,6 +4,7 @@ import android.graphics.drawable.Drawable
 
 enum class PluginLoadingStatus {
     NOT_LOADED,
+    BINDING,
     LOADED,
     NOT_INSTALLED,
     ERROR,
@@ -27,6 +28,7 @@ data class PluginUI(
     val compatibility: PluginCompatibilityStatus = PluginCompatibilityStatus.UNKNOWN,
     val isLoaded: Boolean = false,
     val menuSubtitle: String? = null,
+    val isEnabled: Boolean = isLoaded || loadingStatus == PluginLoadingStatus.BINDING,
 ) {
     val menuLabel: String?
         get() = when (pluginId) {

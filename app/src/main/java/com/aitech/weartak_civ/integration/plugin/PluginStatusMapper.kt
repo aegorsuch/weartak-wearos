@@ -7,7 +7,8 @@ internal object PluginStatusMapper {
     ): PluginLoadingStatus {
         return when {
             packageName in snapshot.rejected -> PluginLoadingStatus.ERROR
-            packageName in snapshot.connected || packageName in snapshot.bound -> PluginLoadingStatus.LOADED
+            packageName in snapshot.connected -> PluginLoadingStatus.LOADED
+            packageName in snapshot.bound -> PluginLoadingStatus.BINDING
             packageName in snapshot.discovered -> PluginLoadingStatus.NOT_LOADED
             else -> PluginLoadingStatus.NOT_INSTALLED
         }
@@ -20,7 +21,7 @@ internal object PluginStatusMapper {
         val rejection = snapshot.lastAdmissionDetailByPackage[packageName]?.lowercase().orEmpty()
         return when {
             rejection.contains("api_version_mismatch") -> PluginCompatibilityStatus.INCOMPATIBLE
-            packageName in snapshot.connected || packageName in snapshot.bound -> PluginCompatibilityStatus.COMPATIBLE
+            packageName in snapshot.connected -> PluginCompatibilityStatus.COMPATIBLE
             packageName in snapshot.rejected -> PluginCompatibilityStatus.UNKNOWN
             else -> PluginCompatibilityStatus.UNKNOWN
         }

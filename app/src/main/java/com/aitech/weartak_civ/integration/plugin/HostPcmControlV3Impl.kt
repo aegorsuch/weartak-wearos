@@ -63,6 +63,7 @@ class HostPcmControlV3Impl(
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val consumerId = "plugin:$pluginPackage"
     private var activeSubscription: ActiveSubscription? = null
+    @Volatile private var closed = false
 
     override fun subscribePcm(
         request: PcmSubscriptionRequestParcel?,
@@ -76,6 +77,7 @@ class HostPcmControlV3Impl(
         }
 
         synchronized(lock) {
+            if (closed) return rejected(PcmSubscriptionStatus.UNAUTHORIZED)
             activeSubscription?.let { current ->
                 // Repeated starts are idempotent. A caller must unsubscribe before replacing its
                 // callback so two workers can never exist for the same plugin connection.
@@ -131,7 +133,10 @@ class HostPcmControlV3Impl(
 
     /** Connection-owned cleanup for unbind, disconnect, bind failure, and binder death. */
     fun close() {
-        val currentId = synchronized(lock) { activeSubscription?.id }
+        val currentId = synchronized(lock) {
+            closed = true
+            activeSubscription?.id
+        }
         if (currentId != null) stopSubscription(currentId, notify = false)
         scope.cancel()
     }

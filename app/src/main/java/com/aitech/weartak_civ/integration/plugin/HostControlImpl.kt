@@ -37,9 +37,11 @@ class HostControlImpl(
     private val pluginPackage: String,
     private val expectedPluginUid: Int,
     private val mapLayer: HostMapLayerControlImpl = HostMapLayerControlImpl(),
+    private val isActive: () -> Boolean = { true },
 ) : IWearTakPluginControl.Stub() {
 
     private fun verifyCaller(): Boolean {
+        if (!isActive()) return false
         val uid = Binder.getCallingUid()
         if (uid != expectedPluginUid) {
             Log.w(TAG, "control call uid mismatch: expected=$expectedPluginUid got=$uid pkg=$pluginPackage")

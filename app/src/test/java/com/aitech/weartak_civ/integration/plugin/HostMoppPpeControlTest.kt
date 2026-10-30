@@ -158,6 +158,7 @@ class HostMoppPpeControlTest {
         try {
             connection.onServiceConnected(component, plugin.asBinder())
             assertFalse(MoppPluginAvailability.available.value)
+            awaitPluginLifecycle(MoppPluginAvailability.PACKAGE)
             val extras = plugin.lastInit!!.hostExtras
             assertTrue(extras.getBoolean(MoppPpeContract.EXTRA_CAPABILITY))
             val control = IMoppPpeControlV1.Stub.asInterface(extras.getBinder(MoppPpeContract.EXTRA_CONTROL))
@@ -168,6 +169,7 @@ class HostMoppPpeControlTest {
             assertEquals(MoppPpeResultCode.INACTIVE_SESSION, control.read().code)
         } finally {
             connection.tearDownBinder("test")
+            awaitPluginLifecycle(MoppPluginAvailability.PACKAGE)
         }
     }
 
