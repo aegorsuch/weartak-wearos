@@ -2961,8 +2961,8 @@ fun WearTAKSettingsNav(
         composable("display_units") {
             val unitPrefs = currentUnitPrefs()
             val options = listOf(
-                Triple(UnitPrefs.RANGE_METRIC, R.string.units_metric, R.string.units_metric_desc),
                 Triple(UnitPrefs.RANGE_IMPERIAL, R.string.units_imperial, R.string.units_imperial_desc),
+                Triple(UnitPrefs.RANGE_METRIC, R.string.units_metric, R.string.units_metric_desc),
             )
             val titles = options.map { stringResource(it.second) }
             WearTAKPageWithBackArrow(
@@ -3286,6 +3286,11 @@ fun WearTAKSettingsNav(
                                             },
                                             title = item.title,
                                             label = item.menuLabel,
+                                            modifier = Modifier.semantics {
+                                                if (item.menuLabel == null && item.desc.isNotBlank()) {
+                                                    contentDescription = item.desc
+                                                }
+                                            },
                                             checked = item.isLoaded,
                                             onCheckedChange = {
                                                 when (it) {
@@ -3953,11 +3958,12 @@ fun <T> WearTAKSelectableChip(
 fun WearTAKSplitToggleChip(
     appIcon: @Composable () -> Unit = {}, //Optional icon
     title: String, //Upper text of chip
-    label: String, //Lower text of chip
+    label: String?, //Lower text of chip
     checked: Boolean, //Whether toggle is enabled or not
     onCheckedChange: (Boolean) -> Unit, //What function/behavior happens when chip is toggled
     onClick: () -> Unit, //What happens when selectable side of chip is clicked
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     ){
     SplitToggleChip(
         label = {
@@ -3965,9 +3971,9 @@ fun WearTAKSplitToggleChip(
             Text(title, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier
                 .align(Alignment.CenterVertically))
         },
-        secondaryLabel = {
+        secondaryLabel = label?.let { label -> @Composable {
             Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
+        } },
         checked = checked,
         toggleControl = {
             Switch(
@@ -3980,7 +3986,7 @@ fun WearTAKSplitToggleChip(
         onCheckedChange = onCheckedChange,
         enabled = enabled,
         onClick = { onClick() } ,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
 //            .padding(bottom = 3.dp)
     )

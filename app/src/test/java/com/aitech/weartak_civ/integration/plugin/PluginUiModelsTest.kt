@@ -1,6 +1,7 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PluginUiModelsTest {
@@ -34,6 +35,28 @@ class PluginUiModelsTest {
         for (status in PluginLoadingStatus.entries) {
             for (subtitle in listOf(null, "", " \n\t ")) {
                 assertEquals(status.toString(), plugin(status, subtitle).menuLabel)
+            }
+        }
+
+    }
+
+    @Test
+    fun goTennaAndTakCadHideOnlyMenuSubtitleForEveryLoadingStatus() {
+        for (id in listOf("com.weartak.plugin.gotenna", "com.weartak.plugin.takcad")) {
+            for (status in PluginLoadingStatus.entries) {
+                for (subtitle in listOf(null, "Plugin subtitle")) {
+                    val plugin = plugin(status, subtitle).copy(
+                        pluginId = id,
+                        title = if (id.endsWith("gotenna")) "goTenna" else "TAK CAD",
+                        desc = "Plugin description",
+                    )
+
+                    assertNull(plugin.menuLabel)
+                    assertEquals("Plugin description", plugin.desc)
+                    assertEquals(subtitle, plugin.menuSubtitle)
+                    assertEquals(status, plugin.loadingStatus)
+                    assertEquals(status == PluginLoadingStatus.LOADED, plugin.isLoaded)
+                }
             }
         }
     }
