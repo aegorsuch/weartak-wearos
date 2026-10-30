@@ -290,7 +290,11 @@
     <string name="notification_weartak_active">WearTAK active</string>
     <string name="notification_background_services">Background services</string>
     <plurals name="notification_services_running">
+        <item quantity="zero">%d background services running</item>
         <item quantity="one">%d background service running</item>
+        <item quantity="two">%d background services running</item>
+        <item quantity="few">%d background services running</item>
+        <item quantity="many">%d background services running</item>
         <item quantity="other">%d background services running</item>
     </plurals>
     <string name="notification_service_management">Service management</string>
@@ -388,7 +392,11 @@
     <string name="map_target_dropped">Dropped Marker</string>
     <string name="map_target_received">Received Marker</string>
     <plurals name="map_target_count">
+        <item quantity="zero">%d targets</item>
         <item quantity="one">%d target</item>
+        <item quantity="two">%d targets</item>
+        <item quantity="few">%d targets</item>
+        <item quantity="many">%d targets</item>
         <item quantity="other">%d targets</item>
     </plurals>
     <string name="no_dropped_markers">No Dropped Markers</string>
@@ -478,7 +486,11 @@
     <string name="toggle_state_on">On</string>
     <string name="toggle_state_off">Off</string>
     <plurals name="network_server_count">
+        <item quantity="zero">%1$d/%2$d Servers</item>
         <item quantity="one">%1$d/%2$d Server</item>
+        <item quantity="two">%1$d/%2$d Servers</item>
+        <item quantity="few">%1$d/%2$d Servers</item>
+        <item quantity="many">%1$d/%2$d Servers</item>
         <item quantity="other">%1$d/%2$d Servers</item>
     </plurals>
 </resources>
