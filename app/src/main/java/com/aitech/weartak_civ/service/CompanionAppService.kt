@@ -199,10 +199,14 @@ class CompanionAppService : Service() {
         if (!bloodhoundLinkReady()) selfStatus.reset()
         else selfStatusInputs?.let { input ->
             val uid = MainActivity.device_uid
+            val moppGeneration = com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.generation()
             if (uid.isBlank()) Log.w(TAG, "Self status cannot send before watch identity is ready")
             else if (selfStatus.sendIfDue(
-                bloodhoundConnectionGeneration.get(), uid, input, System.currentTimeMillis(),
-                android.os.SystemClock.elapsedRealtime(), ::sendBloodhoundControl
+                bloodhoundConnectionGeneration.get(), uid, input.copy(policy = input.policy.copy(
+                    moppEnabled = input.policy.moppEnabled &&
+                        com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available.value,
+                )), System.currentTimeMillis(),
+                android.os.SystemClock.elapsedRealtime(), { sendBloodhoundControl(it, moppGeneration) }
             ) == false) Log.w(TAG, "Self status queue unavailable; snapshot will retry")
         }
     }
@@ -222,7 +226,8 @@ class CompanionAppService : Service() {
         val address: String,
         val generation: Long,
         val chunkSize: Int,
-        val diagnostic: Boolean = false
+        val diagnostic: Boolean = false,
+        val moppGeneration: Long? = null,
     )
     private val bloodhoundFrames = kotlinx.coroutines.channels.Channel<BloodhoundFrame>(64)
     private val locationDiagnosticFrames =
@@ -350,6 +355,8 @@ class CompanionAppService : Service() {
                         locationDiagnosticFrames.onReceiveCatching { it.getOrNull() }
                     }
                     ?: continue
+                if (!com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
+                        .isCurrent(frame.moppGeneration)) continue
                 if (capRepo.gateway.session != null) {
                     val message = org.json.JSONObject(frame.bytes.toString(Charsets.UTF_8))
                     if (!gatewayAllowsControl(message, frame.generation)) continue
@@ -561,7 +568,11 @@ class CompanionAppService : Service() {
             isCurrentSingleWatch(address, generation) && capRepo.gateway.session == null
 
     @SuppressLint("MissingPermission")
-    private fun sendBloodhoundControl(json: String): Boolean {
+    private fun sendBloodhoundControl(json: String): Boolean = sendBloodhoundControl(json, null)
+
+    @SuppressLint("MissingPermission")
+    private fun sendBloodhoundControl(json: String, moppGeneration: Long?): Boolean {
+        if (!com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.isCurrent(moppGeneration)) return false
         if (capRepo.gateway.session != null) {
             val message = org.json.JSONObject(json)
             if (!gatewayAllowsControl(message, bloodhoundConnectionGeneration.get())) return false
@@ -571,7 +582,8 @@ class CompanionAppService : Service() {
         val generation = bloodhoundConnectionGeneration.get()
         val bytes = "$json\n".toByteArray(Charsets.UTF_8)
         val maxPayload = maxNotifyPayloadBytes()
-        return bloodhoundFrames.trySend(BloodhoundFrame(bytes, address, generation, maxPayload)).isSuccess
+        return bloodhoundFrames.trySend(BloodhoundFrame(bytes, address, generation, maxPayload,
+            moppGeneration = moppGeneration)).isSuccess
     }
 
     @SuppressLint("MissingPermission")

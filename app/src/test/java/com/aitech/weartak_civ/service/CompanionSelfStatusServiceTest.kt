@@ -11,9 +11,12 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.channels.Channel
 import com.aitech.weartak_civ.presentation.MainActivity
+import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -22,6 +25,15 @@ import java.util.concurrent.atomic.AtomicLong
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class CompanionSelfStatusServiceTest {
+    private val moppLease = Any()
+
+    @Before fun compatibleMoppPlugin() {
+        MoppPluginAvailability.acquire(moppLease)
+        MoppPluginAvailability.activate(moppLease)
+    }
+
+    @After fun removeMoppPlugin() { MoppPluginAvailability.release(moppLease) }
+
     private val input = SelfStatusInputs(SelfStatusPolicy(
         true, SavedMoppStatus(MoppStatus.LEVEL_0, null), false, false, false, false, 30, 60
     ), null, null)
@@ -112,6 +124,18 @@ class CompanionSelfStatusServiceTest {
         val frameGeneration = frame.javaClass.getDeclaredField("generation").apply { isAccessible = true }
         assertEquals(generation.get(), frameGeneration.getLong(frame))
         assertTrue(sender.active(generation.get()))
+        fun ppe(frame: Any) = JSONObject(String(
+            frame.javaClass.getDeclaredField("bytes").apply { isAccessible = true }.get(frame) as ByteArray,
+            Charsets.UTF_8,
+        )).getJSONObject("payload")
+        val moppGeneration = frame.javaClass.getDeclaredField("moppGeneration").apply { isAccessible = true }
+        assertFalse(ppe(frame).isNull("ppe"))
+        MoppPluginAvailability.release(moppLease)
+        assertFalse(MoppPluginAvailability.isCurrent(moppGeneration.get(frame) as Long?))
+        assertTrue(MoppPluginAvailability.isCurrent(null))
+        tick()
+        val cleared = frames.tryReceive().getOrNull()!!
+        assertTrue(ppe(cleared).isNull("ppe"))
         every { peer.bondState } returns BluetoothDevice.BOND_NONE
         tick()
         assertFalse(sender.active(generation.get()))

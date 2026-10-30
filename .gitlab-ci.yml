@@ -1,3 +1,10 @@
+include:
+  - project: devsecops/gitlab-ci-common
+    ref: master
+    file: /template/artifactory_token_service.yml
+
+before_script: []
+
 variables:
   GRADLE_BUILD_LAUNCHER_TAG: "2.6.2"
   KUBERNETES_MEMORY_LIMIT: "8Gi"
@@ -8,6 +15,41 @@ stages:
   - build
   - publish
 
+.artifactory_credentials:
+  extends: .artifactory_service_create_token_no_depends_bash
+  before_script:
+    - !reference [.artifactory_service_create_token_no_depends_bash, before_script]
+    - export ARTIFACTORY_USER="$GITLAB_USER_EMAIL" ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"
+
+android_mopp_check:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - chmod +x gradlew
+    - >-
+      ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process
+      :app:assembleDebug :app:testDebugUnitTest
+      --tests '*HostMoppPpeControlTest' --tests '*CompanionSelfStatusTest'
+      --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
+      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest'
+      --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
+      --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
+      --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
+      --tests '*CotDispatchTransportResumeTest'
+  artifacts:
+    when: always
+    expire_in: 14 days
+    reports:
+      junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
+    paths:
+      - app/build/reports/tests/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+
 release_publisher_tests:
   stage: test
   image:
@@ -17,6 +59,7 @@ release_publisher_tests:
     - python -m unittest discover -s ci/tests -v
 
 agp_resolution_diagnostic:
+  extends: .artifactory_credentials
   stage: test
   image:
     name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
@@ -37,6 +80,7 @@ agp_resolution_diagnostic:
 # ---------------------------------------------------------------------------
 
 .release_build:
+  extends: .artifactory_credentials
   stage: build
 
   image:
@@ -44,6 +88,7 @@ agp_resolution_diagnostic:
     entrypoint: [""]
 
   before_script:
+    - !reference [.artifactory_credentials, before_script]
     - chmod +x gradlew
 
     # Verify required CI variables exist.
