@@ -1,0 +1,1 @@
+-keep class com.weartak.plugin.sdk.host.v1.** { *; }

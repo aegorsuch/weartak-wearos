@@ -21,7 +21,7 @@ import com.weartak.plugin.sdk.v3.aidl.IWearTakPluginHostControlV3
 /**
  * Minimal in-process [IWearTakPlugin] for host bind/lifecycle tests (no plugin APK).
  */
-class FakeWearTakPlugin(
+open class FakeWearTakPlugin(
     private val packageName: String,
     private val apiVersion: Int = WearTakPluginContract.CONTRACT_API_VERSION,
 ) : IWearTakPlugin.Stub() {

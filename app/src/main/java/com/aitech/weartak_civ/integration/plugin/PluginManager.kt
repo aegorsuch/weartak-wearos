@@ -33,22 +33,33 @@ open class PluginManager(
     private val topologyListeners = CopyOnWriteArraySet<PluginTopologyListener>()
     private val reconnectTasks = mutableMapOf<String, Runnable>()
     private val reconnectAttempts = mutableMapOf<String, Int>()
+    private val preferences = app.getSharedPreferences("plugin_loading", Context.MODE_PRIVATE)
+    private val disabled = preferences.getStringSet("disabled_packages", emptySet()).orEmpty().toMutableSet()
+    private var stopped = false
+
+    fun isEnabled(packageName: String): Boolean = packageName !in disabled
+
+    private fun setEnabled(packageName: String, enabled: Boolean) {
+        if (enabled) disabled.remove(packageName) else disabled.add(packageName)
+        preferences.edit().putStringSet("disabled_packages", disabled.toSet()).apply()
+    }
 
     fun startDeferred() {
         mainHandler.post { refreshBindings() }
     }
 
     fun refreshBindings() {
+        stopped = false
         val targets = PluginServiceQuery.discoverPluginComponents(app.packageManager, app.packageName)
         PluginDiagnostics.markDiscovered(targets.map { it.packageName })
         val targetPkgs = targets.map { it.packageName }.toSet()
         for (existing in connections.keys.toList()) {
             if (existing !in targetPkgs) {
-                unbindPackage(existing)
+                detachPackage(existing)
             }
         }
         for (cn in targets) {
-            if (connections.containsKey(cn.packageName)) continue
+            if (!isEnabled(cn.packageName) || connections.containsKey(cn.packageName)) continue
             bind(cn)
         }
         notifyTopologyChanged()
@@ -56,25 +67,36 @@ open class PluginManager(
 
     fun bindPackage(packageName: String): Boolean {
         if (connections.containsKey(packageName)) return true
+        stopped = false
+        setEnabled(packageName, true)
         cancelReconnect(packageName)
         val cn = discoverPluginComponents().firstOrNull { it.packageName == packageName } ?: return false
         bind(cn)
-        return connections.containsKey(packageName)
+        return connections.containsKey(packageName) || reconnectTasks.containsKey(packageName)
     }
 
     fun unbindPackage(packageName: String) {
+        setEnabled(packageName, false)
+        detachPackage(packageName)
+    }
+
+    private fun detachPackage(packageName: String) {
         cancelReconnect(packageName)
-        val c = connections.remove(packageName) ?: return
-        runCatching { app.unbindService(c) }
-        c.tearDownBinder(reason = "unbindPackage")
+        val c = connections.remove(packageName)
+        c?.tearDownBinder(reason = "unbindPackage")
         PluginDiagnostics.markUnbound(packageName)
         notifyTopologyChanged()
+        if (c != null) {
+            runCatching { app.unbindService(c) }
+                .onFailure { Log.w(TAG, "Local unbind failed pkg=$packageName", it) }
+        }
     }
 
     fun shutdownAll() {
+        stopped = true
         reconnectTasks.keys.toList().forEach(::cancelReconnect)
         for (pkg in connections.keys.toList()) {
-            unbindPackage(pkg)
+            detachPackage(pkg)
         }
     }
 
@@ -85,11 +107,11 @@ open class PluginManager(
     internal open fun onConnectionLost(conn: PluginConnection) {
         val entry = connections.entries.firstOrNull { it.value === conn } ?: return
         if (!connections.remove(entry.key, conn)) return
-        runCatching { app.unbindService(conn) }
-            .onFailure { Log.w(TAG, "unbind disconnected plugin pkg=${entry.key}", it) }
         conn.tearDownBinder(reason = "service_disconnected")
         PluginDiagnostics.markDisconnected(entry.key)
         notifyTopologyChanged()
+        runCatching { app.unbindService(conn) }
+            .onFailure { Log.w(TAG, "unbind disconnected plugin pkg=${entry.key}", it) }
         scheduleReconnect(entry.key)
     }
 
@@ -103,6 +125,7 @@ open class PluginManager(
     }
 
     private fun scheduleReconnect(packageName: String) {
+        if (stopped || !isEnabled(packageName)) return
         if (reconnectTasks.containsKey(packageName)) return
         val attempt = reconnectAttempts[packageName] ?: 0
         if (attempt >= 5) {
@@ -113,7 +136,7 @@ open class PluginManager(
         val delayMillis = 1_000L shl attempt
         val task = Runnable {
             reconnectTasks.remove(packageName)
-            if (!connections.containsKey(packageName)) {
+            if (!stopped && isEnabled(packageName) && !connections.containsKey(packageName)) {
                 val target = discoverPluginComponents().firstOrNull { it.packageName == packageName }
                 if (target != null) bind(target) else cancelReconnect(packageName)
             }
@@ -127,6 +150,7 @@ open class PluginManager(
         Log.w(TAG, "connection failed: $reason")
         val entry = connections.entries.firstOrNull { it.value === conn }
         val pkg = entry?.key ?: conn.connectionPackageName
+        if (entry == null && connections.containsKey(pkg)) return
         if (entry != null) {
             connections.remove(entry.key)
         }
@@ -138,7 +162,7 @@ open class PluginManager(
             reason,
         )
         notifyTopologyChanged()
-        if (reason == "remote_exception" || reason == "get_plugin_info") {
+        if (reason in setOf("remote_exception", "get_plugin_info", "lifecycle_busy")) {
             scheduleReconnect(pkg)
         } else {
             cancelReconnect(pkg)
@@ -146,6 +170,11 @@ open class PluginManager(
     }
 
     private fun bind(cn: ComponentName) {
+        if (stopped || !isEnabled(cn.packageName)) return
+        if (PluginLifecycleWork.isBusy(cn.packageName)) {
+            scheduleReconnect(cn.packageName)
+            return
+        }
         val uid = runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 app.packageManager.getPackageUid(
@@ -162,6 +191,8 @@ open class PluginManager(
         }
         val conn = PluginConnection(app, ingress, cn, uid, this, pluginTrust)
         val intent = Intent(WearTakPluginContract.ACTION_PLUGIN_SERVICE).setComponent(cn)
+        connections[cn.packageName] = conn
+        conn.startBindingTimeout()
         val ok = runCatching {
             app.bindService(
                 intent,
@@ -174,10 +205,11 @@ open class PluginManager(
         }
         if (ok) {
             if (conn.suppressPostBindRegistration) return
-            connections[cn.packageName] = conn
             PluginDiagnostics.markBound(cn.packageName)
             notifyTopologyChanged()
         } else {
+            connections.remove(cn.packageName, conn)
+            conn.tearDownBinder("bind_failed")
             PluginDiagnostics.recordBindFailure(cn.flattenToString(), null)
             scheduleReconnect(cn.packageName)
         }

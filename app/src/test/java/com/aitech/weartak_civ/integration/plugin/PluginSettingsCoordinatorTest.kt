@@ -137,6 +137,97 @@ class PluginSettingsCoordinatorTest {
     }
 
     @Test
+    fun takCadIncidentActionsAndIncidentIdAreAcceptedByHostedDispatcher() {
+        val pluginId = "com.weartak.plugin.takcad"
+        val actions = listOf("takcad.incidents.refresh", "takcad.server.next", "takcad.bloodhound", "takcad.target")
+        fakePlugin.pluginCapabilities = PluginCapabilitiesParcel(hostedMainUi = true)
+        fakePlugin.setMainUiSchemaForTest(PluginMainUiSchemaParcel(cards = actions.map { action ->
+            MainUiCardParcel(cardType = "ACTION", cardId = action, title = action,
+                content = hostedActionContent(action, action, args = mapOf("incidentId" to "incident-17")))
+        }))
+        coordinator.registerPlugin(pluginId, fakePlugin)
+        actions.forEach { action ->
+            assertTrue(coordinator.invokeHostedMainUiAction(pluginId, action) is HostedPluginMainUiResult.Ready)
+        }
+        assertEquals(actions, fakePlugin.mainUiActions.map { it.first })
+        assertTrue(fakePlugin.mainUiActions.all { it.second!!.getString("incidentId") == "incident-17" })
+    }
+
+    @Test
+    fun lateHostedUiReadCannotPublishOrDispatchForReplacedConnection() {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            for (invokeAction in listOf(false, true)) {
+                val entered = java.util.concurrent.CountDownLatch(1)
+                val release = java.util.concurrent.CountDownLatch(1)
+                val old = object : FakeWearTakPlugin("com.plugin.settings") {
+                    override fun getMainUiSchema(): PluginMainUiSchemaParcel {
+                        entered.countDown()
+                        check(release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                        return super.getMainUiSchema()
+                    }
+                }
+                old.pluginCapabilities = PluginCapabilitiesParcel(hostedMainUi = true)
+                old.setMainUiSchemaForTest(PluginMainUiSchemaParcel(cards = listOf(
+                    MainUiCardParcel(cardType = "ACTION", cardId = "target", title = "Target",
+                        content = hostedActionContent("takcad.target", "Target")),
+                )))
+                coordinator.registerPlugin("com.plugin.settings", old)
+                try {
+                    val pending = executor.submit<HostedPluginMainUiResult> {
+                        if (invokeAction) coordinator.invokeHostedMainUiAction("com.plugin.settings", "target")
+                        else coordinator.getHostedMainUi("com.plugin.settings")
+                    }
+                    assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    coordinator.unregisterPlugin("com.plugin.settings")
+                    coordinator.registerPlugin("com.plugin.settings", fakePlugin)
+                    release.countDown()
+                    assertEquals(HostedPluginMainUiResult.NotConnected, pending.get(5, java.util.concurrent.TimeUnit.SECONDS))
+                    assertTrue(old.mainUiActions.isEmpty())
+                } finally {
+                    release.countDown()
+                }
+            }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun lateInitializationCannotRepopulateCacheAfterUnloadOrReplaceNewConnection() {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val old = object : FakeWearTakPlugin("com.plugin.settings") {
+            override fun getCapabilities(): PluginCapabilitiesParcel {
+                entered.countDown()
+                check(release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                return super.getCapabilities()
+            }
+        }
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            val pending = executor.submit { coordinator.onPluginConnected("com.plugin.settings", old) }
+            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            coordinator.unregisterPlugin("com.plugin.settings")
+            val replacement = FakeWearTakPlugin("com.plugin.settings")
+            replacement.setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = "new_only", label = "New", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            coordinator.onPluginConnected("com.plugin.settings", replacement)
+            release.countDown()
+            pending.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(listOf("new_only"),
+                coordinator.getState("com.plugin.settings")!!.schema.fields.map { it.fieldId })
+            coordinator.unregisterPlugin("com.plugin.settings")
+            coordinator.onPluginConnected("com.plugin.settings", old) { false }
+            org.junit.Assert.assertNull(coordinator.getState("com.plugin.settings"))
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun inboundSubscriptionIsIndependentOfOutboundAndDisabledPluginsReceiveNothing() {
         val inbound = PluginCotIngress.SETTING_RECEIVE_INBOUND_COT
         fakePlugin.setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(

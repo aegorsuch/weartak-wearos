@@ -854,7 +854,7 @@ class TAKConnectService: Service() {
         var isWifiConnected = false
         var isAnyTakConnected : Boolean = false // Overall flag indicating that atleast one of the TAK servers is connected. This includes getting client cert and connecting to COT message port
         val isAnyTakConnectedLiveData = MutableLiveData<Boolean>(false)
-        val context: Context = mainActivity.applicationContext
+        val context: Context get() = mainActivity.applicationContext
 
         var isAnyTakConnecting : Boolean = false // Overall flag indicating if connection is being made to any TAK server
         val isAnyTakConnectingLiveData = MutableLiveData<Boolean>(false)
@@ -2001,6 +2001,31 @@ class TAKConnectService: Service() {
                 check(missionConnectionReady(detail)) { "TAK Server is not connected" }
                 checkNotNull(detail.runtime.currentAttempt?.httpSession) { "TAK HTTP session unavailable" }
             }
+
+        internal fun pluginRestServers(): List<com.aitech.weartak_civ.integration.plugin.PluginTakServer> =
+            takServerDetails.toList().filter { missionConnectionReady(it) }.map {
+                com.aitech.weartak_civ.integration.plugin.PluginTakServer(it.serverId, it.name)
+            }
+
+        internal fun pluginRestClient(serverId: String?): com.aitech.weartak_civ.integration.plugin.PluginTakHttpClient {
+            val connected = takServerDetails.toList().filter { missionConnectionReady(it) }
+            val detail = if (serverId == null) {
+                check(connected.size == 1) { "Select one connected server by serverId" }
+                connected.single()
+            } else {
+                connected.singleOrNull { it.serverId == serverId }
+                    ?: throw IllegalStateException("Requested server is not connected")
+            }
+            return synchronized(detail.runtime.lock) {
+                val session = serverHttpSession(detail)
+                com.aitech.weartak_civ.integration.plugin.PluginTakHttpClient(
+                    com.aitech.weartak_civ.integration.plugin.PluginTakServer(detail.serverId, detail.name),
+                    detail.address, session,
+                    checkNotNull(detail.channelSslContext) { "Plugin TLS context unavailable" },
+                    checkNotNull(detail.channelTrustManager) { "Plugin trust manager unavailable" },
+                )
+            }
+        }
 
         private fun channelApi(detail: TakServerDetail): TakChannelApi {
             val session = serverHttpSession(detail)
