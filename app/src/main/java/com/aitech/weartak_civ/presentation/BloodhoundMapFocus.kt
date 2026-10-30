@@ -8,7 +8,8 @@ data class BloodhoundMapFocus(
     val point: TakRoutePoint? = null,
     val serverId: String? = null,
     val routeUid: String? = null,
-    val requestId: Long = System.nanoTime()
+    val requestId: Long = System.nanoTime(),
+    val pointZoom: Double? = null
 )
 
 internal data class RouteCameraFrame(val latitude: Double, val longitude: Double, val zoom: Double)

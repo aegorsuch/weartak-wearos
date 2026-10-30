@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">توسيط جهة الاتصال وتكبيرها</string>
+    <string name="map_focus_target">توسيط الهدف وتكبيره</string>
+    <string name="map_route_start_failed">تعذر بدء المسار. تحقق من المسار والموقع.</string>
+    <string name="map_sources">الخرائط</string>
+    <string name="map_view_overhead">التبديل إلى العرض العلوي ثنائي الأبعاد</string>
+    <string name="map_view_tilted">التبديل إلى العرض المائل ثلاثي الأبعاد</string>
+    <string name="map_view_osm_only">عرض ثنائي الأبعاد. الإمالة متاحة فقط في OSM Vector</string>
+    <string name="map_overlay_manager">مدير الطبقات</string>
+    <string name="map_credits">المصادر والحقوق</string>
+    <string name="map_credits_expanded">موسّع</string>
+    <string name="map_credits_collapsed">مطوي</string>
+    <string name="map_credits_expand">عرض المصادر والحقوق</string>
+    <string name="map_credits_collapse">طي المصادر والحقوق</string>
+    <string name="map_credit_link_unavailable">لا يوجد متصفح. افتح: %1$s</string>
+    <string name="map_load_failed">تعذر تحميل الخريطة. تحقق من الاتصال أو أعد المحاولة أو استعد الخريطة الأصلية.</string>
+    <string name="map_load_timeout">ما زالت الخريطة قيد التحميل. تحقق من الاتصال أو أعد المحاولة أو استعد الخريطة الأصلية.</string>
+    <string name="map_error_open_layers">الخريطة غير متاحة. افتح مدير الطبقات</string>
+    <string name="map_retry">إعادة تحميل الخريطة</string>
+    <string name="map_restore_original">استعادة الخريطة الأصلية</string>
+</resources>

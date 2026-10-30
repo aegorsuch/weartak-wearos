@@ -23,6 +23,8 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
@@ -44,8 +46,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
@@ -112,6 +117,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.DpOffset
@@ -161,6 +167,8 @@ import org.maplibre.compose.expressions.dsl.offset
 import org.maplibre.compose.expressions.dsl.switch
 import org.maplibre.compose.expressions.value.SymbolAnchor
 import org.maplibre.compose.expressions.value.SymbolZOrder
+import org.maplibre.compose.expressions.value.IconPitchAlignment
+import org.maplibre.compose.expressions.value.TextPitchAlignment
 import org.maplibre.compose.layers.LineLayer
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -268,7 +276,9 @@ open class MapActivity : ComponentActivity() {
         if (!intent.hasExtra(EXTRA_FOCUS_LAT) || !intent.hasExtra(EXTRA_FOCUS_LON)) return null
         val point = com.aitech.weartak_civ.data.model.TakRoutePoint(
             intent.getDoubleExtra(EXTRA_FOCUS_LAT, Double.NaN), intent.getDoubleExtra(EXTRA_FOCUS_LON, Double.NaN))
-        return point.takeIf(com.aitech.weartak_civ.data.RouteFollow::validLocation)?.let { BloodhoundMapFocus(point = it) }
+        return point.takeIf(com.aitech.weartak_civ.data.RouteFollow::validLocation)?.let {
+            BloodhoundMapFocus(point = it, pointZoom = 17.0)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -336,15 +346,24 @@ fun MapCivApp(
     val receivedUserListSetting by dataRepository
         .receivedUserList
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    var activeFocus by remember(mapFocus) { mutableStateOf(mapFocus) }
 
     MapUserNavigation(
         users = receivedUserListSetting,
         context = context,
         selectingChatContact = selectingChatContact,
         onChatContactSelected = onChatContactSelected,
-        mapFocus = mapFocus
+        mapFocus = activeFocus,
+        onFocusUserSelected = { user ->
+            user.location?.let {
+                activeFocus = BloodhoundMapFocus(
+                    point = com.aitech.weartak_civ.data.model.TakRoutePoint(it.lat, it.lon),
+                    pointZoom = 17.0)
+            }
+        }
     ) { onUserClick ->
-        MapApp(exitActivity, mapVm, selectingChatContact, mapFocus, onUserClick)
+        MapApp(exitActivity, mapVm, selectingChatContact, activeFocus, onUserClick,
+            onFocusApplied = { applied -> if (activeFocus == applied) activeFocus = null })
     }
 }
 
@@ -369,6 +388,7 @@ internal fun MapUserNavigation(
         startMapUserBloodhound(context, user)
     },
     mapFocus: BloodhoundMapFocus? = null,
+    onFocusUserSelected: (DataRepository.ReceivedUser) -> Unit = {},
     mapContent: @Composable ((String) -> Unit) -> Unit
 ) {
     val navController = rememberSwipeDismissableNavController()
@@ -379,6 +399,7 @@ internal fun MapUserNavigation(
     val currentMapContent by rememberUpdatedState(mapContent)
     val currentOnChatContactSelected by rememberUpdatedState(onChatContactSelected)
     val currentOnBloodhoundUserSelected by rememberUpdatedState(onBloodhoundUserSelected)
+    val currentOnFocusUserSelected by rememberUpdatedState(onFocusUserSelected)
     SwipeDismissableNavHost(
         navController = navController,
         startDestination = "map_screen"
@@ -395,7 +416,8 @@ internal fun MapUserNavigation(
         ) { backStackEntry ->
             val selectedUid = backStackEntry.arguments?.getString("uid")
             SelectedUser(navController, selectedUid, currentUsers, context,
-                selectingChatContact, currentOnChatContactSelected, currentOnBloodhoundUserSelected)
+                selectingChatContact, currentOnChatContactSelected, currentOnBloodhoundUserSelected,
+                currentOnFocusUserSelected)
         }
     }
 }
@@ -428,6 +450,8 @@ private fun EmergencyAlertsOnMap(
     val source = rememberGeoJsonSource(data = features.toSafeGeoJsonData())
     SymbolLayer(
         id = "remote-emergency-alerts",
+        iconPitchAlignment = const(IconPitchAlignment.Viewport),
+        textPitchAlignment = const(TextPitchAlignment.Viewport),
         source = source,
         iconImage = image(painterResource(R.drawable.ic_alert_triangle)),
         iconSize = const(1.2f),
@@ -494,7 +518,9 @@ data class MapMarkerItem(
     val sourceServerId: String? = null,
     val circleRadiusMeters: Double? = null,
     val mapLabel: String? = null,
-    val selectionKey: String? = null
+    val selectionKey: String? = null,
+    val hae: Double? = null,
+    val le: Double? = null
 )
 
 // Selects the gray icon used for cleared markers
@@ -537,6 +563,8 @@ internal fun MarkersOnMap(
         val iconResGray = grayMarkerIconFromString(markerType)
         SymbolLayer(
             id = collection.layerId(markerType),
+            iconPitchAlignment = const(IconPitchAlignment.Viewport),
+            textPitchAlignment = const(TextPitchAlignment.Viewport),
             zOrder = const(SymbolZOrder.Source),
             sortKey = const(0),
             source = source,
@@ -619,7 +647,8 @@ data class ATOSItem(
     val lat: Double?,
     val lon: Double?,
     val color: String?,
-    val hae: Double?
+    val hae: Double?,
+    val le: Double? = null
 )
 
 // Creates MapLibre symbol layers for ATOS tags
@@ -652,6 +681,8 @@ fun ATOSTagsOnMap(
 
         SymbolLayer(
             id = "atos-$type-$colorName-$gpsOn",
+            iconPitchAlignment = const(IconPitchAlignment.Viewport),
+            textPitchAlignment = const(TextPitchAlignment.Viewport),
             source = source,
             filter = all(
                 eq(get("type").asString(), const(type.toString()), c),
@@ -768,7 +799,9 @@ data class MapUserItem(
     val role: String?,
     val sourceServerId: String? = null,
     val mapLabel: String? = null,
-    val selectionKey: String? = null
+    val selectionKey: String? = null,
+    val hae: Double? = null,
+    val le: Double? = null
 )
 
 // Creates MapLibre symbol layers for connected users
@@ -805,6 +838,8 @@ fun UsersOnMap(
     typeGroups.forEach { (type, group) ->
         SymbolLayer(
             id = group.first().uid,
+            iconPitchAlignment = const(IconPitchAlignment.Viewport),
+            textPitchAlignment = const(TextPitchAlignment.Viewport),
             source = source,
             sortKey = const(0),
             zOrder = const(SymbolZOrder.Source),
@@ -995,6 +1030,7 @@ fun BhoundMap(
 
     SymbolLayer(
         id = "bhound-label-${item.uid}",
+        textPitchAlignment = const(TextPitchAlignment.Viewport),
         source = labelSource,
         textField = if (camera.position.zoom > 10.0) {
             get("label").asString()
@@ -1172,6 +1208,7 @@ fun RoutesLayer(
     )
     SymbolLayer(
         id = "route-points-text-layer",
+        textPitchAlignment = const(TextPitchAlignment.Viewport),
         source = pointSource,
         textAllowOverlap = const(true),
         textIgnorePlacement = const(true),
@@ -1271,8 +1308,18 @@ private fun getMissionRouteColor(
 }
 
 @Composable
-internal fun rememberBaseMapStyle(context: Context): BaseStyle.Json = remember(context) {
-    BaseStyle.Json(context.assets.open("style.json").bufferedReader().use { it.readText() })
+internal fun rememberBaseMapStyle(
+    context: Context,
+    source: MapSource = MapSource.DEFAULT,
+    retry: Int = 0
+): BaseStyle.Json {
+    val original = remember(context) {
+        context.assets.open("style.json").bufferedReader().use { it.readText() }
+    }
+    return remember(original, source, retry) {
+        val style = mapSourceStyle(original, source, retry)
+        BaseStyle.Json(if (source == MapSource.DEFAULT) withBuildingExtrusions(style) else style)
+    }
 }
 
 internal fun baseMapLayerIds(style: BaseStyle.Json): Set<String> {
@@ -1305,13 +1352,14 @@ data class OverlayToggle(
 
 // Displays one clickable visibility option with an eye icon
 @Composable
-fun ToggleRow(label: String, visible: Boolean, onToggle: () -> Unit) {
+fun ToggleRow(label: String, visible: Boolean, onToggle: () -> Unit, enabled: Boolean = true) {
     // Make the entire row clickable instead of only the icon
     Row(
         verticalAlignment = Alignment.Top,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggle() }
+            .clickable(enabled = enabled) { onToggle() }
+            .alpha(if (enabled) 1f else 0.38f)
             .padding(vertical = 2.dp)
     ) {
         Image(
@@ -1436,6 +1484,10 @@ fun PopupBox(
 // Controls map layers, overlays, teams, roles, and map controls
 @Composable
 fun LayerTogglePopup(
+    mapSource: MapSource,
+    onMapSourceSelected: (MapSource) -> Unit,
+    mapError: String?,
+    onRetryMap: () -> Unit,
     topoLayers: List<Pair<String, String>>,
     hiddenLayers: Set<String>,
     onToggle: (String) -> Unit,
@@ -1459,7 +1511,8 @@ fun LayerTogglePopup(
     // Center the menu within the circular watch display
     Popup(
         alignment = Alignment.Center,
-        onDismissRequest = onDismiss
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true)
     ) {
         Box(
             Modifier
@@ -1480,21 +1533,18 @@ fun LayerTogglePopup(
                     .padding(12.dp)
                     .verticalScroll(scrollState)
             ) {
-                Text(
-                    // Layers menu heading
-                    "Layers Menu", color = Color.White, fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.map_overlay_manager), color = Color.White, fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
+                    )
+                    LayersMenuBackButton(onDismiss, Modifier.testTag("layers-menu-top-back"))
+                }
 
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    // Layers menu heading
-                    "Map Buttons", color = Color.White, fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
                 // Menu option that hides or restores the extra map controls.
                 ToggleRow(
-                    label = "Map Buttons",
+                    label = "Buttons",
 
                     // ToggleRow represents visibility, so the eye appears when
                     // the map controls are currently visible.
@@ -1510,7 +1560,7 @@ fun LayerTogglePopup(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     // Layers menu heading
-                    "Layers", color = Color.White, fontSize = 11.sp,
+                    "Layers", color = if (mapSource == MapSource.DEFAULT) Color.White else Color.Gray, fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
                 // style.json layers
@@ -1548,38 +1598,13 @@ fun LayerTogglePopup(
                     ToggleRow(
                         label = label,
                         visible = visible,
-                        onToggle = { onToggle(id) }
+                        onToggle = { onToggle(id) },
+                        enabled = mapSource == MapSource.DEFAULT
                     )
                 }
 
                 Spacer(Modifier.height(8.dp))
-                Spacer(Modifier.height(4.dp))
-
-                // Build the team color section using teams currently on the map
-                val userTeams = listOf(
-                    "White", "Yellow", "Orange", "Magenta", "Red", "Maroon",
-                    "Purple", "Dark Blue", "Blue", "Cyan", "Teal",
-                    "Green", "Dark Green", "Brown"
-                ).filter { (it in availableTeams) && ((teamColorCount[it] ?: 0) > 0) }
-                val totalOtherTeamCategories = userTeams.count { team ->
-                    (teamColorCount[team] ?: 0) > 0
-                }
-                Text(
-                    text = "Team Colors ($totalOtherTeamCategories)",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
-                )
-                userTeams.forEach { team ->
-                    val count = teamColorCount[team] ?: 0
-                    val meSuffix = if (team == MainActivity.Constants.team) ", me" else ""
-                    ToggleRow(
-
-                        "$team ($count$meSuffix)",
-                        visible = team in visibleUserTeams,
-                        onToggle = { onTeamToggle(team) }
-                    )
-                }
+                MapSourcePicker(mapSource, onMapSourceSelected, mapError, onRetryMap)
 
                 Spacer(Modifier.height(4.dp))
 
@@ -1587,12 +1612,12 @@ fun LayerTogglePopup(
                 val userRoles = listOf(
                     "Forward Observer", "HQ", "K9", "Medic", "RTO", "Sniper", "Team Lead", "Team Member"
                 ).filter { (it in availableUserRoles) && ((roleCounts[it] ?: 0) > 0)}
-                val totalOtherDefaultRoleCategories = userRoles.count { role ->
-                    (roleCounts[role] ?: 0) > 0
-                }
+                val userRolesLEO = listOf(
+                    "Armed Surveillance", "Assistant Team Leader", "Aviation", "Bomb Tech", "Command Post", "Critical Response", "Hazards", "Negotiator", "Surveillance", "Tactical Communicator", "TOC"
+                ).filter { (it in availableUserRolesLEO) && ((roleCounts[it] ?: 0) > 0) }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Default Roles ($totalOtherDefaultRoleCategories)",
+                    text = "Roles (${userRoles.size + userRolesLEO.size})",
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     fontSize = 10.sp
@@ -1606,24 +1631,6 @@ fun LayerTogglePopup(
                         onToggle = { onRoleToggle(role) }
                     )
                 }
-
-                Spacer(Modifier.height(4.dp))
-
-                // Build the law enforcement role section using roles currently on the map
-                val userRolesLEO = listOf(
-                    "Armed Surveillance", "Assistant Team Leader", "Aviation", "Bomb Tech", "Command Post", "Critical Response", "Hazards", "Negotiator", "Surveillance", "Tactical Communicator", "TOC"
-                ).filter { (it in availableUserRolesLEO) && ((roleCounts[it] ?: 0) > 0) }
-                val totalLeoRoleCategories = userRolesLEO.count { role ->
-                    val count = roleCounts[role] ?: 0
-                    count > 0
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "LEO / Civil Use Roles (${totalLeoRoleCategories})",
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontSize = 11.sp
-                )
                 userRolesLEO.forEach { role ->
                     val count = roleCounts[role] ?: 0
                     val meSuffix = if (role == myRole) ", me" else ""
@@ -1634,6 +1641,33 @@ fun LayerTogglePopup(
                     )
                 }
 
+                Spacer(Modifier.height(4.dp))
+
+                val userTeams = listOf(
+                    "White", "Yellow", "Orange", "Magenta", "Red", "Maroon",
+                    "Purple", "Dark Blue", "Blue", "Cyan", "Teal",
+                    "Green", "Dark Green", "Brown"
+                ).filter { (it in availableTeams) && ((teamColorCount[it] ?: 0) > 0) }
+                val totalOtherTeamCategories = userTeams.count { team ->
+                    (teamColorCount[team] ?: 0) > 0
+                }
+                Text(
+                    text = "Teams ($totalOtherTeamCategories)",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                )
+                userTeams.forEach { team ->
+                    val count = teamColorCount[team] ?: 0
+                    val meSuffix = if (team == MainActivity.Constants.team) ", me" else ""
+                    ToggleRow(
+                        "$team ($count$meSuffix)",
+                        visible = team in visibleUserTeams,
+                        onToggle = { onTeamToggle(team) }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                MapCreditsSection(mapSource)
             }
         }
     }
@@ -1773,7 +1807,8 @@ fun LayerChannelsPopup(
 @Composable
 fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
            selectingChatContact: Boolean = false, mapFocus: BloodhoundMapFocus? = null,
-           onUserClick: (String) -> Unit) {
+           onUserClick: (String) -> Unit,
+           onFocusApplied: (BloodhoundMapFocus) -> Unit = {}) {
     // Access the application repository used by the map
     val context = LocalContext.current
 
@@ -1786,6 +1821,35 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             "map_layer_preferences",
             Context.MODE_PRIVATE
         )
+    }
+    val sourcePreferences = remember(mapPreferences) { MapSourcePreferences(mapPreferences) }
+    var mapSource by remember { mutableStateOf(sourcePreferences.load()) }
+    var mapRetry by remember { mutableIntStateOf(0) }
+    var mapError by remember { mutableStateOf<String?>(null) }
+    var mapLoaded by remember { mutableStateOf(false) }
+    var mapHasTileFailure by remember { mutableStateOf(false) }
+    val currentSource by rememberUpdatedState(mapSource)
+    val loadFailedMessage = stringResource(R.string.map_load_failed)
+    val loadTimeoutMessage = stringResource(R.string.map_load_timeout)
+    val onMapLoadFailed by rememberUpdatedState<(String?) -> Unit>({ reason ->
+        Log.e(TAG, "Map source ${currentSource.preferenceValue} failed: $reason")
+        mapLoaded = false
+        mapHasTileFailure = true
+        mapError = loadFailedMessage
+    })
+    val onMapLoadFinished by rememberUpdatedState<() -> Unit>({
+        mapLoaded = true
+        if (!mapHasTileFailure) mapError = null
+    })
+    LaunchedEffect(mapSource, mapRetry) {
+        mapLoaded = false
+        mapHasTileFailure = false
+        mapError = null
+        delay(20_000)
+        if (!mapLoaded && mapError == null) {
+            Log.w(TAG, "Map source ${mapSource.preferenceValue} still loading after 20 seconds")
+            mapError = loadTimeoutMessage
+        }
     }
 
     val dataRepository = remember(context) {
@@ -1846,13 +1910,61 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     val lat = locationFlow?.latitude ?: 0.0
     val lon = locationFlow?.longitude ?: 0.0
 
-    // Initial map camera centered on the latest known location
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val cameraPreferences = remember(mapPreferences) { MapCameraPreferences(mapPreferences) }
+    val savedCamera = remember(cameraPreferences) { cameraPreferences.load() }
+    val firstMapOpen = remember { processMapOpenSession.claimFirstOpen() }
+    val initialSelfPosition = remember {
+        locationFlow?.let { validMapPositionOrNull(it.latitude, it.longitude) }
+    }
+    val initialCamera = remember {
+        initialMapCamera(savedCamera, initialSelfPosition, firstMapOpen, mapFocus != null)
+            .copy(zoom = (savedCamera?.zoom ?: 15.5).coerceAtMost(mapSource.maxCameraZoom),
+                tilt = mapPitchForSource(mapSource, MapSourcePreferences(mapPreferences).tiltedView()))
+    }
+    val cameraBootstrap = remember {
+        MapCameraBootstrap(initialCamera,
+            waitingForFirstFix = firstMapOpen && initialSelfPosition == null && mapFocus == null,
+            canPersistInitial = savedCamera != null || (firstMapOpen && initialSelfPosition != null && mapFocus == null))
+    }
     val cameraState = rememberCameraState(
-        firstPosition = CameraPosition(
-            target = Position(lon, lat),
-            zoom = 15.5,
-        )
+        firstPosition = initialCamera
     )
+    LaunchedEffect(locationFlow, mapFocus) {
+        cameraBootstrap.observe(cameraState.position)
+        val firstFix = cameraBootstrap.firstFix(locationFlow?.let {
+            validMapPositionOrNull(it.latitude, it.longitude)
+        }, mapFocus != null)
+        if (firstFix != null) cameraState.position = cameraState.position.copy(target = firstFix)
+    }
+    LaunchedEffect(cameraState, cameraPreferences) {
+        snapshotFlow { cameraState.position to cameraState.isCameraMoving }.collect { (position, moving) ->
+            cameraBootstrap.observe(position)
+            if (!moving && cameraBootstrap.canPersist) cameraPreferences.save(position)
+        }
+    }
+    DisposableEffect(lifecycleOwner, cameraState, cameraPreferences) {
+        fun saveCamera() {
+            cameraBootstrap.observe(cameraState.position)
+            if (cameraBootstrap.canPersist) cameraPreferences.save(cameraState.position)
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) saveCamera()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            saveCamera()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    val effectiveHiddenLayers = mapHiddenLayersForPitch(hiddenLayers, cameraState.position.tilt)
+    LaunchedEffect(mapSource) {
+        val current = cameraState.position
+        val target = current.copy(
+            zoom = current.zoom.coerceAtMost(mapSource.maxCameraZoom),
+            tilt = mapPitchForSource(mapSource, MapSourcePreferences(mapPreferences).tiltedView()))
+        if (current != target) cameraState.animateTo(target)
+    }
     var selfRecenterRequestedNanos by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(locationFlow, selfRecenterRequestedNanos) {
         val requested = selfRecenterRequestedNanos ?: return@LaunchedEffect
@@ -1877,8 +1989,13 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             val frame = runCatching {
                 routeCameraFrame(focusPoints, screen.screenWidthDp.toDouble(), screen.screenHeightDp.toDouble())
             }.getOrNull() ?: return@LaunchedEffect
-            cameraState.animateTo(CameraPosition(
-                target = Position(frame.longitude, frame.latitude), zoom = frame.zoom, bearing = 0.0, tilt = 0.0))
+            val target = Position(frame.longitude, frame.latitude)
+            cameraState.animateTo(if (mapFocus.pointZoom != null) {
+                cameraState.position.copy(target = target, zoom = mapFocus.pointZoom)
+            } else {
+                CameraPosition(target = target, zoom = frame.zoom, bearing = 0.0, tilt = 0.0)
+            })
+            onFocusApplied(mapFocus)
         }
     }
 
@@ -1916,24 +2033,62 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     // Define the map style options shown in the Layers menu
     val topoLayers = remember {
         listOf(
-            "hillshade" to "Hillshade",
             "contours" to "Contours",
-            "water" to "Water",
+            "hillshade" to "Hillshade",
+            "labels" to "Labels",
             "roads" to "Roads",
-            "labels" to "Labels"
+            "water" to "Water"
         )
     }
 
     val scope = rememberCoroutineScope()
+    fun focusMapGeometry(points: List<com.aitech.weartak_civ.data.model.TakRoutePoint>, zoom: Double? = null) {
+        val frame = routeCameraFrame(points, screen.screenWidthDp.toDouble(), screen.screenHeightDp.toDouble())
+        cameraBootstrap.userPanned()
+        scope.launch {
+            cameraState.animateTo(cameraState.position.copy(
+                target = Position(frame.longitude, frame.latitude), zoom = zoom ?: frame.zoom))
+        }
+    }
+    val mapLogger = remember(mapSource, mapRetry) {
+        val requestedSource = mapSource
+        val requestedRetry = mapRetry
+        co.touchlab.kermit.Logger(
+            co.touchlab.kermit.StaticConfig(logWriterList = listOf(
+                co.touchlab.kermit.platformLogWriter(),
+                object : co.touchlab.kermit.LogWriter() {
+                    override fun log(
+                        severity: co.touchlab.kermit.Severity,
+                        message: String,
+                        tag: String,
+                        throwable: Throwable?
+                    ) {
+                        if (severity >= co.touchlab.kermit.Severity.Error &&
+                            isBaseMapTileFailure(requestedSource, message)
+                        ) {
+                            // Native tile failures may coexist with a successful partial-map callback.
+                            scope.launch {
+                                if (mapSource == requestedSource && mapRetry == requestedRetry) {
+                                    onMapLoadFailed(message)
+                                }
+                            }
+                        }
+                    }
+                }
+            )),
+            tag = "maplibre-compose"
+        )
+    }
 
     // CAMERA ACTIONS
     // Handles zooming and recentering the map
     // Change zoom while preserving target, bearing, tilt, and padding
 
     fun changeZoom(delta: Double) {
+        cameraBootstrap.userPanned()
         scope.launch {
             val current = cameraState.position
-            val newZoom = (current.zoom + delta).coerceIn(0.0, 25.5)
+            val newZoom = (current.zoom + delta).coerceIn(0.0, mapSource.maxCameraZoom)
 
             cameraState.animateTo(
                 CameraPosition(
@@ -1981,6 +2136,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     var showPopup by remember { mutableStateOf(false) }
     var selectedRoutePoint by remember {mutableStateOf<RoutePointDetails?>(null)}
     var selectedRoute by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var choosingRouteStart by remember(selectedRoute) { mutableStateOf(false) }
 
     // Show or hide connected users
     var showUsers by remember { mutableStateOf(mapPreferences.getBoolean(
@@ -2146,7 +2302,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         lat = marker.location?.lat,
                         lon = marker.location?.lon,
                         marker.enqueuedToBeSent,
-                        marker.cotType
+                        marker.cotType,
+                        hae = marker.location?.hae,
+                        le = marker.location?.le?.toDouble()
                     )
                 }
             )
@@ -2190,7 +2348,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         //TODO: Is this okay to have here?
                         DataRepository.MarkerCotType.DROP,
                         sourceServerId = marker.sourceServerId,
-                        circleRadiusMeters = marker.circleRadiusMeters
+                        circleRadiusMeters = marker.circleRadiusMeters,
+                        hae = location.hae,
+                        le = location.le?.toDouble()
 
                     )
                 }
@@ -2213,7 +2373,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                                 lat = marker.lat,
                                 lon = marker.lon,
                                 color = marker.color,
-                                hae = marker.hae
+                                hae = marker.hae,
+                                le = tag.point?.le
                             )
                         }
 
@@ -2282,7 +2443,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         lat = location.lat,
                         lon = location.lon,
                         role = user.role,
-                        sourceServerId = user.sourceServerId
+                        sourceServerId = user.sourceServerId,
+                        hae = location.hae,
+                        le = location.le?.toDouble()
                     )
                 }
             )
@@ -2363,13 +2526,11 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
 
     // MAP LIFECYCLE
     // Requests a fresh location when the map returns to the screen
-    val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 Log.i(TAG, "MapApp Lifecycle.Event.ON_RESUME called")
-                selfRecenterRequestedNanos = android.os.SystemClock.elapsedRealtimeNanos()
                 dataRepository.requestInteractionPliRefresh(PliRefreshReason.MAP_OPENED)
             }
         }
@@ -2393,6 +2554,57 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     } else emptyList()
     val visibleDropped = if (showMarkers) droppedMapMarkers else emptyList()
     val visibleReceived = if (showMarkers) receivedMapMarkers else emptyList()
+    val selfAltitude by androidx.compose.runtime.produceState<DataRepository.LocationSnapshot?>(null, locationFlow) {
+        value = locationFlow?.takeIf { it.hasAltitude() }?.let { dataRepository.snapshotLocation(it) }
+    }
+    val buildingFootprints = remember { RenderedBuildingFootprints() }
+    val selfTitle = stringResource(R.string.map_self_location)
+    val lollipopTargets = remember(visibleMapUsers, visibleDropped, visibleReceived, selfAltitude,
+        teamValue, selfTitle, receivedAtosTags, showAtosTags, remoteEmergencyMapItems) {
+        buildList {
+            visibleMapUsers.forEach { user ->
+                validMapPositionOrNull(user.lat, user.lon)?.let {
+                    add(LollipopTarget(mapSelectionKey(MapTargetKind.CONTACT, user.uid, user.sourceServerId),
+                        it, user.hae, user.le, user.type, user.title, user.team))
+                }
+            }
+            fun addMarkers(markers: List<MapMarkerItem>, kind: MapTargetKind) {
+                markers.forEach { marker ->
+                    validMapPositionOrNull(marker.lat, marker.lon)?.let {
+                        add(LollipopTarget(mapSelectionKey(kind, marker.uid, marker.sourceServerId),
+                            it, marker.hae, marker.le, marker.markerType, marker.title,
+                            cleared = marker.cotType == DataRepository.MarkerCotType.CLEAR,
+                            pending = marker.enQueuedToBeSent))
+                    }
+                }
+            }
+            addMarkers(visibleDropped, MapTargetKind.DROPPED)
+            addMarkers(visibleReceived, MapTargetKind.RECEIVED)
+            if (showAtosTags) receivedAtosTags.forEach { tag ->
+                validMapPositionOrNull(tag.lat, tag.lon)?.let {
+                    add(LollipopTarget("atos:${tag.uid}", it, tag.hae, tag.le,
+                        tag.iconType.orEmpty(), tag.title.orEmpty(), tag.color, atos = true))
+                }
+            }
+            remoteEmergencyMapItems.forEach { alert ->
+                validMapPositionOrNull(alert.point.lat, alert.point.lon)?.let {
+                    add(LollipopTarget("alert:${alert.uid}:${alert.sourceServerId}", it,
+                        alert.point.hae, alert.point.le, "", "${alert.callsign}: ${alert.category}",
+                        alertUid = alert.uid))
+                }
+            }
+            selfAltitude?.let { snapshot ->
+                validMapPositionOrNull(snapshot.lat, snapshot.lon)?.let {
+                    add(LollipopTarget("self", it, snapshot.hae, snapshot.le?.toDouble(),
+                        "", selfTitle, teamValue, self = true))
+                }
+            }
+        }
+    }
+    val lollipopsEnabled = mapSource == MapSource.DEFAULT && cameraState.position.tilt >= 22.5
+    val queryBuildingFootprints = rememberBuildingFootprintQuery(lollipopsEnabled, cameraState, buildingFootprints)
+    val lollipops = rememberLollipops(lollipopsEnabled, lollipopTargets, cameraState, buildingFootprints.features)
+    val raisedKeys = lollipops.markers.map { it.target.key }.toSet()
     val selectableMapTargets = remember(visibleMapUsers, visibleDropped, visibleReceived) {
         buildList {
             visibleMapUsers.forEach {
@@ -2413,8 +2625,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             addMarkers(visibleReceived, MapTargetKind.RECEIVED)
         }
     }
-    val targetGroups = remember(selectableMapTargets, projection, cameraState.position) {
-        groupMapTargets(selectableMapTargets) { latitude, longitude ->
+    val targetGroups = remember(selectableMapTargets, projection, cameraState.position, raisedKeys) {
+        groupMapTargets(selectableMapTargets.filterNot { it.key in raisedKeys }) { latitude, longitude ->
             projection?.screenLocationFromPosition(Position(longitude, latitude))?.let {
                 MapTargetScreenPoint(it.x.value.toDouble(), it.y.value.toDouble())
             }
@@ -2423,9 +2635,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     val groupsByTarget = targetGroups.flatMap { group -> group.map { it.key to group } }.toMap()
     val targetLabels = buildMap {
         targetGroups.filter { it.size > 1 }.forEach { group ->
-            group.forEachIndexed { index, target ->
-                put(target.key, if (index == 0)
-                    context.resources.getQuantityString(R.plurals.map_target_count, group.size, group.size) else "")
+            group.forEach { target ->
+                put(target.key, "")
             }
         }
     }
@@ -2490,14 +2701,28 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             mutableStateOf<DpOffset?>(null)
         }
 
-        val baseStyle = rememberBaseMapStyle(context)
+        val baseStyle = rememberBaseMapStyle(context, mapSource, mapRetry)
         val baseLayerIds = remember(baseStyle) { baseMapLayerIds(baseStyle) }
 
-        // Main MapLibre map
+        // Keep replacement anchors scoped to their native style; retain the external camera.
+        androidx.compose.runtime.key(baseStyle) {
         MaplibreMap(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().pointerInput(cameraBootstrap) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    do {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.changes.any { (it.position - down.position).getDistance() > viewConfiguration.touchSlop })
+                            cameraBootstrap.userPanned()
+                    } while (event.changes.any { it.pressed })
+                }
+            },
 
             baseStyle = baseStyle,
+            logger = mapLogger,
+            onMapLoadFailed = { onMapLoadFailed(it) },
+            onMapLoadFinished = { queryBuildingFootprints(); onMapLoadFinished() },
+            onFrame = { queryBuildingFootprints() },
 
             // Controls the map camera position and zoom
             cameraState = cameraState,
@@ -2505,11 +2730,12 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             // Disables MapLibre controls and prevents map rotation
             options = MapOptions(
                 ornamentOptions = OrnamentOptions.AllDisabled,
-                gestureOptions = GestureOptions.RotationLocked
+                gestureOptions = GestureOptions.RotationLocked.copy(
+                    isTiltEnabled = mapSource == MapSource.DEFAULT)
             ),
 
             // Keeps zoom within the supported range
-            zoomRange = 0f..25.5f,
+            zoomRange = 0f..mapSource.maxCameraZoom.toFloat(),
 
             onMapClick = { _, offset ->
                 val mapProjection = cameraState.projection
@@ -2580,12 +2806,12 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 ClickResult.Pass
             }
         ) {
-            HiddenBaseMapLayers(baseLayerIds, hiddenLayers)
+            HiddenBaseMapLayers(baseLayerIds, effectiveHiddenLayers)
 
             // Displays the location puck when a location is available
             // Guard on the same state LocationPuck reads: it builds an empty FeatureCollection
             // for a null location, which crashes GeoJSON serialization (no/invalid GPS indoors).
-            if (userLocationState.location != null) {
+            if (userLocationState.location != null && "self" !in raisedKeys) {
                 LocationPuck(
                     idPrefix = "me",
                     locationState = userLocationState,
@@ -2632,7 +2858,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             }
 
             // Emergencies remain visible independently of ordinary marker/contact filters.
-            EmergencyAlertsOnMap(remoteEmergencyMapItems) { uid ->
+            EmergencyAlertsOnMap(remoteEmergencyMapItems.filterNot {
+                "alert:${it.uid}:${it.sourceServerId}" in raisedKeys
+            }) { uid ->
                 context.startActivity(Intent(context, BloodhoundActivity::class.java).apply {
                     putExtra(BloodhoundActivity.EXTRA_REMOTE_EMERGENCY_UID, uid)
                 })
@@ -2644,7 +2872,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 // Displays markers dropped by the current user
                 MarkersOnMap(
                     collection = MarkerLayerCollection.DROPPED,
-                    markers = visibleDropped.map {
+                    markers = visibleDropped.filterNot {
+                        mapSelectionKey(MapTargetKind.DROPPED, it.uid, it.sourceServerId) in raisedKeys
+                    }.map {
                         val key = mapSelectionKey(MapTargetKind.DROPPED, it.uid, it.sourceServerId)
                         it.copy(mapLabel = targetLabels[key], selectionKey = key)
                     },
@@ -2656,7 +2886,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 // Displays markers received from other users
                 MarkersOnMap(
                     collection = MarkerLayerCollection.RECEIVED,
-                    markers = visibleReceived.map {
+                    markers = visibleReceived.filterNot {
+                        mapSelectionKey(MapTargetKind.RECEIVED, it.uid, it.sourceServerId) in raisedKeys
+                    }.map {
                         val key = mapSelectionKey(MapTargetKind.RECEIVED, it.uid, it.sourceServerId)
                         it.copy(mapLabel = targetLabels[key], selectionKey = key)
                     },
@@ -2669,7 +2901,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             // Displays ATOS tags
             if (showAtosTags) {
                 ATOSTagsOnMap(
-                    tags = receivedAtosTags,
+                    tags = receivedAtosTags.filterNot { "atos:${it.uid}" in raisedKeys },
                     camera = cameraState
                 )
             }
@@ -2679,7 +2911,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 UsersOnMap(
 
                     // Filters users by team and role
-                    users = visibleMapUsers.map {
+                    users = visibleMapUsers.filterNot {
+                        mapSelectionKey(MapTargetKind.CONTACT, it.uid, it.sourceServerId) in raisedKeys
+                    }.map {
                         val key = mapSelectionKey(MapTargetKind.CONTACT, it.uid, it.sourceServerId)
                         it.copy(mapLabel = targetLabels[key], selectionKey = key)
                     },
@@ -2707,6 +2941,68 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     selectedRoutePoint = null
                     selectedRoute = serverId to routeUid
                 }
+            )
+        }
+        }
+
+        if (mapSource == MapSource.DEFAULT && cameraState.position.tilt >= 22.5) {
+            val geometry = remember(missionMapRoutes, visibleDropped, visibleReceived, showMarkers,
+                lat, lon, teamValue, activeBloodhound, cameraState.position.zoom, userLocationState.location,
+                raisedKeys, visibleMapUsers) {
+                tacticalGroundGeometry(
+                    missionMapRoutes,
+                    (if (showMarkers) visibleDropped + visibleReceived else emptyList()) +
+                        visibleMapUsers.filter { CotMessageParser.isGenericMapType(it.type) }.map {
+                            MapMarkerItem(it.uid, it.type, it.title, it.lat, it.lon,
+                                false, DataRepository.MarkerCotType.DROP)
+                        },
+                    if (userLocationState.location != null) validMapPositionOrNull(lat, lon) else null,
+                    TeamColors(teamValue),
+                    if (activeBloodhound.uid.isNotEmpty())
+                        validMapPositionOrNull(activeBloodhound.lat, activeBloodhound.lon) else null,
+                    cameraState.position.zoom > 10.0,
+                    (lollipops.markers.map { it.target.position } +
+                        if ("self" in raisedKeys) listOfNotNull(validMapPositionOrNull(lat, lon))
+                        else emptyList()).toSet()
+                )
+            }
+            TacticalGeometryOverlay(cameraState, geometry.first, geometry.second)
+        }
+        LollipopOverlay(lollipops) { target ->
+            if (target.self) showPopup = true
+            else if (target.alertUid != null) context.startActivity(
+                Intent(context, BloodhoundActivity::class.java).apply {
+                    putExtra(BloodhoundActivity.EXTRA_REMOTE_EMERGENCY_UID, target.alertUid)
+                })
+            else selectableMapTargets.firstOrNull { it.key == target.key }?.let(::openMapTarget)
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.align(Alignment.TopCenter)
+                .padding(
+                    start = 38.dp, end = 38.dp,
+                    top = if (mapError != null) 76.dp else 8.dp
+                )
+        ) {
+            if (mapError != null) {
+                Text(
+                    stringResource(R.string.map_error_open_layers),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.background(Color.Black)
+                        .clickable { showLayerToggle = true }.padding(4.dp)
+                )
+            }
+            Text(
+                if (mapSource == MapSource.DEFAULT && mapError == null)
+                    compactTakAttribution(stringResource(R.string.map_tak_attribution_compact))
+                else androidx.compose.ui.text.AnnotatedString(mapSource.attribution),
+                color = Color.White, fontSize = 6.sp, lineHeight = 9.sp, textAlign = TextAlign.Center,
+                style = androidx.compose.ui.text.TextStyle(
+                    shadow = androidx.compose.ui.graphics.Shadow(Color.Black, Offset(0f, 1f), 2f)
+                )
             )
         }
 
@@ -2763,10 +3059,20 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             onOpenLayers = {
                 showLayerToggle = true
             },
+            onTogglePitch = {
+                val tilted = cameraState.position.tilt < 22.5
+                MapSourcePreferences(mapPreferences).saveTiltedView(tilted)
+                scope.launch {
+                    cameraState.animateTo(mapPitchPosition(cameraState.position, tilted))
+                }
+            },
+            showPitchButton = showMapPitchButton(hideControls, showLayerToggle),
+            pitchEnabled = mapSource == MapSource.DEFAULT,
             onOpenChannels = {
                 if (!networkSettingsLocked) showChannelToggle = true
             },
             channelsEnabled = !networkSettingsLocked,
+            showBackButton = !showLayerToggle,
             // Exits the map screen
             onBack = {
                 exitActivity()
@@ -2776,8 +3082,16 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         // Displays the Layers menu
         if (showLayerToggle) {
             LayerTogglePopup(
+                mapSource = mapSource,
+                onMapSourceSelected = {
+                    sourcePreferences.save(it)
+                    mapSource = it
+                    mapRetry = 0
+                },
+                mapError = mapError,
+                onRetryMap = { mapRetry++ },
                 topoLayers = topoLayers,
-                hiddenLayers = hiddenLayers,
+                hiddenLayers = effectiveHiddenLayers,
                 visibleUserTeams = visibleUserTeams,
                 visibleUserRoles = visibleUserRoles,
                 visibleUserRolesLEO = visibleUserRolesLEO,
@@ -2829,26 +3143,15 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 // Shows or hides the selected map layer
                 onToggle = { id ->
 
-                    // Gets every style layer in the selected group
-                    val layers = layerGroups[id] ?: setOf(id)
-
-                    val updatedHiddenLayers =
-                        if (layers.all { it in hiddenLayers }) {
-                            hiddenLayers - layers
-                        } else {
-                            hiddenLayers + layers
-                        }
-
-                    // Updates the screen
-                    hiddenLayers = updatedHiddenLayers
-
-                    // Saves the selection for the next app session
-                    mapPreferences.edit()
-                        .putStringSet(
-                            "hidden_layers",
-                            updatedHiddenLayers
-                        )
-                        .apply()
+                        // Gets every style layer in the selected group
+                        val layers = layerGroups[id] ?: setOf(id)
+                        val updatedHiddenLayers =
+                            if (layers.all { it in hiddenLayers }) hiddenLayers - layers
+                            else hiddenLayers + layers
+                        hiddenLayers = updatedHiddenLayers
+                        mapPreferences.edit()
+                            .putStringSet("hidden_layers", updatedHiddenLayers)
+                            .apply()
                 },
 
 //                    // Removes hidden layers or adds visible layers
@@ -2959,7 +3262,36 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         selectedRoute?.let { (serverId, routeUid) ->
             val route = takRoutes.firstOrNull { it.serverId == serverId && it.uid == routeUid }
             if (route != null && selectedRoutePoint == null) {
-                RouteDetailsView(
+                if (choosingRouteStart) {
+                    val session by bhRepo.routeFollow.collectAsStateWithLifecycle()
+                    val target by bhRepo.activeBhItemUi.collectAsStateWithLifecycle()
+                    val self = locationFlow?.let {
+                        com.aitech.weartak_civ.data.model.TakRoutePoint(it.latitude, it.longitude)
+                    }
+                    androidx.activity.compose.BackHandler { choosingRouteStart = false }
+                    RouteBloodhoundDetails(
+                        route, session, self, target,
+                        onStart = { mode ->
+                            if (bhRepo.startRoute(route, mode, self)) {
+                                selectedRoute = null
+                                requestBloodhoundComplicationUpdate(context)
+                            } else {
+                                Log.w(TAG, "Cannot start selected route ${route.uid}: expired route or invalid route/location")
+                                Toast.makeText(context, R.string.map_route_start_failed, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onStop = {
+                            bhRepo.stopRoute()
+                            requestBloodhoundComplicationUpdate(context)
+                        },
+                        onBack = { choosingRouteStart = false },
+                        choosingStart = true,
+                        onRemove = {
+                            dataRepository.removeRouteFromWatch(route, bhRepo)
+                            selectedRoute = null
+                        }
+                    )
+                } else RouteDetailsView(
                     route = route,
                     onPoint = { index -> selectRoutePoint(serverId, routeUid, index) },
                     onRemove = {
@@ -2967,7 +3299,12 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         selectedRoutePoint = null
                         selectedRoute = null
                     },
-                    onBack = { selectedRoute = null }
+                    onBack = { selectedRoute = null },
+                    onBloodhound = { choosingRouteStart = true },
+                    onTarget = {
+                        focusMapGeometry(route.points)
+                        selectedRoute = null
+                    }
                 )
             }
         }
@@ -3003,38 +3340,11 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     selectedRoutePoint = null
                 },
 
-                onChat = {
-                    val senderUid = takRoutes
-                        .firstOrNull { it.serverId == point.serverId && it.uid == point.routeUid }
-                        ?.sender
-
-                    val contact = try {
-                        resolveChatContact(
-                            senderUid,
-                            receivedUserListSetting.filter { it.sourceServerId == point.serverId },
-                            MainActivity.device_uid
-                        )
-                    } catch (error: IllegalArgumentException) {
-                        Log.w(TAG, "Cannot open route sender chat", error)
-                        Toast.makeText(
-                            context,
-                            R.string.chat_invalid_contact,
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        null
-                    }
-
-                    if (contact != null) {
-                        val intent = Intent(context, ChatActivity::class.java).apply {
-                            putExtra("user_uid", contact.uid)
-                            putExtra("user_callsign", contact.callsign)
-                            putExtra("from_maps", true)
-                        }
-
-                        context.startActivity(intent)
-                        selectedRoutePoint = null
-                        selectedRoute = null
-                    }
+                onTarget = {
+                    focusMapGeometry(listOf(com.aitech.weartak_civ.data.model.TakRoutePoint(
+                        point.latitude, point.longitude)), zoom = 17.0)
+                    selectedRoutePoint = null
+                    selectedRoute = null
                 },
 
                 onBloodhound = {
@@ -3080,6 +3390,7 @@ fun SelectedUser(
     onBloodhoundUserSelected: (DataRepository.ReceivedUser) -> Boolean = { user ->
         startMapUserBloodhound(context, user)
     },
+    onFocusUserSelected: (DataRepository.ReceivedUser) -> Unit = {},
 ) {
     Log.i(TAG, "User list: $receivedUserSetting")
     val user = receivedUserSetting.firstOrNull { it.uid == selectedUid }
@@ -3128,14 +3439,35 @@ fun SelectedUser(
                         }
                     }
                     item {
-                        Chip(
-                            onClick = {
+                        val location = user?.location
+                        val canLocate = user != null && uid.isNotBlank() &&
+                            uid != MainActivity.device_uid && uid != ChatDestinations.ALL_CHAT_ROOMS &&
+                            location != null && location.lat.isFinite() && location.lon.isFinite() &&
+                            location.lat in -90.0..90.0 && location.lon in -180.0..180.0
+                        Row(
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            MapActionIconButton(
+                                R.drawable.bloodhound, R.string.bloodhound_start, canLocate
+                            ) {
+                                if (user != null && onBloodhoundUserSelected(user)) {
+                                    navController.popBackStack()
+                                }
+                            }
+                            MapActionIconButton(
+                                R.drawable.chat_nomessage,
+                                if (selectingChatContact) R.string.chat_select_person_confirm else R.string.chat_open,
+                                user != null && !user.chatEndpoint.isNullOrBlank() && uid.isNotBlank() &&
+                                    title.isNotBlank() && uid != MainActivity.device_uid &&
+                                    uid != ChatDestinations.ALL_CHAT_ROOMS
+                            ) chat@{
                                 val contact = try {
                                     resolveChatContact(selectedUid, receivedUserSetting, MainActivity.device_uid)
                                 } catch (error: IllegalArgumentException) {
                                     Log.w(TAG, "Invalid selected chat contact", error)
                                     Toast.makeText(context, R.string.chat_invalid_contact, Toast.LENGTH_SHORT).show()
-                                    return@Chip
+                                    return@chat
                                 }
                                 if (selectingChatContact) {
                                     onChatContactSelected(contact)
@@ -3148,39 +3480,16 @@ fun SelectedUser(
                                     context.startActivity(intent)
                                     navController.popBackStack()
                                 }
-                            },
-                            enabled = user != null && !user.chatEndpoint.isNullOrBlank() && uid.isNotBlank() && title.isNotBlank() &&
-                                uid != MainActivity.device_uid && uid != ChatDestinations.ALL_CHAT_ROOMS,
-                            label = { Text(stringResource(if (selectingChatContact)
-                                R.string.chat_select_person_confirm else R.string.chat_open)) },
-                            colors = ChipDefaults.chipColors(
-                                backgroundColor = Color.DarkGray,
-                                contentColor = Color.White,
-                                secondaryContentColor = Color.LightGray
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    item {
-                        val location = user?.location
-                        Chip(
-                            onClick = {
-                                if (user != null && onBloodhoundUserSelected(user)) {
+                            }
+                            MapActionIconButton(
+                                R.drawable.lock_on_self, R.string.map_focus_contact, canLocate
+                            ) {
+                                if (user != null) {
+                                    onFocusUserSelected(user)
                                     navController.popBackStack()
                                 }
-                            },
-                            enabled = user != null && uid.isNotBlank() &&
-                                uid != MainActivity.device_uid && uid != ChatDestinations.ALL_CHAT_ROOMS &&
-                                location != null && location.lat.isFinite() && location.lon.isFinite() &&
-                                location.lat in -90.0..90.0 && location.lon in -180.0..180.0,
-                            label = { Text(stringResource(R.string.bloodhound_start)) },
-                            colors = ChipDefaults.chipColors(
-                                backgroundColor = Color.DarkGray,
-                                contentColor = Color.White,
-                                secondaryContentColor = Color.LightGray
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                            }
+                        }
                     }
                 }
 
@@ -3350,8 +3659,12 @@ private fun MapControlsOverlay(
     onZoomOut: () -> Unit,
     onCenterOnSelf: () -> Unit,
     onOpenLayers: () -> Unit,
+    onTogglePitch: () -> Unit,
+    showPitchButton: Boolean,
+    pitchEnabled: Boolean,
     onOpenChannels: () -> Unit,
     channelsEnabled: Boolean,
+    showBackButton: Boolean,
     // Determines whether the optional map controls should be hidden.
     hideControls: Boolean,
     onBack: () -> Unit
@@ -3425,10 +3738,17 @@ private fun MapControlsOverlay(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .offset(
-                        x = 18.dp,
+                        x = if (showPitchButton) 0.dp else 18.dp,
                         y = (-14).dp
                     )
-                    .width(110.dp)
+                    .width(if (showPitchButton) 70.dp else 110.dp)
+            )
+            if (showPitchButton) MapPitchButton(
+                tilted = pitchEnabled && cameraState.position.tilt >= 22.5,
+                onClick = onTogglePitch,
+                enabled = pitchEnabled,
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .offset(x = (-26).dp, y = (-24).dp)
             )
 //            ScaleBar(
 //                metersPerDp = cameraState.metersPerDpAtTarget,
@@ -3446,43 +3766,81 @@ private fun MapControlsOverlay(
         }
 
         // Always visible so the user can reopen the menu and restore controls.
-        CircularMapButton(
-            onClick = onOpenLayers,
-            size = buttonSize,
-            showBorder = false,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = (-2).dp)
-        ) {
-            Image(
-                painter = painterResource(R.drawable.overlay_manager),
-                contentDescription = "Layers",
-                modifier = Modifier.size(iconSize),
-                colorFilter = ColorFilter.tint(Color.White)
-            )
-        }
+        MapLayersButton(onOpenLayers, Modifier.align(Alignment.TopCenter))
 
         MapChannelsButton(
             onClick = onOpenChannels,
             enabled = channelsEnabled,
+            visible = !hideControls,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .offset(x = -26.dp, y = 20.dp)
         )
 
-        // Always visible so the user can leave the map.
-        CircularMapButton(
-            onClick = onBack,
-            size = buttonSize,
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
-            Text(
-                text = "‹",
-                color = Color.White,
-                fontSize = 40.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        MapBackButton(showBackButton, onBack, Modifier.align(Alignment.CenterEnd))
+    }
+}
+
+@Composable
+internal fun MapPitchButton(
+    tilted: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val action = stringResource(
+        if (!enabled) R.string.map_view_osm_only
+        else if (tilted) R.string.map_view_overhead else R.string.map_view_tilted)
+    CircularMapButton(
+        onClick = onClick, size = 40.dp, showBorder = true, enabled = enabled,
+        modifier = modifier.semantics { contentDescription = action }
+    ) {
+        Text(if (enabled && tilted) "3D" else "2D",
+            color = if (enabled) Color.White else Color.Gray, fontSize = 12.sp,
+            fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+internal fun MapLayersButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    CircularMapButton(
+        onClick = onClick,
+        size = 40.dp,
+        showBorder = false,
+        modifier = modifier.offset(y = 16.dp)
+    ) {
+        Image(
+            painter = painterResource(R.drawable.overlay_manager),
+            contentDescription = stringResource(R.string.map_overlay_manager),
+            modifier = Modifier.size(40.dp),
+            colorFilter = ColorFilter.tint(Color.White)
+        )
+    }
+}
+
+@Composable
+internal fun LayersMenuBackButton(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(32.dp)
+            .clickable(onClick = onDismiss)
+            .semantics { contentDescription = "Back to map" },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+            contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp)
+        )
+    }
+}
+
+@Composable
+internal fun MapBackButton(visible: Boolean, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    if (visible) CircularMapButton(
+        onClick = onBack,
+        size = 40.dp,
+        modifier = modifier.semantics { contentDescription = "Back from map" }
+    ) {
+        Text(text = "‹", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -3490,9 +3848,10 @@ private fun MapControlsOverlay(
 internal fun MapChannelsButton(
     enabled: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    visible: Boolean = true
 ) {
-    CircularMapButton(
+    if (visible) CircularMapButton(
         onClick = onClick,
         enabled = enabled,
         showBorder = false,

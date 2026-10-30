@@ -1158,6 +1158,9 @@ fun EditSelectedMarker(
     val markerVectorFlow = remember(index) { viewModel.markerVectorUi(index) }
     val markerVectorUi by markerVectorFlow.collectAsStateWithLifecycle()
     val activeBloodhound by bhRepo.activeBhItemMap.collectAsStateWithLifecycle(initialValue = null)
+    val validPosition = droppedMarkerListSetting.getOrNull(index)?.location != null &&
+        locationLat.isFinite() && locationLon.isFinite() &&
+        locationLat in -90.0..90.0 && locationLon in -180.0..180.0
 
     WearTAKCIVTheme {
         Box(
@@ -1236,36 +1239,16 @@ fun EditSelectedMarker(
                             .padding(bottom = 5.dp)
                     )
                 }
-                MarkerBearingDistance(
+                if (validPosition) MarkerBearingDistance(
                     distance = markerVectorUi?.distance,
                     lat = locationLat,
                     lon = locationLon,
                     orientation = markerVectorUi?.orientation ?: 0F
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                if (activeBloodhound?.uid == uid) {
-                    Button(
-                        onClick = {
-                            bhRepo.requestInPosition(uid)
-                            requestBloodhoundComplicationUpdate(context)
-                        },
-                        modifier = Modifier.padding(top = 10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.primary,
-                            contentColor = Color.Black
-                        ),
-                    ) {
-                        androidx.wear.compose.material.Text(
-                            text = stringResource(R.string.npos),
-                            fontSize = 15.sp,
-                            overflow = TextOverflow.Ellipsis,
-                            color = Color.Black,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                } else {
-                    Button(
-                        onClick = {
+                PointBloodhoundAction(
+                    isActive = activeBloodhound?.uid == uid,
+                    enabled = uid.isNotBlank() && validPosition,
+                    onBloodhound = {
                             bhRepo.addMarkerTarget(
                                 uid = uid,
                                 title = title.ifBlank { markerLabel },
@@ -1280,23 +1263,15 @@ fun EditSelectedMarker(
                             requestBloodhoundComplicationUpdate(context)
 
                             Log.i(BloodhoundActivity.Constants.TAG, "Requesting Ack and Activation of bloodhound")
-                        },
-                        modifier = Modifier.padding(bottom = 10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.primary,
-                            contentColor = Color.Black
-                        ),
-
-                    ) {
-                        androidx.wear.compose.material.Text(
-                            text = "Bloodhound to Marker",
-                            fontSize = 15.sp,
-                            overflow = TextOverflow.Ellipsis,
-                            color = Color.Black,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
+                    },
+                    onInPosition = {
+                        bhRepo.requestInPosition(uid)
+                        requestBloodhoundComplicationUpdate(context)
+                    },
+                    onTarget = { focusPointOnMap(context, locationLat, locationLon) },
+                    onDelete = { showDeleteMarkerDialog.value = true }
+                )
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Chip(
                     onClick = { navController.navigate("edit_marker_title/$index")},
@@ -1355,18 +1330,6 @@ fun EditSelectedMarker(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 10.dp)
-                )
-                Chip(
-                    onClick = { showDeleteMarkerDialog.value = true },
-                    enabled = true,
-                    label = { androidx.wear.compose.material.Text(textAlign = TextAlign.Center, text = "Delete Marker") },
-                    colors = ChipDefaults.chipColors(
-                        backgroundColor = Color.Red,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth(.7f)
                         .padding(bottom = 10.dp)
                 )
             }
@@ -1902,6 +1865,8 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
             val markerVectorFlow = remember(index) { viewModel.markerVectorUiForReceived(index) }
             val markerVectorUi by markerVectorFlow.collectAsStateWithLifecycle()
             val loc = marker.location
+            val validPosition = loc != null && loc.lat.isFinite() && loc.lon.isFinite() &&
+                loc.lat in -90.0..90.0 && loc.lon in -180.0..180.0
             val activeBloodhound by bhRepo.activeBhItemMap.collectAsStateWithLifecycle(initialValue = null)
 
             WearTAKCIVTheme {
@@ -1943,16 +1908,16 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                             color = Color.White,
                             modifier = Modifier.padding(bottom = 5.dp)
                         )
-                        if (loc != null) {
-                            MarkerBearingDistance(
+                        if (loc != null && validPosition) MarkerBearingDistance(
                                 distance = markerVectorUi?.distance,
                                 lat = loc.lat,
                                 lon = loc.lon,
                                 orientation = markerVectorUi?.orientation ?: 0F
-                            )
-                            PointBloodhoundAction(
+                        )
+                        PointBloodhoundAction(
                                 isActive = activeBloodhound?.uid == marker.uid,
                                 onBloodhound = {
+                                    if (loc == null) return@PointBloodhoundAction
                                     bhRepo.addMarkerTarget(
                                         uid = marker.uid,
                                         title = marker.title.ifBlank { "Marker" },
@@ -1969,29 +1934,17 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                                 onInPosition = {
                                     bhRepo.requestInPosition(marker.uid)
                                     requestBloodhoundComplicationUpdate(context)
+                                },
+                                onTarget = {
+                                    if (loc != null) focusPointOnMap(context, loc.lat, loc.lon)
+                                },
+                                enabled = marker.uid.isNotBlank() && validPosition,
+                                onDelete = {
+                                    viewModel.deleteReceivedMarker(marker.uid)
+                                    requestBloodhoundComplicationUpdate(context)
+                                    exitActivity()
                                 }
-                            )
-                        }
-                        Button(
-                            onClick = {
-                                viewModel.deleteReceivedMarker(marker.uid)
-                                requestBloodhoundComplicationUpdate(context)
-                                exitActivity()
-                            },
-                            modifier = Modifier.padding(top = 10.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.Red,
-                                contentColor = Color.White
-                            ),
-                        ) {
-                            androidx.wear.compose.material.Text(
-                                text = stringResource(R.string.delete),
-                                fontSize = 15.sp,
-                                overflow = TextOverflow.Ellipsis,
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
+                        )
                     }
                     Row(modifier = Modifier.align(Alignment.BottomCenter)) {
                         WearTAKBackButton(onClick = { exitActivity() })

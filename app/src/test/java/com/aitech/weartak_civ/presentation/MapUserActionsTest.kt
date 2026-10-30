@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.wear.compose.material.Chip
@@ -41,16 +42,16 @@ class MapUserActionsTest {
             SelectedUser(androidx.wear.compose.navigation.rememberSwipeDismissableNavController(),
                 point.uid, listOf(point), LocalContext.current)
         }
-        compose.onNodeWithTag("map-user-actions").performScrollToNode(hasText("Open Chat"))
-        compose.onNodeWithText("Open Chat").assertIsNotEnabled()
-        compose.onNodeWithText("Start Bloodhound").assertIsEnabled()
+        compose.onNodeWithContentDescription("Open Chat").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsEnabled()
+        compose.onNodeWithContentDescription("Center and zoom to contact").assertIsEnabled()
     }
 
     @Before fun setDeviceUid() {
         MainActivity.device_uid = "watch"
     }
 
-    @Test fun mapUserTapShowsStartBelowChatAndStartsLatestSelectedUser() {
+    @Test fun mapUserTapShowsCompactOrderedIconRowAndStartsLatestSelectedUser() {
         val alice = user("alice/with space")
         val users = mutableStateOf(listOf(alice))
         val selections = mutableListOf<DataRepository.ReceivedUser>()
@@ -63,13 +64,19 @@ class MapUserActionsTest {
             }
         }
         compose.onNodeWithText("Alice on map").performClick()
-        compose.onNodeWithText("Open Chat").assertIsDisplayed().assertIsEnabled()
-        compose.onNodeWithText("Start Bloodhound").assertIsDisplayed().assertIsEnabled()
-        assertTrue(compose.onNodeWithText("Start Bloodhound").fetchSemanticsNode().positionInRoot.y >
-            compose.onNodeWithText("Open Chat").fetchSemanticsNode().positionInRoot.y)
+        val bloodhound = compose.onNodeWithContentDescription("Start Bloodhound")
+        val chat = compose.onNodeWithContentDescription("Open Chat")
+        val target = compose.onNodeWithContentDescription("Center and zoom to contact")
+        bloodhound.assertIsDisplayed().assertIsEnabled()
+        chat.assertIsDisplayed().assertIsEnabled()
+        target.assertIsDisplayed().assertIsEnabled()
+        val bounds = listOf(bloodhound, chat, target).map { it.fetchSemanticsNode().boundsInRoot }
+        assertTrue(bounds[0].center.x < bounds[1].center.x && bounds[1].center.x < bounds[2].center.x)
+        assertEquals(bounds[0].center.y, bounds[1].center.y, 0.1f)
+        assertEquals(bounds[1].center.y, bounds[2].center.y, 0.1f)
         val updated = alice.copy(title = "Alice moving", location = alice.location?.copy(lat = 39.0))
         compose.runOnIdle { users.value = listOf(user("bob"), updated) }
-        compose.onNodeWithText("Start Bloodhound").performClick()
+        compose.onNodeWithContentDescription("Start Bloodhound").performClick()
         compose.runOnIdle { assertEquals(listOf(updated), selections) }
         compose.onNodeWithText("Alice on map").assertIsDisplayed()
     }
@@ -89,8 +96,9 @@ class MapUserActionsTest {
             }
         }
         compose.onNodeWithText("Alice on map").performClick()
-        compose.onNodeWithTag("map-user-actions").performScrollToNode(hasText("Start Bloodhound"))
-        compose.onNodeWithText("Start Bloodhound").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Open Chat").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Center and zoom to contact").assertIsDisplayed()
         compose.runOnIdle { assertEquals(1, selections) }
         for (invalid in listOf(
             emptyList(),
@@ -99,13 +107,15 @@ class MapUserActionsTest {
             listOf(alice.copy(location = alice.location?.copy(lon = 181.0)))
         )) {
             compose.runOnIdle { users.value = invalid }
-            compose.onNodeWithText("Start Bloodhound").assertIsNotEnabled()
+            compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
+            compose.onNodeWithContentDescription("Center and zoom to contact").assertIsNotEnabled()
         }
         compose.runOnIdle {
             MainActivity.device_uid = alice.uid
             users.value = listOf(alice)
         }
-        compose.onNodeWithText("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Center and zoom to contact").assertIsNotEnabled()
         compose.runOnIdle { assertEquals(1, selections) }
     }
 
@@ -124,14 +134,39 @@ class MapUserActionsTest {
             }
         }
         compose.onNodeWithText("Alice on map").performClick()
-        compose.onNodeWithText("Open Chat").assertIsDisplayed()
-        compose.onNodeWithText("Start Bloodhound").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("Open Chat").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertEquals(listOf(alice), targets)
             assertTrue(contacts.isEmpty())
         }
         compose.onNodeWithText("Alice on map").assertIsDisplayed().performClick()
-        compose.onNodeWithText("Open Chat").performClick()
+        compose.onNodeWithContentDescription("Open Chat").performClick()
         compose.runOnIdle { assertEquals(listOf(DirectChatContact(alice.uid, alice.title)), contacts) }
+    }
+
+    @Test fun targetReturnsToMapWithLatestSelectedContactWithoutStartingBloodhound() {
+        val alice = user()
+        val users = mutableStateOf(listOf(alice))
+        val focused = mutableListOf<DataRepository.ReceivedUser>()
+        var bloodhoundStarts = 0
+        compose.setContent {
+            MapUserNavigation(
+                users.value, LocalContext.current,
+                onBloodhoundUserSelected = { bloodhoundStarts++; true },
+                onFocusUserSelected = { focused += it }
+            ) { onUserClick ->
+                Chip(onClick = { onUserClick(alice.uid) }, label = { Text("Alice on map") })
+            }
+        }
+        compose.onNodeWithText("Alice on map").performClick()
+        val updated = alice.copy(location = alice.location?.copy(lat = 39.0))
+        compose.runOnIdle { users.value = listOf(updated) }
+        compose.onNodeWithContentDescription("Center and zoom to contact").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(updated), focused)
+            assertEquals(0, bloodhoundStarts)
+        }
+        compose.onNodeWithText("Alice on map").assertIsDisplayed()
     }
 }

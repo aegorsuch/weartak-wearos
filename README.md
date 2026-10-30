@@ -4,6 +4,128 @@ WearTAK-WearOS is a standalone Wear OS application that connects a watch to the 
 
 The app can connect directly to a TAK server and can optionally use SITX, Ditto mesh, BLE companion, and plugin integrations when those capabilities are configured. A phone is not required for the app's primary watch workflow.
 
+### Map sources and 3D overlays
+
+Open the map's top **Overlay Manager** button, then **Maps** to select
+**Bing Hybrid**, **Google Hybrid**, or **OSM Vector** (the unchanged existing
+OSM vector/OpenTopoMap raster composition; the label does not mean vector-only).
+All three alphabetized choices remain visible under Maps.
+Compact rows use 10sp labels, 14dp leading radio indicators and separate 28dp
+full-width touch regions (below Android's recommended 48dp target).
+Selection persists across app restarts.
+Existing installations keep their original map until a provider is selected.
+Camera, tactical overlays, role/team filters and saved layer choices are retained.
+Original-map layer filters remain visible but disabled for hybrid imagery;
+switching back to OSM Vector re-enables them with their saved visibility choices.
+**3D Buildings** appears automatically in OSM Vector's tilted 3D mode from zoom 14,
+and is hidden in 2D; there is no separate conflicting checkbox.
+It extrudes the existing TAK `building` polygons using provider-supplied
+`render_height`/`render_min_height` values, omitting missing/nonpositive heights
+and `hide_3d` features. These are source rendering heights, not verified measured
+building heights. No guessed height or alternate provider is added.
+The bottom-right 2D/3D button on OSM Vector animates between overhead (0 degrees)
+and tilted (45 degrees), preserving center, zoom and bearing. Its choice persists
+across restarts and restores when switching back to OSM. Hybrid imagery stays
+overhead with tilt gestures disabled and the same button greyed out/disabled.
+The button hides with Buttons and while
+Overlay Manager is open; OSM gestures can still adjust pitch.
+Buildings use 60% opacity below tactical map layers. Tactical symbols remain
+viewport-aligned; a noninteractive screen-space pass keeps self/generic dots,
+route points/lines, range rings and Bloodhound lines above building depth.
+
+Map camera center, zoom and bearing are saved when idle and on leaving the map,
+then restored as the fallback on cold launch. On the first map open in a process,
+a valid self location takes priority over that saved center; a delayed first fix
+also centers once unless the user pans/zooms first or contact/route focus applies.
+Later map opens/resumes in the same process keep the current/saved view without
+snapping again. Source-specific zoom limits and the saved 2D/3D choice still apply.
+An uninitialized 0,0 camera is not saved; native floating-point jitter is not
+treated as navigation. Opening/resuming still requests a location/PLI refresh;
+the recenter button remains explicit.
+
+OSM tilted mode also has a prototype altitude/lollipop pass. It samples public
+[AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) Terrarium PNGs at
+zoom 13 (about 14.5 m/pixel at NYC), with an eight-tile memory cache and 32 MiB
+OkHttp disk cache. Requests happen only for visible, valid-altitude targets while
+the camera is idle; missing terrain is retried after a minute. Cached tiles work
+offline. Missing/void terrain, unknown HAE (including `9999999`), missing geoid or
+unprojectable heights retain the existing ground marker, never a fabricated stem.
+Missing/void terrain or a missing/invalid geoid retains the ground marker with
+no stem and no on-map failure message; diagnostic errors remain logged.
+`ElevationProvider` returns orthometric meters so a DTED provider can
+be preferred later without changing marker rendering; DTED reading is not yet implemented.
+
+The bundled unmodified GeographicLib `egm96-15.pgm` is 2,076,888 bytes (1440 x 721,
+15-minute grid; SHA256
+`2a12f13b6df65cdea52432c7fa1b43f34b007148eb817bf032af5af710905caa`),
+from [geoids-distrib/egm96-15.tar.bz2](https://sourceforge.net/projects/geographiclib/files/geoids-distrib/egm96-15.tar.bz2).
+Bilinear interpolation applies `AGL = HAE - (terrain + geoidN)`. Eight independent
+NGA harmonic-synthesis reference points from GeographicLib's
+[GeoidHeights.dat.gz](https://sourceforge.net/projects/geographiclib/files/testdata/GeoidHeights.dat.gz)
+are checked within 5 cm; the dataset's documented global maximum bilinear error
+is 1.152 m, RMS 0.040 m. No GeographicLib implementation code is copied.
+Terrain Tiles blend regional DEMs/vertical datums: treating them as approximate
+EGM96 is a **prototype**, not survey- or floor-grade elevation. Terrain source
+and dataset credits are in Credits. Tile requests disclose the visible terrain
+tile area to AWS, not identities, HAE or CoT messages.
+
+Self altitude uses `snapshotLocation`, the same effective HAE sent in outgoing
+CoT (including the existing optional BLE override), only when Android Location
+reports altitude present. `Location.getAltitude()` is WGS84 ellipsoidal; the app
+uses the platform fused location provider but does **not** implement explicit
+barometer/GPS fusion. Pressure services remain separate and unchanged. Received
+CoT HAE/LE values are passed through, not smoothed or reinterpreted.
+
+For AGL above 3 m, the marker is lifted using a perspective reconstruction from
+the current MapLibre ground projection, preserving bearing, pitch and padding.
+Markers and stems draw in Compose above building depth; taps follow the raised
+marker. Building geometry under the actual ground point is checked, including
+polygon holes and minimum height: stem portions inside a known extrusion are
+dashed, outside portions solid. Unknown footprint/height means a solid stem.
+Footprints refresh from rendered frames after camera idle, including tiles that
+arrive after the style-load callback; an early empty query is not cached indefinitely.
+No numeric AGL/floor label or altitude helper/caveat text is drawn on the map.
+Indoor GPS may be wrong by 10-30 m, and reported HAE error excludes DEM/geoid uncertainty. Existing
+contact/marker/alert navigation is retained. Native fixtures cover dashed indoor
+stems, roof alignment, overlay visibility and compact target-menu actions.
+
+OpenTopoMap raster stops requesting tiles at zoom 17 and overzooms instead of
+showing its HTTP-200 "max zoom layer =17" placeholder. TAK vectors overzoom from
+14; hybrid rasters from verified zoom 20. Camera limits are 20 for OSM and 22 for
+hybrids. The existing remote contour endpoint currently returns HTTP 403 even at
+lower zooms; this is not solved by zoom caps or a silent provider substitution.
+The menu order is Buttons, Layers (alphabetical filters), Maps, Roles, Teams;
+Roles combines the existing standard and LEO / Civil Use options without changing
+their independently saved selections.
+The top-right back arrow dismisses only Overlay Manager; the underlying map
+back button is absent while that menu is open, and system Back dismisses it first.
+The Buttons toggle also hides Channels, while Overlay Manager remains available.
+Credits is the last section. Its arrow row is
+collapsed by default; tap to reveal active-source copyright, source and license
+links. Reopening the menu or changing source resets it to collapsed.
+Required on-map notices remain visible.
+If the watch has no browser, the selected URL is shown with an explicit error.
+
+These are experimental direct online tile endpoints, not authenticated official
+provider APIs. No credentials are required by these endpoints; availability does
+not grant imagery rights or guarantee future access. Provider terms apply.
+No bulk download or offline-pack feature is added. Normal renderer caching remains.
+Provider attribution stays visible on the map. Load failures or a 20-second
+loading timeout expose retry and original-map recovery in Overlay Manager.
+Credits use an 8dp safe-top inset and dark text shadow without a background box;
+All three providers use 6sp text; the Overlay Manager button stays at the same fixed
+position below the credits on every source.
+Top credits retain the short OpenStreetMap credit, SRTM and OpenTopoMap CC-BY-SA
+for the unchanged original composition; see [OpenStreetMap copyright](https://www.openstreetmap.org/copyright)
+and [OpenTopoMap usage requirements](https://opentopomap.org/about#verwendung).
+URL formats follow the public ATAK XML references from
+[ATAK-Maps](https://github.com/joshuafuller/ATAK-Maps) and
+[Map Depot](https://github.com/takwerx/map-depot); no Map Depot code is incorporated.
+Bing uses MapLibre Native 12.0.1's supported `{quadkey}` substitution, not ATAK's
+`{$q}` placeholder. Google uses XYZ `{x}`, `{y}`, `{z}` with `lyrs=y`.
+Both raster styles use 256-pixel tiles, zooms 1-20 (overzoom above 20), and retain
+the bundled style's glyph endpoint for tactical labels.
+
 ### Physiological telemetry
 
 The home metric picker is titled **Metric Shown**. Its Environmental Alerts and
@@ -689,7 +811,7 @@ when the unobstructed map is active again.
 
 ### Map layer visibility
 
-The Layers menu preserves saved visibility choices without reloading the native
+Overlay Manager preserves saved visibility choices without reloading the native
 map style. Hidden base layers are replaced individually by invisible layers and
 restored when shown again; marker/contact/route overlays and the camera retain
 their current ownership. This avoids invalidating queued overlay filter updates
@@ -734,14 +856,17 @@ wrapping or truncation; accessibility names latitude and longitude. This
 identification is map-only; the dashboard coordinate display is unchanged.
 
 Nearby visible contacts and pins (within 28 dp of a group anchor on the current
-map projection) share a target-count label. Tap any member icon or its label to
+map projection) suppress overlapping labels; no target-count label is drawn.
+Tap any member icon to
 open a native scrollable **Select Target** list and choose the contact, dropped
 pin or received marker. Zooming recalculates groups. All original icon coordinates,
-identities, visibility filters and stored precision remain unchanged; only labels
-are grouped. No target is offset, deleted or converted to historical copies.
+identities, visibility filters and stored precision remain unchanged. No target
+is offset, deleted or converted to historical copies.
 
-Tap a user on the map, then **Start Bloodhound** immediately below **Open Chat** to
-start the existing Bloodhound action and return to the map. The action uses the
+Tap a user on the map to show one compact row of existing icons: **Bloodhound**,
+**Chat**, then **Target**. Bloodhound starts tracking and returns to the map.
+Target centers on the selected contact at zoom 17, then preserves subsequent
+manual navigation rather than repeatedly snapping back. The Bloodhound action uses the
 selected user's UID and location; subsequent PLI from that same source refreshes
 the target while preserving tracking state. Users without a valid position cannot
 be selected for Bloodhound. If the user disappears, the last known target remains
@@ -749,10 +874,26 @@ until stopped or removed through the existing Bloodhound controls. This action i
 also available on the map opened from Chat: it starts Bloodhound and returns to
 that map without selecting a chat contact or sending a message. **Open Chat**
 retains the chat picker's existing contact-selection behavior.
-The user menu uses the standard Wear scrolling list and position indicator so both
-actions remain reachable on round screens. The ordinary Bloodhound detail action
+The icons use 22 dp artwork with 48 dp touch targets, including on small round
+screens. Bloodhound and Target are disabled without a valid contact position;
+Chat retains its existing endpoint validation. The ordinary Bloodhound detail action
 also reads **Start Bloodhound** instead of **RGR**; acknowledgement and stop behavior
 are unchanged.
+
+Routes, route points, received map points and saved pins use the same compact
+**Bloodhound / Target** row without Chat. Whole-route Bloodhound opens the existing
+nearest/beginning start chooser; Target frames the entire route. Point Target
+centers at zoom 17. Active point targets retain their existing **nPos** acknowledgement.
+Invalid coordinates disable both actions. Other point-edit and route-removal
+controls remain available.
+Saved pins and received points append a trash icon after Target, replacing their
+old Delete text controls. Saved pins retain their existing confirmation; received
+points retain their existing immediate local deletion. Delete remains available
+when navigation is disabled by a missing position. Route points have no existing
+individual-delete flow, so omit trash. Whole routes now append the same trash
+icon, replacing their Remove text control and keeping the existing confirmation.
+Route removal remains watch-local, including mission routes; it does not delete
+server mission data. The current route model has no separate read-only flag.
 
 Bloodhound applies each heading sample to source-owned targets in one batch,
 publishing only the completed compass state. Unchanged samples do not rebuild

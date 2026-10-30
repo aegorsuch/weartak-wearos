@@ -3,11 +3,14 @@ package com.aitech.weartak_civ.presentation
 import android.app.KeyguardManager
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.InputDevice
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -25,6 +28,8 @@ import org.maplibre.compose.style.BaseStyle
 import org.maplibre.compose.util.ClickResult
 import org.maplibre.spatialk.geojson.Position
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class RouteMapInteractionTest {
@@ -35,12 +40,16 @@ class RouteMapInteractionTest {
             "Unlock the watch before running map interaction checks"
         }
         val route = TakRoute("test-only", "Touch test route", listOf(
-            TakRoutePoint(0.0, -0.003, name = "Start"),
-            TakRoutePoint(0.0, 0.003, name = "Finish")
+            TakRoutePoint(0.0, -0.001, name = "Start"),
+            TakRoutePoint(0.0, 0.001, name = "Finish")
         ), "test-only-server")
         var cameraState: CameraState? = null
         var density = 1f
         val selection = AtomicReference<RouteMapSelection?>()
+        val clicked = AtomicReference(CountDownLatch(1))
+        val loaded = CountDownLatch(1)
+        var origin = Offset.Zero
+        var viewport = androidx.compose.ui.unit.IntSize.Zero
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -49,9 +58,13 @@ class RouteMapInteractionTest {
                     cameraState = camera
                     density = LocalDensity.current.density
                     MaplibreMap(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().onGloballyPositioned {
+                            origin = it.positionInWindow()
+                            viewport = it.size
+                        },
                         baseStyle = BaseStyle.Json("""{"version":8,"sources":{},"layers":[]}"""),
                         cameraState = camera,
+                        onMapLoadFinished = { loaded.countDown() },
                         onMapClick = { _, offset ->
                             val hit = camera.projection?.let { projection ->
                                 findRouteMapSelection(listOf(route),
@@ -62,6 +75,7 @@ class RouteMapInteractionTest {
                                 }
                             }
                             selection.set(hit)
+                            clicked.get().countDown()
                             if (hit == null) ClickResult.Pass else ClickResult.Consume
                         }
                     ) {
@@ -71,6 +85,7 @@ class RouteMapInteractionTest {
                     }
                 }
             }
+            assertEquals("Fixture style must load", true, loaded.await(20, TimeUnit.SECONDS))
             var ready = false
             repeat(50) {
                 instrumentation.runOnMainSync { ready = cameraState?.projection != null }
@@ -81,13 +96,25 @@ class RouteMapInteractionTest {
                 var offset = Offset.Zero
                 instrumentation.runOnMainSync {
                     val projected = requireNotNull(cameraState?.projection).screenLocationFromPosition(position)
-                    offset = Offset(projected.x.value * density, projected.y.value * density)
+                    val local = Offset(projected.x.value * density, projected.y.value * density)
+                    val center = Offset(viewport.width / 2f, viewport.height / 2f)
+                    check((local - center).getDistance() < minOf(viewport.width, viewport.height) / 2f - 12f * density) {
+                        "Route fixture target must be inside round watch: $local in $viewport"
+                    }
+                    offset = origin + local
                 }
                 return offset
             }
-            tap(screen(Position(0.0, 0.0)) + Offset(0f, 8f * density))
+            fun select(offset: Offset) {
+                val latch = CountDownLatch(1)
+                clicked.set(latch)
+                selection.set(null)
+                tap(offset)
+                check(latch.await(5, TimeUnit.SECONDS)) { "Injected tap did not reach fixture map" }
+            }
+            select(screen(Position(0.0, 0.0)) + Offset(0f, 8f * density))
             assertEquals(RouteMapSelection(route.serverId, route.uid), selection.get())
-            tap(screen(Position(-0.003, 0.0)))
+            select(screen(Position(-0.001, 0.0)))
             assertEquals(RouteMapSelection(route.serverId, route.uid, 0), selection.get())
         }
     }
@@ -97,6 +124,8 @@ class RouteMapInteractionTest {
         val now = SystemClock.uptimeMillis()
         val down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, offset.x, offset.y, 0)
         val up = MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_UP, offset.x, offset.y, 0)
+        down.source = InputDevice.SOURCE_TOUCHSCREEN
+        up.source = InputDevice.SOURCE_TOUCHSCREEN
         try {
             check(automation.injectInputEvent(down, true))
             check(automation.injectInputEvent(up, true))

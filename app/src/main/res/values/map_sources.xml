@@ -1,0 +1,22 @@
+<resources>
+    <string name="map_focus_contact">Center and zoom to contact</string>
+    <string name="map_focus_target">Center and zoom to target</string>
+    <string name="map_route_start_failed">Could not start route. Check route and location.</string>
+    <string name="map_sources">Maps</string>
+    <string name="map_view_overhead">Switch to 2D overhead view</string>
+    <string name="map_view_tilted">Switch to 3D tilted view</string>
+    <string name="map_view_osm_only">2D view. Tilt is only available on OSM Vector</string>
+    <string name="map_overlay_manager">Overlay Manager</string>
+    <string name="map_credits">Credits</string>
+    <string name="map_credits_expanded">Expanded</string>
+    <string name="map_credits_collapsed">Collapsed</string>
+    <string name="map_credits_expand">Expand credits</string>
+    <string name="map_credits_collapse">Collapse credits</string>
+    <string name="map_credit_link_unavailable">No browser available. Open: %1$s</string>
+    <string name="map_tak_attribution_compact" translatable="false">\u00a9 OpenStreetMap\nSRTM / \u00a9 OpenTopoMap (CC BY-SA)</string>
+    <string name="map_load_failed">Map failed to load. Check connection, retry, or restore original map.</string>
+    <string name="map_load_timeout">Map still loading. Check connection, retry, or restore original map.</string>
+    <string name="map_error_open_layers">Map unavailable. Open Overlay Manager</string>
+    <string name="map_retry">Retry map</string>
+    <string name="map_restore_original">Restore original map</string>
+</resources>

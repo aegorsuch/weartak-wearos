@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">Kişiyi ortala ve yakınlaştır</string>
+    <string name="map_focus_target">Hedefi ortala ve yakınlaştır</string>
+    <string name="map_route_start_failed">Rota başlatılamadı. Rotayı ve konumu kontrol edin.</string>
+    <string name="map_sources">Haritalar</string>
+    <string name="map_view_overhead">2B üstten görünüme geç</string>
+    <string name="map_view_tilted">3B eğik görünüme geç</string>
+    <string name="map_view_osm_only">2B görünüm. Eğme yalnızca OSM Vector ile kullanılabilir</string>
+    <string name="map_overlay_manager">Katman yöneticisi</string>
+    <string name="map_credits">Kaynaklar ve haklar</string>
+    <string name="map_credits_expanded">Genişletildi</string>
+    <string name="map_credits_collapsed">Daraltıldı</string>
+    <string name="map_credits_expand">Kaynakları ve hakları genişlet</string>
+    <string name="map_credits_collapse">Kaynakları ve hakları daralt</string>
+    <string name="map_credit_link_unavailable">Tarayıcı bulunamadı. Açın: %1$s</string>
+    <string name="map_load_failed">Harita yüklenemedi. Bağlantıyı kontrol edin, yeniden deneyin veya özgün haritayı geri yükleyin.</string>
+    <string name="map_load_timeout">Harita hâlâ yükleniyor. Bağlantıyı kontrol edin, yeniden deneyin veya özgün haritayı geri yükleyin.</string>
+    <string name="map_error_open_layers">Harita kullanılamıyor. Katman yöneticisini açın</string>
+    <string name="map_retry">Haritayı yeniden yükle</string>
+    <string name="map_restore_original">Özgün haritayı geri yükle</string>
+</resources>

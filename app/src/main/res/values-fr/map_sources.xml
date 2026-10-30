@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">Centrer et zoomer sur le contact</string>
+    <string name="map_focus_target">Centrer et zoomer sur la cible</string>
+    <string name="map_route_start_failed">Impossible de démarrer la route. Vérifiez la route et la position.</string>
+    <string name="map_sources">Cartes</string>
+    <string name="map_view_overhead">Passer à la vue de dessus 2D</string>
+    <string name="map_view_tilted">Passer à la vue inclinée 3D</string>
+    <string name="map_view_osm_only">Vue 2D. Inclinaison disponible uniquement avec OSM Vector</string>
+    <string name="map_overlay_manager">Gestion des couches</string>
+    <string name="map_credits">Crédits</string>
+    <string name="map_credits_expanded">Développé</string>
+    <string name="map_credits_collapsed">Réduit</string>
+    <string name="map_credits_expand">Développer les crédits</string>
+    <string name="map_credits_collapse">Réduire les crédits</string>
+    <string name="map_credit_link_unavailable">Aucun navigateur disponible. Ouvrir : %1$s</string>
+    <string name="map_load_failed">Échec du chargement. Vérifiez la connexion, réessayez ou restaurez la carte initiale.</string>
+    <string name="map_load_timeout">Chargement en cours. Vérifiez la connexion, réessayez ou restaurez la carte initiale.</string>
+    <string name="map_error_open_layers">Carte indisponible. Ouvrez la gestion des couches</string>
+    <string name="map_retry">Recharger la carte</string>
+    <string name="map_restore_original">Restaurer la carte initiale</string>
+</resources>

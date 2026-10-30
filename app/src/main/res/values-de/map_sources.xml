@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">Kontakt zentrieren und vergrößern</string>
+    <string name="map_focus_target">Ziel zentrieren und vergrößern</string>
+    <string name="map_route_start_failed">Route konnte nicht gestartet werden. Route und Standort prüfen.</string>
+    <string name="map_sources">Karten</string>
+    <string name="map_view_overhead">Zur 2D-Draufsicht wechseln</string>
+    <string name="map_view_tilted">Zur geneigten 3D-Ansicht wechseln</string>
+    <string name="map_view_osm_only">2D-Ansicht. Neigung ist nur mit OSM Vector verfügbar</string>
+    <string name="map_overlay_manager">Ebenenverwaltung</string>
+    <string name="map_credits">Quellen und Rechte</string>
+    <string name="map_credits_expanded">Ausgeklappt</string>
+    <string name="map_credits_collapsed">Eingeklappt</string>
+    <string name="map_credits_expand">Quellen und Rechte ausklappen</string>
+    <string name="map_credits_collapse">Quellen und Rechte einklappen</string>
+    <string name="map_credit_link_unavailable">Kein Browser verfügbar. Öffnen: %1$s</string>
+    <string name="map_load_failed">Karte konnte nicht geladen werden. Verbindung prüfen, erneut versuchen oder ursprüngliche Karte wiederherstellen.</string>
+    <string name="map_load_timeout">Karte wird noch geladen. Verbindung prüfen, erneut versuchen oder ursprüngliche Karte wiederherstellen.</string>
+    <string name="map_error_open_layers">Karte nicht verfügbar. Ebenenverwaltung öffnen</string>
+    <string name="map_retry">Karte erneut laden</string>
+    <string name="map_restore_original">Ursprüngliche Karte wiederherstellen</string>
+</resources>

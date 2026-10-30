@@ -1,0 +1,21 @@
+<resources>
+    <string name="map_focus_contact">연락처를 중앙에 표시하고 확대</string>
+    <string name="map_focus_target">목표를 중앙에 표시하고 확대</string>
+    <string name="map_route_start_failed">경로를 시작할 수 없습니다. 경로와 위치를 확인하세요.</string>
+    <string name="map_sources">지도</string>
+    <string name="map_view_overhead">2D 내려다보기로 전환</string>
+    <string name="map_view_tilted">3D 기울임 보기로 전환</string>
+    <string name="map_view_osm_only">2D 보기. 기울임은 OSM Vector에서만 지원됩니다</string>
+    <string name="map_overlay_manager">레이어 관리</string>
+    <string name="map_credits">출처 및 권리</string>
+    <string name="map_credits_expanded">펼쳐짐</string>
+    <string name="map_credits_collapsed">접힘</string>
+    <string name="map_credits_expand">출처 및 권리 펼치기</string>
+    <string name="map_credits_collapse">출처 및 권리 접기</string>
+    <string name="map_credit_link_unavailable">브라우저가 없습니다. 다음 주소를 여세요: %1$s</string>
+    <string name="map_load_failed">지도를 불러올 수 없습니다. 연결을 확인하거나 다시 시도하거나 원래 지도로 복원하세요.</string>
+    <string name="map_load_timeout">지도를 불러오는 중입니다. 연결을 확인하거나 다시 시도하거나 원래 지도로 복원하세요.</string>
+    <string name="map_error_open_layers">지도를 사용할 수 없습니다. 레이어 관리를 여세요</string>
+    <string name="map_retry">지도 다시 불러오기</string>
+    <string name="map_restore_original">원래 지도 복원</string>
+</resources>
