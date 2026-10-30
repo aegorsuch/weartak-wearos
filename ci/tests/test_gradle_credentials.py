@@ -16,7 +16,7 @@ class GradleCredentialsTests(unittest.TestCase):
         self.assertIn("!reference [.artifactory_service_create_token_no_depends_bash, before_script]", ci)
         self.assertNotIn("extends: .artifactory_service_create_token_bash\n", ci)
         self.assertIn('ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"', ci)
-        for job in ("android_mopp_check", "agp_resolution_diagnostic", ".release_build"):
+        for job in ("android_mopp_check", "host_lint_debug", "agp_resolution_diagnostic", ".release_build"):
             block = re.search(rf"(?ms)^{re.escape(job)}:\n(.*?)(?=^\S|\Z)", ci).group(1)
             self.assertIn("extends: .artifactory_credentials", block)
         release = ci.split("\n.release_build:", 1)[1].split("\nmain_release:", 1)[0]

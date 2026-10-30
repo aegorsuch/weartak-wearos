@@ -1,5 +1,18 @@
 # Rolling GitHub pipeline release
 
+## Host full-lint quality gate
+
+`host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.
+It uses the shared ephemeral Artifactory credential bootstrap, like other Android jobs.
+Lint errors fail the job; warnings remain visible but are not promoted to errors.
+No baseline or check-ID filter is used. Lint reports are
+retained for 14 days, including on failure. The job uses the existing Android
+launcher image and bounded workers/in-process Kotlin compilation, without release
+signing, device installation or publication. Existing release/publication jobs
+still wait for the test stage on their authorized main/tag pipelines. Run
+`:app:testDebugUnitTest :app:assembleDebug` separately when validating code changes;
+this new gate does not change the project's existing unit-test policy.
+
 ## Manual AGP resolution diagnostic
 
 `agp_resolution_diagnostic` is an optional, nonblocking manual job using the

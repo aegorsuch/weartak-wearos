@@ -1,6 +1,7 @@
 package com.aitech.weartak_civ.service
 
 import android.app.Application
+import android.app.PendingIntent
 import android.app.Service
 import android.Manifest
 import android.content.Context
@@ -18,16 +19,20 @@ import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.service.ActivityRecognitionService.Companion.ActivityRecognized
 import com.google.android.gms.location.ActivityRecognitionResult
+import com.google.android.gms.location.ActivityRecognitionClient
 import com.google.android.gms.location.DetectedActivity
+import com.google.android.gms.tasks.Tasks
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.clearMocks
+import io.mockk.verify
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.robolectric.Shadows.shadowOf
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -222,6 +227,59 @@ class ActivityRecognitionServiceColdStartTest {
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(Manifest.permission.BODY_SENSORS)
         sample()
         verifyRepo { repo.updateDailyMetrics(any(), 456L, null, null) }
+    }
+
+    @Test
+    fun revokedActivityPermissionDuringRemovalCancelsCallbackWithoutCrashing() {
+        val client = mockk<ActivityRecognitionClient>()
+        val callback = prepareActivityRemoval(client)
+        shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.ACTIVITY_RECOGNITION)
+        every { client.removeActivityUpdates(callback) } throws SecurityException("Permission revoked")
+
+        service.onDestroy()
+
+        verify(exactly = 1) { client.removeActivityUpdates(callback) }
+        assertThrows(PendingIntent.CanceledException::class.java) { callback.send() }
+        assertTrue(uncaught.isEmpty())
+    }
+
+    @Test
+    fun failedActivityRemovalTaskStillCancelsCallback() {
+        val client = mockk<ActivityRecognitionClient>()
+        val callback = prepareActivityRemoval(client)
+        every { client.removeActivityUpdates(callback) } returns
+            Tasks.forException(SecurityException("Permission revoked"))
+
+        service.onDestroy()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        verify(exactly = 1) { client.removeActivityUpdates(callback) }
+        assertThrows(PendingIntent.CanceledException::class.java) { callback.send() }
+    }
+
+    @Test
+    fun successfulActivityRemovalStillCancelsCallback() {
+        val client = mockk<ActivityRecognitionClient>()
+        val callback = prepareActivityRemoval(client)
+        every { client.removeActivityUpdates(callback) } returns Tasks.forResult(null)
+
+        service.onDestroy()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        verify(exactly = 1) { client.removeActivityUpdates(callback) }
+        assertThrows(PendingIntent.CanceledException::class.java) { callback.send() }
+    }
+
+    private fun prepareActivityRemoval(client: ActivityRecognitionClient): PendingIntent {
+        val callback = PendingIntent.getService(service, 0,
+            Intent(service, ActivityRecognitionService::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        ActivityRecognitionService::class.java.getDeclaredField("activityRecognitionClient")
+            .apply { isAccessible = true }.set(service, client)
+        ActivityRecognitionService::class.java.getDeclaredField("callbackIntent")
+            .apply { isAccessible = true }.set(service, callback)
+        ActivityRecognitionService.isRunning.set(true)
+        return callback
     }
 
     private fun passiveCallback(): PassiveListenerCallback =

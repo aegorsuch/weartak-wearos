@@ -13,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,7 +29,8 @@ internal fun CommandCallsignEntryPage(
     originalCallsign: String? = null,
     onSave: (List<String>) -> Unit
 ) {
-    val context = LocalContext.current
+    val invalidCallsign = stringResource(R.string.invalid_chat_command_callsign)
+    val duplicateCallsign = stringResource(R.string.duplicate_chat_command_callsign)
     val otherCallsigns = callsigns.filterNot {
         originalCallsign != null &&
             ChatCommandAuthorizer.normalize(it) == ChatCommandAuthorizer.normalize(originalCallsign)
@@ -42,9 +42,9 @@ internal fun CommandCallsignEntryPage(
         validate = { input ->
             val callsign = ChatCommandAuthorizer.validatedCallsign(input)
             when {
-                callsign == null -> context.getString(R.string.invalid_chat_command_callsign)
+                callsign == null -> invalidCallsign
                 otherCallsigns.any { ChatCommandAuthorizer.normalize(it) == ChatCommandAuthorizer.normalize(callsign) } ->
-                    context.getString(R.string.duplicate_chat_command_callsign)
+                    duplicateCallsign
                 else -> null
             }
         },
