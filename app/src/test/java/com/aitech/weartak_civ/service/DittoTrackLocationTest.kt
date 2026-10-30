@@ -10,6 +10,7 @@ import com.aitech.weartak_civ.cot.CotMessageBuilder
 import com.aitech.weartak_civ.cot.CotDetailBuilder
 import com.aitech.weartak_civ.events.OutboundDittoTrackRefresh
 import com.aitech.weartak_civ.presentation.MainActivity
+import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -27,6 +30,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class DittoTrackLocationTest {
+    private val moppLease = Any()
+
+    @Before fun compatibleMoppPlugin() {
+        MoppPluginAvailability.acquire(moppLease)
+        MoppPluginAvailability.activate(moppLease)
+    }
+
+    @After fun removeMoppPlugin() { MoppPluginAvailability.release(moppLease) }
+
     @Test fun readinessRefreshUsesActualFixCurrentIdentityAndPrivacyWithoutLegacyCacheReplay() = runBlocking {
         MainActivity.device_uid = "fresh-watch"
         MainActivity.callsign = "OLD"
@@ -186,6 +198,33 @@ class DittoTrackLocationTest {
                 assertTrue((documents.last()["r"] as String).contains("<remarks>${snapshot.remarks}</remarks>"))
                 assertTrue((documents.last()["r"] as String).contains(physiology))
             }
+            val savedMopp = repo.moppPpeStore.read()
+            val sender = CompanionSelfStatus().apply { negotiate(1) }
+            val companionPpe = mutableListOf<JSONObject>()
+            fun sendStatus(elapsed: Long) {
+                sender.sendIfDue(1, "test-watch", runBlocking { repo.selfStatusInputs().first() },
+                    System.currentTimeMillis(), elapsed) {
+                    companionPpe += JSONObject(it).getJSONObject("payload")
+                    true
+                }
+            }
+            sendStatus(0)
+            MoppPluginAvailability.release(moppLease)
+            tick()
+            assertFalse((documents.last()["r"] as String).contains("MOPP"))
+            assertFalse(repo.snapshotPli().remarks.contains("MOPP"))
+            sendStatus(1)
+            assertTrue(companionPpe.last().isNull("ppe"))
+            assertEquals(savedMopp.savedAtEpochMillis, repo.moppPpeStore.read().savedAtEpochMillis)
+            assertEquals(savedMopp.selection, repo.moppPpeStore.read().selection)
+            assertTrue(repo.getEnableMopp.first())
+            MoppPluginAvailability.acquire(moppLease)
+            MoppPluginAvailability.activate(moppLease)
+            tick()
+            assertTrue((documents.last()["r"] as String).contains("MOPP4"))
+            sendStatus(2)
+            assertEquals(companionPpe.first().getJSONObject("ppe").toString(),
+                companionPpe.last().getJSONObject("ppe").toString())
             val now = System.currentTimeMillis()
             var snapshot = repo.snapshotPli()
             fun assertLegacy(snapshot: DataRepository.PliSnapshot, hasVitals: Boolean) {

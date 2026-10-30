@@ -14,7 +14,6 @@ internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
     DITTO(R.drawable.ic_integration_ditto),
     EVERYWHERE_COMMS(R.drawable.ic_integration_everywhere),
     FALCON(R.drawable.ic_integration_certus),
-    MOPP(R.drawable.ic_mopp),
     SENSOR_MANAGER(R.drawable.ic_sensor_manager),
     SOMEWEAR_LABS(R.drawable.ic_integration_somewear);
 

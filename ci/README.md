@@ -41,7 +41,25 @@ dependency resolution when both a username and password are available:
 - Password: `ARTIFACTORY_CONSUME_PASSWORD`, then `ARTIFACTORY_PASSWORD`, then `TAK_PASSWORD`.
 
 Username and password fallbacks are evaluated independently. Never log their
-values. Settings print `takArtifactory for plugins: enabled` or
+values. Blank aliases are skipped. Gradle CI jobs now extend
+`.artifactory_credentials`, using the approved
+`devsecops/gitlab-ci-common` `/template/artifactory_token_service.yml`
+token exchange. The template's global `before_script` is explicitly cleared;
+only Gradle jobs request a token. Release signing setup preserves the credential
+bootstrap through `!reference` before its existing keystore checks.
+Robolectric's separate Android runtime resolver receives the same approved
+repository and credentials when both are available; no static credentials
+or token values are committed or printed.
+
+`android_mopp_check` runs debug assembly and focused host/plugin regression
+tests on merge requests and main pushes without production signing setup.
+Main release jobs still wait for successful test-stage jobs. Existing release
+lint checks remain enabled. Full `lintDebug` is not a new blocking gate: the
+current host has an existing backlog (221 errors at this migration), including
+untouched permission checks and missing translations; do not suppress those
+findings or generate a mass baseline to ship an unrelated change.
+
+Settings print `takArtifactory for plugins: enabled` or
 `takArtifactory for plugins: disabled (no credentials in environment)`.
 Without both credentials, the Artifactory repository is omitted.
 Remaining plugin repositories are filtered Google (`com.android.*`,

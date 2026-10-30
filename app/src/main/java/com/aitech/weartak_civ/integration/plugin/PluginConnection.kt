@@ -12,6 +12,7 @@ import com.weartak.plugin.sdk.WearTakPluginContract
 import com.weartak.plugin.sdk.aidl.IWearTakPlugin
 import com.weartak.plugin.sdk.model.PluginInitParcel
 import com.weartak.plugin.sdk.model.PluginInfoParcel
+import com.weartak.plugin.sdk.mopp.MoppPpeContract
 import com.weartak.plugin.sdk.v2.WearTakPluginV2Contract
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +47,7 @@ class PluginConnection(
     private var hostControl: HostControlImpl? = null
     private var hostCallback: HostCallbackImpl? = null
     private var hostPcmControlV3: HostPcmControlV3Impl? = null
+    @Volatile private var hostMoppControl: HostMoppPpeControl? = null
 
     /**
      * Set when [onServiceConnected] fails before [PluginManager.bind] registers this connection.
@@ -60,12 +62,14 @@ class PluginConnection(
     }
 
     private val deathRecipient = IBinder.DeathRecipient {
+        hostMoppControl?.close()
         appScope.launch {
             onBinderDiedInternal()
         }
     }
 
     private fun onBinderDiedInternal() {
+        hostMoppControl?.close()
         PluginDiagnostics.recordBinderDeath(pluginPackage)
         manager.onConnectionDied(this)
     }
@@ -158,6 +162,30 @@ class PluginConnection(
         hostControl = control
         hostCallback = callback
         hostPcmControlV3 = controlV3
+        val moppControl = if (pluginPackage == MoppPluginAvailability.PACKAGE) {
+            HostMoppPpeControl(app.repo.moppPpeStore, pluginUid, authorize = {
+                if (pluginBinder?.isBinderAlive != true) {
+                    false
+                } else {
+                    try {
+                        runBlocking {
+                            pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+                        }
+                        true
+                    } catch (error: ParserException) {
+                        Log.w(TAG, "MOPP trust rejected: ${error.reasonCode}")
+                        false
+                    } catch (error: android.content.pm.PackageManager.NameNotFoundException) {
+                        Log.w(TAG, "MOPP package unavailable", error)
+                        false
+                    } catch (error: SecurityException) {
+                        Log.w(TAG, "MOPP package access denied", error)
+                        false
+                    }
+                }
+            })
+        } else null
+        hostMoppControl = moppControl
 
         val init = PluginInitParcel(
             hostPackageName = app.packageName,
@@ -166,6 +194,10 @@ class PluginConnection(
             hostExtras = android.os.Bundle().apply {
                 putBoolean(HostControlImpl.HOST_EXTRA_COT_ROUTING_V1, true)
                 putBoolean(HostControlImpl.HOST_EXTRA_CHAT_DISPATCH_V1, true)
+                if (moppControl != null) {
+                    putBoolean(MoppPpeContract.EXTRA_CAPABILITY, true)
+                    putBinder(MoppPpeContract.EXTRA_CONTROL, moppControl)
+                }
             },
         )
         try {
@@ -183,16 +215,19 @@ class PluginConnection(
             return
         }
         PluginDiagnostics.markConnected(pluginPackage)
+        moppControl?.ready()
         manager.onConnectionReady(pluginPackage)
         Log.i(TAG, "initialized plugin pkg=$pluginPackage api=$api")
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
+        hostMoppControl?.close()
         Log.w(TAG, "onServiceDisconnected pkg=$pluginPackage")
         manager.onConnectionLost(this@PluginConnection)
     }
 
     override fun onBindingDied(name: ComponentName?) {
+        hostMoppControl?.close()
         Log.w(TAG, "onBindingDied pkg=$pluginPackage")
         manager.onConnectionLost(this)
     }
@@ -203,6 +238,8 @@ class PluginConnection(
     }
 
     fun tearDownBinder(reason: String) {
+        hostMoppControl?.close()
+        hostMoppControl = null
         Log.i(TAG, "tearDownBinder pkg=$pluginPackage reason=$reason")
         val iface = plugin
         val cb = hostCallback

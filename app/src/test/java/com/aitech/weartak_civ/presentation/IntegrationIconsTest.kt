@@ -33,7 +33,6 @@ class IntegrationIconsTest {
         BuiltInPlugin.FALCON to R.drawable.ic_integration_certus,
         BuiltInPlugin.DITTO to R.drawable.ic_integration_ditto,
         BuiltInPlugin.DATA_SYNC to R.drawable.ic_data_sync,
-        BuiltInPlugin.MOPP to R.drawable.ic_mopp,
     )
 
     @Test

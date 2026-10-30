@@ -746,148 +746,161 @@ class DittoService : Service() {
 
     private fun updateTrackDocument() = updateTrackDocument(null)
 
+    private val trackUpdateMutex = Mutex()
+
     private fun updateTrackDocument(freshLocation: android.location.Location?) {
         ioScope.launch {
-            if (peerStopped || powerSuppressedState.value || dataRepository.shouldSuppressWatchTransportNow()) return@launch
-            if (freshLocation != null && !outboundTrackRefreshAllowed(freshLocation)) {
-                Log.i(TAG, "Skipping outbound Ditto track refresh: route/input unavailable or fix expired")
-                return@launch
+            trackUpdateMutex.withLock {
+                publishTrackDocument(freshLocation)
             }
-            val freshSnapshot = freshLocation?.let { dataRepository.snapshotOutboundAnnouncement(it) }
-            val timeMs = freshLocation?.time ?: System.currentTimeMillis()
-            val interval = CotDispatchService.actualReportingIntervalSecs.coerceAtLeast(1)
-            val standaloneStaleMsOffset = (2L * interval + 15) * 1_000L
-            val staleMsOffset = com.aitech.weartak_civ.cot.SelfPliStalePolicy.offsetMillis(
-                companionBonded = dataRepository.hasCompanionEverBeenReady(),
-                effectiveIntervalSeconds = interval,
-                standaloneOffsetMillis = standaloneStaleMsOffset,
-            )
-            val staleTimeMs = timeMs + staleMsOffset
-            val location = if (freshSnapshot != null) freshSnapshot.loc
-                else dataRepository.snapshotPliLocation()
-            if (location == null) {
-                Log.i(TAG, "Skipping Ditto track: awaiting first valid location fix")
-                return@launch
-            }
-            val pliSnapshot = freshSnapshot ?: dataRepository.snapshotPli()
-            val battery = freshSnapshot?.systemData?.batteryPercent ?: dataRepository.latestBatteryPercentage.value ?: -1
-            val callsign = freshSnapshot?.systemData?.callsign ?: MainActivity.callsign
-            val role = freshSnapshot?.systemData?.role ?: MainActivity.role
-            val teamValue = freshSnapshot?.systemData?.team ?: MainActivity.teamValue
-            val uuid = freshSnapshot?.systemData?.deviceId ?: this@DittoService.uuid
-            val sample = DittoTrackPublicationGate.Sample(location, battery,
-                listOf(callsign, role, teamValue, uuid), pliSnapshot.remarks, pliSnapshot.monitoredPhysio, interval)
-            val latActual = location.lat
-            val lonActual = location.lon
-            val haeActual = location.hae ?: 0.0
-            var ceActual = location.ce ?: 9999999.0F
-            if (ceActual.isNaN()) ceActual = 9999999.0F
-            var leActual: Float = location.le ?: 9999999.0F
-            if (leActual.isNaN()) leActual = 9999999.0F
-            val bearingActual = location.course ?: 0.0F
-            val speedActual = location.speed ?: 0.0F
-            val typeString = "a-f-G-U-C"
-            val access = "Undefined"
-            val how = "m-g"
+        }
+    }
+
+    private suspend fun publishTrackDocument(freshLocation: android.location.Location?) {
+        if (peerStopped || powerSuppressedState.value || dataRepository.shouldSuppressWatchTransportNow()) return
+        if (freshLocation != null && !outboundTrackRefreshAllowed(freshLocation)) {
+            Log.i(TAG, "Skipping outbound Ditto track refresh: route/input unavailable or fix expired")
+            return
+        }
+        val freshSnapshot = freshLocation?.let { dataRepository.snapshotOutboundAnnouncement(it) }
+        val timeMs = freshLocation?.time ?: System.currentTimeMillis()
+        val interval = CotDispatchService.actualReportingIntervalSecs.coerceAtLeast(1)
+        val standaloneStaleMsOffset = (2L * interval + 15) * 1_000L
+        val staleMsOffset = com.aitech.weartak_civ.cot.SelfPliStalePolicy.offsetMillis(
+            companionBonded = dataRepository.hasCompanionEverBeenReady(),
+            effectiveIntervalSeconds = interval,
+            standaloneOffsetMillis = standaloneStaleMsOffset,
+        )
+        val staleTimeMs = timeMs + staleMsOffset
+        val location = if (freshSnapshot != null) freshSnapshot.loc
+            else dataRepository.snapshotPliLocation()
+        if (location == null) {
+            Log.i(TAG, "Skipping Ditto track: awaiting first valid location fix")
+            return
+        }
+        val pliSnapshot = freshSnapshot ?: dataRepository.snapshotPli()
+        val battery = freshSnapshot?.systemData?.batteryPercent ?: dataRepository.latestBatteryPercentage.value ?: -1
+        val callsign = freshSnapshot?.systemData?.callsign ?: MainActivity.callsign
+        val role = freshSnapshot?.systemData?.role ?: MainActivity.role
+        val teamValue = freshSnapshot?.systemData?.team ?: MainActivity.teamValue
+        val uuid = freshSnapshot?.systemData?.deviceId ?: this@DittoService.uuid
+        val sample = DittoTrackPublicationGate.Sample(location, battery,
+            listOf(callsign, role, teamValue, uuid), pliSnapshot.remarks, pliSnapshot.monitoredPhysio, interval)
+        val latActual = location.lat
+        val lonActual = location.lon
+        val haeActual = location.hae ?: 0.0
+        var ceActual = location.ce ?: 9999999.0F
+        if (ceActual.isNaN()) ceActual = 9999999.0F
+        var leActual: Float = location.le ?: 9999999.0F
+        if (leActual.isNaN()) leActual = 9999999.0F
+        val bearingActual = location.course ?: 0.0F
+        val speedActual = location.speed ?: 0.0F
+        val typeString = "a-f-G-U-C"
+        val access = "Undefined"
+        val how = "m-g"
 
 
-            // 2) Merged version (original + ditto + remarks/physiology/track)
-            val cotDetail = CotDetailBuilder.dittoTrack(
-                // your original args:
-                monitoredPhysio = pliSnapshot.monitoredPhysio,
-                battery = battery,
-                callsign = callsign,
-                role = role,
-                team = teamValue,
-                uid = uuid,
-                course = bearingActual,
-                speed = speedActual,
-                altitudeSource = location.coordinateSource?.uppercase() ?: "UNKNOWN",
-                geopointSource = location.coordinateSource?.uppercase() ?: "UNKNOWN",
-                // if you need a custom endpoint/phone (these also have defaults):
-                endpoint = "*:-1:stcp",
-                // ditto payload:
-                dittoA = localPeerKeyString,
-                dittoVersion = dittoVersion,
-                dittoDeviceName = dittoDeviceName,
-                remarks = pliSnapshot.remarks,
-            ).let { detail ->
-                if (timeMs - location.timeMillis > 3_000) {
-                    detail.replace("</detail>", CotXml.element("weartak_location",
-                        listOf("timeMillis" to location.timeMillis)) + "</detail>")
-                } else detail
-            }
+        // 2) Merged version (original + ditto + remarks/physiology/track)
+        val cotDetail = CotDetailBuilder.dittoTrack(
+            // your original args:
+            monitoredPhysio = pliSnapshot.monitoredPhysio,
+            battery = battery,
+            callsign = callsign,
+            role = role,
+            team = teamValue,
+            uid = uuid,
+            course = bearingActual,
+            speed = speedActual,
+            altitudeSource = location.coordinateSource?.uppercase() ?: "UNKNOWN",
+            geopointSource = location.coordinateSource?.uppercase() ?: "UNKNOWN",
+            // if you need a custom endpoint/phone (these also have defaults):
+            endpoint = "*:-1:stcp",
+            // ditto payload:
+            dittoA = localPeerKeyString,
+            dittoVersion = dittoVersion,
+            dittoDeviceName = dittoDeviceName,
+            remarks = pliSnapshot.remarks,
+        ).let { detail ->
+            if (timeMs - location.timeMillis > 3_000) {
+                detail.replace("</detail>", CotXml.element("weartak_location",
+                    listOf("timeMillis" to location.timeMillis)) + "</detail>")
+            } else detail
+        }
 
-            val trackDocument = mapOf<String, Any?>(
-                // — common properties —
-                "_id" to uuid,
+        val trackDocument = mapOf<String, Any?>(
+            // — common properties —
+            "_id" to uuid,
 //                "_c" to changeCounterTrackDocument.toDouble(),
-                "_r" to false,
-                "_v" to 2,
+            "_r" to false,
+            "_v" to 2,
 
-                "authorCs" to callsign,
-                "AuthorId" to uuid,
-                "authorType" to typeString,
-                "visible" to true,
+            "authorCs" to callsign,
+            "AuthorId" to uuid,
+            "authorType" to typeString,
+            "visible" to true,
 
-                "a" to localPeerKeyString,
-                "b" to timeMs,
-                "c" to callsign,
-                "d" to uuid,
-                "e" to callsign,
-                "f" to true,            // visible (tracks are always “on”)
-                "g" to "2.0",           // your app version or Cot version
+            "a" to localPeerKeyString,
+            "b" to timeMs,
+            "c" to callsign,
+            "d" to uuid,
+            "e" to callsign,
+            "f" to true,            // visible (tracks are always “on”)
+            "g" to "2.0",           // your app version or Cot version
 
-                // — CoT point fields —
-                "h" to ceActual.toDouble(),   // CE
-                "i" to haeActual,             // HAE
-                "j" to latActual,             // LAT
-                "k" to leActual.toDouble(),   // LE
-                "l" to lonActual,             // LON
+            // — CoT point fields —
+            "h" to ceActual.toDouble(),   // CE
+            "i" to haeActual,             // HAE
+            "j" to latActual,             // LAT
+            "k" to leActual.toDouble(),   // LE
+            "l" to lonActual,             // LON
 
-                // — timing & lifecycle —
-                "n" to timeMs,          // start
-                "o" to staleTimeMs,     // stale
+            // — timing & lifecycle —
+            "n" to timeMs,          // start
+            "o" to staleTimeMs,     // stale
 
-                // — how/access/detail —
-                "p" to how,
-                "q" to access,
-                "r" to cotDetail,      // must be the full `<detail>…</detail>` string
+            // — how/access/detail —
+            "p" to how,
+            "q" to access,
+            "r" to cotDetail,      // must be the full `<detail>…</detail>` string
 
-                // — optional telemetry aliases —
-                "r1" to speedActual.toString(),   // speed
-                "r2" to haeActual.toString(),     // sometimes used for additional metric
+            // — optional telemetry aliases —
+            "r1" to speedActual.toString(),   // speed
+            "r2" to haeActual.toString(),     // sometimes used for additional metric
 
-                // — type string for this document —
-                "w" to typeString     // e.g. "a-f-G-U-C"
-            )
+            // — type string for this document —
+            "w" to typeString     // e.g. "a-f-G-U-C"
+        )
 
-            try {
-                if (dataRepository.shouldSuppressWatchTransportNow()) return@launch
-                if (location.provider != null && !dataRepository.isCurrentLocationSnapshot(location)) {
-                    Log.i(TAG, "Skipping Ditto track built before a location input change")
-                    return@launch
-                }
-                if (freshLocation != null && !outboundTrackRefreshAllowed(freshLocation)) {
-                    Log.i(TAG, "Skipping outbound Ditto track refresh: eligibility changed while building")
-                    return@launch
-                }
-                synchronized(peerLock) {
-                    if (peerStopped || powerSuppressedState.value) return@launch
-                    val elapsed = android.os.SystemClock.elapsedRealtime()
-                    if (freshLocation == null && !trackGate.due(sample, elapsed)) return@launch
-                    writeDocument("track", trackDocument)
-                    trackGate.published(sample, elapsed)
-                    lastSelfTrackDocument = trackDocument
-                    changeCounterTrackDocument++
-                    dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
-                    if (syncActiveState.value) dittoUpdateHandler?.postDelayed(dittoUpdateRunnable,
-                        interval * 1_000L)
-                }
-                logVerbose { "Wrote to track: $trackDocument" }
-            } catch (t: Throwable) {
-                Log.e(TAG, "Ditto write failed", t)
+        try {
+            if (dataRepository.shouldSuppressWatchTransportNow()) return
+            if (location.provider != null && !dataRepository.isCurrentLocationSnapshot(location)) {
+                Log.i(TAG, "Skipping Ditto track built before a location input change")
+                return
             }
+            if (freshLocation != null && !outboundTrackRefreshAllowed(freshLocation)) {
+                Log.i(TAG, "Skipping outbound Ditto track refresh: eligibility changed while building")
+                return
+            }
+            synchronized(peerLock) {
+                if (peerStopped || powerSuppressedState.value) return
+                if (!com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
+                        .isCurrent(pliSnapshot.moppGeneration)) {
+                    Log.i(TAG, "Skipping Ditto track built before a MOPP session change")
+                    return
+                }
+                val elapsed = android.os.SystemClock.elapsedRealtime()
+                if (freshLocation == null && !trackGate.due(sample, elapsed)) return
+                writeDocument("track", trackDocument)
+                trackGate.published(sample, elapsed)
+                lastSelfTrackDocument = trackDocument
+                changeCounterTrackDocument++
+                dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
+                if (syncActiveState.value) dittoUpdateHandler?.postDelayed(dittoUpdateRunnable,
+                    interval * 1_000L)
+            }
+            logVerbose { "Wrote to track: $trackDocument" }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Ditto write failed", t)
         }
     }
 
