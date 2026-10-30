@@ -28,6 +28,9 @@ data class PluginUI(
     val isLoaded: Boolean = false,
     val menuSubtitle: String? = null,
 ) {
-    val menuLabel: String
-        get() = menuSubtitle?.takeIf { it.isNotBlank() } ?: loadingStatus.toString()
+    val menuLabel: String?
+        get() = when (pluginId) {
+            "com.weartak.plugin.gotenna", "com.weartak.plugin.takcad" -> null
+            else -> menuSubtitle?.takeIf { it.isNotBlank() } ?: loadingStatus.toString()
+        }
 }
