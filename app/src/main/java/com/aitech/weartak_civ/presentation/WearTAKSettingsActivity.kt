@@ -1668,7 +1668,13 @@ fun WearTAKSettingsNav(
                             .firstOrNull { it.serverId == takServerItem.serverId }
                             ?.connectionStatusLiveData ?: disconnectedStatus)
                             .observeAsState(initial = TAK_SERVER_DISCONNECTED_STRING)
+                        val runtimeDetail = runtimeDetails.firstOrNull { it.serverId == takServerItem.serverId }
+                        val noFailure = remember {
+                            androidx.lifecycle.MutableLiveData<com.aitech.weartak_civ.data.takserver.TakConnectionFailure?>(null)
+                        }
+                        val failure by (runtimeDetail?.connectionFailureLiveData ?: noFailure).observeAsState()
                         Log.d(TAG, "index($index): takServerChecked($takServerChecked)")
+                        Column {
                         WearTAKSwipeToRevealChip(
                             onPrimaryActionClick = {
                                 Log.d(
@@ -1731,6 +1737,15 @@ fun WearTAKSettingsNav(
                                 )
                             },
                         )
+                        if (enableTakEndpoint && takServerChecked &&
+                            takServerStatus == TAKConnectService.TAK_SERVER_CONNECTION_FAILED_STRING &&
+                            failure?.untrustedServerCa == true) {
+                            Text(stringResource(R.string.ca_trust_untrusted))
+                            ServerCaImportAction(!phoneManagedSettings && !networkPreferencesLocked) {
+                                navController.navigate("edit_server_screen/$index?importCa=true")
+                            }
+                        }
+                        }
                     }
                     item {
                         Spacer(modifier = Modifier.height(10.dp))
@@ -1762,6 +1777,7 @@ fun WearTAKSettingsNav(
             val scope = rememberCoroutineScope()
             val certStatus = rememberSideloadedCertStatus(address)
             val credentialsOptional = certStatus is SideloadedClientCert.Status.Found
+            var caCertificate by remember(address, port) { mutableStateOf<String?>(null) }
 
             WearTAKPageWithConfirmCancel(
                 title = stringResource(R.string.new_server),
@@ -1809,17 +1825,21 @@ fun WearTAKSettingsNav(
                         ).text
                     }
                     item {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        ServerCaTrustSettings(address, port, caCertificate,
+                            enabled = !phoneManagedSettings && !networkPreferencesLocked,
+                            onChange = { caCertificate = it })
                     }
+                    item { Spacer(modifier = Modifier.height(10.dp)) }
                 },
                 navController = navController,
                 onClickCancel = {},
                 onClickConfirm = {
-                    if (name.isNotBlank() && address.isNotBlank() && port.isNotBlank() &&
+                    if (name.isNotBlank() && address.isNotBlank() && port.toIntOrNull() in 1..65535 &&
                         (credentialsOptional || (username.isNotBlank() && password.isNotBlank()))) {
                         val takServerItem = DataRepository.TakServerItem(true, name, address.trim(), port.toInt(),
                             isP12Cert, username, password, "", "")
-                        settingsVm.saveAndRegisterTakServer(takServerItem)
+                        settingsVm.saveAndRegisterTakServer(takServerItem,
+                            caTrust = WearTAKSettingsViewModel.CaTrustChange(caCertificate))
                         serverSettingsChanged.value = true
                     } else {
                         Toast.makeText(
@@ -1830,14 +1850,18 @@ fun WearTAKSettingsNav(
                 loadingDialogBehavior = {
                     if (serverSettingsChanged.value) {
                         val registration by settingsVm.serverRegistrationState.collectAsStateWithLifecycle()
-                        WearTAKRegistrationDialogs(registration, serverSettingsChanged, navController)
+                        WearTAKRegistrationDialogs(registration, serverSettingsChanged, navController,
+                            takServerList, !phoneManagedSettings && !networkPreferencesLocked)
                     }
                 }
             )
         }
         composable(
-            "edit_server_screen/{index}",
-            arguments = listOf(navArgument("index") { type = NavType.IntType })
+            "edit_server_screen/{index}?importCa={importCa}",
+            arguments = listOf(
+                navArgument("index") { type = NavType.IntType },
+                navArgument("importCa") { type = NavType.BoolType; defaultValue = false },
+            )
         ) { backStackEntry ->
             val index = backStackEntry.arguments?.getInt("index") ?: -1
             Log.d(TAG, "edit_server_screen index: $index")
@@ -1853,17 +1877,54 @@ fun WearTAKSettingsNav(
             val offBodyWaiting by TAKConnectService.offBodyTakWaiting.collectAsStateWithLifecycle()
             val disconnectedStatus = remember { androidx.lifecycle.MutableLiveData(TAK_SERVER_DISCONNECTED_STRING) }
             val savedServer = takServerList.getOrNull(index)
+            val runtimeDetail = runtimeDetails.firstOrNull { it.serverId == savedServer?.serverId }
+            val noFailure = remember {
+                androidx.lifecycle.MutableLiveData<com.aitech.weartak_civ.data.takserver.TakConnectionFailure?>(null)
+            }
+            val connectionFailure by (runtimeDetail?.connectionFailureLiveData ?: noFailure).observeAsState()
             val connectionStatus by (runtimeDetails
                 .firstOrNull { it.serverId == savedServer?.serverId }
                 ?.connectionStatusLiveData ?: disconnectedStatus)
                 .observeAsState(TAK_SERVER_DISCONNECTED_STRING)
             val certStatus = rememberSideloadedCertStatus(address)
             val credentialsOptional = certStatus is SideloadedClientCert.Status.Found
+            var caCertificate by remember(address, port) { mutableStateOf<String?>(null) }
+            var originalCa by remember(address, port) { mutableStateOf<String?>(null) }
+            var caLoaded by remember(address, port) { mutableStateOf(false) }
+            var caLoadFailed by remember(address, port) { mutableStateOf(false) }
+            LaunchedEffect(savedServer?.serverId, address, port) {
+                try {
+                    val id = savedServer?.serverId ?: return@LaunchedEffect
+                    val validPort = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: return@LaunchedEffect
+                    val ca = dataRepository.getApprovedServerCa(id, address, validPort)
+                    originalCa = ca
+                    caCertificate = ca
+                    caLoaded = true
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unable to load approved server CA", e)
+                    caLoadFailed = true
+                }
+            }
             Log.d(TAG, "address=$address, serverSettingsChanged=${serverConnSettingsChanged.value}")
 
+            val importCa = backStackEntry.arguments?.getBoolean("importCa") == true
+            val caTrustSettings: @Composable () -> Unit = {
+                if (caLoadFailed) Text(stringResource(R.string.ca_trust_load_error))
+                ServerCaTrustSettings(address, port, caCertificate,
+                    enabled = caLoaded && !phoneManagedSettings && !networkPreferencesLocked,
+                    failure = connectionFailure.takeIf {
+                        address == savedServer?.address && port == savedServer?.port?.toString()
+                    },
+                    importOnOpen = importCa,
+                    onChange = { caCertificate = it })
+            }
             WearTAKPageWithConfirmCancel(
                 title = stringResource(R.string.edit_server),
                 columnContent = {
+                    // Compose recovery before offscreen form fields so its review opens immediately.
+                    if (importCa) item { caTrustSettings() }
                     item {
                         Text(
                             stringResource(takServerStatusLabel(
@@ -1943,13 +2004,14 @@ fun WearTAKSettingsNav(
                             )
                         }
                     }
+                    if (!importCa) item { caTrustSettings() }
                     item {Spacer(modifier = Modifier.height(10.dp))}
                 },
                 navController = navController,
                 onClickCancel = { Log.d(TAG, "EditServerPage Settings NOT saved")
                    },
                 onClickConfirm = {
-                    if (name.isNotBlank() && address.isNotBlank() && port.isNotBlank() &&
+                    if (caLoaded && name.isNotBlank() && address.isNotBlank() && port.toIntOrNull() in 1..65535 &&
                         (if (isP12Cert || credentialsOptional) { true } else { username.isNotBlank() } ) &&
                         (if (isP12Cert || credentialsOptional) { true } else { password.isNotBlank() } ) ) {
                         val takServerDetails = takServerList.get(index)
@@ -1961,7 +2023,7 @@ fun WearTAKSettingsNav(
                         )
                         if (name != takServerDetails.name || address != takServerDetails.address || port != takServerDetails.port.toString() ||
                             username != takServerDetails.username || password != takServerDetails.password ||
-                            isP12Cert != takServerDetails.isP12Cert) {
+                            isP12Cert != takServerDetails.isP12Cert || caCertificate != originalCa) {
                             if (name == takServerDetails.name) {
                                 // Name is same, so something else in address, port, username, or password has changed
                                 serverConnSettingsChanged.value = true
@@ -1969,7 +2031,7 @@ fun WearTAKSettingsNav(
                             } else { // Name is different
                                 if (address != takServerDetails.address || port.toInt() != takServerDetails.port ||
                                     username != takServerDetails.username || password != takServerDetails.password ||
-                                    isP12Cert != takServerDetails.isP12Cert) {
+                                    isP12Cert != takServerDetails.isP12Cert || caCertificate != originalCa) {
                                     // Apart from name, something else is different
                                     serverConnSettingsChanged.value = true
                                     Log.d(TAG, "serverConnSettingsChanged set to true with name being different")
@@ -1984,7 +2046,8 @@ fun WearTAKSettingsNav(
                                 }
 
                             if (serverConnSettingsChanged.value) {
-                                settingsVm.saveAndRegisterTakServer(changedTakServerDetail, index)
+                                settingsVm.saveAndRegisterTakServer(changedTakServerDetail, index,
+                                    WearTAKSettingsViewModel.CaTrustChange(caCertificate))
                             } else {
                                 settingsVm.updateTakServerItem(index, changedTakServerDetail)
                                 navController.navigate("tak_servers") {
@@ -2009,7 +2072,8 @@ fun WearTAKSettingsNav(
                 loadingDialogBehavior = {
                     if (serverConnSettingsChanged.value) {
                         val registration by settingsVm.serverRegistrationState.collectAsStateWithLifecycle()
-                        WearTAKRegistrationDialogs(registration, serverConnSettingsChanged, navController)
+                        WearTAKRegistrationDialogs(registration, serverConnSettingsChanged, navController,
+                            takServerList, !phoneManagedSettings && !networkPreferencesLocked)
                     }
                 }
             )
@@ -5053,6 +5117,8 @@ private fun WearTAKRegistrationDialogs(
     registration: TakServerRegistration.State,
     serverDetailsChanged: MutableState<Boolean>,
     navController: NavController,
+    servers: List<DataRepository.TakServerItem>,
+    allowCaImport: Boolean,
 ) {
     val shouldShowLoadingDialog = remember(registration) { mutableStateOf(registration.isLoading) }
     val shouldShowConfirmDialog = remember(registration) { mutableStateOf(!registration.isLoading) }
@@ -5076,6 +5142,16 @@ private fun WearTAKRegistrationDialogs(
         failure = registration.failure,
         onRetry = { TAKConnectService.retryServerRegistration() },
         isDuplicate = isDuplicate,
+        onImportCa = if (allowCaImport && servers.any { it.serverId == registration.serverId }) {
+            {
+                val index = servers.indexOfFirst { it.serverId == registration.serverId }
+                shouldShowConfirmDialog.value = false
+                serverDetailsChanged.value = false
+                navController.navigate("edit_server_screen/$index?importCa=true") {
+                    popUpTo("tak_servers")
+                }
+            }
+        } else null,
     )
 }
 
@@ -5089,6 +5165,7 @@ fun WearTAKServerDialog(
     serverDetailsChanged: MutableState<Boolean>,
     isDuplicate: MutableState<Boolean>,
     failure: com.aitech.weartak_civ.data.takserver.TakConnectionFailure? = null,
+    onImportCa: (() -> Unit)? = null,
     onRetry: () -> Unit
     ){
     WearTAKAlertDialog(
@@ -5105,14 +5182,19 @@ fun WearTAKServerDialog(
             }
         },
         text = {
-            if (!isDuplicate.value) {
-                if (isServerConnected.value) {
-                    Text(stringResource(R.string.tak_server_registration_succeeded), textAlign = TextAlign.Center)
-                } else {
-                    Text(failure?.displayMessage(LocalContext.current) ?: stringResource(
-                        if (isNetworkConnected.value) R.string.registration_failed
-                        else R.string.network_disconnected_try_later),
-                        textAlign = TextAlign.Center, fontSize = 13.sp)
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (!isDuplicate.value) {
+                    if (isServerConnected.value) {
+                        Text(stringResource(R.string.tak_server_registration_succeeded), textAlign = TextAlign.Center)
+                    } else {
+                        Text(failure?.displayMessage(LocalContext.current) ?: stringResource(
+                            if (isNetworkConnected.value) R.string.registration_failed
+                            else R.string.network_disconnected_try_later),
+                            textAlign = TextAlign.Center, fontSize = 13.sp)
+                        if (failure?.untrustedServerCa == true && onImportCa != null) {
+                            ServerCaImportAction(onClick = onImportCa)
+                        }
+                    }
                 }
             }
         },

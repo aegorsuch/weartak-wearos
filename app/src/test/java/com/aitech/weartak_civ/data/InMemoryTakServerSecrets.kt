@@ -22,6 +22,8 @@ class InMemoryTakServerSecrets {
             snapshot.map { json -> json?.let { DecryptResult.Success(1, it) } }
         coEvery { setTakServerListJson(any()) } answers { live.value = firstArg() }
         coEvery { setPhoneManagedSnapshotJson(any()) } answers { snapshot.value = firstArg() }
+        coEvery { getApprovedCa(any(), any(), any()) } returns null
+        coEvery { removeApprovedCa(any()) } returns Unit
     }
 
     fun liveServers(): List<DataRepository.TakServerItem> = parse(live.value)

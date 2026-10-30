@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ca_trust_advanced">詳細設定</string>
+    <string name="ca_trust_advanced_hide">詳細設定を閉じる</string>
+    <string name="ca_trust_import">CA をインポート...</string>
+    <string name="ca_trust_untrusted">サーバー証明書の発行者は信頼されていません。サーバーがプライベート CA を使用する場合は、管理者とフィンガープリントを確認してから、その公開 CA 証明書をインポートしてください。</string>
+    <string name="ca_trust_default">CA 信頼：既存の既定値</string>
+    <string name="ca_trust_selected">このサーバーの CA は承認済み</string>
+    <string name="ca_trust_stage_hint">公開 CA：files/trust/ca.crt（ADB）</string>
+    <string name="ca_trust_review">配置済み CA を確認</string>
+    <string name="ca_trust_loading">CA を読み込み中...</string>
+    <string name="ca_trust_endpoint">%1$s:%2$s のみを信頼（登録 8446、API 8443）</string>
+    <string name="ca_trust_expires">有効期限：%1$s</string>
+    <string name="ca_trust_fingerprint">SHA-256 フィンガープリント</string>
+    <string name="ca_trust_warning">信頼できる経路で管理者と照合してください。フィンガープリントが一致する場合のみ承認してください。ホスト名/IP も一致する必要があります。サーバーを保存して適用します。</string>
+    <string name="ca_trust_approve">この CA を承認</string>
+    <string name="ca_trust_remove">保存時に CA の承認を削除</string>
+    <string name="ca_trust_import_error">CA をインポートできません。有効期限内の有効な PEM または DER の CA 証明書を 1 つ（最大 64 KiB）配置して再試行してください。</string>
+    <string name="ca_trust_load_error">保存済みの CA 信頼を読み込めません。サーバーを開き直して再試行してください。変更は保存されていません。</string>
     <string name="manual_alert_add_hint">カスタムアラートを入力</string>
     <string name="chat_preset_add_hint">カスタムメッセージを入力</string>
     <string name="hello_world">WearTAK-CIVより、こんにちは、%1$s</string>

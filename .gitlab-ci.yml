@@ -48,6 +48,10 @@ android_mopp_check:
       --tests '*LollipopGeometryTest' --tests '*LollipopOverlayTest'
       --tests '*ElevationTest' --tests '*AwsTerrainProviderTest'
       --tests '*RouteDetailsViewTest' --tests '*RoutePointDetailsViewTest'
+      --tests '*TakServerCaTrustTest' --tests '*TakServerCaStorageTest'
+      --tests '*ServerCaTrustEditorTest' --tests '*TakEnrollmentTest'
+      --tests '*TakTransientRecoveryTest' --tests '*TakServerRegistrationServiceTest'
+      --tests '*TakServerRegistrationTest' --tests '*ChatEnrollmentSaveTest'
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:
     when: always

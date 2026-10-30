@@ -79,3 +79,61 @@ server settings and Companion view/edit/settings-sync protocol. That protocol is
 unchanged; its phone-side copies are outside command-message purge. Credentials
 are not included in diagnostic exports. Enrollment retains normal HTTPS trust
 and hostname validation; only use a server address you trust.
+
+## Private CA trust import (watch, no file picker)
+
+CA import is optional, under the collapsed **Advanced** section in the normal
+**New Server / Edit Server** form. Public CAs (such as Let's Encrypt) use normal
+system trust without importing anything. An untrusted-issuer TLS failure offers
+**Import CA...**, opening the same staged-certificate review flow for that saved
+server. Other TLS errors (such as an expired certificate or hostname mismatch),
+authentication failures and network errors do not offer CA import.
+It does not create a special server type: the same server list, status,
+enable/disable, edit, registration and delete flows apply. Each watch enrolls
+its own client certificate using its enrollment credentials. Importing a CA
+does not import a client identity or private key.
+
+1. Obtain one public X.509 CA certificate in PEM or DER format from your
+   administrator, and its SHA-256 fingerprint over a separate trusted channel.
+   Bundles, PKCS#12 truststores, private keys, expired certificates and non-CA
+   certificates are not supported. Maximum size: 64 KiB.
+2. With authorized ADB access to the watch, stage the public certificate in the
+   app's external files directory. For regular WearTAK:
+
+   ```powershell
+   adb -s WATCH_SERIAL shell mkdir -p /sdcard/Android/data/com.aitech.weartak_civ/files/trust
+   adb -s WATCH_SERIAL push .\server-ca.pem /sdcard/Android/data/com.aitech.weartak_civ/files/trust/ca.crt
+   ```
+
+   WearTAK Dev uses `com.aitech.weartak_civ.dev` instead. ADB must already be
+   authorized; Knox policy may prohibit ADB or external app-file access. Such
+   devices need an administrator-approved staging mechanism. No file-picker,
+   Companion protocol change or automatic download/trust is required.
+3. Open **New Server** or **Edit Server**, enter the actual server address and
+   streaming port, then open **Advanced > Review staged CA**. Read the subject, expiration,
+   endpoint and full SHA-256 fingerprint. Compare every fingerprint byte with
+   your administrator, then tap **Approve this CA** and confirm/save the form.
+   Review/approval alone does not save anything; canceling the form discards it.
+4. The approved certificate is copied into Android-Keystore-backed encrypted
+   app storage, bound to that server ID, normalized host and streaming port.
+   It is not included in Companion settings exports or phone snapshots.
+   Enrollment on 8446, streaming on the configured port (normally 8089), and
+   REST APIs on 8443 use this CA only, not a global CA or trust-all fallback.
+   Redirects are disabled for enrollment and APIs using an approved CA.
+5. **Edit Server > Advanced > Remove approved CA on save**, then save, revokes the approval
+   and reconnects using existing defaults. Deleting the server or changing its
+   endpoint removes its approval; changing the endpoint back requires review
+   again. Replacing/removing trust invalidates that connection and its cached
+   enrollment certificate. The staged file is never automatically trusted or
+   reread; remove it with authorized ADB after import if desired.
+
+Hostname and IP verification stay strict for imported trust on enrollment,
+streaming and APIs. If connecting to an IP address, the server certificate must
+contain that exact IP in a Subject Alternative Name (SAN). Otherwise use a
+resolvable DNS name present in the certificate. Importing a CA does not fix a
+wrong hostname, firewall, disabled direct transport, phone handoff or managed
+configuration lock. Existing non-imported server behavior is unchanged.
+
+For ODIN-TAKX-SERVER, use `10.0.0.120`, streaming `8089`, enrollment `8446`,
+provided its server certificate has an IP SAN for `10.0.0.120`; otherwise use
+its matching, resolvable DNS SAN. Never bypass verification to connect.

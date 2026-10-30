@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ca_trust_advanced">Erweitert</string>
+    <string name="ca_trust_advanced_hide">Erweitert ausblenden</string>
+    <string name="ca_trust_import">CA importieren...</string>
+    <string name="ca_trust_untrusted">Dem Aussteller des Serverzertifikats wird nicht vertraut. Verwendet Ihr Server eine private CA, importieren Sie deren öffentliches CA-Zertifikat, nachdem Sie den Fingerabdruck mit Ihrem Administrator geprüft haben.</string>
+    <string name="ca_trust_default">CA-Vertrauen: bisherige Vorgaben</string>
+    <string name="ca_trust_selected">CA für diesen Server freigegeben</string>
+    <string name="ca_trust_stage_hint">Öffentliche CA: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">Bereitgestellte CA prüfen</string>
+    <string name="ca_trust_loading">CA wird gelesen...</string>
+    <string name="ca_trust_endpoint">Nur %1$s:%2$s vertrauen (Registrierung 8446, APIs 8443)</string>
+    <string name="ca_trust_expires">Gültig bis: %1$s</string>
+    <string name="ca_trust_fingerprint">SHA-256-Fingerabdruck</string>
+    <string name="ca_trust_warning">Über einen vertrauenswürdigen Kanal mit dem Administrator vergleichen. Nur bei gleichem Fingerabdruck freigeben. Hostname/IP muss weiterhin übereinstimmen. Zum Anwenden den Server speichern.</string>
+    <string name="ca_trust_approve">Diese CA freigeben</string>
+    <string name="ca_trust_remove">CA-Freigabe beim Speichern entfernen</string>
+    <string name="ca_trust_import_error">CA-Import fehlgeschlagen. Genau ein gültiges, nicht abgelaufenes PEM- oder DER-CA-Zertifikat (max. 64 KiB) bereitstellen und erneut versuchen.</string>
+    <string name="ca_trust_load_error">Gespeicherte CA-Freigabe nicht lesbar. Server erneut öffnen und versuchen; Änderungen wurden nicht gespeichert.</string>
     <string name="manual_alert_add_hint">Benutzerdefinierten Alarm eingeben</string>
     <string name="chat_preset_add_hint">Eigene Nachricht eingeben</string>
     <string name="hello_world">Von WearTAK-CIV, Hallo, %1$s</string>

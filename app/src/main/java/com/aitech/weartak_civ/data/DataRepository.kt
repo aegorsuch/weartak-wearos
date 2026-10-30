@@ -4741,6 +4741,20 @@ class DataRepository(
         return parseTakServerRead(takServerSecretsRepository.takServerListRead.first())
     }
 
+    suspend fun getApprovedServerCa(serverId: String, address: String, port: Int): String? =
+        takServerSecretsRepository.getApprovedCa(serverId, address, port)
+
+    suspend fun setApprovedServerCa(serverId: String, address: String, port: Int, certificate: String?) {
+        TakServerEndpointIdentity.mutationMutex.withLock {
+            check(!chatEnrollmentBlocked()) { "Server settings are managed or locked" }
+            check(readTakServerList().any {
+                it.serverId == serverId &&
+                    TakServerEndpointIdentity.key(it) == TakServerEndpointIdentity.key(address, port)
+            }) { "Server changed before CA approval could be saved" }
+            takServerSecretsRepository.setApprovedCa(serverId, address, port, certificate)
+        }
+    }
+
     suspend fun tryAwaitTakServerList(): List<TakServerItem>? {
         return try {
             awaitTakServerList()
@@ -4781,6 +4795,7 @@ class DataRepository(
                 normalizeTakServerItem(item, preferredServerId = uniqueId)
             }
             val jsonString = gson.toJson(uniqueList)
+            clearObsoleteServerCa(currentList, uniqueList)
             Log.i(TAG, "storeTakServerList: writing list size=${uniqueList.size}, len=${jsonString.length}")
             takServerSecretsRepository.setTakServerListJson(jsonString)
             if (watchOwned) recordWatchOwnedTakServers(jsonString)
@@ -4955,10 +4970,21 @@ class DataRepository(
     }
 
     private suspend fun writeTakServerList(list: List<TakServerItem>, operation: String) {
+        clearObsoleteServerCa(readTakServerList(), list)
         val json = gson.toJson(normalizeTakServerList(list))
         Log.i(TAG, "$operation: writing list size=${list.size}, len=${json.length}")
         takServerSecretsRepository.setTakServerListJson(json)
         recordWatchOwnedTakServers(json)
+    }
+
+    private suspend fun clearObsoleteServerCa(previous: List<TakServerItem>, next: List<TakServerItem>) {
+        previous.forEach { old ->
+            val id = old.serverId ?: return@forEach
+            val replacement = next.firstOrNull { it.serverId == id }
+            if (replacement == null || TakServerEndpointIdentity.key(old) != TakServerEndpointIdentity.key(replacement)) {
+                takServerSecretsRepository.removeApprovedCa(id)
+            }
+        }
     }
 
     /** Watch-side server edits made while no live phone session holds the lock survive a restore. */

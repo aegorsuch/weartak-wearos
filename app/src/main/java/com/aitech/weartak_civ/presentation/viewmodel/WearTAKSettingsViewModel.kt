@@ -678,7 +678,9 @@ class WearTAKSettingsViewModel : ViewModel() {
         TAKConnectService.serverRegistration.state
     val takServerRuntimeDetails = TAKConnectService.takServerRuntimeDetails
 
-    fun saveAndRegisterTakServer(item: TakServerItem, index: Int? = null) {
+    data class CaTrustChange(val certificate: String?)
+
+    fun saveAndRegisterTakServer(item: TakServerItem, index: Int? = null, caTrust: CaTrustChange? = null) {
         val serverId = TakServerId.ensure(item.serverId)
         val savedItem = item.copy(serverId = serverId)
         val ticket = TAKConnectService.serverRegistration.prepare(serverId)
@@ -686,6 +688,7 @@ class WearTAKSettingsViewModel : ViewModel() {
             TAKConnectService.serverRegistration.saveAndConnect(
                 serverId,
                 save = {
+                    check(!dataRepository.chatEnrollmentBlocked()) { "Server settings are managed or locked" }
                     val result = if (index == null) {
                         when (dataRepository.addTakServerItem(savedItem)) {
                             DataRepository.TakServerAddResult.ADDED ->
@@ -704,6 +707,10 @@ class WearTAKSettingsViewModel : ViewModel() {
                         }
                     }
                     if (result == TakServerRegistration.SaveResult.SAVED) {
+                        if (caTrust != null) {
+                            dataRepository.setApprovedServerCa(serverId, savedItem.address, savedItem.port,
+                                caTrust.certificate)
+                        }
                         takServerList = dataRepository.awaitTakServerList()
                     }
                     result

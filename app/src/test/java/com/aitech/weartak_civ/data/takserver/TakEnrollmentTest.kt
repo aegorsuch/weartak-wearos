@@ -19,6 +19,37 @@ import java.util.Date
 import javax.net.ssl.SSLHandshakeException
 
 class TakEnrollmentTest {
+    @Test fun onlyConfirmedUntrustedIssuerFailuresOfferCaImport() {
+        val androidTrustFailure = java.security.cert.CertPathValidatorException(
+            "Trust anchor for certification path not found.")
+        val pkixTrustFailure = java.security.cert.CertPathValidatorException(
+            "no anchor", null, null, -1, java.security.cert.PKIXReason.NO_TRUST_ANCHOR)
+        listOf(androidTrustFailure, pkixTrustFailure).forEach { cause ->
+            val failure = TakConnectionFailure.from(TakEnrollmentStage.CONFIG,
+                SSLHandshakeException("handshake").apply { initCause(cause) })
+            assertEquals(TakFailureCategory.TLS, failure.category)
+            assertTrue(failure.untrustedServerCa)
+            assertEquals(failure, TakConnectionFailure.from(TakEnrollmentStage.CONNECTION,
+                TakEnrollmentException(failure)))
+        }
+        listOf(
+            SSLHandshakeException("generic handshake"),
+            javax.net.ssl.SSLPeerUnverifiedException("hostname mismatch"),
+            IOException("offline"),
+            SSLHandshakeException("expired").apply {
+                initCause(java.security.cert.CertificateExpiredException())
+            },
+            SSLHandshakeException("not yet valid").apply {
+                initCause(java.security.cert.CertificateNotYetValidException())
+            },
+            SSLHandshakeException("invalid signature").apply {
+                initCause(java.security.cert.CertPathValidatorException("invalid signature"))
+            },
+        ).forEach {
+            assertFalse(TakConnectionFailure.from(TakEnrollmentStage.CONNECTION, it).untrustedServerCa)
+        }
+    }
+
     @Test fun openTakServerAuthorityIsParsedInstalledAndTrusted() {
         val leaf = chain[1]
         val ca = chain[0]

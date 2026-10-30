@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ca_trust_advanced">متقدم</string>
+    <string name="ca_trust_advanced_hide">إخفاء الخيارات المتقدمة</string>
+    <string name="ca_trust_import">استيراد CA...</string>
+    <string name="ca_trust_untrusted">جهة إصدار شهادة الخادم غير موثوقة. إذا كان الخادم يستخدم CA خاصة، فاستورد شهادتها العامة بعد التحقق من البصمة مع المسؤول.</string>
+    <string name="ca_trust_default">ثقة CA: الإعدادات الافتراضية الحالية</string>
+    <string name="ca_trust_selected">تم اعتماد CA لهذا الخادم</string>
+    <string name="ca_trust_stage_hint">شهادة CA عامة: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">مراجعة شهادة CA المجهزة</string>
+    <string name="ca_trust_loading">جارٍ قراءة CA...</string>
+    <string name="ca_trust_endpoint">الثقة فقط في %1$s:%2$s (التسجيل 8446 وواجهات API 8443)</string>
+    <string name="ca_trust_expires">تنتهي في: %1$s</string>
+    <string name="ca_trust_fingerprint">بصمة SHA-256</string>
+    <string name="ca_trust_warning">قارن مع المسؤول عبر قناة موثوقة. اعتمد فقط إذا تطابقت البصمات. يجب أن يطابق اسم المضيف/IP الشهادة أيضًا. احفظ الخادم للتطبيق.</string>
+    <string name="ca_trust_approve">اعتماد شهادة CA هذه</string>
+    <string name="ca_trust_remove">إزالة CA المعتمدة عند الحفظ</string>
+    <string name="ca_trust_import_error">تعذر استيراد CA. جهز شهادة CA واحدة صالحة وغير منتهية بصيغة PEM أو DER (بحد أقصى 64 KiB)، ثم أعد المحاولة.</string>
+    <string name="ca_trust_load_error">تعذر تحميل ثقة CA المحفوظة. أعد فتح الخادم وحاول مجددًا؛ لم تحفظ التغييرات.</string>
     <string name="manual_alert_add_hint">اكتب تنبيهًا مخصصًا</string>
     <string name="chat_preset_add_hint">اكتب رسالة مخصصة</string>
     <string name="hello_world">من تطبيق WearTAK-CIV، مرحبًا، %1$s</string>

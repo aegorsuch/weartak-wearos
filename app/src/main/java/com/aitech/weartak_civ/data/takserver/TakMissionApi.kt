@@ -39,7 +39,7 @@ class TakMissionApi(
     private val serverName: String,
 
     // HTTP client used to send requests to the TAK Server
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    client: OkHttpClient = OkHttpClient.Builder()
 
         // Configure the secure connection using the provided SSL settings
         .sslSocketFactory(sslContext.socketFactory, trustManager)
@@ -56,7 +56,11 @@ class TakMissionApi(
         .build(),
     private val requestsAllowed: suspend () -> Boolean = { true },
     private val session: TakHttpSession? = null,
+    strictHostname: Boolean = false,
 ) {
+    private val client = if (strictHostname) client.newBuilder()
+        .hostnameVerifier(OkHttpClient().hostnameVerifier)
+        .followRedirects(false).followSslRedirects(false).build() else client
 
     // Converts JSON responses into Kotlin data objects
     private val objectMapper = ObjectMapper()

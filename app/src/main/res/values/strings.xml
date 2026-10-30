@@ -1,4 +1,21 @@
 <resources>
+    <string name="ca_trust_advanced">Advanced</string>
+    <string name="ca_trust_advanced_hide">Hide advanced</string>
+    <string name="ca_trust_import">Import CA...</string>
+    <string name="ca_trust_untrusted">Server certificate issuer is not trusted. If your server uses a private CA, import its public CA certificate after verifying the fingerprint with your administrator.</string>
+    <string name="ca_trust_default">CA trust: existing defaults</string>
+    <string name="ca_trust_selected">CA trust: approved for this server</string>
+    <string name="ca_trust_stage_hint">Public CA: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">Review staged CA</string>
+    <string name="ca_trust_loading">Reading CA...</string>
+    <string name="ca_trust_endpoint">Trust only %1$s:%2$s (enrollment 8446 and APIs 8443)</string>
+    <string name="ca_trust_expires">Expires: %1$s</string>
+    <string name="ca_trust_fingerprint">SHA-256 fingerprint</string>
+    <string name="ca_trust_warning">Compare with your administrator through a trusted channel. Approve only if fingerprints match. Hostname/IP must still match. Save this server to apply.</string>
+    <string name="ca_trust_approve">Approve this CA</string>
+    <string name="ca_trust_remove">Remove approved CA on save</string>
+    <string name="ca_trust_import_error">Cannot import CA. Stage exactly one valid, unexpired PEM or DER CA (64 KiB maximum), then retry.</string>
+    <string name="ca_trust_load_error">Cannot load saved CA trust. Reopen this server and retry; changes were not saved.</string>
     <string name="network_control_bonded">Bonded</string>
     <string name="connection_route_suppressed">Suppressed</string>
     <string name="network_preferences_checklist">Network Preferences Checklist</string>
