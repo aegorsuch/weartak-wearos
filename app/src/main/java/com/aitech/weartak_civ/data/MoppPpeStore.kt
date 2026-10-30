@@ -45,11 +45,10 @@ internal class MoppPpeStore(
                     else MoppPpeResultCode.INVALID_REQUEST
                 (prefs[REVISION] ?: 0L) != revision -> MoppPpeResultCode.REVISION_CONFLICT
                 revision == Long.MAX_VALUE -> MoppPpeResultCode.INVALID_REQUEST
-                enabled == null && prefs[ENABLED] != true -> MoppPpeResultCode.INVALID_REQUEST
                 else -> {
-                    if (enabled != null) {
-                        prefs[ENABLED] = enabled
-                    } else {
+                    // Legacy toggle requests still participate in CAS, but cannot disable publishing.
+                    prefs[ENABLED] = true
+                    if (enabled == null) {
                         prefs[STATUS] = requireNotNull(selection)
                         prefs[SAVED_AT] = now()
                     }
@@ -65,13 +64,12 @@ internal class MoppPpeStore(
 
     private fun snapshot(prefs: Preferences): MoppPpeStateParcel {
         val selection = prefs[STATUS]?.takeIf { key -> MoppStatus.entries.any { it.key == key } }
-        val enabled = prefs[ENABLED] ?: false
         return MoppPpeStateParcel(
             revision = prefs[REVISION] ?: 0L,
             selection = selection,
             savedAtEpochMillis = prefs[SAVED_AT].takeIf { selection != null },
-            enabled = enabled,
-            contributing = enabled && selection != null && available(),
+            enabled = true,
+            contributing = selection != null && available(),
             lastMutationId = prefs[LAST_MUTATION],
         )
     }

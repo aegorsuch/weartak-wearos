@@ -19,6 +19,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import java.io.IOException
 import org.junit.After
 import org.junit.Assert.*
@@ -63,7 +64,8 @@ class HostMoppPpeControlTest {
         assertTrue(read.accepted)
         assertNull(read.state!!.selection)
         assertNull(read.state!!.savedAtEpochMillis)
-        assertFalse(read.state!!.enabled)
+        assertTrue(read.state!!.enabled)
+        assertFalse(read.state!!.contributing)
         assertFalse(MoppPluginAvailability.available.value)
         control.ready()
         assertTrue(MoppPluginAvailability.available.value)
@@ -73,7 +75,6 @@ class HostMoppPpeControlTest {
         val control = control()
         control.read()
         control.ready()
-        assertEquals(MoppPpeResultCode.INVALID_REQUEST, control.save(0, "disabled", "2").code)
         val enabled = control.setEnabled(0, "enable", true).state!!
         assertNull(enabled.savedAtEpochMillis)
         val saved = control.save(1, "save", "2").state!!
@@ -88,7 +89,11 @@ class HostMoppPpeControlTest {
         val disabled = control.setEnabled(2, "disable", false).state!!
         assertEquals(saved.savedAtEpochMillis, disabled.savedAtEpochMillis)
         assertEquals("2", disabled.selection)
-        assertFalse(disabled.contributing)
+        assertTrue(disabled.enabled)
+        assertTrue(disabled.contributing)
+        assertEquals(3L, disabled.revision)
+        assertEquals(disabled, control.setEnabled(2, "disable", false).state)
+        assertEquals(MoppPpeResultCode.REVISION_CONFLICT, control.setEnabled(2, "stale-disable", false).code)
     }
 
     @Test fun checksUidAndTrustOnEveryCallAndRevokesReplacedLease() {
@@ -119,7 +124,7 @@ class HostMoppPpeControlTest {
     @Test fun preservesLegacySavedTimestampAcrossLossAndResume() = runBlocking {
         repo.legacyDataStore().edit {
             it[MoppPpeStore.STATUS] = "3"
-            it[MoppPpeStore.ENABLED] = true
+            it[MoppPpeStore.ENABLED] = false
         }
         val first = control()
         first.read()
@@ -135,6 +140,64 @@ class HostMoppPpeControlTest {
         val resumed = second.read().state!!
         assertEquals(saved, resumed)
         assertTrue(repo.snapshotSelfStatusRemarks().contains("MOPP3"))
+    }
+
+    @Test fun legacyDisabledStateIsEffectivelyEnabledWithoutReadSideEffectsAndCanSave() = runBlocking {
+        val dataStore = repo.legacyDataStore()
+        dataStore.edit {
+            it[MoppPpeStore.ENABLED] = false
+            it[MoppPpeStore.STATUS] = "0"
+            it[MoppPpeStore.SAVED_AT] = 123L
+            it[MoppPpeStore.REVISION] = 7L
+        }
+        val before = dataStore.data.first()
+        val control = control()
+        control.ready()
+        val state = control.read().state!!
+        assertTrue(state.enabled)
+        assertTrue(state.contributing)
+        assertEquals("0", state.selection)
+        assertEquals(123L, state.savedAtEpochMillis)
+        assertEquals(7L, state.revision)
+        assertTrue(repo.getEnableMopp.first())
+        assertEquals(com.aitech.weartak_civ.data.MoppStatus.LEVEL_0, repo.getMoppStatus.first())
+        assertEquals(before, dataStore.data.first())
+        assertTrue(repo.snapshotSelfStatusRemarks().contains("MOPP0"))
+        val saved = control.save(7, "save-disabled", "4")
+        assertTrue(saved.accepted)
+        assertEquals("4", saved.state!!.selection)
+        assertEquals(8L, saved.state!!.revision)
+        assertTrue(dataStore.data.first()[MoppPpeStore.ENABLED]!!)
+        control.close()
+        assertFalse(repo.selfStatusInputs().first().policy.moppEnabled)
+        assertFalse(repo.moppPpeStore.read().contributing)
+        assertEquals(saved.state!!.savedAtEpochMillis, repo.moppPpeStore.read().savedAtEpochMillis)
+    }
+
+    @Test fun legacyDisableDoesNotCreateSelectionOrTimestamp() {
+        val control = control()
+        control.read()
+        control.ready()
+        val enabled = control.setEnabled(0, "disable-unset", false).state!!
+        assertTrue(enabled.enabled)
+        assertNull(enabled.selection)
+        assertNull(enabled.savedAtEpochMillis)
+        assertFalse(enabled.contributing)
+        val saved = control.save(1, "first-save", "none").state!!
+        assertEquals("none", saved.selection)
+        assertNotNull(saved.savedAtEpochMillis)
+        assertTrue(saved.contributing)
+    }
+
+    @Test fun firstSaveNeedsNoEnable() {
+        val control = control()
+        control.read()
+        control.ready()
+        val saved = control.save(0, "first-save", "2")
+        assertTrue(saved.accepted)
+        assertEquals(1L, saved.state!!.revision)
+        assertEquals("2", saved.state!!.selection)
+        assertTrue(saved.state!!.contributing)
     }
 
     @Test fun boundCompatiblePluginNeedsTypedReadAndDeathRevokesBeforeManagerCleanup() {

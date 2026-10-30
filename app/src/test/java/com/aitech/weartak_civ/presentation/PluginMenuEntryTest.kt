@@ -2,6 +2,7 @@ package com.aitech.weartak_civ.presentation
 
 import com.aitech.weartak_civ.integration.plugin.PluginLoadingStatus
 import com.aitech.weartak_civ.integration.plugin.PluginUI
+import com.aitech.weartak_civ.data.MoppStatus
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -84,6 +85,29 @@ class PluginMenuEntryTest {
         assertEquals("plugin_main_ui/com.weartak.plugin.mopp", hostedPluginMainUiRoute(
             (entries.single() as PluginMenuEntry.Installed).plugin.pluginId,
         ))
+    }
+
+    @Test
+    fun moppSubtitleUsesCurrentStatusWithoutChangingManifestFallback() {
+        val plugin = pluginUi("com.weartak.plugin.mopp", "MOPP")
+            .copy(menuSubtitle = "Protective posture")
+        assertEquals("Protective posture", plugin.menuLabel(null, "None"))
+        assertEquals(
+            listOf("None", "MOPP0", "MOPP1", "MOPP2", "MOPP3", "MOPP4"),
+            MoppStatus.entries.map { plugin.menuLabel(it, "None") },
+        )
+        assertEquals("Aucun", plugin.menuLabel(MoppStatus.NONE, "Aucun"))
+        assertEquals("Protective posture", plugin.menuLabel)
+    }
+
+    @Test
+    fun subtitleOverrideMatchesExactPackageNotTitleOrPluginId() {
+        val plugin = pluginUi("com.weartak.plugin.mopp", "MOPP")
+            .copy(packageName = "com.weartak.plugin.mopp.other", menuSubtitle = "Other status")
+        assertEquals("Other status", plugin.menuLabel(MoppStatus.LEVEL_2, "None"))
+        assertEquals(null, plugin.copy(pluginId = "com.weartak.plugin.gotenna").menuLabel(MoppStatus.NONE, "None"))
+        assertEquals("MOPP2", plugin.copy(packageName = "com.weartak.plugin.mopp", pluginId = "other-id")
+            .menuLabel(MoppStatus.LEVEL_2, "None"))
     }
 
     private fun installed(id: String, title: String) = PluginMenuEntry.Installed(
