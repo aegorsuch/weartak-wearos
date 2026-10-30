@@ -173,6 +173,32 @@ class ChatCommandProcessorTest {
         assertEquals(7, replies.size)
     }
 
+    @Test fun quotedEnrollmentCredentialsReachRegistrationUnchangedWithoutEcho() = runBlocking {
+        val password = "  fake_\\secret\"!  "
+        val escapedPassword = password.replace("\\", "\\\\").replace("\"", "\\\"")
+        for ((index, prefix) in listOf("#weartakcommandenrollserver", "#WearTAKCommand enrollserver").withIndex()) {
+            processor().handle(request(
+                "$prefix name=Ops url=host.example username=alex.gorsuchait-wt password=\"$escapedPassword\"",
+                id = "quoted-$index"))
+        }
+        assertEquals(2, enrollments.size)
+        assertTrue(enrollments.all {
+            it == listOf("Ops", "host.example", "8089", "alex.gorsuchait-wt", password)
+        })
+        assertTrue(prompts.isEmpty())
+        assertEquals(listOf("Server Ops added", "Server Ops added"), replies)
+        assertFalse((replies + audits).any { it.contains("fake_") })
+    }
+
+    @Test fun unquotedEnrollmentCredentialsPreservePunctuationAndBackslashes() = runBlocking {
+        val password = "fake_\\secret!"
+        processor().handle(request(
+            "#weartakcommandenrollserver name=Ops url=host.example username=alex.gorsuchait-wt password=$password"))
+        assertEquals(listOf(listOf("Ops", "host.example", "8089", "alex.gorsuchait-wt", password)), enrollments)
+        assertTrue(prompts.isEmpty())
+        assertFalse((replies + audits).any { it.contains("fake_") })
+    }
+
     @Test
     fun enrollServerValidatesArguments() = runBlocking {
         val p = processor()

@@ -2591,6 +2591,10 @@ verified watch-UID membership; a room title alone never establishes membership.
 Format: `#weartakcommand<name> key=value key2="value with spaces"` (a space after
 `#weartakcommand` is also accepted). See [chat enrollment](ENROLLSERVER.md) for
 credential syntax, update behavior and plaintext/purge limitations.
+Supply paired `username=` and `password=` arguments to enroll without typing on
+the watch. Quote passwords containing spaces; quoted passwords preserve their
+surrounding spaces. Inside quotes, escape backslashes as `\\` and quotes as `\"`;
+`!` and `_` are literal.
 
 | Command | Arguments | Effect |
 | --- | --- | --- |

@@ -142,9 +142,13 @@ class ChatEnrollmentSaveTest {
 
     @Test fun runtimeStartsRegistrationForAddedAndUpdatedServersButNotRefusedOnes() = runBlocking {
         val registered = mutableListOf<String>()
+        val password = "  fake_\\secret\"!  "
         val first = com.aitech.weartak_civ.service.ChatCommandRuntime.enrollServer(
-            repo, "Ops", "host", 8089, "u", "fake-secret") { id ->
-            assertTrue(repo.awaitTakServerList().single().isEnabled)
+            repo, "Ops", "host", 8089, "alex.gorsuchait-wt", password) { id ->
+            val saved = repo.awaitTakServerList().single()
+            assertTrue(saved.isEnabled)
+            assertEquals("alex.gorsuchait-wt", saved.username)
+            assertEquals(password, saved.password)
             registered += id
         }
         assertEquals("Server Ops added", first.message)
