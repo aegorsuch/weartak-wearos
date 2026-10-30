@@ -2,8 +2,8 @@
 
 ## Host full-lint quality gate
 
-`host_lint_debug` runs full `:app:lintDebug` in normal branch/tag pipelines, including MR source-branch
-pushes, matching the existing publisher-test job's pipeline scope.
+`host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.
+It uses the shared ephemeral Artifactory credential bootstrap, like other Android jobs.
 Lint errors fail the job; warnings remain visible but are not promoted to errors.
 No baseline or check-ID filter is used. Lint reports are
 retained for 14 days, including on failure. The job uses the existing Android

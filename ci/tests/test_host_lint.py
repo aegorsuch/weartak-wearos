@@ -25,10 +25,13 @@ class HostLintTests(unittest.TestCase):
         self.assertNotRegex(build, r"\bbaseline\s*[=(]")
         self.assertNotIn("warningsAsErrors true", build)
 
-    def test_reports_survive_failure_and_existing_pipeline_scope_is_preserved(self):
+    def test_reports_survive_failure_in_merge_request_branch_and_tag_pipelines(self):
         self.assertIn("when: always", self.job)
         self.assertIn("app/build/reports/lint-results-debug.*", self.job)
-        self.assertNotIn("rules:", self.job)
+        self.assertIn("extends: .artifactory_credentials", self.job)
+        self.assertIn('$CI_PIPELINE_SOURCE == "merge_request_event"', self.job)
+        self.assertIn("if: '$CI_COMMIT_BRANCH'", self.job)
+        self.assertIn("if: '$CI_COMMIT_TAG'", self.job)
         self.assertNotIn("only:", self.job)
         self.assertNotIn("except:", self.job)
 

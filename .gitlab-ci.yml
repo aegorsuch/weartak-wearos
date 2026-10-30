@@ -59,6 +59,7 @@ release_publisher_tests:
     - python -m unittest discover -s ci/tests -v
 
 host_lint_debug:
+  extends: .artifactory_credentials
   stage: test
   image:
     name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
@@ -71,6 +72,10 @@ host_lint_debug:
     expire_in: 14 days
     paths:
       - app/build/reports/lint-results-debug.*
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
 
 agp_resolution_diagnostic:
   extends: .artifactory_credentials
