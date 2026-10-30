@@ -12,7 +12,9 @@ class GradleCredentialsTests(unittest.TestCase):
         self.assertIn("project: devsecops/gitlab-ci-common", ci)
         self.assertIn("file: /template/artifactory_token_service.yml", ci)
         self.assertIn("\nbefore_script: []", ci)
-        self.assertIn("extends: .artifactory_service_create_token_bash", ci)
+        self.assertIn("extends: .artifactory_service_create_token_no_depends_bash", ci)
+        self.assertIn("!reference [.artifactory_service_create_token_no_depends_bash, before_script]", ci)
+        self.assertNotIn("extends: .artifactory_service_create_token_bash\n", ci)
         self.assertIn('ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"', ci)
         for job in ("android_mopp_check", "agp_resolution_diagnostic", ".release_build"):
             block = re.search(rf"(?ms)^{re.escape(job)}:\n(.*?)(?=^\S|\Z)", ci).group(1)

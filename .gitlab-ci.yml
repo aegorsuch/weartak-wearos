@@ -16,9 +16,9 @@ stages:
   - publish
 
 .artifactory_credentials:
-  extends: .artifactory_service_create_token_bash
+  extends: .artifactory_service_create_token_no_depends_bash
   before_script:
-    - !reference [.artifactory_service_create_token_bash, before_script]
+    - !reference [.artifactory_service_create_token_no_depends_bash, before_script]
     - export ARTIFACTORY_USER="$GITLAB_USER_EMAIL" ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"
 
 android_mopp_check:

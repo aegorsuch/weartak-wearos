@@ -47,6 +47,9 @@ values. Blank aliases are skipped. Gradle CI jobs now extend
 token exchange. The template's global `before_script` is explicitly cleared;
 only Gradle jobs request a token. Release signing setup preserves the credential
 bootstrap through `!reference` before its existing keystore checks.
+Launcher-image jobs use `.artifactory_service_create_token_no_depends_bash`,
+matching canonical LACE `1772e1bd`: the launcher already contains the required
+tools, so they must not invoke the generic template's apt package installation.
 Robolectric's separate Android runtime resolver receives the same approved
 repository and credentials when both are available; no static credentials
 or token values are committed or printed.
