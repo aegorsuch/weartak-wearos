@@ -1,5 +1,6 @@
 package com.aitech.weartak_civ.presentation
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.text.Editable
 import android.text.InputType
@@ -128,6 +129,8 @@ private fun hideKeyboard(editText: EditText) {
     imm?.hideSoftInputFromWindow(editText.windowToken, 0)
 }
 
+// Pure keyboard-type adapter, not an authentication prompt; password variants must remain masked.
+@SuppressLint("WearPasswordInput")
 internal fun inputTypeFor(keyboardType: KeyboardType): Int = when (keyboardType) {
     KeyboardType.Number -> InputType.TYPE_CLASS_NUMBER
     KeyboardType.Decimal -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
