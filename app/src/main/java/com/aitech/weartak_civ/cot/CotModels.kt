@@ -7,6 +7,7 @@ data class ChatMessage(
     val timeReceived: Long,
     val sourceServerId: String? = null,
     val messageId: String? = null,
+    val messageTime: Long = timeReceived,
 )
 
 data class ChatRoom(

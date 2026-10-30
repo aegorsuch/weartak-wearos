@@ -80,6 +80,11 @@ peak-memory/OOM metrics before choosing further limits or requesting more memory
 
 ## Rolling release behavior
 
+WearOS base version is `5.8.4`, base code `584`. CI retains the existing
+`584 * 10000 + CI_PIPELINE_IID` code and `5.8.4-p<IID>+<sha>` name convention;
+this increases codes above the previous `583` base without changing signing or
+the fixed rolling-release URL.
+
 Successful **protected `main` push pipelines** from
 `git.tak.gov/core/weartak-core/wearos-tak-civ` publish the final production-signed
 `main_release` APK only to the fixed public personal GitHub repository
