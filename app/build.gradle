@@ -221,6 +221,12 @@ android {
     testOptions {
         unitTests.includeAndroidResources = true
         unitTests.all { test ->
+            if (gradle.ext.has('takArtifactoryUrl')) {
+                test.systemProperty 'robolectric.dependency.repo.id', 'takArtifactory'
+                test.systemProperty 'robolectric.dependency.repo.url', gradle.ext.takArtifactoryUrl
+                test.systemProperty 'robolectric.dependency.repo.username', gradle.ext.takArtifactoryUser
+                test.systemProperty 'robolectric.dependency.repo.password', gradle.ext.takArtifactoryPassword
+            }
             // Robolectric writes a download-lock file under user.home; override to a
             // writable build dir so tests work under sandboxed/CI environments where the
             // default home is read-only.

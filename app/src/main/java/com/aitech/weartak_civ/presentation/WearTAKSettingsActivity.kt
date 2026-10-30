@@ -3099,9 +3099,7 @@ fun WearTAKSettingsNav(
         composable("plugins") {
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
             val companionStatus = companionPluginStatus(enableCompanionAppService)
-            val enableMopp by settingsVm.savedEnableMopp.collectAsState()
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
-            val moppStatus by dataRepository.getMoppStatus.collectAsState(initial = null)
             val pluginMenuScope = rememberCoroutineScope()
             val menuEntries = (
                 listOf(
@@ -3113,7 +3111,6 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, stringResource(R.string.ditto)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, stringResource(R.string.everywhere_comms)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, stringResource(R.string.uas_detection)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.MOPP, stringResource(R.string.mopp)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SENSOR_MANAGER, stringResource(R.string.sensor_manager)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, stringResource(R.string.somewear_labs)),
                 ) + pluginList.installedPluginMenuEntries()
@@ -3167,17 +3164,6 @@ fun WearTAKSettingsNav(
                                         checked = enableDataSync,
                                         onCheckedChange = settingsVm::storeEnableDataSync,
                                         onClick = { navController.navigate("data_sync") }
-                                    )
-                                }
-                                BuiltInPlugin.MOPP -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = moppStatus?.let { stringResource(it.label) } ?: "",
-                                        checked = enableMopp,
-                                        onCheckedChange = settingsVm::storeEnableMopp,
-                                        onClick = { navController.navigate("mopp") }
                                     )
                                 }
                                 BuiltInPlugin.COMMANDS -> {
@@ -3429,13 +3415,6 @@ fun WearTAKSettingsNav(
                 pluginVm = pluginVm,
                 navController = navController,
             )
-        }
-        composable("mopp") {
-            val status by dataRepository.getMoppStatus.collectAsState(initial = null)
-            val enabled by settingsVm.savedEnableMopp.collectAsState()
-            status?.let {
-                MoppSettingsPage(it, enabled, navController, dataRepository::storeMoppStatus)
-            }
         }
         composable("data_sync") {
             val serverMissions by dataRepository.takMissions.collectAsState()

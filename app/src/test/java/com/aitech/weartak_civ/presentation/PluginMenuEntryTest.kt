@@ -24,7 +24,7 @@ class PluginMenuEntryTest {
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, "DART"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, "Data Sync"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
-            PluginMenuEntry.BuiltIn(BuiltInPlugin.MOPP, "MOPP"),
+            installed("com.weartak.plugin.mopp", "MOPP"),
         )
 
         assertEquals(
@@ -72,6 +72,18 @@ class PluginMenuEntryTest {
             "plugin_main_ui/org.example.field%2Ftools",
             hostedPluginMainUiRoute("org.example.field/tools"),
         )
+    }
+
+    @Test
+    fun moppExistsOnlyAsInstalledPluginAndUsesNormalPluginRoute() {
+        assertEquals(false, BuiltInPlugin.entries.any { it.name == "MOPP" })
+        assertEquals(emptyList<PluginMenuEntry>(), emptyList<PluginUI>().installedPluginMenuEntries())
+        val entries = listOf(pluginUi("com.weartak.plugin.mopp", "MOPP")).installedPluginMenuEntries()
+        assertEquals(1, entries.size)
+        assertEquals("installed:com.weartak.plugin.mopp", entries.single().key)
+        assertEquals("plugin_main_ui/com.weartak.plugin.mopp", hostedPluginMainUiRoute(
+            (entries.single() as PluginMenuEntry.Installed).plugin.pluginId,
+        ))
     }
 
     private fun installed(id: String, title: String) = PluginMenuEntry.Installed(

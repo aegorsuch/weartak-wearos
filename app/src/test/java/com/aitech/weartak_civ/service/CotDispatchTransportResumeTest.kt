@@ -1,7 +1,10 @@
 package com.aitech.weartak_civ.service
 
 import com.aitech.weartak_civ.cot.CotMessageKind
+import com.aitech.weartak_civ.cot.CotCompanionPayload
+import com.aitech.weartak_civ.cot.CotOutboundMessage
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import com.aitech.weartak_civ.presentation.MainActivity
 import io.mockk.every
 import io.mockk.mockk
@@ -18,6 +21,29 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class CotDispatchTransportResumeTest {
+    @Test
+    fun pliCapturedBeforeMoppLeaseLossIsRejectedBeforeTransportDispatch() = kotlinx.coroutines.runBlocking {
+        val lease = Any()
+        MoppPluginAvailability.acquire(lease)
+        MoppPluginAvailability.activate(lease)
+        try {
+            val generation = MoppPluginAvailability.generation()
+            val snapshot = mockk<DataRepository.PliSnapshot>()
+            every { snapshot.moppGeneration } returns generation
+            val message = CotOutboundMessage("<event/>", CotMessageKind.PLI, CotCompanionPayload.Pli(snapshot))
+            MoppPluginAvailability.release(lease)
+            val method = CotDispatchService::class.java.getDeclaredMethod(
+                "dispatch", CotOutboundMessage::class.java, kotlin.coroutines.Continuation::class.java,
+            ).apply { isAccessible = true }
+            val accepted = kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<Boolean> {
+                method.invoke(CotDispatchService(), message, it)
+            }
+            assertFalse(accepted)
+        } finally {
+            MoppPluginAvailability.release(lease)
+        }
+    }
+
     @Before
     fun setUp() {
         MainActivity.mainActivity = mockk(relaxed = true)

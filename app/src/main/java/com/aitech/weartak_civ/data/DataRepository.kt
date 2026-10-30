@@ -1317,14 +1317,15 @@ class DataRepository(
     private val selfStatusSkinTemperature = MutableStateFlow<PhysioSample<Float>?>(null)
 
     fun selfStatusInputs(): Flow<SelfStatusInputs> = combine(
-        context.dataStore.data, selfStatusHeartRate, selfStatusSkinTemperature, latestIsDeviceWorn
-    ) { prefs, hr, skin, worn ->
+        context.dataStore.data, selfStatusHeartRate, selfStatusSkinTemperature, latestIsDeviceWorn,
+        com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available
+    ) { prefs, hr, skin, worn, moppAvailable ->
         val savedMopp = MoppStatus.entries.firstOrNull { it.key == prefs[MOPP_STATUS] }?.let {
             SavedMoppStatus(it, prefs[MOPP_SAVED_AT])
         }
         SelfStatusInputs(
             SelfStatusPolicy(
-                prefs[ENABLE_MOPP] ?: false, savedMopp,
+                (prefs[ENABLE_MOPP] ?: false) && moppAvailable, savedMopp,
                 prefs[ENABLE_PHYSIOLOGICAL_SERVICES] ?: DEFAULT_ENABLE_PHYSIOLOGICAL_SERVICES,
                 prefs[ENABLE_HEART_RATE_SERVICE] ?: DEFAULT_ENABLE_HEART_RATE_SERVICE,
                 prefs[ENABLE_SKIN_TEMP_SERVICE] ?: DEFAULT_ENABLE_SKIN_TEMPERATURE_SERVICE,
@@ -1339,19 +1340,26 @@ class DataRepository(
     }
 
     val getEnableMopp: Flow<Boolean> = context.dataStore.data.map { it[ENABLE_MOPP] ?: false }
+    internal val moppPpeStore = MoppPpeStore(context.dataStore, available = {
+        com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available.value
+    })
     val getMoppStatus: Flow<MoppStatus> = context.dataStore.data.map {
         MoppStatus.fromKey(it[MOPP_STATUS])
     }
     val getEnableDataSync: Flow<Boolean> = context.dataStore.data.map { it[ENABLE_DATA_SYNC] ?: true }
 
     suspend fun storeEnableMopp(enabled: Boolean) {
-        context.dataStore.edit { it[ENABLE_MOPP] = enabled }
+        context.dataStore.edit {
+            it[ENABLE_MOPP] = enabled
+            MoppPpeStore.recordLegacyWrite(it)
+        }
     }
 
     suspend fun storeMoppStatus(status: MoppStatus) {
         context.dataStore.edit {
             it[MOPP_STATUS] = status.key
             it[MOPP_SAVED_AT] = System.currentTimeMillis()
+            MoppPpeStore.recordLegacyWrite(it)
         }
     }
 
@@ -2092,6 +2100,7 @@ class DataRepository(
         val systemData: SystemSnapshot,
         val remarks: String = "",
         val monitoredPhysio: PhysioData? = null,
+        val moppGeneration: Long? = null,
     )
 
     suspend fun snapshotPliLocation(): LocationSnapshot? =
@@ -2106,6 +2115,7 @@ class DataRepository(
         )
 
         val physio = snapshotPhysio()
+        val moppGeneration = com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.generation()
         val now = System.currentTimeMillis()
         val input = selfStatusInputs().first()
         val selfStatus = selfStatusSnapshot(input, now)
@@ -2116,6 +2126,7 @@ class DataRepository(
             physioData = physio,
             systemData = snapshotSystem(),
             remarks = selfStatus.remarksLine(now),
+            moppGeneration = moppGeneration,
             monitoredPhysio = physio.data.takeIf { policy.monitoring && policy.worn }?.let {
                 it.copy(
                     heartRateBpm = selfStatus.physio?.hr,

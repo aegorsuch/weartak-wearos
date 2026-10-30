@@ -2321,15 +2321,30 @@ no snapshot, stream or historical SRT/KLV ingestion is added by this icon.
 
 ### MOPP and Data Sync plugins
 
-**Plugins > MOPP** uses an original protective-mask icon and a manual **PPE
-Status** selector: **None**, **MOPP 0**, **MOPP 1**, **MOPP 2**, **MOPP 3**,
-**MOPP 4**. None is the unset default, not level 0. MOPP defaults off; enable
-it to edit, choose a candidate, then **Save** locally. Back discards an unsaved
-candidate. Disabling retains the saved status but withdraws its Companion
-contribution. With a capable bonded and connected phone, only the saved
-selection contributes to the phone's outgoing self PLI (see below). Standalone
-watch PLI is unchanged. This does not detect PPE/CBRN, assess
-protection/compliance, set a commanded level or start a filter timer.
+**MOPP** is an installed plugin (`com.weartak.plugin.mopp`), not a built-in
+settings page. Its normal Plugins entry opens the plugin-owned selector:
+**None**, **MOPP 0** through **MOPP 4**. An unsaved selection is null, distinct
+from an explicitly saved None or level 0. Publishing defaults off; while off,
+choices remain disabled. Tapping a level saves immediately through the typed
+host Binder, without a separate Save button.
+
+WearTAK remains authoritative for the existing `mopp_status`, `mopp_saved_at`
+and `enable_mopp` preferences. Atomic revision checks and mutation IDs prevent
+stale writes and duplicate retries from changing saved state or timestamps.
+Missing, disabled, disconnected or incompatible plugins stop MOPP contributions
+to CoT remarks, Ditto and Companion self-status without deleting the saved
+selection, original timestamp or publishing preference. Reporting resumes only
+after a compatible plugin completes initialization/start and an authoritative
+read; reconnecting never creates a new save timestamp. No plugin means no
+editable MOPP entry. This does not detect PPE/CBRN, assess protection/compliance,
+set a commanded level or start a filter timer.
+
+The bundled `weartak-plugin-sdk-release.aar` is derived from canonical SDK
+`https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` at immutable merged
+commit `e2ee52402cf5738e86e43c3f6f1ce1594bd6e5ec` (tree
+`19874cd3b54bb080b037a7392aa1bd15f760daa6`). Release SHA-256:
+`bd69781da7b6efe2aa3da1617953815a55b225b47eb5c2fa6f2c17ae055b4363`.
+This is a source-built dependency, not an independently trusted binary release.
 
 **Data Sync** now has its own icon and split enable/navigation row. The default
 remains on. Off pauses new mission API requests and background polling without
@@ -2576,6 +2591,10 @@ verified watch-UID membership; a room title alone never establishes membership.
 Format: `#weartakcommand<name> key=value key2="value with spaces"` (a space after
 `#weartakcommand` is also accepted). See [chat enrollment](ENROLLSERVER.md) for
 credential syntax, update behavior and plaintext/purge limitations.
+Supply paired `username=` and `password=` arguments to enroll without typing on
+the watch. Quote passwords containing spaces; quoted passwords preserve their
+surrounding spaces. Inside quotes, escape backslashes as `\\` and quotes as `\"`;
+`!` and `_` are literal.
 
 | Command | Arguments | Effect |
 | --- | --- | --- |

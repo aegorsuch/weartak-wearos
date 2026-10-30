@@ -1258,6 +1258,12 @@ class CotDispatchService : Service() {
             Log.w(TAG, "Sensitive enrollment command excluded from outbound CoT")
             return false
         }
+        val pli = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+        if (pli != null && !com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
+                .isCurrent(pli.moppGeneration)) {
+            Log.i(TAG, "Skipping PLI built before a MOPP session change")
+            return false
+        }
         // Routine self PLI waits out the grace window; only active traffic forces direct transports back.
         resumeWatchTransportsForDispatch(message.kind, emergencyNotice = message.emergencyDelivery != null)
         val started = android.os.SystemClock.elapsedRealtime()
