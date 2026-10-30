@@ -20,6 +20,16 @@ watch; supplying only one is rejected. The existing
 syntax remains supported with its original quoted-value escaping. Commands are
 bounded to 768 characters; legacy individual values are bounded to 128 characters.
 
+For key/value arguments, use double quotes around values containing spaces.
+Inside quotes, `\\` represents one literal backslash and `\"` one literal quote;
+`!` and `_` need no escaping. Unquoted backslashes are literal. Quoted passwords
+retain leading and trailing spaces; CSV fields still trim surrounding whitespace.
+For example (synthetic credentials only):
+
+```
+#weartakcommandenrollserver name="TAK Ops" url=tak.example.invalid port=8089 username=operator-wt password="example_\\only!"
+```
+
 A normalized name (trimmed, case-insensitive) **or** normalized address/port match
 updates that server in place, preserving its server ID and enable setting and
 replacing its enrollment credentials. If the name and endpoint identify different
