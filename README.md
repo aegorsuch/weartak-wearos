@@ -981,7 +981,8 @@ companion snapshot when its BLE generation ends, and caps it at 512 users.
 Only live `a-*` PLI with a TAK user identity is accepted; dropped points,
 emergencies, and the watch or phone's own identity are rejected.
 
-This is a single-module Wear OS app (`:app`) with package ID `com.aitech.weartak_civ`.
+The Wear OS app (`:app`) uses package ID `com.aitech.weartak_civ`; the optional
+Host Services SDK is a separate Android library module.
 
 - **Android API levels:** min SDK 34, target SDK 34, compile SDK 35
 - **Java:** JDK 17
@@ -990,6 +991,22 @@ This is a single-module Wear OS app (`:app`) with package ID `com.aitech.weartak
 - **Native libraries:** debug APKs are built for `armeabi-v7a`.
 
 The project includes local binary dependencies for the Samsung Health Sensor API, HAIL SDK, and WearTAK plugin SDK. Keep these files available when building locally.
+
+Optional, backward-compatible plugin map actions and host-mediated TAK mTLS REST
+are provided by the source-built [Host Services SDK 1.0.0](weartak-plugin-host-services-sdk/README.md).
+Its versioned Binder extension is discovered through existing plugin initialization
+extras; lifecycle APIs 1-3 and plugin admission permissions remain unchanged.
+
+Plugin unload revokes host controls/callbacks and publishes local unloaded state
+without waiting for remote lifecycle cleanup. Initialization and best-effort cleanup
+run off the UI thread, with four process-wide worker slots, no work queue, and no
+overlapping lifecycle generations per package. A stuck Binder call retains its
+slot until it actually returns; a timeout never creates replacement blocked threads.
+Binding and initialization each time out locally after 10 seconds. A package awaiting old
+cleanup cannot rebind until that work returns; automatic retry remains bounded.
+Plugin toggles persist the user's enabled/disabled choice across discovery refresh,
+recovery and host restart. `BINDING` is distinct from initialized `LOADED`; an on
+toggle indicates the requested enabled state, not a completed handshake.
 
 ## Getting started
 

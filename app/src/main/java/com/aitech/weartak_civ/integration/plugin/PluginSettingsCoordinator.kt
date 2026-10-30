@@ -68,12 +68,12 @@ class PluginSettingsCoordinator(
         ))
     )
 
-    fun registerPlugin(pluginId: String, plugin: IWearTakPlugin) {
+    fun registerPlugin(pluginId: String, plugin: IWearTakPlugin) = synchronized(pluginRefs) {
         pluginRefs[pluginId] = plugin
         updateOutboundCotAvailability()
     }
 
-    fun unregisterPlugin(pluginId: String) {
+    fun unregisterPlugin(pluginId: String) = synchronized(pluginRefs) {
         pluginRefs.remove(pluginId)
         cache.remove(pluginId)
         mainUiChangeRevisionsState.update { it - pluginId }
@@ -86,10 +86,12 @@ class PluginSettingsCoordinator(
         }
     }
 
+    internal fun connectionToken(pluginId: String): IWearTakPlugin? = pluginRefs[pluginId]
+
     internal fun supportsHostedMainUi(pluginId: String): Boolean {
         val plugin = pluginRefs[pluginId] ?: return false
         return try {
-            plugin.capabilities.hostedMainUi
+            plugin.capabilities.hostedMainUi && pluginRefs[pluginId] === plugin
         } catch (e: RemoteException) {
             Log.w(TAG, "main UI capability query failed for $pluginId", e)
             false
@@ -100,7 +102,9 @@ class PluginSettingsCoordinator(
         val plugin = pluginRefs[pluginId] ?: return HostedPluginMainUiResult.NotConnected
         return try {
             if (!plugin.capabilities.hostedMainUi) return HostedPluginMainUiResult.Unsupported
-            HostedPluginMainUiResult.Ready(HostedPluginMainUiContract.parse(plugin.mainUiSchema))
+            val cards = HostedPluginMainUiContract.parse(plugin.mainUiSchema)
+            if (pluginRefs[pluginId] === plugin) HostedPluginMainUiResult.Ready(cards)
+            else HostedPluginMainUiResult.NotConnected
         } catch (e: RemoteException) {
             Log.w(TAG, "main UI query failed for $pluginId", e)
             HostedPluginMainUiResult.Failed("Unable to load plugin page")
@@ -118,7 +122,9 @@ class PluginSettingsCoordinator(
             val action = cards.firstOrNull { it.cardId == cardId }?.action
                 ?: return HostedPluginMainUiResult.Failed("Plugin action is unavailable")
             if (!action.enabled) return HostedPluginMainUiResult.Failed("Plugin action is disabled")
+            if (pluginRefs[pluginId] !== plugin) return HostedPluginMainUiResult.NotConnected
             plugin.invokeMainUiAction(action.actionId, action.args)
+            if (pluginRefs[pluginId] !== plugin) return HostedPluginMainUiResult.NotConnected
         } catch (e: RemoteException) {
             Log.w(TAG, "main UI action failed for $pluginId", e)
             return HostedPluginMainUiResult.Failed("Plugin action failed")
@@ -160,6 +166,7 @@ class PluginSettingsCoordinator(
 
         scope.launch {
             for ((pluginId, plugin) in targets) {
+                if (pluginRefs[pluginId] !== plugin) continue
                 if (fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT &&
                     (pluginRefs[pluginId] !== plugin ||
                         cache[pluginId]?.schema?.fields?.none {
@@ -176,6 +183,7 @@ class PluginSettingsCoordinator(
     fun invokeActionOnPlugin(pluginId: String, actionId: String, args: Bundle) {
         val plugin = pluginRefs[pluginId] ?: return
         scope.launch {
+            if (pluginRefs[pluginId] !== plugin) return@launch
             runCatching { plugin.invokeMainUiAction(actionId, args) }
                 .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
         }
@@ -227,6 +235,7 @@ class PluginSettingsCoordinator(
         return accepted
     }
 
+    @Synchronized
     fun startHostSettingsWatcher() {
         if (hostWatcherStarted) return
         hostWatcherStarted = true
@@ -257,14 +266,16 @@ class PluginSettingsCoordinator(
     /**
      * Bind-time initialization: capabilities, schema/values, host snapshot push.
      */
-    fun onPluginConnected(pluginId: String, plugin: IWearTakPlugin) {
-        registerPlugin(pluginId, plugin)
+    fun onPluginConnected(pluginId: String, plugin: IWearTakPlugin, isCurrent: () -> Boolean = { true }) {
+        synchronized(pluginRefs) {
+            if (!isCurrent()) return
+            registerPlugin(pluginId, plugin)
+        }
         startHostSettingsWatcher()
         runBlocking {
-            syncMutex.withLock {
-                refreshFromPluginLocked(pluginId, plugin)
-                pushHostSettingsToPluginLocked(pluginId, plugin)
-            }
+            // A frozen plugin's handshake must not hold the shared settings sync mutex.
+            refreshFromPluginLocked(pluginId, plugin)
+            pushHostSettingsToPluginLocked(pluginId, plugin)
         }
     }
 
@@ -348,9 +359,14 @@ class PluginSettingsCoordinator(
             applyMode = applyMode,
         )
         if (!local.success) {
-            updateCache(pluginId, state.copy(lastApplyResult = local, lastValidationErrors = local.errors))
-            PluginDiagnostics.recordSettingsApply(pluginId, local)
-            return local
+            return synchronized(pluginRefs) {
+                if (pluginRefs[pluginId] !== plugin || cache[pluginId] !== state) {
+                    return@synchronized connectivityRejected("Plugin settings changed")
+                }
+                updateCache(pluginId, state.copy(lastApplyResult = local, lastValidationErrors = local.errors))
+                PluginDiagnostics.recordSettingsApply(pluginId, local)
+                local
+            }
         }
         if (pluginRefs[pluginId] !== plugin || cache[pluginId] !== state) {
             return connectivityRejected("Plugin settings changed")
@@ -360,27 +376,30 @@ class PluginSettingsCoordinator(
             return connectivityRejected("Network settings are locked")
         }
         val remote = invokePluginApply(plugin, incoming, applyMode)
-        if (pluginRefs[pluginId] !== plugin || cache[pluginId] !== state) {
-            return connectivityRejected("Plugin connection changed")
+        return synchronized(pluginRefs) {
+            if (pluginRefs[pluginId] !== plugin || cache[pluginId] !== state) {
+                return@synchronized connectivityRejected("Plugin connection changed")
+            }
+            if (remote.success) {
+                updateCache(
+                    pluginId,
+                    state.copy(
+                        values = Bundle(remote.values),
+                        lastApplyResult = remote,
+                        lastValidationErrors = emptyList(),
+                        lastSyncedAtMillis = System.currentTimeMillis(),
+                    ),
+                )
+            } else {
+                updateCache(pluginId, state.copy(lastApplyResult = remote, lastValidationErrors = remote.errors))
+            }
+            PluginDiagnostics.recordSettingsApply(pluginId, remote)
+            remote
         }
-        if (remote.success) {
-            updateCache(
-                pluginId,
-                state.copy(
-                    values = Bundle(remote.values),
-                    lastApplyResult = remote,
-                    lastValidationErrors = emptyList(),
-                    lastSyncedAtMillis = System.currentTimeMillis(),
-                ),
-            )
-        } else {
-            updateCache(pluginId, state.copy(lastApplyResult = remote, lastValidationErrors = remote.errors))
-        }
-        PluginDiagnostics.recordSettingsApply(pluginId, remote)
-        return remote
     }
 
     private suspend fun refreshFromPluginLocked(pluginId: String, plugin: IWearTakPlugin) {
+        if (pluginRefs[pluginId] !== plugin) return
         val caps = runCatching { plugin.capabilities }.getOrDefault(PluginCapabilitiesParcel())
         val settingsSupported = caps.hostedSettingsUi || caps.externalSettingsActivity
         var schema = SettingsSchemaParcel()
@@ -404,8 +423,10 @@ class PluginSettingsCoordinator(
         }
         val prior = cache[pluginId]
         val host = prior?.hostSettings ?: snapshotBuilder.build()
-        updateCache(
+        if (pluginRefs[pluginId] !== plugin) return
+        updateConnectionCache(
             pluginId,
+            plugin,
             PluginSettingsState(
                 pluginId = pluginId,
                 capabilities = caps,
@@ -427,11 +448,14 @@ class PluginSettingsCoordinator(
     }
 
     private suspend fun refreshValuesFromPluginLocked(pluginId: String, plugin: IWearTakPlugin) {
+        if (pluginRefs[pluginId] !== plugin) return
         val prior = cache[pluginId] ?: return
         if (!prior.settingsSupported) return
         val values = runCatching { plugin.settingsValues }.getOrDefault(Bundle())
-        updateCache(
+        if (pluginRefs[pluginId] !== plugin) return
+        updateConnectionCache(
             pluginId,
+            plugin,
             prior.copy(
                 values = values,
                 lastSyncedAtMillis = System.currentTimeMillis(),
@@ -450,10 +474,12 @@ class PluginSettingsCoordinator(
         plugin: IWearTakPlugin,
         snapshot: com.weartak.plugin.sdk.model.HostSettingsParcel,
     ) {
+        if (pluginRefs[pluginId] !== plugin) return
         val prior = cache[pluginId]
         if (prior != null) {
-            updateCache(
+            updateConnectionCache(
                 pluginId,
+                plugin,
                 prior.copy(
                     hostSettings = snapshot,
                     hostSettingsRevision = snapshot.revision,
@@ -462,6 +488,7 @@ class PluginSettingsCoordinator(
         }
         runCatching { plugin.onHostSettingsChanged(snapshot) }
             .onFailure { Log.d(TAG, "onHostSettingsChanged not available pluginId=$pluginId", it) }
+        if (pluginRefs[pluginId] !== plugin) return
         PluginDiagnostics.recordHostSettingsPush(pluginId, snapshot)
         if (prior?.settingsSupported == true && prior.schema.fields.any { it.hostSettingKey != null }) {
             val recompute = SettingsApplyValidator.applySettingsWithResult(
@@ -473,8 +500,10 @@ class PluginSettingsCoordinator(
             )
             if (recompute.success && recompute.anyValueChanged) {
                 invokePluginApply(plugin, Bundle(), SettingsApplyMode.HOST_DRIVEN_RECOMPUTE)
-                updateCache(
+                if (pluginRefs[pluginId] !== plugin) return
+                updateConnectionCache(
                     pluginId,
+                    plugin,
                     prior.copy(
                         values = Bundle(recompute.values),
                         hostSettings = snapshot,
@@ -522,6 +551,11 @@ class PluginSettingsCoordinator(
         cache[pluginId] = state
         updateOutboundCotAvailability()
     }
+
+    private fun updateConnectionCache(pluginId: String, plugin: IWearTakPlugin, state: PluginSettingsState) =
+        synchronized(pluginRefs) {
+            if (pluginRefs[pluginId] === plugin) updateCache(pluginId, state)
+        }
 
     private fun updateOutboundCotAvailability() = synchronized(outboundCotReadyRoutesState) {
         connectivityTogglesState.value = cache.entries.mapNotNull { (id, state) ->

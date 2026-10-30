@@ -89,6 +89,7 @@ class PluginConnectionBindTrustTest {
         } throws ParserException(ReasonCodes.PLUGIN_CERT_CHANGED, "cert pin failed")
         val mgr = PluginManager(app, ingress, trust)
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
         val c = PluginDiagnostics.snapshot().categoryCounts
         assertTrue((c[PluginDiagnostics.AdmissionCategory.TRUST_FAILURE] ?: 0) >= 1)
@@ -105,6 +106,7 @@ class PluginConnectionBindTrustTest {
         val trust = mockk<PluginTrust>(relaxed = true)
         val mgr = PluginManager(app, ingress, trust)
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
         val c = PluginDiagnostics.snapshot().categoryCounts
         assertTrue((c[PluginDiagnostics.AdmissionCategory.UID_PACKAGE_MISMATCH] ?: 0) >= 1)
@@ -121,6 +123,7 @@ class PluginConnectionBindTrustTest {
         val trust = mockk<PluginTrust>(relaxed = true)
         val mgr = PluginManager(app, ingress, trust)
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
         val c = PluginDiagnostics.snapshot().categoryCounts
         assertTrue((c[PluginDiagnostics.AdmissionCategory.BINDER_PROTOCOL] ?: 0) >= 1)
@@ -139,11 +142,15 @@ class PluginConnectionBindTrustTest {
         val trust = mockk<PluginTrust>(relaxed = true)
         val mgr = PluginManager(app, ingress, trust)
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         assertTrue(mgr.hasConnectionForTest(pluginPkg))
         assertEquals(1, plugin.initializePluginV2Calls)
         assertEquals(0, plugin.initializePluginCalls)
         assertTrue(plugin.lastInit!!.hostExtras.getBoolean(HostControlImpl.HOST_EXTRA_COT_ROUTING_V1))
         assertTrue(plugin.lastInit!!.hostExtras.getBoolean(HostControlImpl.HOST_EXTRA_CHAT_DISPATCH_V1))
+        org.junit.Assert.assertNotNull(
+            com.weartak.plugin.sdk.host.v1.HostServicesContract.fromHostExtras(plugin.lastInit!!.hostExtras)
+        )
     }
 
     @Test
@@ -162,6 +169,7 @@ class PluginConnectionBindTrustTest {
         val mgr = PluginManager(app, ingress, trust)
 
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
 
         assertTrue(mgr.hasConnectionForTest(pluginPkg))
         assertEquals(1, plugin.initializePluginV3Calls)
@@ -181,7 +189,9 @@ class PluginConnectionBindTrustTest {
         val trust = mockk<PluginTrust>(relaxed = true)
         val mgr = PluginManager(app, ingress, trust)
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         mgr.unbindPackage(pluginPkg)
+        awaitPluginLifecycle(pluginPkg)
         assertTrue(plugin.lifecycleCalls.indexOf("stopPlugin") >= 0)
         assertTrue(plugin.lifecycleCalls.indexOf("shutdownPlugin") >= 0)
         assertTrue(plugin.lifecycleCalls.indexOf("stopPlugin") < plugin.lifecycleCalls.indexOf("shutdownPlugin"))

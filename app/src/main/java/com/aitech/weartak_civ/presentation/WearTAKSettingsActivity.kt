@@ -3278,7 +3278,7 @@ fun WearTAKSettingsNav(
                                                     contentDescription = item.desc
                                                 }
                                             },
-                                            checked = item.isLoaded,
+                                            checked = item.isEnabled,
                                             onCheckedChange = {
                                                 when (it) {
                                                     true -> pluginVm.loadPlugin(item.pluginId)

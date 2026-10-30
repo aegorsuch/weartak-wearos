@@ -39,6 +39,11 @@ android_mopp_check:
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
       --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
       --tests '*CotDispatchTransportResumeTest'
+      --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
+      --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
+      --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
+      --tests '*PluginSettingsCoordinatorTest'
+      :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:
     when: always
     expire_in: 14 days
@@ -46,6 +51,8 @@ android_mopp_check:
       junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
     paths:
       - app/build/reports/tests/
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/reports/lint-results-release.*
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
@@ -190,6 +197,7 @@ agp_resolution_diagnostic:
 
     # Bind publication to the exact APK whose production signature was checked.
     - sha256sum "$APK" > app/build/outputs/apk/release/verified-apk.sha256
+    - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
 
 # ---------------------------------------------------------------------------
 # Main build
@@ -208,6 +216,8 @@ main_release:
       - app/build/outputs/apk/release/*.apk
       - app/build/outputs/apk/release/verified-apk.sha256
       - app/build/outputs/apk/release/output-metadata.json
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
 
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'

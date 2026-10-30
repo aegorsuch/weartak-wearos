@@ -26,9 +26,11 @@ class HostControlV2Impl(
     private val ingress: PluginIngressPort,
     private val pluginPackage: String,
     private val expectedPluginUid: Int,
+    private val isActive: () -> Boolean = { true },
 ) : IWearTakPluginHostControlV2.Stub() {
 
     private fun verifyCaller(): Boolean {
+        if (!isActive()) return false
         val uid = Binder.getCallingUid()
         if (uid != expectedPluginUid) {
             Log.w(TAG, "v2 control call uid mismatch: expected=$expectedPluginUid got=$uid pkg=$pluginPackage")

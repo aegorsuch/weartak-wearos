@@ -105,6 +105,7 @@ class PluginManagerLifecycleMockTest {
         stubIngressSenderPackages(ingress, setOf(pluginPkg))
         val mgr = PluginManager(app, ingress, noopPluginTrust())
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         mgr.refreshBindings()
         assertTrue(mgr.hasConnectionForTest(pluginPkg))
         assertEquals(1, mgr.activeConnectionCountForTest())
@@ -125,6 +126,7 @@ class PluginManagerLifecycleMockTest {
         stubIngressSenderPackages(ingress, setOf(pluginPkg))
         val mgr = PluginManager(app, ingress, noopPluginTrust())
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         assertTrue(mgr.hasConnectionForTest(pluginPkg))
         mgr.unbindPackage(pluginPkg)
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
@@ -144,6 +146,7 @@ class PluginManagerLifecycleMockTest {
         stubIngressSenderPackages(ingress, setOf(pluginPkg))
         val mgr = PluginManager(app, ingress, noopPluginTrust())
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         assertTrue(mgr.hasConnectionForTest(pluginPkg))
         sc.onServiceDisconnected(ComponentName(pluginPkg, ".FakeSvc"))
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
@@ -169,6 +172,7 @@ class PluginManagerLifecycleMockTest {
             stubIngressSenderPackages(ingress, setOf(pluginPkg))
             val mgr = PluginManager(app, ingress, noopPluginTrust())
             mgr.refreshBindings()
+            awaitPluginLifecycle(pluginPkg)
             val old = captured.single() as PluginConnection
             when (event) {
                 "disconnect" -> old.onServiceDisconnected(null)
@@ -178,14 +182,17 @@ class PluginManagerLifecycleMockTest {
             // Android can report both service disconnect and binder death for one loss.
             old.triggerBinderDeathSyncForTest()
             assertFalse(mgr.hasConnectionForTest(pluginPkg))
+            awaitPluginLifecycle(pluginPkg)
             verify(exactly = 1) { app.unbindService(old) }
             ShadowLooper.shadowMainLooper().idleFor(Duration.ofSeconds(1))
+            awaitPluginLifecycle(pluginPkg)
             assertTrue(mgr.hasConnectionForTest(pluginPkg))
             assertEquals(2, captured.size)
             // Late callbacks from the old binder cannot evict its replacement.
             old.onServiceDisconnected(null)
             assertTrue(mgr.hasConnectionForTest(pluginPkg))
             mgr.shutdownAll()
+            awaitPluginLifecycle(pluginPkg)
         }
     }
 
@@ -199,6 +206,7 @@ class PluginManagerLifecycleMockTest {
             stubIngressSenderPackages(ingress, setOf(pluginPkg))
             val mgr = PluginManager(app, ingress, noopPluginTrust())
             mgr.refreshBindings()
+            awaitPluginLifecycle(pluginPkg)
             mgr.connectionForTest(pluginPkg)!!.onBindingDied(null)
             if (shutdown) mgr.shutdownAll() else mgr.unbindPackage(pluginPkg)
             ShadowLooper.shadowMainLooper().idleFor(Duration.ofMinutes(1))
@@ -216,8 +224,10 @@ class PluginManagerLifecycleMockTest {
         stubIngressSenderPackages(ingress, setOf(pluginPkg))
         val mgr = PluginManager(app, ingress, noopPluginTrust())
         mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
         every { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) } returns false
         mgr.connectionForTest(pluginPkg)!!.onBindingDied(null)
+        awaitPluginLifecycle(pluginPkg)
         for (seconds in listOf(1L, 2L, 4L, 8L, 16L)) {
             ShadowLooper.shadowMainLooper().idleFor(Duration.ofSeconds(seconds))
         }
@@ -268,8 +278,12 @@ class PluginManagerLifecycleMockTest {
         stubIngressSenderPackages(ingress, setOf("com.plugin.one", "com.plugin.two"))
         val mgr = PluginManager(app, ingress, noopPluginTrust())
         mgr.refreshBindings()
+        awaitPluginLifecycle("com.plugin.one")
+        awaitPluginLifecycle("com.plugin.two")
         assertEquals(2, mgr.activeConnectionCountForTest())
         mgr.shutdownAll()
+        awaitPluginLifecycle("com.plugin.one")
+        awaitPluginLifecycle("com.plugin.two")
         assertEquals(0, mgr.activeConnectionCountForTest())
         verify(atLeast = 2) { app.unbindService(any<ServiceConnection>()) }
     }
