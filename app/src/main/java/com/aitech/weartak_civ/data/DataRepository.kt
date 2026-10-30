@@ -1325,7 +1325,7 @@ class DataRepository(
         }
         SelfStatusInputs(
             SelfStatusPolicy(
-                (prefs[ENABLE_MOPP] ?: false) && moppAvailable, savedMopp,
+                moppAvailable, savedMopp,
                 prefs[ENABLE_PHYSIOLOGICAL_SERVICES] ?: DEFAULT_ENABLE_PHYSIOLOGICAL_SERVICES,
                 prefs[ENABLE_HEART_RATE_SERVICE] ?: DEFAULT_ENABLE_HEART_RATE_SERVICE,
                 prefs[ENABLE_SKIN_TEMP_SERVICE] ?: DEFAULT_ENABLE_SKIN_TEMPERATURE_SERVICE,
@@ -1339,7 +1339,7 @@ class DataRepository(
         prefs[ENABLE_CRM_SERVICE] ?: DEFAULT_ENABLE_CRM_SERVICE
     }
 
-    val getEnableMopp: Flow<Boolean> = context.dataStore.data.map { it[ENABLE_MOPP] ?: false }
+    val getEnableMopp: Flow<Boolean> = context.dataStore.data.map { true }
     internal val moppPpeStore = MoppPpeStore(context.dataStore, available = {
         com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available.value
     })
@@ -1348,9 +1348,11 @@ class DataRepository(
     }
     val getEnableDataSync: Flow<Boolean> = context.dataStore.data.map { it[ENABLE_DATA_SYNC] ?: true }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun storeEnableMopp(enabled: Boolean) {
         context.dataStore.edit {
-            it[ENABLE_MOPP] = enabled
+            // Retain the legacy write contract without allowing publishing to be disabled.
+            it[ENABLE_MOPP] = true
             MoppPpeStore.recordLegacyWrite(it)
         }
     }

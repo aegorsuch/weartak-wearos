@@ -3,6 +3,8 @@ package com.aitech.weartak_civ.presentation
 import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import com.aitech.weartak_civ.R
+import com.aitech.weartak_civ.data.MoppStatus
+import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 
 internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
@@ -65,6 +67,13 @@ internal fun List<PluginMenuEntry>.alphabetizedPluginEntries(): List<PluginMenuE
 
 internal fun List<PluginUI>.installedPluginMenuEntries(): List<PluginMenuEntry> =
     map { PluginMenuEntry.Installed(it) }
+
+internal fun PluginUI.menuLabel(moppStatus: MoppStatus?, noneLabel: String): String? =
+    if (packageName == MoppPluginAvailability.PACKAGE && moppStatus != null) {
+        if (moppStatus == MoppStatus.NONE) noneLabel else "MOPP${moppStatus.key}"
+    } else {
+        menuLabel
+    }
 
 internal const val HOSTED_PLUGIN_MAIN_UI_ROUTE_PATTERN = "plugin_main_ui/{pluginId}"
 

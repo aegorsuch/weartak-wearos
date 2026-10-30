@@ -3098,6 +3098,7 @@ fun WearTAKSettingsNav(
 
         composable("plugins") {
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
+            val moppStatus by dataRepository.getMoppStatus.collectAsStateWithLifecycle(initialValue = null)
             val companionStatus = companionPluginStatus(enableCompanionAppService)
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
             val pluginMenuScope = rememberCoroutineScope()
@@ -3246,6 +3247,7 @@ fun WearTAKSettingsNav(
                             }
                             is PluginMenuEntry.Installed -> {
                                 val item = entry.plugin
+                                val menuLabel = item.menuLabel(moppStatus, stringResource(R.string.mopp_none))
                                 WearTAKSwipeToRevealChip(
                                     onPrimaryActionClick = {
                                         pluginitem.value = item
@@ -3272,9 +3274,9 @@ fun WearTAKSettingsNav(
                                                 }
                                             },
                                             title = item.title,
-                                            label = item.menuLabel,
+                                            label = menuLabel,
                                             modifier = Modifier.semantics {
-                                                if (item.menuLabel == null && item.desc.isNotBlank()) {
+                                                if (menuLabel == null && item.desc.isNotBlank()) {
                                                     contentDescription = item.desc
                                                 }
                                             },

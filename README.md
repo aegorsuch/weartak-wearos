@@ -659,8 +659,8 @@ Standalone TAK/multicast PLI and Ditto track `r` XML use the same remarks line a
 Companion `WatchSelfStatus.Contribution.remarksLine` (canonical Companion develop
 `58fe25f1ef1e8241c02f7a37c43fc962800b0eac`). For example:
 `MOPP0; HR: 79 bpm @ 03:17:19Z; Skin: 91.1F @ 03:17:18Z; Exert: 16% @ 03:17:19Z`.
-MOPP comes from the same enabled saved state as `self_status.ppe.level`; `None`
-and unset/disabled MOPP contribute no token. Physio uses the same monitoring,
+MOPP comes from the same live-plugin saved state as `self_status.ppe.level`; `None`
+and unset/unavailable MOPP contribute no token. Physio uses the same monitoring,
 on-wrist, sensor opt-in, plausibility and actual-sample freshness policy as
 Companion self status. Unavailable metrics are omitted, not replaced with `N/A`;
 an empty contribution produces empty remarks. Skin uses one US-locale decimal,
@@ -2341,16 +2341,22 @@ no snapshot, stream or historical SRT/KLV ingestion is added by this icon.
 **MOPP** is an installed plugin (`com.weartak.plugin.mopp`), not a built-in
 settings page. Its normal Plugins entry opens the plugin-owned selector:
 **None**, **MOPP 0** through **MOPP 4**. An unsaved selection is null, distinct
-from an explicitly saved None or level 0. Publishing defaults off; while off,
-choices remain disabled. Tapping a level saves immediately through the typed
+from an explicitly saved None or level 0. The installed row shows the authoritative
+saved status as **None** or compact **MOPP0** through **MOPP4**, collected
+lifecycle-aware without writes; the manifest subtitle remains the loading fallback.
+Publishing is always on. Tapping a level saves immediately through the typed
 host Binder, without a separate Save button.
 
 WearTAK remains authoritative for the existing `mopp_status`, `mopp_saved_at`
-and `enable_mopp` preferences. Atomic revision checks and mutation IDs prevent
+preferences. The legacy `enable_mopp` flag cannot disable effective publishing:
+typed state always reports enabled, saves work even with a persisted false flag,
+and legacy toggle writes retain revision/retry semantics but normalize it to true.
+Reads require no migration writes and never invent a selection or timestamp.
+Atomic revision checks and mutation IDs prevent
 stale writes and duplicate retries from changing saved state or timestamps.
 Missing, disabled, disconnected or incompatible plugins stop MOPP contributions
 to CoT remarks, Ditto and Companion self-status without deleting the saved
-selection, original timestamp or publishing preference. Reporting resumes only
+selection or original timestamp. Reporting resumes only
 after a compatible plugin completes initialization/start and an authoritative
 read; reconnecting never creates a new save timestamp. No plugin means no
 editable MOPP entry. This does not detect PPE/CBRN, assess protection/compliance,
@@ -2414,7 +2420,7 @@ Every notification is a full snapshot, for example:
 - `session` is a new UUID per connection generation; repeated capability
   messages retain it. `seq` starts at zero and increases on successful queue
   admission. Old-generation queued frames cannot reach a replacement connection.
-- `ppe` is null for an unsaved status or disabled MOPP plugin. Saved levels are
+- `ppe` is null for an unsaved status or unavailable MOPP plugin. Saved levels are
   exactly `None`, `MOPP 0` through `MOPP 4`; candidates never enter the sender.
   The required `savedAt` key is ISO-8601 UTC for a new Save, or null for an
   existing saved choice with unknown save time. None remains distinct from level 0.
