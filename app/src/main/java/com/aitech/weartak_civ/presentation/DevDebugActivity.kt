@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -307,7 +308,6 @@ internal fun DebugInformationPage(
     networkChecklistEnabled: Boolean = false,
     onNetworkChecklistEnabledChange: (Boolean) -> Unit = {}
 ) {
-    val context = LocalContext.current
     val entries = sortedDeveloperEntries(listOf(
         DeveloperEntry(DeveloperEntryId.BUILD, stringResource(R.string.debug_build), debugInfo.buildType),
         DeveloperEntry(DeveloperEntryId.DIAGNOSTICS, stringResource(R.string.app_diagnostics)),
@@ -325,7 +325,7 @@ internal fun DebugInformationPage(
         DeveloperEntry(DeveloperEntryId.TRANSPORT, stringResource(R.string.debug_transport), debugInfo.transport),
         DeveloperEntry(DeveloperEntryId.VERSION, stringResource(R.string.debug_version), debugInfo.versionName),
         DeveloperEntry(DeveloperEntryId.VERSION_CODE, stringResource(R.string.debug_version_code), debugInfo.versionCode.toString())
-    ), context.resources.configuration.locales[0])
+    ), LocalConfiguration.current.locales[0])
 
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -386,7 +386,10 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val failed by diagnostics.storageFailed.collectAsState()
-    var status by remember { mutableStateOf("") }
+    var statusResource by remember { mutableStateOf<Int?>(null) }
+    val status = statusResource?.let { stringResource(it) }.orEmpty()
+    val failedMessage = stringResource(R.string.app_diagnostics_failed)
+    val noPickerMessage = stringResource(R.string.app_diagnostics_no_picker)
     var busy by remember { mutableStateOf(false) }
     fun action(success: Int, exclusive: Boolean = true, block: suspend () -> Unit) {
         if (exclusive && busy) return
@@ -394,13 +397,13 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { block() }
-                status = context.getString(success)
+                statusResource = success
             } catch (error: IOException) {
-                status = context.getString(R.string.app_diagnostics_failed)
-                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                statusResource = R.string.app_diagnostics_failed
+                Toast.makeText(context, failedMessage, Toast.LENGTH_LONG).show()
             } catch (error: SecurityException) {
-                status = context.getString(R.string.app_diagnostics_failed)
-                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                statusResource = R.string.app_diagnostics_failed
+                Toast.makeText(context, failedMessage, Toast.LENGTH_LONG).show()
             } finally {
                 if (exclusive) busy = false
             }
@@ -433,11 +436,11 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
                 try {
                     export.launch("wear-tak-diagnostics.json")
                 } catch (error: android.content.ActivityNotFoundException) {
-                    status = context.getString(R.string.app_diagnostics_no_picker)
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                    statusResource = R.string.app_diagnostics_no_picker
+                    Toast.makeText(context, noPickerMessage, Toast.LENGTH_LONG).show()
                 } catch (error: SecurityException) {
-                    status = context.getString(R.string.app_diagnostics_failed)
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                    statusResource = R.string.app_diagnostics_failed
+                    Toast.makeText(context, failedMessage, Toast.LENGTH_LONG).show()
                 }
             }, enabled = !busy, modifier = Modifier.size(width = 148.dp, height = 48.dp)) {
                 Text(stringResource(R.string.app_diagnostics_export), textAlign = TextAlign.Center, fontSize = 11.sp)

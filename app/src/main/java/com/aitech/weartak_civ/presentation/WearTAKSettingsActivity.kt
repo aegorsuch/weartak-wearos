@@ -92,6 +92,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -1526,7 +1527,7 @@ fun WearTAKSettingsNav(
                     if (toggle.enabled) enabledLabel else disabledLabel, toggle.enabled,
                     { pluginVm.setConnectivityEnabled(plugin.packageName, toggle, it) },
                     pluginIcon = plugin.icon)
-            }).alphabetizedConnections(context.resources.configuration.locales[0])
+            }).alphabetizedConnections(LocalConfiguration.current.locales[0])
             WearTAKPageWithBackArrow(
                 "Network Preferences",
                 columnContent = {

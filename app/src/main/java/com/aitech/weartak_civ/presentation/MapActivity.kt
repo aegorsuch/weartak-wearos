@@ -2985,9 +2985,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             val orientation = com.aitech.weartak_civ.provider.LocationVectorCalculator
                 .needleAngle(vector?.bearing, heading) ?: vector?.bearing ?: 0.0
             RoutePointsDetailsView(
-                pointName = point.title.ifBlank {
-                    context.getString(R.string.route_point_number, point.pointIndex + 1)
-                },
+                pointName = point.title.takeIf { it.isNotBlank() }
+                    ?: stringResource(R.string.route_point_number, point.pointIndex + 1),
                 latitude = point.latitude,
                 longitude = point.longitude,
                 sender = point.droppedBy,
