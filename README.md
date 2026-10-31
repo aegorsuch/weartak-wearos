@@ -1159,6 +1159,15 @@ Plugin toggles persist the user's enabled/disabled choice across discovery refre
 recovery and host restart. `BINDING` is distinct from initialized `LOADED`; an on
 toggle indicates the requested enabled state, not a completed handshake.
 
+Initial plugin bindings use only `BIND_AUTO_CREATE`. After the existing UID/package,
+certificate-pinning and protocol checks pass and initialization completes, the host
+binds the same service connection again with `BIND_ALLOW_ACTIVITY_STARTS`. This lets
+verified plugins open their own screens while WearTAK is visible; pending or rejected
+handshakes never receive that flag. Android removes both binding records when the
+connection is unbound, including on unload, disconnect or shutdown. Every replacement
+connection starts unprivileged and must pass admission again. Certificate trust uses
+the existing first-handshake pinning policy, not a new signer allowlist.
+
 ## Getting started
 
 1. Install Android Studio and an Android SDK that includes API 35, build-tools 35.0.0, and the Android NDK 27.0.12077973.

@@ -17,7 +17,8 @@ import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Discovers plugin services, binds with [Context.BIND_AUTO_CREATE], and coordinates
- * [PluginConnection] teardown on death or explicit eviction.
+ * [PluginConnection] teardown on death or explicit eviction. Only a verified handshake
+ * adds [Context.BIND_ALLOW_ACTIVITY_STARTS] to the same connection.
  * Unexpected disconnects release the dead binding and retry discovery/binding after
  * 1, 2, 4, 8 and 16 seconds. Explicit unbind/shutdown cancels recovery; admission
  * failures are not retried. A successful handshake resets the retry budget.
@@ -115,8 +116,32 @@ open class PluginManager(
         scheduleReconnect(entry.key)
     }
 
-    internal fun onConnectionReady(packageName: String) {
+    internal fun onConnectionReady(conn: PluginConnection): Boolean {
+        val packageName = conn.connectionPackageName
+        if (
+            stopped || !isEnabled(packageName) || connections[packageName] !== conn ||
+            !conn.hasVerifiedTrust
+        ) return false
+        // Android retains both binding records under this connection; one unbind removes both.
+        val intent = Intent(WearTakPluginContract.ACTION_PLUGIN_SERVICE)
+            .setComponent(conn.connectionComponent)
+        val ok = runCatching {
+            app.bindService(
+                intent,
+                conn,
+                Context.BIND_AUTO_CREATE or Context.BIND_ALLOW_ACTIVITY_STARTS,
+            )
+        }.getOrElse {
+            PluginDiagnostics.recordBindFailure(conn.connectionComponent.flattenToString(), it)
+            false
+        }
+        if (!ok) {
+            onConnectionFailed(conn, "activity_starts_bind_failed")
+            return false
+        }
+        if (connections[packageName] !== conn) return false
         cancelReconnect(packageName)
+        return true
     }
 
     private fun cancelReconnect(packageName: String) {

@@ -41,6 +41,7 @@ class PluginConnection(
 
     /** Package key for diagnostics when the connection is not yet in [PluginManager]'s map. */
     internal val connectionPackageName: String get() = pluginPackage
+    internal val connectionComponent: ComponentName get() = component
 
     private var pluginBinder: IBinder? = null
     private var plugin: IWearTakPlugin? = null
@@ -56,6 +57,8 @@ class PluginConnection(
     private var hostServicesV1: HostServicesV1Impl? = null
     private val stateLock = Any()
     @Volatile private var closed = false
+    @Volatile private var trustVerified = false
+    internal val hasVerifiedTrust: Boolean get() = trustVerified && !closed
     private var initializing = false
     private var pendingRemoteCleanup: (() -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -192,6 +195,7 @@ class PluginConnection(
             postFailure("trust_failure:$code")
             return
         }
+        trustVerified = true
 
         val api = runCatching { iface.apiVersion }.getOrDefault(-1)
         if (closed) return
@@ -306,12 +310,11 @@ class PluginConnection(
             return
         }
         mainHandler.post {
-            if (!closed) {
+            if (!closed && manager.onConnectionReady(this)) {
                 mainHandler.removeCallbacks(handshakeTimeout)
                 PluginDiagnostics.markConnected(pluginPackage)
                 moppControl?.ready()
                 routeStatusControl.ready()
-                manager.onConnectionReady(pluginPackage)
                 Log.i(TAG, "initialized plugin pkg=$pluginPackage api=$api")
             }
         }

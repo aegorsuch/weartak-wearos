@@ -59,7 +59,7 @@ class PluginLifecycleIsolationTest {
         every { ingress.packagesForUid(any(), any()) } returns setOf(pkg)
         every { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) } answers {
             val connection = secondArg<PluginConnection>()
-            captured += connection
+            if (connection !in captured) captured += connection
             nextPlugin?.let { connection.onServiceConnected(ComponentName(pkg, ".Service"), it.asBinder()) }
             true
         }
