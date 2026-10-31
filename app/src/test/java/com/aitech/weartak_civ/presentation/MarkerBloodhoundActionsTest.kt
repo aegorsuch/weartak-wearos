@@ -45,10 +45,12 @@ class MarkerBloodhoundActionsTest {
         every { repository.activeBhItemMap } returns MutableStateFlow(activeItem)
         val viewModel = mockk<MarkerViewModel>()
         every { viewModel.markerVectorUi(0) } returns MutableStateFlow(null)
+        val locationDialog = mutableStateOf(false)
+        val deleteDialog = mutableStateOf(false)
         compose.setContent {
             EditSelectedMarker(
                 rememberSwipeDismissableNavController(), 0, LocalContext.current,
-                viewModel, listOf(marker), mutableStateOf(false), mutableStateOf(false), {}
+                viewModel, listOf(marker), locationDialog, deleteDialog, {}
             )
         }
     }
