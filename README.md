@@ -3206,6 +3206,12 @@ app/src/main/java/com/aitech/weartak_civ/
 ## Development notes
 
 - Use `./gradlew :app:assembleDebug` for a focused compile/package check.
+- Robolectric unit tests reuse the real home directory's `.m2/repository` cache
+  and download lock across local worktrees, without Artifactory credentials.
+  If the home, Maven directories, or existing download lock are not writable,
+  tests use `app/build/test-home` instead. CI's TAK Artifactory settings remain
+  unchanged. Gradle's `--offline` does not disable Robolectric's own downloader;
+  uncached Android SDK jars still need the configured Maven repository.
 - Enable optional services through the app settings or managed configuration; do not start a service directly without considering its `ServiceConfiguration` prerequisites.
 - Runtime configuration defaults live in `Constants.kt` and persistence keys/state are in `data/DataRepository.kt`.
 - CEP rules and related runtime configuration are under `app/src/main/res/raw/` and `cep/`.
