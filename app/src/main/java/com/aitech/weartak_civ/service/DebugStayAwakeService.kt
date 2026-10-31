@@ -15,6 +15,8 @@ import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
@@ -29,7 +31,9 @@ internal enum class StayAwakeStopReason(val code: Long, val message: Int) {
     WIFI_OFF(1, R.string.debug_stay_awake_requires_wifi),
     UNPLUGGED(2, R.string.debug_stay_awake_requires_power),
     WIFI_UNAVAILABLE(3, R.string.debug_stay_awake_requires_wifi),
-    POWER_UNKNOWN(4, R.string.debug_stay_awake_requires_power)
+    POWER_UNKNOWN(4, R.string.debug_stay_awake_requires_power),
+    WIFI_ENABLE_FAILED(5, R.string.debug_stay_awake_wifi_enable_failed),
+    WIFI_ENABLE_TIMEOUT(6, R.string.debug_stay_awake_wifi_enable_failed)
 }
 
 class DebugStayAwakeService : Service() {
@@ -39,29 +43,38 @@ class DebugStayAwakeService : Service() {
     private var wifiRequestCallback: ConnectivityManager.NetworkCallback? = null
     private var running = false
     private var monitoring = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var waitingForWifi = false
+    private val wifiTimeout = Runnable {
+        if (waitingForWifi) failSession(StayAwakeStopReason.WIFI_ENABLE_TIMEOUT)
+    }
     private val conditionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (!monitoring) return
+            val manual = DebugStayAwakePreferences(this@DebugStayAwakeService).enabled
+            if (waitingForWifi && intent.action == WifiManager.WIFI_STATE_CHANGED_ACTION &&
+                intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN) ==
+                WifiManager.WIFI_STATE_ENABLED) {
+                onStartCommand(Intent().setAction(ACTION_RESTORE), 0, 0)
+                return
+            }
             val reason = when (intent.action) {
                 WifiManager.WIFI_STATE_CHANGED_ACTION -> when (
                     intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN)
                 ) {
                     WifiManager.WIFI_STATE_DISABLING, WifiManager.WIFI_STATE_DISABLED ->
-                        StayAwakeStopReason.WIFI_OFF
+                        if (waitingForWifi) StayAwakeStopReason.WIFI_ENABLE_FAILED
+                        else StayAwakeStopReason.WIFI_OFF
                     else -> null
                 }
-                Intent.ACTION_POWER_DISCONNECTED -> StayAwakeStopReason.UNPLUGGED
+                Intent.ACTION_POWER_DISCONNECTED -> if (!manual) StayAwakeStopReason.UNPLUGGED else null
                 Intent.ACTION_BATTERY_CHANGED -> if (
-                    intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) <= 0
+                    !manual && intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) <= 0
                 ) StayAwakeStopReason.UNPLUGGED else null
                 else -> null
             }
             if (reason != null) {
-                // Drop WearWifiMediator demand before persisting or stopping.
-                releaseLocks()
-                DebugStayAwakePreferences(this@DebugStayAwakeService).recordSession(false)
-                recordReason(DiagnosticEvent.STAY_AWAKE_AUTO_DISABLED, reason)
-                finishSession()
+                failSession(reason)
             }
         }
     }
@@ -89,21 +102,32 @@ class DebugStayAwakeService : Service() {
                 }, ContextCompat.RECEIVER_EXPORTED)
                 monitoring = true
             }
-            startRefusal(this)?.let { reason ->
+            startRefusal(this, preferences.enabled)?.let { reason ->
                 releaseLocks()
                 refuseStart(this, reason)
                 finishSession()
                 return START_NOT_STICKY
             }
             showNotification()
+            if (preferences.enabled &&
+                applicationContext.getSystemService(WifiManager::class.java).wifiState !=
+                WifiManager.WIFI_STATE_ENABLED) {
+                if (!waitingForWifi) {
+                    waitingForWifi = true
+                    handler.postDelayed(wifiTimeout, WIFI_ENABLE_TIMEOUT_MS)
+                }
+                return START_STICKY
+            }
+            waitingForWifi = false
+            handler.removeCallbacks(wifiTimeout)
             if (running) {
                 if (activeManualMode != preferences.enabled) acquireScreenLock()
                 return START_STICKY
             }
             acquireLocks()
             requestWifi()
-            // Conditions may change while acquiring resources or dispatching a queued restore.
-            startRefusal(this)?.let { reason ->
+            // Do not re-enable a radio switched off during resource acquisition.
+            wifiRefusal(this)?.let { reason ->
                 releaseLocks()
                 refuseStart(this, reason)
                 finishSession()
@@ -132,6 +156,19 @@ class DebugStayAwakeService : Service() {
         return START_STICKY
     }
 
+    private fun failSession(reason: StayAwakeStopReason) {
+        val pending = waitingForWifi
+        val manual = DebugStayAwakePreferences(this).enabled
+        releaseLocks()
+        DebugStayAwakePreferences(this).recordSession(false)
+        recordReason(
+            if (pending) DiagnosticEvent.STAY_AWAKE_START_REFUSED
+            else DiagnosticEvent.STAY_AWAKE_AUTO_DISABLED, reason
+        )
+        if (manual) Toast.makeText(this, reason.message, Toast.LENGTH_SHORT).show()
+        finishSession()
+    }
+
     private fun requestWifi() {
         // Wi-Fi locks alone do not give WearWifiMediator an active network request.
         val request = NetworkRequest.Builder()
@@ -141,7 +178,15 @@ class DebugStayAwakeService : Service() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onUnavailable() {
                 DiagnosticResources.note(DiagnosticResource.DEBUG_NETWORK, this, ResourceAction.FAILED)
-                DiagnosticResources.end(DiagnosticResource.DEBUG_NETWORK, this)
+                handler.post {
+                    if (wifiRequestCallback === this) {
+                        if (DebugStayAwakePreferences(this@DebugStayAwakeService).enabled) {
+                            failSession(StayAwakeStopReason.WIFI_UNAVAILABLE)
+                        } else {
+                            DiagnosticResources.end(DiagnosticResource.DEBUG_NETWORK, this)
+                        }
+                    }
+                }
             }
         }
         DiagnosticResources.acquire(DiagnosticResource.DEBUG_NETWORK, callback) {
@@ -194,12 +239,16 @@ class DebugStayAwakeService : Service() {
             this, 0, Intent(this, WearTAKSettingsActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val status = getString(if (
+            applicationContext.getSystemService(WifiManager::class.java).wifiState ==
+            WifiManager.WIFI_STATE_ENABLED
+        ) R.string.debug_stay_awake_active else R.string.debug_stay_awake_waiting)
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.splash_icon)
             .setContentTitle(getString(R.string.debug_stay_awake))
-            .setContentText(getString(R.string.debug_stay_awake_active))
+            .setContentText(status)
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                getString(R.string.debug_stay_awake_active) + "\n" +
+                status + "\n" +
                     getString(R.string.debug_stay_awake_warning)
             ))
             .setContentIntent(open)
@@ -210,6 +259,8 @@ class DebugStayAwakeService : Service() {
     }
 
     private fun releaseLocks() {
+        waitingForWifi = false
+        handler.removeCallbacks(wifiTimeout)
         if (monitoring) {
             monitoring = false
             unregisterReceiver(conditionReceiver)
@@ -265,13 +316,14 @@ class DebugStayAwakeService : Service() {
         internal const val ACTION_RESTORE = "com.aitech.weartak_civ.DEBUG_STAY_AWAKE_RESTORE"
         private const val CHANNEL_ID = "debug_stay_awake"
         private const val NOTIFICATION_ID = 64_001
+        internal const val WIFI_ENABLE_TIMEOUT_MS = 20_000L
         private val mutableActive = MutableStateFlow(false)
         private var activeManualMode = false
         val active = mutableActive.asStateFlow()
 
         fun setEnabled(context: Context, enabled: Boolean) {
             if (enabled) {
-                startRefusal(context)?.let { reason ->
+                startRefusal(context, manual = true)?.let { reason ->
                     refuseStart(context, reason)
                     context.stopService(Intent(context, DebugStayAwakeService::class.java))
                     return
@@ -286,8 +338,9 @@ class DebugStayAwakeService : Service() {
             val manual = DebugStayAwakePreferences(context).enabled
             if (!manual && !chargingRequested(context)) return
             if (active.value && activeManualMode == manual) return
-            startRefusal(context)?.let { reason ->
+            startRefusal(context, manual)?.let { reason ->
                 refuseStart(context, reason)
+                context.stopService(Intent(context, DebugStayAwakeService::class.java))
                 return
             }
             try {
@@ -321,7 +374,23 @@ class DebugStayAwakeService : Service() {
                 ReactiveServiceManager.isRunning.get() && ChargingStayAwake.powerConnected &&
                 ChargingStayAwake.isPlugged(context)
 
-        private fun startRefusal(context: Context): StayAwakeStopReason? {
+        @Suppress("DEPRECATION")
+        private fun startRefusal(context: Context, manual: Boolean): StayAwakeStopReason? {
+            if (manual) {
+                val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
+                return when (wifi.wifiState) {
+                    WifiManager.WIFI_STATE_ENABLED, WifiManager.WIFI_STATE_ENABLING -> null
+                    WifiManager.WIFI_STATE_DISABLED -> try {
+                        // Android 10+ permits this only for exempt DO/PO/system callers.
+                        // WRITE_SECURE_SETTINGS does not confer that exemption.
+                        if (wifi.setWifiEnabled(true)) null else StayAwakeStopReason.WIFI_ENABLE_FAILED
+                    } catch (error: SecurityException) {
+                        Log.e(TAG, "Wi-Fi activation permission denied", error)
+                        StayAwakeStopReason.WIFI_ENABLE_FAILED
+                    }
+                    else -> StayAwakeStopReason.WIFI_UNAVAILABLE
+                }
+            }
             wifiRefusal(context)?.let { return it }
             val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             return when (battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)) {

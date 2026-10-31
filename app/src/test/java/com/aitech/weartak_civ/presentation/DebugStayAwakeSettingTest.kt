@@ -25,7 +25,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
+@Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round",
+    shadows = [com.aitech.weartak_civ.service.DebugStayAwakeServiceTest.StayAwakeWifiShadow::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DebugStayAwakeSettingTest {
     @get:Rule val compose = createComposeRule()
@@ -38,7 +39,7 @@ class DebugStayAwakeSettingTest {
             .putExtra(BatteryManager.EXTRA_PLUGGED, BatteryManager.BATTERY_PLUGGED_USB))
     }
 
-    @Test fun smallRoundHasSimpleTopTogglesWithoutHelperText() = verifyTopSplitChip()
+    @Test fun smallRoundHasTopTogglesAndPendingStatus() = verifyTopSplitChip()
 
     @Test fun chargingToggleDefaultsOffAndPersistsIndependently() {
         compose.setContent { ChargingDeveloperSetting() }
@@ -88,7 +89,7 @@ class DebugStayAwakeSettingTest {
 
     @Test
     @Config(qualifiers = "w227dp-h227dp-round")
-    fun largerRoundHasSimpleTopTogglesWithoutHelperText() = verifyTopSplitChip()
+    fun largerRoundHasTopTogglesAndPendingStatus() = verifyTopSplitChip()
 
     @Test fun loggingLabelsResolveInEverySupportedTranslation() {
         val labels = mapOf(
@@ -157,7 +158,7 @@ class DebugStayAwakeSettingTest {
         stayAwake.performClick()
         compose.waitUntil { DebugStayAwakePreferences(app).enabled }
         stayAwake.assertIsOn()
-        compose.onNodeWithText("Enabled, not running").assertDoesNotExist()
+        compose.onNodeWithText("Enabled, not running").assertExists()
         val start = shadowOf(app).nextStartedService
         assertEquals(DebugStayAwakeService::class.java.name, start?.component?.className)
         assertEquals(DebugStayAwakeService.ACTION_RESTORE, start?.action)
@@ -177,7 +178,7 @@ class DebugStayAwakeSettingTest {
         DebugStayAwakePreferences(app).recordSession(true)
         compose.setContent { DebugStayAwakeSetting() }
         compose.onNode(isToggleable()).assertIsOn()
-        compose.onNodeWithText("Enabled, not running").assertDoesNotExist()
+        compose.onNodeWithText("Enabled, not running").assertExists()
         compose.onNodeWithText(
             "Keeps screen, CPU and Wi-Fi awake when Android allows. Your choice survives updates and restart until you turn it off. Cannot unlock the watch or keep it awake while powered off."
         ).assertDoesNotExist()
@@ -204,23 +205,50 @@ class DebugStayAwakeSettingTest {
         compose.runOnIdle {
             assertFalse(DebugStayAwakePreferences(app).enabled)
             assertNull(shadowOf(app).nextStartedService)
-            assertEquals(app.getString(com.aitech.weartak_civ.R.string.debug_stay_awake_requires_wifi),
+            assertEquals(app.getString(com.aitech.weartak_civ.R.string.debug_stay_awake_wifi_enable_failed),
                 org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
         }
     }
 
-    @Test fun unpluggedEnableKeepsSwitchOffAndExplainsWhy() {
+    @Test fun unpluggedEnableTurnsSwitchOnAndRequestsService() {
         app.sendStickyBroadcast(Intent(Intent.ACTION_BATTERY_CHANGED)
             .putExtra(BatteryManager.EXTRA_PLUGGED, 0))
         compose.setContent { DebugStayAwakeSetting() }
         compose.onNode(isToggleable()).assertIsOff().performClick()
         compose.waitForIdle()
-        compose.onNode(isToggleable()).assertIsOff()
+        compose.onNode(isToggleable()).assertIsOn()
         compose.runOnIdle {
-            assertFalse(DebugStayAwakePreferences(app).enabled)
-            assertNull(shadowOf(app).nextStartedService)
-            assertEquals(app.getString(com.aitech.weartak_civ.R.string.debug_stay_awake_requires_power),
-                org.robolectric.shadows.ShadowToast.getTextOfLatestToast())
+            assertTrue(DebugStayAwakePreferences(app).enabled)
+            assertEquals(DebugStayAwakeService::class.java.name,
+                shadowOf(app).nextStartedService?.component?.className)
+        }
+    }
+
+    @Test fun radioEnablingShowsPendingStatusUntilReadyAndUnplugKeepsSwitchOn() {
+        shadowOf(app.getSystemService(WifiManager::class.java)).setWifiState(WifiManager.WIFI_STATE_ENABLING)
+        val controller = org.robolectric.Robolectric.buildService(DebugStayAwakeService::class.java).create()
+        try {
+            compose.setContent { DebugStayAwakeSetting() }
+            compose.onNode(isToggleable()).performClick()
+            compose.runOnIdle {
+                controller.get().onStartCommand(shadowOf(app).nextStartedService, 0, 1)
+                assertFalse(DebugStayAwakeService.active.value)
+            }
+            compose.onNodeWithText("Enabled, not running").assertExists()
+            compose.runOnIdle {
+                shadowOf(app.getSystemService(WifiManager::class.java)).setWifiState(WifiManager.WIFI_STATE_ENABLED)
+                app.sendBroadcast(Intent(WifiManager.WIFI_STATE_CHANGED_ACTION)
+                    .putExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_ENABLED))
+            }
+            compose.waitForIdle()
+            compose.onNode(isToggleable()).assertIsOn()
+            compose.onNodeWithText("Enabled, not running").assertDoesNotExist()
+            compose.runOnIdle { app.sendBroadcast(Intent(Intent.ACTION_POWER_DISCONNECTED)) }
+            compose.waitForIdle()
+            compose.onNode(isToggleable()).assertIsOn()
+            compose.runOnIdle { assertTrue(DebugStayAwakeService.active.value) }
+        } finally {
+            controller.destroy()
         }
     }
 
@@ -231,7 +259,10 @@ class DebugStayAwakeSettingTest {
             compose.runOnIdle { controller.get().onStartCommand(null, 0, 1) }
             compose.setContent { DebugStayAwakeSetting() }
             compose.onNode(isToggleable()).assertIsOn()
-            compose.runOnIdle { app.sendBroadcast(Intent(Intent.ACTION_POWER_DISCONNECTED)) }
+            compose.runOnIdle {
+                app.sendBroadcast(Intent(WifiManager.WIFI_STATE_CHANGED_ACTION)
+                    .putExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_DISABLED))
+            }
             compose.waitForIdle()
             compose.onNode(isToggleable()).assertIsOff()
             compose.runOnIdle {

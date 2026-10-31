@@ -289,7 +289,8 @@
     <string name="debug_wireless_grant">请使用可信计算机进行一次性设置：\nadb shell pm grant %1$s android.permission.WRITE_SECURE_SETTINGS\n然后重新打开此页面。固件仍可能阻止无线调试。</string>
     <string name="debug_stay_awake_running">正在运行</string>
     <string name="debug_stay_awake_waiting">已启用，未运行</string>
-    <string name="debug_stay_awake_details">两种模式都需要 Wi-Fi 和外部电源。保持唤醒使用高亮屏幕，拔下充电器后关闭。充电时模式使用调暗的屏幕，在 WearTAK 运行且获得安全设置权限时启用无线调试；选择在拔下充电器、更新和重启后保留。连接电源时，手动保持唤醒优先。关闭 Wi-Fi 会停止会话。此功能不能解锁手表，也不能在关机时保持唤醒。</string>
+    <string name="debug_stay_awake_details">手动保持唤醒优先，在电池供电或充电时都使用高亮屏幕。它会请求开启 Wi-Fi 并等待最多 20 秒；如果 Android 拒绝，请在手表设置中开启 Wi-Fi 后重试。拔下充电器不会停止手动模式。充电时模式仍需要 Wi-Fi、外部电源和运行中的 WearTAK；使用调暗的屏幕，并在获得安全设置权限时启用无线调试。选择在拔下充电器、更新和重启后保留。关闭 Wi-Fi 会停止会话。此功能不能解锁手表，也不能在关机时保持唤醒。</string>
+    <string name="debug_stay_awake_wifi_enable_failed">保持唤醒已关闭。Android 无法开启 Wi-Fi。请在手表设置中开启 Wi-Fi 后重试。安全设置权限不允许开启 Wi-Fi。</string>
     <string name="debug_stay_awake_requires_wifi">保持唤醒已关闭。启用前请先打开 Wi-Fi。</string>
     <string name="debug_stay_awake_requires_power">保持唤醒已关闭。启用前请先将手表连接到充电器。</string>
     <string name="network_control_bonded">已配对</string>
