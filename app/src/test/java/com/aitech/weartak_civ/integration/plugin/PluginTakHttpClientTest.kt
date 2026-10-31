@@ -38,6 +38,22 @@ class PluginTakHttpClientTest {
         assertEquals("getIncidents", url.queryParameter("fn"))
     }
 
+    @Test fun requestsAcceptJsonRegardlessOfMethodOrBodyContentType() {
+        val client = endpoint(OkHttpClient())
+        for (method in listOf("GET", "POST", "PUT", "PATCH", "DELETE")) {
+            for (contentType in listOf("application/json", "application/x-www-form-urlencoded", "text/plain")) {
+                val httpRequest = client.request(request.copy(
+                    method = method, contentType = contentType,
+                    body = if (method == "GET") null else "payload",
+                ))
+                assertEquals(listOf("application/json"), httpRequest.headers.values("Accept"))
+                if (method != "GET") {
+                    assertEquals("$contentType; charset=utf-8", httpRequest.body!!.contentType().toString())
+                }
+            }
+        }
+    }
+
     @Test fun nonSuccessHttpStatusAndBoundedBodyReturnedWithoutRedirectFollow() {
         val tls = HandshakeCertificates.Builder().build()
         val ssl = SSLContext.getInstance("TLS").apply { init(null, arrayOf(tls.trustManager), null) }
@@ -106,10 +122,13 @@ class PluginTakHttpClientTest {
                 "localhost", TakHttpSession { true }, ssl, clientTls.trustManager).client
             // Test TLS against an ephemeral port; production URL builder remains fixed to 8443.
             val url = server.url("/").newBuilder().host("localhost").build()
-            hostClient.newCall(okhttp3.Request.Builder().url(url).build()).execute().use {
+            val httpRequest = endpoint(hostClient).request(request).newBuilder().url(url).build()
+            hostClient.newCall(httpRequest).execute().use {
                 assertEquals("incidents", it.body!!.string())
             }
-            assertEquals(clientCertificate.certificate, server.takeRequest().handshake!!.peerCertificates.first())
+            val recorded = server.takeRequest()
+            assertEquals("application/json", recorded.getHeader("Accept"))
+            assertEquals(clientCertificate.certificate, recorded.handshake!!.peerCertificates.first())
             val wrongName = server.url("/").newBuilder().host("127.0.0.1").build()
             assertThrows(IOException::class.java) {
                 hostClient.newCall(okhttp3.Request.Builder().url(wrongName).build()).execute().close()
