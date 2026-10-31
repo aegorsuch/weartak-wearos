@@ -2515,10 +2515,45 @@ set a commanded level or start a filter timer.
 
 The bundled `weartak-plugin-sdk-release.aar` is derived from canonical SDK
 `https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` at immutable merged
-commit `e2ee52402cf5738e86e43c3f6f1ce1594bd6e5ec` (tree
-`19874cd3b54bb080b037a7392aa1bd15f760daa6`). Release SHA-256:
-`bd69781da7b6efe2aa3da1617953815a55b225b47eb5c2fa6f2c17ae055b4363`.
+commit `175ebe0d5e237f0a6656b599d64588b8c99e9d9b` (tree
+`b46a93eeaf9d868afc187f961d8682459c6e5800`). Release SHA-256:
+`2c8c33cdeb9cc019f412c9c67b47baf1126ef59a40c3d2a3d2975b66246a4df9`.
+The Windows source build used commit `2da3a77e27efc92407f6a4544eb479f7c3064ae6`,
+whose tree is identical to that merged commit; the hash identifies this build,
+not a reproducibility guarantee.
 This is a source-built dependency, not an independently trusted binary release.
+
+### Plugin route status and home connection priority
+
+Plugins can optionally report live transport routes through the SDK's
+`routeStatusV1` extension. WearTAK supplies `routeStatusV1=true` and a
+`routeStatusControlV1` Binder in `PluginInitParcel.hostExtras`; plugins use
+`PluginRouteStatusReporter.fromInit(init)` and report stable route IDs, labels,
+and connection states. This does not change existing plugin API versions or CoT
+routing. Older plugins keep the Network Preferences checklist's Enabled/Disabled
+labels. Reporting plugins show their route states and optional details instead;
+plugins without a `forwardOutboundCot` toggle show read-only status.
+
+Reports are scoped to the trusted binding and calling UID, validated, limited
+to eight routes per plugin, and sequence-checked. Reports made during startup
+are hidden until the plugin finishes initialization. Unload, binding loss,
+Binder death, and replacement revoke the old control and remove its statuses.
+Routes are not persisted: a reconnected plugin must report them again.
+
+**Developer Preferences > Connection icon priority** controls the top-left home
+icon. Move entries up/down or reset the order; changes persist immediately.
+Default order preserves Companion, connected TAK, connected SitX, connecting
+TAK/SitX, and Multicast, then adds Ditto and reported plugin routes. Separate
+connecting entries preserve the existing preference for a connected route over
+a pending server connection. Ditto uses its own icon while sync is active;
+plugins use their application icon and individual route labels. Disabled
+plugin transports and disconnected, unknown, or failed routes cannot supply
+the home icon. Disconnected is always the final fallback.
+
+Plugin-route priorities survive temporary plugin unavailability and are restored
+when the same package and stable route ID report again. New routes are appended
+deterministically. These preferences affect presentation only, not transport
+enablement, bonding, or outbound delivery.
 
 **Data Sync** now has its own icon and split enable/navigation row. The default
 remains on. Off pauses new mission API requests and background polling without

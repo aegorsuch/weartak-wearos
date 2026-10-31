@@ -21,6 +21,7 @@ internal data class NetworkConnectivityRow(
     val pluginIcon: Drawable? = null,
     val suppressed: Boolean = false,
     @StringRes val suppressionLabel: Int = R.string.connection_route_suppressed,
+    val toggleAvailable: Boolean = true,
 )
 
 @DrawableRes

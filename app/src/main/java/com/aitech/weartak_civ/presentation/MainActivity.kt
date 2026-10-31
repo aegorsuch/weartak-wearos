@@ -2993,8 +2993,7 @@ fun TroubleshootingIcons(sitxVm: SitxViewModel, settingsVm: WearTAKSettingsViewM
         val anyTakServerConnected by TAKConnectService.isAnyTakConnectedLiveData.observeAsState()
         val anyTakServerConnecting by TAKConnectService.isAnyTakConnectingLiveData.observeAsState()
         val anyTakServerDisconnected = takServerDetails.any {
-            it.connectionStatus.plain == 0
-            it.connectionStatus.plain == 5
+            it.connectionStatus.plain == 0 || it.connectionStatus.plain == 5
         }
         val takServerSettingList by settingsVm.savedTakServerList.collectAsState()
         val isConnected by NetworkManager.isNetworkConnectedLiveData.observeAsState()
@@ -3008,35 +3007,53 @@ fun TroubleshootingIcons(sitxVm: SitxViewModel, settingsVm: WearTAKSettingsViewM
         val multicastConnected by dataRepository.multicastPublisherRunning.collectAsStateWithLifecycle()
         val sitxEvent by sitxVm.lastEvent.collectAsStateWithLifecycle(initialValue=null)
 
-        val painter = when {
-            companionConnected ->
-                painterResource(R.drawable.tak_companion_app_connected)
-
-            ((anyTakServerConnected == true) && (takServerSettingList.size > 1) && (anyTakServerDisconnected)) ->
-                painterResource(R.drawable.tak_server_some_connected)
-
-            ((anyTakServerConnected == true && !anyTakServerDisconnected) || (dataRepository.sitxStatus.collectAsState().value == SitxServerStatus.CONNECTED)) ->
-                painterResource(R.drawable.tak_server_connected)
-
-            ((anyTakServerConnecting == true) ||
-                    (sitxEvent is SitxServiceEvent.NeedsUserAction) ||
-                    (sitxEvent is SitxServiceEvent.Pending) ||
-                    (sitxEvent is SitxServiceEvent.Authorized) ||
-                    (sitxEvent is SitxServiceEvent.SocketStatus)) ->
-                painterResource(R.drawable.tak_server_connecting)
-
-            multicastConnected -> painterResource((R.drawable.multicast_connected))
-
-            else ->
-                painterResource(R.drawable.tak_server_disconnected)
+        val sitxStatus by dataRepository.sitxStatus.collectAsStateWithLifecycle()
+        val dittoSyncActive by com.aitech.weartak_civ.service.DittoService.syncActive.collectAsStateWithLifecycle()
+        val priority by dataRepository.connectionStatusPreferences.priority
+            .collectAsStateWithLifecycle(initialValue = com.aitech.weartak_civ.data.defaultConnectionPriority)
+        val app = context.applicationContext as WearTakApplication
+        val plugins by app.pluginRepository.plugins.collectAsStateWithLifecycle()
+        val pluginToggles by app.pluginManager.settingsCoordinator.connectivityToggles.collectAsStateWithLifecycle()
+        val pluginRouteStatuses by app.pluginManager.settingsCoordinator.connectionStatuses.collectAsStateWithLifecycle()
+        val candidates = buildList {
+            if (companionConnected) add(HomeConnectionStatus("companion", R.drawable.tak_companion_app_connected,
+                R.string.companion_app, R.string.phone_uplink_active))
+            if (anyTakServerConnected == true) {
+                val partial = takServerSettingList.size > 1 && anyTakServerDisconnected
+                add(HomeConnectionStatus("tak",
+                    if (partial) R.drawable.tak_server_some_connected else R.drawable.tak_server_connected,
+                    R.string.tak_servers, if (partial) R.string.some_servers_connected else R.string.server_connected))
+            }
+            if (sitxStatus == SitxServerStatus.CONNECTED) add(HomeConnectionStatus("sitx",
+                R.drawable.ic_connection_sitx_logo, R.string.sitx_tak, R.string.plugin_route_connected))
+            if (anyTakServerConnecting == true) add(HomeConnectionStatus("tak_connecting",
+                R.drawable.tak_server_connecting, R.string.tak_servers, R.string.plugin_route_connecting))
+            if (sitxEvent is SitxServiceEvent.NeedsUserAction || sitxEvent is SitxServiceEvent.Pending ||
+                sitxEvent is SitxServiceEvent.Authorized || sitxEvent is SitxServiceEvent.SocketStatus) {
+                add(HomeConnectionStatus("sitx_connecting", R.drawable.tak_server_connecting,
+                    R.string.sitx_tak, R.string.plugin_route_connecting))
+            }
+            if (multicastConnected) add(HomeConnectionStatus("multicast", R.drawable.multicast_connected,
+                R.string.tak_sa_multicast, R.string.plugin_route_connected))
+            if (dittoSyncActive && DataRepository.Endpoint.DITTO in endpoints) {
+                add(HomeConnectionStatus("ditto", R.drawable.ic_integration_ditto,
+                    R.string.ditto, R.string.ditto_sync_active))
+            }
+            plugins.filter { it.isLoaded && pluginToggles[it.packageName]?.enabled != false }.forEach { plugin ->
+                pluginRouteStatuses[plugin.packageName].orEmpty().values.forEach { route ->
+                    if (pluginRouteIsActive(route.state)) {
+                        add(HomeConnectionStatus(pluginRoutePriorityKey(plugin.packageName, route.routeId),
+                            R.drawable.tak_server_connected, R.string.network_preferences,
+                            pluginRouteStatusLabel(route.state), "${plugin.title}: ${route.label}", plugin.icon))
+                    }
+                }
+            }
         }
+        val selectedStatus = resolveHomeConnectionStatus(priority, candidates)
 
         // Icon on the top left curve
-        Image(
-            painter = painter,
-            contentDescription = stringResource(
-                if (companionConnected) R.string.phone_uplink_active else R.string.network_preferences
-            ),
+        HomeConnectionIcon(
+            status = selectedStatus,
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset(

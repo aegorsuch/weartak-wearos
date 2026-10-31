@@ -151,6 +151,13 @@ class PluginConnectionBindTrustTest {
         org.junit.Assert.assertNotNull(
             com.weartak.plugin.sdk.host.v1.HostServicesContract.fromHostExtras(plugin.lastInit!!.hostExtras)
         )
+        assertTrue(plugin.lastInit!!.hostExtras.getBoolean(
+            com.weartak.plugin.sdk.routestatus.RouteStatusContract.EXTRA_CAPABILITY))
+        val routeControl = com.weartak.plugin.sdk.routestatus.aidl.IPluginRouteStatusControlV1.Stub.asInterface(
+            plugin.lastInit!!.hostExtras.getBinder(
+                com.weartak.plugin.sdk.routestatus.RouteStatusContract.EXTRA_CONTROL))
+        assertEquals(1, routeControl.contractVersion)
+        assertTrue(mgr.settingsCoordinator.connectionStatuses.value.isEmpty())
     }
 
     @Test
@@ -174,6 +181,8 @@ class PluginConnectionBindTrustTest {
         assertTrue(mgr.hasConnectionForTest(pluginPkg))
         assertEquals(1, plugin.initializePluginV3Calls)
         assertEquals(0, plugin.initializePluginV2Calls)
+        assertTrue(plugin.lastInit!!.hostExtras.getBoolean(
+            com.weartak.plugin.sdk.routestatus.RouteStatusContract.EXTRA_CAPABILITY))
     }
 
     @Test

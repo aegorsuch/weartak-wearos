@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">Bağlantı simgesi önceliği</string>
+    <string name="connection_status_priority_help">İlk etkin giriş ana ekran simgesini belirler. Bağlı ve bağlanıyor girişleri ayrı ayrı taşınabilir. Etkin bağlantı yoksa bağlantı kesildi gösterilir.</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s bağlı</string>
+    <string name="connection_status_priority_connecting">%1$s bağlanıyor</string>
+    <string name="connection_status_move_up">Yukarı</string>
+    <string name="connection_status_move_down">Aşağı</string>
+    <string name="connection_status_move_up_description">%1$s yukarı taşı</string>
+    <string name="connection_status_move_down_description">%1$s aşağı taşı</string>
+    <string name="connection_status_reset">Önceliği sıfırla</string>
+    <string name="connection_status_save_failed">Simge önceliği kaydedilemedi. Tekrar deneyin.</string>
+    <string name="connection_status_description">%1$s, %2$s. Ağ tercihlerini aç</string>
+    <string name="plugin_route_connected">Bağlı</string>
+    <string name="plugin_route_connecting">Bağlanıyor</string>
+    <string name="plugin_route_disconnected">Bağlantı kesildi</string>
+    <string name="plugin_route_error">Hata</string>
+    <string name="plugin_route_unknown">Bilinmiyor</string>
+    <string name="ditto_sync_active">Eşitleme etkin</string>
+</resources>

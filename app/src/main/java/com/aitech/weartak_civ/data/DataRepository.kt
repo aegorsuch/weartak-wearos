@@ -5138,6 +5138,8 @@ class DataRepository(
             .map { prefs -> prefs[ENABLE_WEARTAK_DEV_MODE] ?: false }
             .distinctUntilChanged()
 
+    internal val connectionStatusPreferences = ConnectionStatusPreferences(context.dataStore)
+
     val networkPreferencesChecklistEnabled: Flow<Boolean> =
         context.dataStore.data
             .map { prefs -> prefs[NETWORK_PREFERENCES_CHECKLIST_ENABLED] ?: false }

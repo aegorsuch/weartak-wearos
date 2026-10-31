@@ -106,7 +106,7 @@ private data class DebugRow(
 
 internal enum class DeveloperEntryId {
     BUILD, DIAGNOSTICS, DIAGNOSTICS_LOGS, GIT, IP, LOCATION, PORT, QR, SSID, STAY_AWAKE, TRANSPORT, VERSION, VERSION_CODE,
-    WHILE_CHARGING, NETWORK_CHECKLIST
+    WHILE_CHARGING, NETWORK_CHECKLIST, CONNECTION_PRIORITY
 }
 
 internal data class DeveloperEntry(val id: DeveloperEntryId, val label: String, val value: String = "")
@@ -159,6 +159,7 @@ private fun DebugScreen(
     }
     var showLocationDiagnostics by remember { mutableStateOf(false) }
     var showAppDiagnostics by remember { mutableStateOf(false) }
+    var showConnectionPriority by remember { mutableStateOf(false) }
     var exportStatus by remember { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -166,6 +167,21 @@ private fun DebugScreen(
     val appDiagnosticsEnabled by appDiagnostics.enabled.collectAsStateWithLifecycle()
     val appDiagnosticsFailed by appDiagnostics.storageFailed.collectAsStateWithLifecycle()
     val checklistEnabled by dataRepository.networkPreferencesChecklistEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val connectionPriority by dataRepository.connectionStatusPreferences.priority
+        .collectAsStateWithLifecycle(initialValue = com.aitech.weartak_civ.data.defaultConnectionPriority)
+    val app = context.applicationContext as WearTakApplication
+    val plugins by app.pluginRepository.plugins.collectAsStateWithLifecycle()
+    val pluginRouteStatuses by app.pluginManager.settingsCoordinator.connectionStatuses.collectAsStateWithLifecycle()
+    fun saveConnectionPriority(block: suspend () -> Unit) {
+        scope.launch {
+            try {
+                block()
+            } catch (error: IOException) {
+                android.util.Log.e("DevDebugActivity", "Could not save icon priority", error)
+                Toast.makeText(context, R.string.connection_status_save_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     LaunchedEffect(appDiagnosticsFailed) {
         if (appDiagnosticsFailed)
             Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
@@ -212,7 +228,9 @@ private fun DebugScreen(
     )
 
     fun navigateBack() {
-        if (showAppDiagnostics) {
+        if (showConnectionPriority) {
+            showConnectionPriority = false
+        } else if (showAppDiagnostics) {
             showAppDiagnostics = false
         } else if (showLocationDiagnostics) {
             showLocationDiagnostics = false
@@ -231,7 +249,21 @@ private fun DebugScreen(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            if (showAppDiagnostics) {
+            if (showConnectionPriority) {
+                ConnectionStatusPriorityPage(
+                    priority = connectionPriority,
+                    pluginRoutes = plugins.filter { it.isLoaded }.flatMap { plugin ->
+                        pluginRouteStatuses[plugin.packageName].orEmpty().values.map { route ->
+                            pluginRoutePriorityKey(plugin.packageName, route.routeId) to "${plugin.title}: ${route.label}"
+                        }
+                    }.toMap(),
+                    onMove = { available, key, offset ->
+                        saveConnectionPriority { dataRepository.connectionStatusPreferences.move(available, key, offset) }
+                    },
+                    onReset = { saveConnectionPriority { dataRepository.connectionStatusPreferences.reset() } },
+                    onBack = { showConnectionPriority = false }
+                )
+            } else if (showAppDiagnostics) {
                 AppDiagnosticsPage(
                     diagnostics = appDiagnostics,
                     onBack = { showAppDiagnostics = false }
@@ -267,6 +299,7 @@ private fun DebugScreen(
                     },
                     onShowLocationDiagnostics = { showLocationDiagnostics = true },
                     onShowDiagnostics = { showAppDiagnostics = true },
+                    onShowConnectionPriority = { showConnectionPriority = true },
                     diagnosticsEnabled = appDiagnosticsEnabled,
                     networkChecklistEnabled = checklistEnabled,
                     onNetworkChecklistEnabledChange = { enabled ->
@@ -306,12 +339,14 @@ internal fun DebugInformationPage(
     diagnosticsEnabled: Boolean = false,
     onDiagnosticsEnabledChange: (Boolean) -> Unit = {},
     networkChecklistEnabled: Boolean = false,
-    onNetworkChecklistEnabledChange: (Boolean) -> Unit = {}
+    onNetworkChecklistEnabledChange: (Boolean) -> Unit = {},
+    onShowConnectionPriority: () -> Unit = {}
 ) {
     val entries = sortedDeveloperEntries(listOf(
         DeveloperEntry(DeveloperEntryId.BUILD, stringResource(R.string.debug_build), debugInfo.buildType),
         DeveloperEntry(DeveloperEntryId.DIAGNOSTICS, stringResource(R.string.app_diagnostics)),
         DeveloperEntry(DeveloperEntryId.NETWORK_CHECKLIST, stringResource(R.string.network_preferences_checklist)),
+        DeveloperEntry(DeveloperEntryId.CONNECTION_PRIORITY, stringResource(R.string.connection_status_priority)),
         DeveloperEntry(DeveloperEntryId.DIAGNOSTICS_LOGS, stringResource(R.string.app_diagnostics_logs)),
         DeveloperEntry(DeveloperEntryId.GIT, stringResource(R.string.debug_git), "${debugInfo.gitBranch}@${debugInfo.gitCommit}"),
         DeveloperEntry(DeveloperEntryId.IP, stringResource(R.string.debug_ip), debugInfo.ipAddress),
@@ -362,11 +397,13 @@ internal fun DebugInformationPage(
                     checkedLive = diagnosticsEnabled,
                     onCheckedChange = onDiagnosticsEnabledChange
                 )
-                DeveloperEntryId.DIAGNOSTICS_LOGS, DeveloperEntryId.LOCATION, DeveloperEntryId.QR ->
+                DeveloperEntryId.DIAGNOSTICS_LOGS, DeveloperEntryId.LOCATION, DeveloperEntryId.QR,
+                DeveloperEntryId.CONNECTION_PRIORITY ->
                     Button(
                         onClick = when (entry.id) {
                             DeveloperEntryId.DIAGNOSTICS_LOGS -> onShowDiagnostics
                             DeveloperEntryId.LOCATION -> onShowLocationDiagnostics
+                            DeveloperEntryId.CONNECTION_PRIORITY -> onShowConnectionPriority
                             else -> onShowQrCode
                         },
                         enabled = entry.id != DeveloperEntryId.QR || debugInfo.canShowQrCode,

@@ -24,6 +24,7 @@ class PluginViewModel(
     val operationOutcome = repository.operationOutcome
     private val coordinator = (application as WearTakApplication).pluginManager.settingsCoordinator
     val connectivityToggles = coordinator.connectivityToggles
+    internal val connectionStatuses = coordinator.connectionStatuses
     internal val mainUiChangeRevisions = coordinator.mainUiChangeRevisions
     private val hostedMainUiState = MutableStateFlow<Map<String, HostedPluginMainUiResult>>(emptyMap())
     internal val hostedMainUi = hostedMainUiState.asStateFlow()

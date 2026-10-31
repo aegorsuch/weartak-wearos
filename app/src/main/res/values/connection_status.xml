@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">Connection icon priority</string>
+    <string name="connection_status_priority_help">First active entry supplies the home icon. Connected and connecting entries can be moved separately. Disconnected is always the fallback.</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s connected</string>
+    <string name="connection_status_priority_connecting">%1$s connecting</string>
+    <string name="connection_status_move_up">Move up</string>
+    <string name="connection_status_move_down">Move down</string>
+    <string name="connection_status_move_up_description">Move %1$s up</string>
+    <string name="connection_status_move_down_description">Move %1$s down</string>
+    <string name="connection_status_reset">Reset priority</string>
+    <string name="connection_status_save_failed">Could not save icon priority. Try again.</string>
+    <string name="connection_status_description">%1$s, %2$s. Open Network Preferences</string>
+    <string name="plugin_route_connected">Connected</string>
+    <string name="plugin_route_connecting">Connecting</string>
+    <string name="plugin_route_disconnected">Disconnected</string>
+    <string name="plugin_route_error">Error</string>
+    <string name="plugin_route_unknown">Unknown</string>
+    <string name="ditto_sync_active">Sync active</string>
+</resources>

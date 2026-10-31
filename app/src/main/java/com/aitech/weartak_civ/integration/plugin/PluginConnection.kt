@@ -16,6 +16,7 @@ import com.weartak.plugin.sdk.aidl.IWearTakPlugin
 import com.weartak.plugin.sdk.model.PluginInitParcel
 import com.weartak.plugin.sdk.model.PluginInfoParcel
 import com.weartak.plugin.sdk.mopp.MoppPpeContract
+import com.weartak.plugin.sdk.routestatus.RouteStatusContract
 import com.weartak.plugin.sdk.v2.WearTakPluginV2Contract
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +52,7 @@ class PluginConnection(
     private var hostCallback: HostCallbackImpl? = null
     private var hostPcmControlV3: HostPcmControlV3Impl? = null
     @Volatile private var hostMoppControl: HostMoppPpeControl? = null
+    @Volatile private var hostRouteStatusControl: HostRouteStatusControl? = null
     private var hostServicesV1: HostServicesV1Impl? = null
     private val stateLock = Any()
     @Volatile private var closed = false
@@ -75,6 +77,7 @@ class PluginConnection(
     }
 
     private val deathRecipient = IBinder.DeathRecipient {
+        hostRouteStatusControl?.close()
         hostMoppControl?.close()
         appScope.launch {
             onBinderDiedInternal()
@@ -82,6 +85,7 @@ class PluginConnection(
     }
 
     private fun onBinderDiedInternal() {
+        hostRouteStatusControl?.close()
         hostMoppControl?.close()
         PluginDiagnostics.recordBinderDeath(pluginPackage)
         manager.onConnectionDied(this)
@@ -247,8 +251,13 @@ class PluginConnection(
             })
         } else null
         val services = HostServicesV1Impl(app, pluginPackage, pluginUid)
+        val routeStatusControl = HostRouteStatusControl(
+            manager.settingsCoordinator.routeStatuses, pluginPackage, pluginUid,
+            isBindingActive = { !closed && pluginBinder?.isBinderAlive == true }
+        )
         synchronized(stateLock) {
             if (closed) {
+                routeStatusControl.close()
                 moppControl?.close()
                 controlV3?.close()
                 services.close()
@@ -259,6 +268,7 @@ class PluginConnection(
             hostPcmControlV3 = controlV3
             hostServicesV1 = services
             hostMoppControl = moppControl
+            hostRouteStatusControl = routeStatusControl
         }
 
         val init = PluginInitParcel(
@@ -270,6 +280,8 @@ class PluginConnection(
                 putBinder(HostServicesContract.EXTRA_BINDER, services.asBinder())
                 putBoolean(HostControlImpl.HOST_EXTRA_COT_ROUTING_V1, true)
                 putBoolean(HostControlImpl.HOST_EXTRA_CHAT_DISPATCH_V1, true)
+                putBoolean(RouteStatusContract.EXTRA_CAPABILITY, true)
+                putBinder(RouteStatusContract.EXTRA_CONTROL, routeStatusControl)
                 if (moppControl != null) {
                     putBoolean(MoppPpeContract.EXTRA_CAPABILITY, true)
                     putBinder(MoppPpeContract.EXTRA_CONTROL, moppControl)
@@ -298,6 +310,7 @@ class PluginConnection(
                 mainHandler.removeCallbacks(handshakeTimeout)
                 PluginDiagnostics.markConnected(pluginPackage)
                 moppControl?.ready()
+                routeStatusControl.ready()
                 manager.onConnectionReady(pluginPackage)
                 Log.i(TAG, "initialized plugin pkg=$pluginPackage api=$api")
             }
@@ -305,12 +318,14 @@ class PluginConnection(
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
+        hostRouteStatusControl?.close()
         hostMoppControl?.close()
         Log.w(TAG, "onServiceDisconnected pkg=$pluginPackage")
         manager.onConnectionLost(this@PluginConnection)
     }
 
     override fun onBindingDied(name: ComponentName?) {
+        hostRouteStatusControl?.close()
         hostMoppControl?.close()
         Log.w(TAG, "onBindingDied pkg=$pluginPackage")
         manager.onConnectionLost(this)
@@ -326,6 +341,8 @@ class PluginConnection(
         val cleanup = synchronized(stateLock) {
             if (closed) return
             closed = true
+            hostRouteStatusControl?.close()
+            hostRouteStatusControl = null
             hostMoppControl?.close()
             hostMoppControl = null
             mainHandler.removeCallbacks(handshakeTimeout)
