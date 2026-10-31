@@ -5,6 +5,7 @@ import java.io.File
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.Base64
 import javax.net.ssl.SSLContext
@@ -72,7 +73,30 @@ object TakServerCaTrust {
     fun enrollmentClient(encoded: String?): OkHttpClient {
         val builder = OkHttpClient.Builder()
         if (encoded != null) {
-            val trustManager = trustManager(encoded)
+            val platform = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
+                init(null as KeyStore?)
+            }.trustManagers.filterIsInstance<X509TrustManager>().single()
+            val approved = trustManager(encoded)
+            val trustManager = object : X509TrustManager {
+                override fun getAcceptedIssuers(): Array<X509Certificate> =
+                    (platform.acceptedIssuers + approved.acceptedIssuers).distinct().toTypedArray()
+
+                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) =
+                    platform.checkClientTrusted(chain, authType)
+
+                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+                    try {
+                        platform.checkServerTrusted(chain, authType)
+                    } catch (platformFailure: CertificateException) {
+                        try {
+                            approved.checkServerTrusted(chain, authType)
+                        } catch (approvedFailure: CertificateException) {
+                            platformFailure.addSuppressed(approvedFailure)
+                            throw platformFailure
+                        }
+                    }
+                }
+            }
             val tls = SSLContext.getInstance("TLS").apply {
                 init(null, arrayOf(trustManager), null)
             }

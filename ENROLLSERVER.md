@@ -117,8 +117,10 @@ does not import a client identity or private key.
 4. The approved certificate is copied into Android-Keystore-backed encrypted
    app storage, bound to that server ID, normalized host and streaming port.
    It is not included in Companion settings exports or phone snapshots.
-   Enrollment on 8446, streaming on the configured port (normally 8089), and
-   REST APIs on 8443 use this CA only, not a global CA or trust-all fallback.
+   Enrollment on 8446 accepts either normal Android platform trust or this
+   approved CA for this server. Approval does not replace public CA trust.
+   Streaming on the configured port (normally 8089) and REST APIs on 8443 keep
+   their existing approved-CA behavior; no global CA or trust-all fallback is added.
    Redirects are disabled for enrollment and APIs using an approved CA.
 5. **Edit Server > Advanced > Remove approved CA on save**, then save, revokes the approval
    and reconnects using existing defaults. Deleting the server or changing its
