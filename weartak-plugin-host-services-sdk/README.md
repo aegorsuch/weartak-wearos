@@ -150,6 +150,9 @@ concatenate arbitrary incident/user text into the query. No arbitrary headers,
 absolute URLs, userinfo, fragments, encoded path segments, dot traversal, or port
 overrides. Unknown fields and wrong value types are rejected.
 
+All requests send `Accept: application/json`, independently of the request body's
+`contentType`, so TAK Server plugin endpoints can negotiate JSON responses.
+
 The host builds `https://<selected connected server>:8443<path>?<query>`, uses
 that connection generation's TLS client identity and trust manager, and applies
 strict hostname validation. No trust-all or hostname bypass. A TAK server certificate

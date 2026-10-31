@@ -50,7 +50,8 @@ internal class PluginTakHttpClient(
         require(url.encodedPath == request.path) { "Non-canonical path" }
         val body = if (request.method == "GET" || (request.method == "DELETE" && request.body == null)) null
             else request.body.orEmpty().toRequestBody("${request.contentType}; charset=utf-8".toMediaType())
-        return Request.Builder().url(url).method(request.method, body).build()
+        return Request.Builder().url(url).header("Accept", "application/json")
+            .method(request.method, body).build()
     }
 
     fun execute(request: PluginHttpRequest, execute: (Call, () -> Bundle) -> Bundle): Bundle {
