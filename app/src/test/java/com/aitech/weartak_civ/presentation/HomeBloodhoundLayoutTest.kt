@@ -136,7 +136,10 @@ class HomeBloodhoundLayoutTest {
         val back = compose.onNodeWithContentDescription("Go back to Main Settings Screen")
         back.assertIsDisplayed().performClick()
         val bounds = back.fetchSemanticsNode().boundsInRoot
-        assertTrue("Back squeezed", bounds.width >= 80 * density - 1)
+        val removeAllBounds = compose.onNodeWithText("Remove All").fetchSemanticsNode().boundsInRoot
+        assertTrue("Back touch target too small", bounds.width >= 48 * density - 1)
+        assertTrue("Back is not right of Remove All", bounds.left >= removeAllBounds.right)
+        assertTrue("Back is not aligned with Remove All", kotlin.math.abs(bounds.center.y - removeAllBounds.center.y) <= density)
         assertTrue("Back clipped at screen edge", bounds.right <= pixels - 8 * density + 1)
         val radius = pixels / 2f
         for (corner in listOf(bounds.topLeft, bounds.topRight, bounds.bottomLeft, bounds.bottomRight)) {

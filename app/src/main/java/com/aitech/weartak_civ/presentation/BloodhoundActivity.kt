@@ -487,11 +487,6 @@ fun BloodhoundScreen(
             header = {
                 BloodhoundPickerHeader(canRemove, { showRemoveAllConfirmation.value = true }, goBack)
             },
-            footer = {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    WearTAKBackButton(onClick = goBack)
-                }
-            }
         )
     }
 }
@@ -501,12 +496,14 @@ internal fun BloodhoundPickerHeader(canRemove: Boolean, onRemoveAll: () -> Unit,
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Text(stringResource(R.string.bloodhound), color = colors.primary,
             modifier = Modifier.padding(bottom = 8.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Button(onClick = onRemoveAll, enabled = canRemove) {
                 Text(stringResource(R.string.bloodhound_remove_all))
             }
-            WearTAKBackButton(onClick = onBack)
+            WearTAKBackButton(onClick = onBack, compact = true)
         }
     }
 }
