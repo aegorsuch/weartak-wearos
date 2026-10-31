@@ -347,12 +347,14 @@ fun MapCivApp(
         .receivedUserList
         .collectAsStateWithLifecycle(initialValue = emptyList())
     var activeFocus by remember(mapFocus) { mutableStateOf(mapFocus) }
+    val activeBloodhound by app.bhRepo.activeBhItemMap.collectAsStateWithLifecycle()
 
     MapUserNavigation(
         users = receivedUserListSetting,
         context = context,
         selectingChatContact = selectingChatContact,
         onChatContactSelected = onChatContactSelected,
+        activeBloodhoundUid = activeBloodhound?.uid,
         mapFocus = activeFocus,
         onFocusUserSelected = { user ->
             user.location?.let {
@@ -389,6 +391,11 @@ internal fun MapUserNavigation(
     },
     mapFocus: BloodhoundMapFocus? = null,
     onFocusUserSelected: (DataRepository.ReceivedUser) -> Unit = {},
+    activeBloodhoundUid: String? = null,
+    onStopBloodhound: (String) -> Unit = { uid ->
+        (context.applicationContext as WearTakApplication).bhRepo.stopTracking(uid)
+        requestBloodhoundComplicationUpdate(context)
+    },
     mapContent: @Composable ((String) -> Unit) -> Unit
 ) {
     val navController = rememberSwipeDismissableNavController()
@@ -400,6 +407,8 @@ internal fun MapUserNavigation(
     val currentOnChatContactSelected by rememberUpdatedState(onChatContactSelected)
     val currentOnBloodhoundUserSelected by rememberUpdatedState(onBloodhoundUserSelected)
     val currentOnFocusUserSelected by rememberUpdatedState(onFocusUserSelected)
+    val currentActiveBloodhoundUid by rememberUpdatedState(activeBloodhoundUid)
+    val currentOnStopBloodhound by rememberUpdatedState(onStopBloodhound)
     SwipeDismissableNavHost(
         navController = navController,
         startDestination = "map_screen"
@@ -417,7 +426,7 @@ internal fun MapUserNavigation(
             val selectedUid = backStackEntry.arguments?.getString("uid")
             SelectedUser(navController, selectedUid, currentUsers, context,
                 selectingChatContact, currentOnChatContactSelected, currentOnBloodhoundUserSelected,
-                currentOnFocusUserSelected)
+                currentOnFocusUserSelected, currentActiveBloodhoundUid, currentOnStopBloodhound)
         }
     }
 }
@@ -3331,8 +3340,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 distance = vector?.distance,
                 orientation = orientation.toFloat(),
                 isBloodhounding = activeItem?.uid == pointUid,
-                onInPosition = {
-                    bhRepo.requestInPosition(pointUid)
+                onStop = {
+                    bhRepo.stopTracking(pointUid)
                     requestBloodhoundComplicationUpdate(context)
                 },
                 onWholeRoute = {
@@ -3368,6 +3377,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     // Refresh the Bloodhound complication
                     requestBloodhoundComplicationUpdate(context)
 
+                    returnToWearTakHome(context)
                 },
 
                 onBack = {
@@ -3391,6 +3401,11 @@ fun SelectedUser(
         startMapUserBloodhound(context, user)
     },
     onFocusUserSelected: (DataRepository.ReceivedUser) -> Unit = {},
+    activeBloodhoundUid: String? = null,
+    onStopBloodhound: (String) -> Unit = { uid ->
+        (context.applicationContext as WearTakApplication).bhRepo.stopTracking(uid)
+        requestBloodhoundComplicationUpdate(context)
+    },
 ) {
     Log.i(TAG, "User list: $receivedUserSetting")
     val user = receivedUserSetting.firstOrNull { it.uid == selectedUid }
@@ -3448,11 +3463,15 @@ fun SelectedUser(
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            MapActionIconButton(
-                                R.drawable.bloodhound, R.string.bloodhound_start, canLocate
+                            val isActive = selectedUid != null && activeBloodhoundUid == selectedUid
+                            MapBloodhoundActionButton(
+                                isActive, title, R.string.bloodhound_start, canLocate
                             ) {
-                                if (user != null && onBloodhoundUserSelected(user)) {
+                                if (isActive && selectedUid != null) {
+                                    onStopBloodhound(selectedUid)
+                                } else if (user != null && onBloodhoundUserSelected(user)) {
                                     navController.popBackStack()
+                                    returnToWearTakHome(context)
                                 }
                             }
                             MapActionIconButton(

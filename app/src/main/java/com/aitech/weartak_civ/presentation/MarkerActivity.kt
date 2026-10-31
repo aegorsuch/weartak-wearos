@@ -1247,6 +1247,7 @@ fun EditSelectedMarker(
                 )
                 PointBloodhoundAction(
                     isActive = activeBloodhound?.uid == uid,
+                    targetName = title,
                     enabled = uid.isNotBlank() && validPosition,
                     onBloodhound = {
                             bhRepo.addMarkerTarget(
@@ -1263,9 +1264,10 @@ fun EditSelectedMarker(
                             requestBloodhoundComplicationUpdate(context)
 
                             Log.i(BloodhoundActivity.Constants.TAG, "Requesting Ack and Activation of bloodhound")
+                            returnToWearTakHome(context)
                     },
-                    onInPosition = {
-                        bhRepo.requestInPosition(uid)
+                    onStop = {
+                        bhRepo.stopTracking(uid)
                         requestBloodhoundComplicationUpdate(context)
                     },
                     onTarget = { focusPointOnMap(context, locationLat, locationLon) },
@@ -1916,6 +1918,7 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                         )
                         PointBloodhoundAction(
                                 isActive = activeBloodhound?.uid == marker.uid,
+                                targetName = marker.title,
                                 onBloodhound = {
                                     if (loc == null) return@PointBloodhoundAction
                                     bhRepo.addMarkerTarget(
@@ -1930,9 +1933,10 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                                     bhRepo.requestActivateBloodhound(marker.uid)
                                     requestBloodhoundComplicationUpdate(context)
                                     Log.i(BloodhoundActivity.Constants.TAG, "Requesting Ack and Activation of bloodhound")
+                                    returnToWearTakHome(context)
                                 },
-                                onInPosition = {
-                                    bhRepo.requestInPosition(marker.uid)
+                                onStop = {
+                                    bhRepo.stopTracking(marker.uid)
                                     requestBloodhoundComplicationUpdate(context)
                                 },
                                 onTarget = {

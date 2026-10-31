@@ -25,6 +25,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import android.content.Intent
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w227dp-h227dp-round", application = Application::class)
@@ -77,7 +80,10 @@ class MapUserActionsTest {
         val updated = alice.copy(title = "Alice moving", location = alice.location?.copy(lat = 39.0))
         compose.runOnIdle { users.value = listOf(user("bob"), updated) }
         compose.onNodeWithContentDescription("Start Bloodhound").performClick()
-        compose.runOnIdle { assertEquals(listOf(updated), selections) }
+        compose.runOnIdle {
+            assertEquals(listOf(updated), selections)
+            assertHomeIntent()
+        }
         compose.onNodeWithText("Alice on map").assertIsDisplayed()
     }
 
@@ -99,7 +105,10 @@ class MapUserActionsTest {
         compose.onNodeWithContentDescription("Start Bloodhound").assertIsDisplayed().performClick()
         compose.onNodeWithContentDescription("Open Chat").assertIsDisplayed()
         compose.onNodeWithContentDescription("Center and zoom to contact").assertIsDisplayed()
-        compose.runOnIdle { assertEquals(1, selections) }
+        compose.runOnIdle {
+            assertEquals(1, selections)
+            assertEquals(null, shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity)
+        }
         for (invalid in listOf(
             emptyList(),
             listOf(alice.copy(location = null)),
@@ -139,10 +148,62 @@ class MapUserActionsTest {
         compose.runOnIdle {
             assertEquals(listOf(alice), targets)
             assertTrue(contacts.isEmpty())
+            assertHomeIntent()
         }
         compose.onNodeWithText("Alice on map").assertIsDisplayed().performClick()
         compose.onNodeWithContentDescription("Open Chat").performClick()
         compose.runOnIdle { assertEquals(listOf(DirectChatContact(alice.uid, alice.title)), contacts) }
+    }
+
+    @Test fun activeContactStopsWithoutStartingOrLeavingDetailEvenWithoutLocation() {
+        val alice = user()
+        val users = mutableStateOf(listOf(alice))
+        val activeUid = mutableStateOf<String?>(alice.uid)
+        val stopped = mutableListOf<String>()
+        var starts = 0
+        compose.setContent {
+            MapUserNavigation(
+                users.value, LocalContext.current,
+                onBloodhoundUserSelected = { starts++; true },
+                activeBloodhoundUid = activeUid.value,
+                onStopBloodhound = { stopped += it; activeUid.value = null }
+            ) { onUserClick ->
+                Chip(onClick = { onUserClick(alice.uid) }, label = { Text("Alice on map") })
+            }
+        }
+        compose.onNodeWithText("Alice on map").performClick()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Open Chat").assertIsEnabled()
+        compose.runOnIdle { users.value = listOf(alice.copy(location = null)) }
+        compose.onNodeWithContentDescription("Center and zoom to contact").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Stop Bloodhound to Alice").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithText("Alice on map").assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(listOf(alice.uid), stopped)
+            assertEquals(0, starts)
+            assertEquals(null, shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity)
+        }
+    }
+
+    @Test fun anotherActiveContactKeepsSelectedContactStartAction() {
+        val alice = user()
+        compose.setContent {
+            MapUserNavigation(listOf(alice), LocalContext.current, activeBloodhoundUid = "bob") { onUserClick ->
+                Chip(onClick = { onUserClick(alice.uid) }, label = { Text("Alice on map") })
+            }
+        }
+        compose.onNodeWithText("Alice on map").performClick()
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsEnabled()
+        compose.onNodeWithContentDescription("Stop Bloodhound to Alice").assertDoesNotExist()
+    }
+
+    private fun assertHomeIntent() {
+        val intent = shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+        assertEquals(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
+            intent.flags and (Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+        assertEquals(null, shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity)
     }
 
     @Test fun targetReturnsToMapWithLatestSelectedContactWithoutStartingBloodhound() {
