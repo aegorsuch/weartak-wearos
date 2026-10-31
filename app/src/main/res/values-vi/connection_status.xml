@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">Ưu tiên biểu tượng kết nối</string>
+    <string name="connection_status_priority_help">Mục hoạt động đầu tiên quyết định biểu tượng màn hình chính. Các mục đã kết nối và đang kết nối có thể di chuyển riêng. Khi không có kết nối hoạt động, hiển thị đã ngắt kết nối.</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s đã kết nối</string>
+    <string name="connection_status_priority_connecting">%1$s đang kết nối</string>
+    <string name="connection_status_move_up">Lên</string>
+    <string name="connection_status_move_down">Xuống</string>
+    <string name="connection_status_move_up_description">Di chuyển %1$s lên</string>
+    <string name="connection_status_move_down_description">Di chuyển %1$s xuống</string>
+    <string name="connection_status_reset">Đặt lại ưu tiên</string>
+    <string name="connection_status_save_failed">Không thể lưu ưu tiên biểu tượng. Vui lòng thử lại.</string>
+    <string name="connection_status_description">%1$s, %2$s. Mở tùy chọn mạng</string>
+    <string name="plugin_route_connected">Đã kết nối</string>
+    <string name="plugin_route_connecting">Đang kết nối</string>
+    <string name="plugin_route_disconnected">Đã ngắt kết nối</string>
+    <string name="plugin_route_error">Lỗi</string>
+    <string name="plugin_route_unknown">Không xác định</string>
+    <string name="ditto_sync_active">Đồng bộ đang hoạt động</string>
+</resources>

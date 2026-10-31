@@ -49,6 +49,8 @@ class PluginSettingsCoordinator(
     data class ConnectivityToggle(val enabled: Boolean, val binding: IWearTakPlugin)
     private val connectivityTogglesState = MutableStateFlow<Map<String, ConnectivityToggle>>(emptyMap())
     val connectivityToggles = connectivityTogglesState.asStateFlow()
+    internal val routeStatuses = PluginRouteStatuses()
+    internal val connectionStatuses = routeStatuses.statuses
     private val mainUiChangeRevisionsState = MutableStateFlow<Map<String, Long>>(emptyMap())
     val mainUiChangeRevisions = mainUiChangeRevisionsState.asStateFlow()
 

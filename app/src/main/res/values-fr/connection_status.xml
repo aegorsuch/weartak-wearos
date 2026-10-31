@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">Priorité de l’icône de connexion</string>
+    <string name="connection_status_priority_help">La première entrée active détermine l’icône d’accueil. Les entrées connectées et en cours de connexion peuvent être déplacées séparément. Sans connexion active, l’état déconnecté est affiché.</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s connecté</string>
+    <string name="connection_status_priority_connecting">%1$s en connexion</string>
+    <string name="connection_status_move_up">Monter</string>
+    <string name="connection_status_move_down">Descendre</string>
+    <string name="connection_status_move_up_description">Monter %1$s</string>
+    <string name="connection_status_move_down_description">Descendre %1$s</string>
+    <string name="connection_status_reset">Réinitialiser la priorité</string>
+    <string name="connection_status_save_failed">Impossible d’enregistrer la priorité. Réessayez.</string>
+    <string name="connection_status_description">%1$s, %2$s. Ouvrir les préférences réseau</string>
+    <string name="plugin_route_connected">Connecté</string>
+    <string name="plugin_route_connecting">Connexion en cours</string>
+    <string name="plugin_route_disconnected">Déconnecté</string>
+    <string name="plugin_route_error">Erreur</string>
+    <string name="plugin_route_unknown">Inconnu</string>
+    <string name="ditto_sync_active">Synchronisation active</string>
+</resources>

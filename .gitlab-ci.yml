@@ -52,6 +52,9 @@ android_mopp_check:
       --tests '*ServerCaTrustEditorTest' --tests '*TakEnrollmentTest'
       --tests '*TakTransientRecoveryTest' --tests '*TakServerRegistrationServiceTest'
       --tests '*TakServerRegistrationTest' --tests '*ChatEnrollmentSaveTest'
+      --tests '*HostRouteStatusControlTest' --tests '*ConnectionStatusPreferencesTest'
+      --tests '*HomeConnectionStatusTest' --tests '*ConnectionStatusPriorityUiTest'
+      --tests '*DeveloperPreferencesOrderTest' --tests '*NetworkConnectivityIconsTest'
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:
     when: always

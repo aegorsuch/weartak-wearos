@@ -107,6 +107,18 @@ internal fun NetworkConnectivityChip(
     val subtitle = networkControlSubtitle(row.subtitle, bondLocked)
     val statusDescription = networkControlSubtitle(row.statusDescription, bondLocked)
     val route = row.settingsRoute
+    if (!row.toggleAvailable) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
+            .semantics(mergeDescendants = true) { stateDescription = row.statusDescription },
+            verticalAlignment = Alignment.CenterVertically) {
+            appIcon()
+            Column(Modifier.weight(1f)) {
+                Text(row.title, style = MaterialTheme.typography.button)
+                Text(row.subtitle, style = MaterialTheme.typography.caption2)
+            }
+        }
+        return
+    }
     if (route == null) {
         WearTAKToggleChip(
             checkedLive = row.checked,

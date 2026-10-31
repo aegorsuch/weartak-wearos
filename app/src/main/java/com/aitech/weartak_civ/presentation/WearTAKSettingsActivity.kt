@@ -1479,6 +1479,7 @@ fun WearTAKSettingsNav(
                 }, offBodyWaiting)
             val takSubtitleOverride = takStatusOverride?.let { stringResource(it) }
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
+            val pluginRouteStatuses by pluginVm.connectionStatuses.collectAsStateWithLifecycle()
             val companionStatus = companionPluginStatus(enableCompanionAppService)
             val dittoPowerSuppressionReason by com.aitech.weartak_civ.service.DittoService.powerSuppressionReason
                 .collectAsStateWithLifecycle()
@@ -1521,12 +1522,19 @@ fun WearTAKSettingsNav(
                     "", enableCompanionAppService, settingsVm::storeEnableCompanionAppService,
                     statusDescription = companionStatus)
             ) + pluginList.mapNotNull { plugin ->
-                val toggle = pluginToggles[plugin.packageName] ?: return@mapNotNull null
                 if (!plugin.isLoaded) return@mapNotNull null
+                val toggle = pluginToggles[plugin.packageName]
+                val routes = pluginRouteStatuses[plugin.packageName].orEmpty().values
+                if (toggle == null && routes.isEmpty()) return@mapNotNull null
+                val enabled = toggle?.enabled != false
                 NetworkConnectivityRow("plugin:${plugin.packageName}", plugin.title,
-                    if (toggle.enabled) enabledLabel else disabledLabel, toggle.enabled,
-                    { pluginVm.setConnectivityEnabled(plugin.packageName, toggle, it) },
-                    pluginIcon = plugin.icon)
+                    when {
+                        !enabled -> disabledLabel
+                        routes.isNotEmpty() -> pluginRouteSummary(routes)
+                        else -> enabledLabel
+                    }, enabled,
+                    { if (toggle != null) pluginVm.setConnectivityEnabled(plugin.packageName, toggle, it) },
+                    pluginIcon = plugin.icon, toggleAvailable = toggle != null)
             }).alphabetizedConnections(LocalConfiguration.current.locales[0])
             WearTAKPageWithBackArrow(
                 "Network Preferences",

@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">接続アイコンの優先順位</string>
+    <string name="connection_status_priority_help">最初の有効な項目がホームアイコンに表示されます。接続済みと接続中の項目は個別に移動できます。有効な接続がない場合は未接続が表示されます。</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s 接続済み</string>
+    <string name="connection_status_priority_connecting">%1$s 接続中</string>
+    <string name="connection_status_move_up">上へ</string>
+    <string name="connection_status_move_down">下へ</string>
+    <string name="connection_status_move_up_description">%1$s を上へ移動</string>
+    <string name="connection_status_move_down_description">%1$s を下へ移動</string>
+    <string name="connection_status_reset">優先順位をリセット</string>
+    <string name="connection_status_save_failed">アイコンの優先順位を保存できませんでした。再試行してください。</string>
+    <string name="connection_status_description">%1$s、%2$s。ネットワーク設定を開く</string>
+    <string name="plugin_route_connected">接続済み</string>
+    <string name="plugin_route_connecting">接続中</string>
+    <string name="plugin_route_disconnected">未接続</string>
+    <string name="plugin_route_error">エラー</string>
+    <string name="plugin_route_unknown">不明</string>
+    <string name="ditto_sync_active">同期中</string>
+</resources>
