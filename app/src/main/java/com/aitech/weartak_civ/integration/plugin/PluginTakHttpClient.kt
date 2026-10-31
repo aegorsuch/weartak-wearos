@@ -49,7 +49,7 @@ internal class PluginTakHttpClient(
             .encodedPath(request.path).encodedQuery(request.query).build()
         require(url.encodedPath == request.path) { "Non-canonical path" }
         val body = if (request.method == "GET" || (request.method == "DELETE" && request.body == null)) null
-            else request.body.orEmpty().toRequestBody("${request.contentType}; charset=utf-8".toMediaType())
+            else request.body.orEmpty().toByteArray(Charsets.UTF_8).toRequestBody(request.contentType.toMediaType())
         return Request.Builder().url(url).header("Accept", "application/json")
             .method(request.method, body).build()
     }

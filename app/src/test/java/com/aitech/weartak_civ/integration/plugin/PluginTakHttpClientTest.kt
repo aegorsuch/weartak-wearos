@@ -10,6 +10,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.tls.HandshakeCertificates
 import okhttp3.tls.HeldCertificate
+import okio.Buffer
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,9 +49,22 @@ class PluginTakHttpClientTest {
                 ))
                 assertEquals(listOf("application/json"), httpRequest.headers.values("Accept"))
                 if (method != "GET") {
-                    assertEquals("$contentType; charset=utf-8", httpRequest.body!!.contentType().toString())
+                    assertEquals(contentType, httpRequest.body!!.contentType().toString())
                 }
             }
+        }
+    }
+
+    @Test fun jsonRequestBodyPreservesExactContentTypeAndUtf8Encoding() {
+        val client = endpoint(OkHttpClient())
+        val payload = "{\"note\":\"caf\u00e9 \u2615 \uD83D\uDE80\"}"
+        for (method in listOf("POST", "PUT", "PATCH", "DELETE")) {
+            val body = client.request(request.copy(method = method, body = payload)).body!!
+            assertEquals("application/json", body.contentType().toString())
+            val buffer = Buffer()
+            body.writeTo(buffer)
+            assertArrayEquals(payload.toByteArray(Charsets.UTF_8), buffer.readByteArray())
+            assertEquals(payload.toByteArray(Charsets.UTF_8).size.toLong(), body.contentLength())
         }
     }
 
