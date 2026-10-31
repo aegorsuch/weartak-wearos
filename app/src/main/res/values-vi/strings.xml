@@ -289,7 +289,8 @@
     <string name="debug_wireless_grant">Thiết lập một lần từ máy tính đáng tin cậy:\nadb shell pm grant %1$s android.permission.WRITE_SECURE_SETTINGS\nSau đó mở lại màn hình này. Phần sụn vẫn có thể chặn gỡ lỗi không dây.</string>
     <string name="debug_stay_awake_running">Đang chạy</string>
     <string name="debug_stay_awake_waiting">Đã bật, chưa chạy</string>
-    <string name="debug_stay_awake_details">Cả hai chế độ đều cần Wi-Fi và nguồn điện ngoài. Giữ thức dùng màn hình sáng và tắt khi rút sạc. Khi đang sạc dùng màn hình mờ và bật gỡ lỗi không dây khi có quyền cài đặt bảo mật trong lúc WearTAK đang chạy; lựa chọn được giữ lại sau khi rút sạc, cập nhật và khởi động lại. Giữ thức thủ công được ưu tiên khi cắm sạc. Tắt Wi-Fi sẽ dừng phiên. Không thể mở khóa đồng hồ hoặc giữ đồng hồ thức khi đã tắt nguồn.</string>
+    <string name="debug_stay_awake_details">Giữ thức thủ công được ưu tiên và dùng màn hình sáng khi chạy pin hoặc cắm sạc. Chế độ yêu cầu bật Wi-Fi và chờ tối đa 20 giây; nếu Android từ chối, bật Wi-Fi trong Cài đặt đồng hồ rồi thử lại. Rút sạc không dừng chế độ thủ công. Khi đang sạc vẫn cần Wi-Fi, nguồn điện ngoài và WearTAK đang chạy; dùng màn hình mờ và bật gỡ lỗi không dây khi có quyền cài đặt bảo mật. Lựa chọn được giữ lại sau khi rút sạc, cập nhật và khởi động lại. Tắt Wi-Fi sẽ dừng phiên. Không thể mở khóa đồng hồ hoặc giữ đồng hồ thức khi đã tắt nguồn.</string>
+    <string name="debug_stay_awake_wifi_enable_failed">Giữ thức đang tắt. Android không thể bật Wi-Fi. Bật Wi-Fi trong Cài đặt đồng hồ rồi thử lại. Quyền cài đặt bảo mật không cho phép bật Wi-Fi.</string>
     <string name="debug_stay_awake_requires_wifi">Giữ thức đang tắt. Hãy bật Wi-Fi trước khi kích hoạt.</string>
     <string name="debug_stay_awake_requires_power">Giữ thức đang tắt. Hãy nối đồng hồ với bộ sạc trước khi kích hoạt.</string>
     <string name="network_control_bonded">Đã ghép đôi</string>

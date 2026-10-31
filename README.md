@@ -175,7 +175,7 @@ established corresponding fields here. MOPP remains in TAK/Ditto remarks.
 ### While charging (opt-in)
 
 **Developer Preferences > While charging** is one combined toggle directly
-under the unchanged manual **Stay awake** switch, using the same row style.
+under the independent manual **Stay awake** switch, using the same row style.
 It defaults to off in both release and debug builds. Existing installations migrate
 to on if either former charging toggle was on; migration runs once and never
 overwrites a later choice. When enabled,
@@ -189,12 +189,12 @@ service manager releases this mode's demand. The saved charging choice survives
 unplugging, service stops, updates and restarts; it takes effect again when WearTAK
 is running on the charger. It does nothing off the charger.
 
-The main **Stay awake** switch takes priority with a bright screen while plugged in;
-disabling the charging toggle cannot stop manual mode. Manual mode still requires
-external power and turns itself off on unplug, preserving its original behavior.
+The main **Stay awake** switch takes priority with a bright screen on battery or charger;
+disabling the charging toggle or unplugging cannot stop manual mode.
 Turning manual mode off falls back to charging-only mode if eligible. Notification
-Stop disables both choices. Neither mode changes system stay-awake or Wi-Fi radio
-settings, and neither guarantees that vendor firmware preserves an ADB session.
+Stop disables both choices. Neither mode changes system stay-awake settings.
+Manual mode requests Wi-Fi activation when off; charging-only mode does not.
+Neither guarantees that vendor firmware preserves an ADB session.
 
 ### Wireless debugging setup for While charging
 
@@ -2348,30 +2348,41 @@ Debug and release APKs include opt-in **Stay awake** and **While charging** togg
 **Developer Preferences** (tap the
 version eight times in Preferences to reveal these tools). This standalone demo/development
 manual session control does not require Wireless debugging or read its system setting. Starting
-requires an enabled Wi-Fi radio and known external power. Otherwise a brief toast
-explains the refusal and the manual switch stays off. Charging-only mode
-additionally requires a running WearTAK service manager.
+works on battery or charger. If Wi-Fi is off, it calls Android's
+[`WifiManager.setWifiEnabled(true)`](https://developer.android.com/reference/android/net/wifi/WifiManager#setWifiEnabled(boolean))
+and checks acceptance. This API requires `CHANGE_WIFI_STATE` (already declared).
+For target SDK 34, Android permits only exempt device-owner, profile-owner or system
+apps to toggle Wi-Fi. The existing `WRITE_SECURE_SETTINGS` grant for ADB is not an
+exemption; no additional adb-grantable permission is requested as a workaround.
+When Android rejects activation, the manual choice stays off and a localized toast
+instructs the user to enable Wi-Fi in watch Settings, then retry. Accepted requests
+or an already-enabling radio wait up to 20 seconds before acquiring locks/network
+demand; the UI and notification show **Enabled, not running** meanwhile.
+Failure or timeout clears manual intent and releases resources. No radio settings
+are restored on stop, and an explicit radio-off edge is respected rather than
+forced back on. Charging-only mode still requires enabled Wi-Fi, known external
+power and a running WearTAK service manager.
 The switch holds screen, CPU and Wi-Fi locks and keeps a Wi-Fi network actively requested, including
 while viewing system settings. The request does not require Internet access, so local-only
 hotspots can satisfy it. It shows an ongoing notification with a Stop action. It remains
-enabled until you turn off the switch, tap notification Stop, switch Wi-Fi off,
-or unplug the watch.
+enabled until you turn off the switch, tap notification Stop, or switch Wi-Fi off.
 The switches reflect their independent saved choices.
 Wi-Fi radio `DISABLING` or `DISABLED` broadcasts stop the session; ordinary AP
 disconnects, roaming, or loss of Internet validation do not. Power-disconnected
-and battery plugged-state broadcasts stop both modes without polling.
+and battery plugged-state broadcasts stop charging-only mode without polling.
+They leave manual mode running, while charging-owned ADB settings are restored.
 Automatic shutoff releases the active network request and all locks immediately,
 unregisters its service receivers and removes its notification. Wi-Fi shutoff
 persists manual mode disabled; the charging opt-in remains saved. Charging-only mode
 restarts on a later power-connected edge or WearTAK startup with known external power.
 Leaving the UI or swiping the recent task does not stop the foreground service.
 There is no separate update-persistence option: enabled users retain their choice
-regardless of the old checkbox, subject to Wi-Fi and power availability. Explicitly disabled
+regardless of the old checkbox, subject to Wi-Fi availability. Explicitly disabled
 choices stay disabled. The charging opt-in is also retained across updates/restarts,
 but does not start the full WearTAK service stack at boot.
 The service requests `START_STICKY` recovery after ordinary process death; the
 package-update and post-unlock boot receiver restore only this service when enabled.
-Opening WearTAK retries a previously blocked restore. Missing or unknown Wi-Fi/power
+Opening WearTAK retries a previously blocked restore. Missing or unknown Wi-Fi
 prerequisites turn the manual choice off and explain the refusal with a toast.
 Unknown power state fails closed for charging-only mode without erasing its opt-in.
 Other Android startup failures release partial locks and report an error without
@@ -2386,16 +2397,17 @@ There is no timed expiry. The notification warns **Extra battery use. May heat w
 The Wi-Fi request is released on stop, service destruction, or startup failure.
 The active request intentionally creates Wear OS Wi-Fi demand for ADB, but the
 radio-disabling edge releases that demand before persisting shutoff; it never
-re-requests a network after that edge. It does not call APIs to force Wi-Fi on
-or guarantee connectivity against RF conditions, hotspot
+re-requests a network after that edge. Wi-Fi activation is requested only on manual
+start/restore, subject to Android policy. It does not guarantee connectivity against RF conditions, hotspot
 disconnects, or system overrides. It does not prevent an explicit screen-off action or
 guarantee ADB/multicast delivery. The switch
 is only available in the hidden Dev Mode menu.
 
 With Logging enabled, AppDiagnostics records `STAY_AWAKE_AUTO_DISABLED` and
 `STAY_AWAKE_START_REFUSED`, with numeric `REASON` codes: `WIFI_OFF=1`,
-`UNPLUGGED=2`, `WIFI_UNAVAILABLE=3` (radio not yet enabled or state unknown),
-and `POWER_UNKNOWN=4` (no usable sticky plugged state). These events retain
+`UNPLUGGED=2` (charging-only), `WIFI_UNAVAILABLE=3` (radio state unknown or network request unavailable),
+`POWER_UNKNOWN=4` (charging-only, no usable sticky plugged state),
+`WIFI_ENABLE_FAILED=5`, and `WIFI_ENABLE_TIMEOUT=6`. These events retain
 individual reasons rather than coalescing rapid transitions.
 
 ### TAK SA multicast

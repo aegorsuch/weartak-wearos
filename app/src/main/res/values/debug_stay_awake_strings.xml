@@ -9,7 +9,8 @@
     <string name="debug_stay_awake_active">Keeps screen, CPU and Wi-Fi awake while plugged in. Manual Stay awake takes priority over dim charging mode. Unplug stops charging demand; Stop disables all charging choices.</string>
     <string name="debug_stay_awake_running">Running</string>
     <string name="debug_stay_awake_waiting">Enabled, not running</string>
-    <string name="debug_stay_awake_details">Both modes require Wi-Fi and external power. Stay awake uses a bright screen and turns off on unplug. While charging uses a dim screen and enables wireless debugging with a secure settings grant while WearTAK is running; its choice survives unplugging, updates and restart. Manual Stay awake takes priority while plugged in. Switching Wi-Fi off stops the session. Cannot unlock the watch or keep it awake while powered off.</string>
+    <string name="debug_stay_awake_details">Manual Stay awake uses a bright screen on battery or charger and takes priority. It requests Wi-Fi activation and waits up to 20 seconds; if Android refuses, enable Wi-Fi in watch Settings and retry. Unplugging does not stop manual mode. While charging still requires Wi-Fi, external power and running WearTAK; it uses a dim screen and enables wireless debugging with a secure settings grant. Its choice survives unplugging, updates and restart. Switching Wi-Fi off stops the session. Cannot unlock the watch or keep it awake while powered off.</string>
+    <string name="debug_stay_awake_wifi_enable_failed">Stay awake is off. Android could not enable Wi-Fi. Turn on Wi-Fi in watch Settings, then retry. Secure settings permission does not authorize Wi-Fi activation.</string>
     <string name="debug_stay_awake_channel">Debug stay awake</string>
     <string name="debug_stay_awake_stop">Stop</string>
     <string name="debug_stay_awake_failed">Stay awake is enabled but could not start. Open WearTAK to retry. See debug logs.</string>

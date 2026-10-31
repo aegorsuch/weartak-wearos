@@ -289,7 +289,8 @@
     <string name="debug_wireless_grant">信頼できるコンピューターで一度だけ設定してください:\nadb shell pm grant %1$s android.permission.WRITE_SECURE_SETTINGS\nその後、この画面を開き直してください。ファームウェアによってはワイヤレスデバッグが引き続きブロックされる場合があります。</string>
     <string name="debug_stay_awake_running">実行中</string>
     <string name="debug_stay_awake_waiting">有効・未実行</string>
-    <string name="debug_stay_awake_details">どちらのモードもWi-Fiと外部電源が必要です。スリープ防止は明るい画面を使用し、充電器を外すとオフになります。充電中モードは画面を暗くし、WearTAKの実行中にセキュア設定の権限があればワイヤレスデバッグを有効にします。選択は充電器の取り外し、更新、再起動後も保持されます。充電中は手動のスリープ防止が優先されます。Wi-Fiをオフにするとセッションが停止します。時計のロック解除や、電源オフ時のスリープ防止はできません。</string>
+    <string name="debug_stay_awake_details">手動のスリープ防止が優先され、バッテリーでも充電中でも明るい画面を使用します。Wi-Fiの有効化を要求し、最大20秒待ちます。Androidが拒否した場合は時計の設定でWi-Fiをオンにして再試行してください。充電器を外しても手動モードは停止しません。充電中モードには引き続きWi-Fi、外部電源、WearTAKの実行が必要です。画面を暗くし、セキュア設定の権限でワイヤレスデバッグを有効にします。選択は充電器の取り外し、更新、再起動後も保持されます。Wi-Fiをオフにするとセッションが停止します。時計のロック解除や、電源オフ時のスリープ防止はできません。</string>
+    <string name="debug_stay_awake_wifi_enable_failed">スリープ防止はオフです。AndroidでWi-Fiを有効にできませんでした。時計の設定でWi-Fiをオンにして再試行してください。セキュア設定の権限ではWi-Fiの有効化は許可されません。</string>
     <string name="debug_stay_awake_requires_wifi">スリープ防止はオフです。有効にする前にWi-Fiをオンにしてください。</string>
     <string name="debug_stay_awake_requires_power">スリープ防止はオフです。有効にする前に時計を充電器に接続してください。</string>
     <string name="network_control_bonded">ペアリング済み</string>
