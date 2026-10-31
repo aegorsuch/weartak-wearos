@@ -227,14 +227,22 @@ android {
                 test.systemProperty 'robolectric.dependency.repo.username', gradle.ext.takArtifactoryUser
                 test.systemProperty 'robolectric.dependency.repo.password', gradle.ext.takArtifactoryPassword
             }
-            // Robolectric writes a download-lock file under user.home; override to a
-            // writable build dir so tests work under sandboxed/CI environments where the
-            // default home is read-only.
-            def roboHome = file("${buildDir}/test-home")
+            // Keep the shared Maven cache AND download lock across local worktrees.
+            // Sandboxed/CI homes may be read-only; retain the build-local fallback.
+            def realHome = new File(System.getProperty('user.home'))
+            def mavenDirs = [realHome, new File(realHome, '.m2'),
+                             new File(realHome, '.m2/repository')]
+            def downloadLock = new File(realHome, '.robolectric-download-lock')
+            def sharedHomeUsable = realHome.isDirectory() && mavenDirs.every {
+                !it.exists() || (it.isDirectory() && it.canRead() && it.canWrite())
+            } && (!downloadLock.exists() || (downloadLock.isFile() && downloadLock.canWrite()))
+            def roboHome = sharedHomeUsable ? realHome : file("${buildDir}/test-home")
             test.systemProperty 'user.home', roboHome.absolutePath
             test.environment 'HOME', roboHome.absolutePath
             test.doFirst {
-                roboHome.mkdirs()
+                if (!roboHome.isDirectory() && !roboHome.mkdirs()) {
+                    throw new GradleException("Cannot create Robolectric home: ${roboHome}")
+                }
             }
         }
     }
