@@ -8,6 +8,7 @@ import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 
 internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
+    BATDOK(R.drawable.batdok),
     COMMANDS(R.drawable.ic_commands_megaphone),
     COMPANION(R.drawable.weartak_companion_plugin),
     CRM(R.drawable.ic_plugin_gauge),

@@ -23,6 +23,7 @@ import java.io.File
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class IntegrationIconsTest {
     private val expected = linkedMapOf(
+        BuiltInPlugin.BATDOK to R.drawable.batdok,
         BuiltInPlugin.COMMANDS to R.drawable.ic_commands_megaphone,
         BuiltInPlugin.COMPANION to R.drawable.weartak_companion_plugin,
         BuiltInPlugin.CRM to R.drawable.ic_plugin_gauge,
