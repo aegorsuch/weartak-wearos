@@ -11,6 +11,8 @@ object HostServicesContract {
 
     const val KEY_VERSION = "version"
     const val KEY_MAP_ACTIONS = "mapActions"
+    const val KEY_ACTIVE_BLOODHOUND_UID = "activeBloodhoundUid"
+    const val KEY_RETURN_TO_MAIN = "returnToMain"
     const val KEY_TAK_HTTPS = "takHttps"
     const val KEY_STATUS = "status"
     const val KEY_MESSAGE = "message"
@@ -30,6 +32,7 @@ object HostServicesContract {
     const val KEY_HTTP_STATUS = "httpStatus"
 
     const val ACTION_BLOODHOUND = "bloodhound"
+    const val ACTION_STOP_BLOODHOUND = "bloodhound.stop"
     const val ACTION_TARGET = "target"
     const val OK = "ok"
     const val INVALID_REQUEST = "invalid_request"

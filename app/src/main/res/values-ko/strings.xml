@@ -237,7 +237,7 @@
     <string name="vehicle_reporting_interval">Vehicle Reporting Interval</string>
     <string name="while_alerting_reporting_interval">While Alerting Reporting Interval</string>
     <string name="constant_reporting_interval">Constant Reporting Interval</string>
-    <string name="send_sms_over_alerts">Send SMS Over Alerts</string>
+    <string name="send_sms_over_alerts">Send Alerts over SMS</string>
     <string name="using_client_certificate">Using client certificate</string>
     <string name="environmental_alerts">Environmental Alerts</string>
     <string name="heart_rate_alerts">Heart Rate Alerts</string>

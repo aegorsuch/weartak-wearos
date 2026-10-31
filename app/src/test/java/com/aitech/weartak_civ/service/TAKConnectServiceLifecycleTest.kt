@@ -85,6 +85,9 @@ class TAKConnectServiceLifecycleTest {
         MainActivity.mainActivity = activity
         repository = mockk(relaxed = true)
         MainActivity.dataRepository = repository
+        coEvery { repository.awaitTakServerList() } coAnswers {
+            checkNotNull(repository.tryAwaitTakServerList()) { "Fixture store unavailable" }
+        }
         coEvery { repository.tryAwaitTakServerList() } returns listOf(
             DataRepository.TakServerItem(
                 true, "Test", "tak.example.invalid", 8089, false,

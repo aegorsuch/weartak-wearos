@@ -109,4 +109,32 @@ class HostServicesRequestsTest {
             assertThrows(IllegalArgumentException::class.java) { PluginMapRequest.parse(request) }
         }
     }
+
+    @Test fun stopUsesOnlyUidAndReturnHomeIsStrictlyOptInToStart() {
+            val stop = Bundle().apply {
+                putString(C.KEY_ACTION, C.ACTION_STOP_BLOODHOUND)
+                putString(C.KEY_UID, "incident")
+            }
+            assertFalse(PluginMapRequest.parse(stop).returnToMain)
+            listOf(
+                Bundle(stop).apply { remove(C.KEY_UID) },
+                Bundle(stop).apply { putString(C.KEY_LABEL, "Incident") },
+                Bundle(stop).apply { putDouble(C.KEY_LATITUDE, 38.0); putDouble(C.KEY_LONGITUDE, -77.0) },
+                Bundle(stop).apply { putBoolean(C.KEY_RETURN_TO_MAIN, true) },
+                Bundle(stop).apply {
+                    putString(C.KEY_ACTION, C.ACTION_BLOODHOUND)
+                    putString(C.KEY_RETURN_TO_MAIN, "true")
+                },
+                Bundle(stop).apply {
+                    putString(C.KEY_ACTION, C.ACTION_TARGET)
+                    putBoolean(C.KEY_RETURN_TO_MAIN, false)
+                },
+            ).forEach {
+                assertThrows(IllegalArgumentException::class.java) { PluginMapRequest.parse(it) }
+            }
+            assertTrue(PluginMapRequest.parse(Bundle(stop).apply {
+                putString(C.KEY_ACTION, C.ACTION_BLOODHOUND)
+                putBoolean(C.KEY_RETURN_TO_MAIN, true)
+            }).returnToMain)
+    }
 }

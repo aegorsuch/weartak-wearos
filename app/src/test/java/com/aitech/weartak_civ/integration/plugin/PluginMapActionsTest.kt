@@ -69,6 +69,45 @@ class PluginMapActionsTest {
         assertEquals("Incident", bloodhound.bloodhoundMap.value[uid]!!.target.name)
         assertEquals(38.0, bloodhound.bloodhoundMap.value[uid]!!.target.point.lat, 0.0)
         verify { requestBloodhoundComplicationUpdate(app) }
+        verify(exactly = 0) { app.startActivity(any()) }
+    }
+
+    @Test fun incidentStartReturnsHomeWithoutStoppingTrackingAndStopStaysOnPage() = runBlocking {
+        val activation = async(start = CoroutineStart.UNDISPATCHED) {
+            bloodhound.requestActivateBloodhound.first().also { bloodhound.activate(it) }
+        }
+        assertEquals(C.OK, actions.execute(PluginMapRequest(
+            C.ACTION_BLOODHOUND, "incident", "Incident", 38.0, -77.0, returnToMain = true,
+        )).getString(C.KEY_STATUS))
+        val uid = activation.await()
+        assertEquals(uid, bloodhound.activeUid.value)
+        assertEquals("incident", actions.activeIncidentUid())
+        val intent = slot<Intent>()
+        verify(exactly = 1) { app.startActivity(capture(intent)) }
+        assertEquals(com.aitech.weartak_civ.presentation.MainActivity::class.java.name,
+            intent.captured.component!!.className)
+        assertTrue(intent.captured.flags and Intent.FLAG_ACTIVITY_CLEAR_TOP != 0)
+        assertEquals(C.OK, actions.execute(PluginMapRequest(
+            C.ACTION_STOP_BLOODHOUND, "incident", null, null, null,
+        )).getString(C.KEY_STATUS))
+        assertNull(bloodhound.activeUid.value)
+        assertNull(actions.activeIncidentUid())
+        assertTrue(bloodhound.bloodhoundMap.value.containsKey(uid))
+        verify(exactly = 1) { app.startActivity(any()) }
+    }
+
+    @Test fun stopCannotAffectAnotherIncidentPluginOrContactAndNeedsNoLiveLocation() {
+        val now = System.currentTimeMillis()
+        for (uid in listOf("contact", "plugin:other:incident", "plugin:com.example.plugin:other")) {
+            bloodhound.addMarkerTarget(uid, "Other", "a-f-G", 38.0, -77.0, now)
+            bloodhound.activate(uid)
+            assertEquals(C.NOT_FOUND, actions.execute(PluginMapRequest(
+                C.ACTION_STOP_BLOODHOUND, "incident", null, null, null,
+            )).getString(C.KEY_STATUS))
+            assertEquals(uid, bloodhound.activeUid.value)
+            if (!uid.startsWith("plugin:com.example.plugin:")) assertNull(actions.activeIncidentUid())
+        }
+        verify(exactly = 0) { app.startActivity(any()) }
     }
 
     @Test fun uidContactKeepsSourceAndMovingContactTracking() = runBlocking {
@@ -93,6 +132,11 @@ class PluginMapActionsTest {
         assertEquals(C.UNAVAILABLE, actions.execute(
             PluginMapRequest(C.ACTION_BLOODHOUND, "incident", null, 38.0, -77.0)).getString(C.KEY_STATUS))
         assertTrue(bloodhound.bloodhoundMap.value.isEmpty())
+        verify(exactly = 0) { app.startActivity(any()) }
+        assertEquals(C.UNAVAILABLE, actions.execute(
+            PluginMapRequest(C.ACTION_BLOODHOUND, "incident", null, 38.0, -77.0, true))
+            .getString(C.KEY_STATUS))
+        verify(exactly = 0) { app.startActivity(any()) }
     }
 
     @Test fun existingBloodhoundUidResolvesEvenWithoutCurrentSourceLocation() {

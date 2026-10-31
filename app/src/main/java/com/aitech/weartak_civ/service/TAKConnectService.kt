@@ -544,13 +544,16 @@ class TAKConnectService: Service() {
     suspend fun registerServer(serverId: String) {
         reloadProvisionedTakServers(registrationServerId = serverId)
 
-        val detail = getTakServerDetail(serverId)
-            ?: error("Saved TAK server is unavailable")
+        val detail = serverRegistration.atStep(TakServerRegistration.Step.DETAIL_LOOKUP) {
+            getTakServerDetail(serverId) ?: error("Saved TAK server is unavailable")
+        }
 
-        synchronized(detail.runtime.lock) {
-            serverRegistration.bind(detail.serverId, detail)
-            detail.numConnAttempts = 0
-            getClientCertificateAndConnect(detail)
+        serverRegistration.atStep(TakServerRegistration.Step.CONNECTION_DISPATCH) {
+            synchronized(detail.runtime.lock) {
+                serverRegistration.bind(detail.serverId, detail)
+                detail.numConnAttempts = 0
+                getClientCertificateAndConnect(detail)
+            }
         }
     }
 
@@ -558,9 +561,13 @@ class TAKConnectService: Service() {
         registrationServerId: String? = null,
         retryFailed: Boolean = false,
     ) = configurationMutex.withLock {
-        val storedServers = dataRepository.tryAwaitTakServerList()
-            ?: error("Persisted TAK server list is unavailable")
-        reconcileTakServers(storedServers, registrationServerId, retryFailed)
+        val storedServers = serverRegistration.atStep(TakServerRegistration.Step.PERSISTED_LIST_RELOAD) {
+            if (registrationServerId != null) dataRepository.awaitTakServerList()
+            else dataRepository.tryAwaitTakServerList() ?: error("Persisted TAK server list is unavailable")
+        }
+        serverRegistration.atStep(TakServerRegistration.Step.RUNTIME_RECONCILIATION) {
+            reconcileTakServers(storedServers, registrationServerId, retryFailed)
+        }
     }
 
     private suspend fun reconcileTakServers(
@@ -572,7 +579,9 @@ class TAKConnectService: Service() {
         val retainedIds = mutableSetOf<String>()
         var replacedCount = 0
         val refreshed = storedServers.map { stored ->
-            val serverId = requireNotNull(TakServerId.normalizeOrNull(stored.serverId))
+            val serverId = serverRegistration.atStep(TakServerRegistration.Step.ID_NORMALIZATION) {
+                requireNotNull(TakServerId.normalizeOrNull(stored.serverId))
+            }
             retainedIds += serverId
             val previous = previousById[serverId]
             val approvedCa = dataRepository.getApprovedServerCa(serverId, stored.address, stored.port)

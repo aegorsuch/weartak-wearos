@@ -249,6 +249,9 @@ class PluginConnectionBindTrustTest {
         assertEquals(0, plugin.initializePluginCalls)
         assertTrue(plugin.lastInit!!.hostExtras.getBoolean(HostControlImpl.HOST_EXTRA_COT_ROUTING_V1))
         assertTrue(plugin.lastInit!!.hostExtras.getBoolean(HostControlImpl.HOST_EXTRA_CHAT_DISPATCH_V1))
+        assertEquals(com.weartak.plugin.sdk.MainUiActionContract.PRESENTATION_VERSION,
+            plugin.lastInit!!.hostExtras.getInt(
+                com.weartak.plugin.sdk.MainUiActionContract.HOST_PRESENTATION_VERSION_KEY))
         org.junit.Assert.assertNotNull(
             com.weartak.plugin.sdk.host.v1.HostServicesContract.fromHostExtras(plugin.lastInit!!.hostExtras)
         )

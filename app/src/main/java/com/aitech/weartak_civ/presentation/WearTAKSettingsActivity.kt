@@ -4702,6 +4702,8 @@ fun WearTakScreenDimensions(
     rowContent: @Composable () -> Unit,
     text: String,
     titleAction: (@Composable () -> Unit)? = null,
+    reserveBottomSpace: Boolean = true,
+    titleActionAtEnd: Boolean = false,
 ) {
     WearTAKCIVTheme {
         val listState = rememberScalingLazyListState()
@@ -4722,7 +4724,7 @@ fun WearTakScreenDimensions(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(bottom = 60.dp)
+                        .padding(bottom = if (reserveBottomSpace) 60.dp else 0.dp)
 //                        .fillMaxHeight(.7f)
                         .align(Alignment.TopCenter),
 
@@ -4745,6 +4747,7 @@ fun WearTakScreenDimensions(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center,
                                 modifier = Modifier
+                                    .then(if (titleActionAtEnd) Modifier.fillMaxWidth() else Modifier)
                                     .padding(horizontal = 10.dp)
                                     .padding(bottom = 8.dp)
                             ) {
@@ -4755,7 +4758,7 @@ fun WearTakScreenDimensions(
                                     maxLines = 1,
                                     softWrap = false,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    modifier = Modifier.weight(1f, fill = titleActionAtEnd)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 titleAction()

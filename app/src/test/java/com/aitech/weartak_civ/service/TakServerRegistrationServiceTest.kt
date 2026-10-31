@@ -37,6 +37,9 @@ import java.security.KeyStore
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+import java.util.logging.Handler
+import java.util.logging.LogRecord
+import java.util.logging.Logger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], manifest = Config.NONE, application = Application::class)
@@ -58,6 +61,9 @@ class TakServerRegistrationServiceTest {
         every { repository.isCompanionConnected } returns companionConnected
         every { repository.shouldSuppressWatchTransportNow() } answers { companionConnected.value }
         coEvery { repository.tryAwaitTakServerList() } answers { listOf(stored) }
+        coEvery { repository.awaitTakServerList() } coAnswers {
+            checkNotNull(repository.tryAwaitTakServerList()) { "Fixture store unavailable" }
+        }
         coEvery { repository.getApprovedServerCa(any(), any(), any()) } returns null
         // Online-path tests mock configuration transport; no test performs network I/O.
         TAKConnectService.isNetworkConnected = false
@@ -85,6 +91,69 @@ class TakServerRegistrationServiceTest {
             save = { TakServerRegistration.SaveResult.SAVED },
             connect = { TAKConnectService.getInstance().registerServer(serverId) },
         )
+    }
+
+    @Test fun registrationReadRetainsOriginalStoreFailureCause() {
+        val logs = mutableListOf<LogRecord>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) { logs.add(record) }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger("WearTAK-Registration")
+        logger.addHandler(handler)
+        try {
+            coEvery { repository.awaitTakServerList() } throws IllegalStateException(
+                "private-key password tak.example.invalid", java.io.IOException("cipher secret"))
+            register()
+            assertTrue(logs.last().message.contains("registrationStep=PERSISTED_LIST_RELOAD"))
+            assertTrue(logs.last().message.contains("StepFailure -> IllegalStateException -> IOException"))
+            assertNull(logs.last().thrown)
+            listOf("private-key", "password", "tak.example.invalid", "cipher secret").forEach {
+                assertFalse(logs.last().message.contains(it))
+            }
+            assertFalse(TAKConnectService.serverRegistration.state.value.isLoading)
+        } finally {
+            logger.removeHandler(handler)
+        }
+    }
+
+    @Test fun preTlsFailuresIdentifyPersistedReadNormalizationReconciliationAndLookup() {
+        val logs = mutableListOf<LogRecord>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) { logs.add(record) }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger("WearTAK-Registration")
+        logger.addHandler(handler)
+        try {
+            coEvery { repository.tryAwaitTakServerList() } returns null
+            register()
+            assertTrue(logs.last().message.contains("registrationStep=PERSISTED_LIST_RELOAD"))
+            coEvery { repository.tryAwaitTakServerList() } returns listOf(stored.copy(serverId = null))
+            register()
+            assertTrue(logs.last().message.contains("registrationStep=ID_NORMALIZATION"))
+            coEvery { repository.tryAwaitTakServerList() } returns listOf(stored)
+            coEvery { repository.getApprovedServerCa(any(), any(), any()) } throws
+                IllegalStateException("private-key password tak.example.invalid")
+            register()
+            assertTrue(logs.last().message.contains("registrationStep=RUNTIME_RECONCILIATION"))
+            coEvery { repository.getApprovedServerCa(any(), any(), any()) } returns null
+            coEvery { repository.tryAwaitTakServerList() } returns emptyList()
+            register()
+            assertTrue(logs.last().message.contains("registrationStep=DETAIL_LOOKUP"))
+            assertTrue(logs.last().message.contains("IllegalStateException"))
+            assertFalse(TAKConnectService.serverRegistration.state.value.isLoading)
+            logs.forEach {
+                assertNull(it.thrown)
+                listOf("private-key", "password", "tak.example.invalid", serverId).forEach { secret ->
+                    assertFalse(it.message.contains(secret))
+                }
+            }
+        } finally {
+            logger.removeHandler(handler)
+        }
     }
 
     @Test fun addWithoutNetworkTerminatesSpinnerWithConnectivityFailure() {

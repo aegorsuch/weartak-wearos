@@ -401,6 +401,36 @@ If a loaded plugin advertises the SDK `hostedMainUi` capability, tapping its row
 page from its main UI schema; otherwise, tapping opens the plugin's launcher activity. Hosted pages render
 SDK `STATUS`, `KEY_VALUE_LIST`, and `ACTION` cards. Actions run only after a wearer tap. Host does not
 define plugin-specific controls or collect secret text input. Swipe the row to access remove and info.
+The host advertises `com.weartak.hostedUi.actionPresentationVersion = 1` (an Int) in
+`PluginInitParcel.hostExtras`. Only after that advertisement may plugins send optional ACTION
+presentation fields: `actionPresentation` (`TEXT`/`ICON`), `actionIcon`
+(`NOTE`/`BLOODHOUND`/`STOP`/`TARGET`/`BACK`), `actionPlacement` (`BODY`/`HEADER_END`),
+`actionGroup`, and `showTitle`. Without it, use the original four-key text-action content.
+Visible text defaults remain unchanged. `actionLabel` always remains a required accessibility label;
+semantic card titles remain required even when `showTitle = false` suppresses them.
+ICON actions require `showTitle = false` and use the same 48dp buttons/22dp icons as map contact
+actions. Consecutive BODY icons with the same group share a centered row (up to three per row);
+place an incident's action group before detail cards to show it at the top.
+At most one HEADER_END action is allowed: ICON/BACK, without a group. It appears at the top right
+and replaces the bottom host back control. BODY text actions can suppress just their title,
+avoiding separator-only cards in server pickers. Invalid fields or combinations reject the page
+explicitly; argument validation and credential-key rejection still apply.
+Non-action STATUS/KEY_VALUE_LIST titles are bold accessible headings; subtitles remain normal text.
+Plugins can use these cards for fields such as Address, Responders, and Summary without markup.
+
+Plugin host services expose the calling plugin's active incident UID and an ownership-checked
+`bloodhound.stop` action; Bloodhound start can opt in to returning to WearTAK main.
+See [the host-services contract](weartak-plugin-host-services-sdk/README.md).
+Debug emulator previews hide the bottom DEV badge on Android emulator hardware
+(`ranchu`/`goldfish`); physical debug builds keep it and release branding is unchanged.
+For an x86_64 Wear OS emulator, build explicit debug tasks with
+`-PweartakEmulatorAbi=x86_64`; normal/release ABI packaging remains unchanged.
+For an ARM64 diagnostics dev APK, use `-PweartakDebugAbi=arm64-v8a` with explicit debug
+tasks. The debug ABI option also accepts `x86_64`; do not combine it with the emulator option.
+Neither override permits release or broad build tasks.
+The optional `HostedTakCadEmulatorTest` requires the TAK CAD debug plugin installed on the emulator.
+It uses a test-only in-process, read-only incident response and the host activation request lane,
+with no real server calls or sensor requirements.
 Plugins without a launchable activity (or whose activity cannot be opened) reveal those actions on tap instead.
 Opening an activity does not load the plugin.
 Plugin authors can override the menu subtitle by placing this metadata **inside the plugin's

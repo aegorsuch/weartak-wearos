@@ -23,6 +23,7 @@ internal class HostServicesV1Impl(
     private val mapAction: (PluginMapRequest) -> Bundle = PluginMapActions(app, pluginPackage)::execute,
     private val servers: () -> List<PluginTakServer> = { TAKConnectService.pluginRestServers() },
     private val endpoint: (String?) -> PluginTakHttpClient = { TAKConnectService.pluginRestClient(it) },
+    private val activeIncidentUid: () -> String? = PluginMapActions(app, pluginPackage)::activeIncidentUid,
 ) : IWearTakHostServices.Stub() {
     private val lock = Any()
     private var closed = false
@@ -32,7 +33,9 @@ internal class HostServicesV1Impl(
     override fun getCapabilities(): Bundle = guarded {
         C.result(C.OK).apply {
             putInt(C.KEY_VERSION, C.VERSION)
-            putStringArrayList(C.KEY_MAP_ACTIONS, arrayListOf(C.ACTION_BLOODHOUND, C.ACTION_TARGET))
+            putStringArrayList(C.KEY_MAP_ACTIONS,
+                arrayListOf(C.ACTION_BLOODHOUND, C.ACTION_TARGET, C.ACTION_STOP_BLOODHOUND))
+            activeIncidentUid()?.let { putString(C.KEY_ACTIVE_BLOODHOUND_UID, it) }
             putBoolean(C.KEY_TAK_HTTPS, true)
             putParcelableArrayList(C.KEY_SERVERS, ArrayList(servers().map { server ->
                 Bundle().apply {

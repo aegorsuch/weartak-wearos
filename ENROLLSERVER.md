@@ -53,6 +53,18 @@ storage, **not** successful certificate enrollment or connection. Failures use
 credential-free reasons. The credential-free path posts the existing on-watch
 prompt instead. Credentials are never placed in that prompt or its intent.
 
+Registration failure logs distinguish the save and connect phases and retain a bounded
+exception-type cause chain. Connect setup also records an allowlisted `registrationStep`:
+`SERVICE_INSTANCE`, `PERSISTED_LIST_RELOAD`, `ID_NORMALIZATION`, `RUNTIME_RECONCILIATION`,
+`DETAIL_LOOKUP`, or `CONNECTION_DISPATCH`. Nested setup failures retain the innermost step;
+these markers distinguish local setup from asynchronous enrollment/transport failures.
+Registration uses the strict persisted-list reader so a decrypt/read failure keeps its original
+cause instead of becoming a generic unavailable-list exception.
+Structured enrollment failures preserve their stage, category,
+and HTTP status even when wrapped by a setup exception. These logs do not include exception
+messages, throwable stack traces, server identifiers/addresses, credentials, or certificate/key
+contents. Registration still terminates explicitly on failure; TLS and certificate checks are unchanged.
+
 ## Secret handling and limits
 
 Enrollment commands, including disabled, malformed and refused requests, are

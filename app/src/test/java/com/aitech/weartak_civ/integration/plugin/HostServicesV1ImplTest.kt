@@ -30,8 +30,9 @@ class HostServicesV1ImplTest {
         uid: Int = Process.myUid(),
         map: (PluginMapRequest) -> Bundle = { C.result(C.OK) },
         endpoint: (String?) -> PluginTakHttpClient = { error("Unavailable") },
+        activeUid: () -> String? = { null },
     ) = HostServicesV1Impl(mockk<WearTakApplication>(), "plugin", uid, map,
-        { listOf(PluginTakServer("server", "Server")) }, endpoint)
+        { listOf(PluginTakServer("server", "Server")) }, endpoint, activeUid)
 
     private fun request() = Bundle().apply {
         putString(C.KEY_PATH, "${C.REST_PREFIX}test/submit")
@@ -51,13 +52,25 @@ class HostServicesV1ImplTest {
             val discovered = C.fromHostExtras(parcel.readBundle()!!)!!
             assertEquals(C.VERSION, discovered.capabilities.getInt(C.KEY_VERSION))
             assertTrue(discovered.capabilities.getBoolean(C.KEY_TAK_HTTPS))
-            assertEquals(listOf(C.ACTION_BLOODHOUND, C.ACTION_TARGET),
+            assertEquals(listOf(C.ACTION_BLOODHOUND, C.ACTION_TARGET, C.ACTION_STOP_BLOODHOUND),
                 discovered.capabilities.getStringArrayList(C.KEY_MAP_ACTIONS))
         } finally {
             parcel.recycle()
         }
+
         extras.putInt(C.EXTRA_VERSION, 2)
         assertNull(C.fromHostExtras(extras))
+    }
+
+    @Test fun discoveryPublishesLiveOwnedIncidentStateAndHidesItAfterClose() {
+            var active: String? = "incident"
+            val service = service(activeUid = { active })
+            assertEquals("incident", service.capabilities.getString(C.KEY_ACTIVE_BLOODHOUND_UID))
+            active = null
+            assertFalse(service.capabilities.containsKey(C.KEY_ACTIVE_BLOODHOUND_UID))
+            service.close()
+            active = "incident"
+            assertFalse(service.capabilities.containsKey(C.KEY_ACTIVE_BLOODHOUND_UID))
     }
 
     @Test fun remoteProxyMarshalsRequestAndResponseBundles() {

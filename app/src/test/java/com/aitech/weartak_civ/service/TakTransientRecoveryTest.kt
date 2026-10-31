@@ -56,6 +56,9 @@ class TakTransientRecoveryTest {
             every { shouldSuppressWatchTransportNow() } answers { companion.value }
             coEvery { getApprovedServerCa(any(), any(), any()) } returns null
         }
+        coEvery { MainActivity.dataRepository.awaitTakServerList() } coAnswers {
+            checkNotNull(MainActivity.dataRepository.tryAwaitTakServerList()) { "Fixture store unavailable" }
+        }
         oldScope = scopeField.get(null)
         oldStopping = TAKConnectService.serviceStopping
         oldNetwork = TAKConnectService.isNetworkConnected
