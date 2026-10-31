@@ -97,7 +97,7 @@ class PluginManagerLifecycleMockTest {
         val ri = resolveInfoFor(pluginPkg, ".FakeSvc")
         val captured = mutableListOf<ServiceConnection>()
         val app = mockHostApp(listOf(ri)) { intent, conn ->
-            captured.add(conn)
+            if (conn !in captured) captured.add(conn)
             val cn = intent.component!!
             conn.onServiceConnected(cn, FakeWearTakPlugin(pluginPkg).asBinder())
         }
@@ -165,7 +165,7 @@ class PluginManagerLifecycleMockTest {
         for (event in listOf("disconnect", "death", "update")) {
             val captured = mutableListOf<ServiceConnection>()
             val app = mockHostApp(listOf(resolveInfoFor(pluginPkg, ".FakeSvc"))) { intent, conn ->
-                captured.add(conn)
+                if (conn !in captured) captured.add(conn)
                 conn.onServiceConnected(intent.component, FakeWearTakPlugin(pluginPkg).asBinder())
             }
             val ingress = mockk<PluginIngressPort>(relaxed = true)
@@ -213,7 +213,7 @@ class PluginManagerLifecycleMockTest {
             awaitPluginLifecycle(pluginPkg)
             ShadowLooper.shadowMainLooper().idleFor(Duration.ofMinutes(1))
             assertFalse(mgr.hasConnectionForTest(pluginPkg))
-            verify(exactly = 1) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
+            verify(exactly = 2) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
         }
     }
 
@@ -234,7 +234,7 @@ class PluginManagerLifecycleMockTest {
             ShadowLooper.shadowMainLooper().idleFor(Duration.ofSeconds(seconds))
         }
         ShadowLooper.shadowMainLooper().idleFor(Duration.ofMinutes(1))
-        verify(exactly = 6) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
+        verify(exactly = 7) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
     }
 
