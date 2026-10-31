@@ -280,6 +280,8 @@ class PluginConnection(
             hostUid = android.os.Process.myUid(),
             pluginIdExpected = pluginPackage,
             hostExtras = android.os.Bundle().apply {
+                putInt(com.weartak.plugin.sdk.MainUiActionContract.HOST_PRESENTATION_VERSION_KEY,
+                    com.weartak.plugin.sdk.MainUiActionContract.PRESENTATION_VERSION)
                 putInt(HostServicesContract.EXTRA_VERSION, HostServicesContract.VERSION)
                 putBinder(HostServicesContract.EXTRA_BINDER, services.asBinder())
                 putBoolean(HostControlImpl.HOST_EXTRA_COT_ROUTING_V1, true)

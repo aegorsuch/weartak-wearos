@@ -108,8 +108,27 @@ If the Bloodhound service is stopped, returns `unavailable`, with no new target.
 to that location. Android foreground restrictions can still govern activity display.
 Both methods return the resolved `uid` on `ok`.
 
-No hosted ACTION-card schema, icon rendering, vehicle identity, vehicle selection
-or incident-prioritization capability is added. Existing ACTION cards can dispatch
+Hosts supporting incident toggles advertise `bloodhound.stop` in `mapActions`.
+On those hosts, `getCapabilities()` includes optional String `activeBloodhoundUid`,
+the original supplied UID with the calling plugin's `plugin:<package>:` prefix removed,
+only when that plugin owns the active target. Other plugins' targets and host contacts
+are not exposed. Refresh capabilities on resume/schema refresh; active tracking can change elsewhere.
+
+To stop, send only `{action: "bloodhound.stop", uid: "<original-incident-uid>"}`.
+Stopping requires that exact plugin-owned target to be currently active; otherwise returns
+`not_found`, without stopping another incident, contact, or plugin target. Coordinates and
+labels are forbidden on stop. Successful stop retains the target record, updates complications,
+and does not navigate away. It does not alter CAD responding/assignment status.
+
+Bloodhound start may additionally send Boolean `returnToMain = true` to launch/reuse
+WearTAK's main screen after activation is requested. Default false preserves existing callers.
+Gate this field on the same `bloodhound.stop` capability: old hosts reject unknown request keys.
+Only Bloodhound start accepts it; target and stop do not. Invalid locations, unknown targets,
+or a stopped Bloodhound service do not navigate away. An Android activity-launch failure returns
+an explicit failure; activation already requested is not silently undone.
+
+No vehicle identity, vehicle selection or incident-prioritization capability is added.
+Existing ACTION cards can dispatch
 to plugin code, which calls this extension. Do not treat watch UID/callsign as a
 CAD vehicle identifier.
 
@@ -118,7 +137,9 @@ actions, including `takcad.incidents.refresh`, `takcad.server.next`,
 `takcad.bloodhound` and `takcad.target`; `incidentId` is a string argument inside
 `actionArgsJson`. These are **plugin UI action IDs**, not map bridge action values.
 The plugin resolves that incident and invokes the bridge with coordinates/UID.
-Hosted cards render text action labels, not arbitrary plugin-provided icons.
+Matching presentation-capable hosts render SDK-enumerated icons (including BLOODHOUND and STOP),
+not arbitrary plugin-provided assets. Retain accessible action labels. This presentation capability
+is separately advertised through the core SDK's `PluginInitParcel.hostExtras`.
 
 ## Authenticated TAK plugin REST
 

@@ -9,13 +9,16 @@ internal data class PluginMapRequest(
     val label: String?,
     val latitude: Double?,
     val longitude: Double?,
+    val returnToMain: Boolean = false,
 ) {
     companion object {
         fun parse(bundle: Bundle): PluginMapRequest {
             require(bundle.keySet().all { it in setOf(C.KEY_ACTION, C.KEY_UID, C.KEY_LABEL,
-                C.KEY_LATITUDE, C.KEY_LONGITUDE) }) { "Unknown map request field" }
-            val action = bundle.string(C.KEY_ACTION)
-            require(action == C.ACTION_TARGET || action == C.ACTION_BLOODHOUND) { "Unknown map action" }
+                C.KEY_LATITUDE, C.KEY_LONGITUDE, C.KEY_RETURN_TO_MAIN) }) { "Unknown map request field" }
+            val action = requireNotNull(bundle.string(C.KEY_ACTION)) { "Action required" }
+            require(action in setOf(C.ACTION_TARGET, C.ACTION_BLOODHOUND, C.ACTION_STOP_BLOODHOUND)) {
+                "Unknown map action"
+            }
             val uid = bundle.string(C.KEY_UID)?.also {
                 require(it.isNotBlank() && it.length <= 256) { "Invalid UID" }
             }
@@ -28,7 +31,14 @@ internal data class PluginMapRequest(
             require(lat == null || (lat.isFinite() && lat in -90.0..90.0 &&
                 lon != null && lon.isFinite() && lon in -180.0..180.0)) { "Invalid location" }
             require(uid != null || lat != null) { "UID or location required" }
-            return PluginMapRequest(action, uid, label, lat, lon)
+            if (action == C.ACTION_STOP_BLOODHOUND) {
+                require(uid != null && lat == null && label == null) { "Stop requires only an incident UID" }
+            }
+            val returnToMain = bundle.boolean(C.KEY_RETURN_TO_MAIN) ?: false
+            require(!bundle.containsKey(C.KEY_RETURN_TO_MAIN) || action == C.ACTION_BLOODHOUND) {
+                "Return to main is only supported for Bloodhound start"
+            }
+            return PluginMapRequest(action, uid, label, lat, lon, returnToMain)
         }
     }
 }
@@ -86,5 +96,13 @@ private fun Bundle.string(key: String): String? {
 private fun Bundle.double(key: String): Double? {
     val value = get(key) ?: return null
     require(value is Double) { "$key must be a Double" }
+    return value
+}
+
+@Suppress("DEPRECATION")
+private fun Bundle.boolean(key: String): Boolean? {
+    if (!containsKey(key)) return null
+    val value = get(key)
+    require(value is Boolean) { "$key must be a Boolean" }
     return value
 }

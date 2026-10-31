@@ -1,15 +1,11 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import android.os.Bundle
+import com.weartak.plugin.sdk.MainUiActionContract
 import com.weartak.plugin.sdk.model.MainUiCardTypes
 import com.weartak.plugin.sdk.model.PluginMainUiSchemaParcel
-import com.weartak.plugin.sdk.validation.BundleContractValidator
 import com.weartak.plugin.sdk.validation.ContractValidationResult
 import com.weartak.plugin.sdk.validation.MainUiSchemaContractValidator
-import org.json.JSONException
-import org.json.JSONObject
-import org.json.JSONTokener
-import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 internal data class HostedPluginMainUiCard(
@@ -25,6 +21,11 @@ internal data class HostedPluginMainUiAction(
     val actionLabel: String,
     val enabled: Boolean,
     val args: Bundle,
+    val actionPresentation: String = MainUiActionContract.TEXT,
+    val actionIcon: String? = null,
+    val actionPlacement: String = MainUiActionContract.BODY,
+    val actionGroup: String? = null,
+    val showTitle: Boolean = true,
 )
 
 internal sealed interface HostedPluginMainUiResult {
@@ -36,13 +37,6 @@ internal sealed interface HostedPluginMainUiResult {
 
 internal object HostedPluginMainUiContract {
     private const val ACTION_CARD_TYPE = "ACTION"
-    private const val ACTION_ID = "actionId"
-    private const val ACTION_LABEL = "actionLabel"
-    private const val ACTION_ENABLED = "enabled"
-    private const val ACTION_ARGS_JSON = "actionArgsJson"
-    private const val MAX_ACTION_ID_BYTES = 128
-    private const val MAX_ACTION_LABEL_BYTES = 256
-    private val actionContentKeys = setOf(ACTION_ID, ACTION_LABEL, ACTION_ENABLED, ACTION_ARGS_JSON)
 
     fun parse(schema: PluginMainUiSchemaParcel): List<HostedPluginMainUiCard> {
         val validated = when (
@@ -81,60 +75,16 @@ internal object HostedPluginMainUiContract {
             .any(normalized::contains)
     }
 
-    @Suppress("DEPRECATION")
     private fun parseAction(content: Bundle): HostedPluginMainUiAction {
-        require(content.keySet().all { it in actionContentKeys }) {
-            "Unsupported hosted UI action content"
-        }
-        when (val result = BundleContractValidator.validateContentBundle(content)) {
-            is ContractValidationResult.Err -> throw IllegalArgumentException("Invalid hosted UI action content")
-            is ContractValidationResult.Ok -> Unit
-        }
-
-        val actionId = content.get(ACTION_ID)
-        val actionLabel = content.get(ACTION_LABEL)
-        val enabled = if (content.containsKey(ACTION_ENABLED)) content.get(ACTION_ENABLED) else true
-        val argsJson = if (content.containsKey(ACTION_ARGS_JSON)) content.get(ACTION_ARGS_JSON) else ""
-        require(
-            actionId is String && actionId.isNotBlank() &&
-                actionId.toByteArray(StandardCharsets.UTF_8).size <= MAX_ACTION_ID_BYTES
-        ) { "Invalid hosted UI action id" }
-        require(
-            actionLabel is String && actionLabel.isNotBlank() &&
-                actionLabel.toByteArray(StandardCharsets.UTF_8).size <= MAX_ACTION_LABEL_BYTES
-        ) { "Invalid hosted UI action label" }
-        require(enabled is Boolean) { "Invalid hosted UI action enabled flag" }
-        require(argsJson is String) { "Invalid hosted UI action arguments" }
-
-        val args = parseArgs(argsJson)
-        return HostedPluginMainUiAction(actionId, actionLabel, enabled, args)
-    }
-
-    private fun parseArgs(json: String): Bundle {
-        val args = Bundle()
-        if (json.isNotEmpty()) {
-            val parsed = try {
-                val tokener = JSONTokener(json)
-                val value = tokener.nextValue()
-                require(value is JSONObject && tokener.nextClean() == '\u0000') {
-                    "Hosted UI arguments must be a JSON object"
-                }
-                value
-            } catch (_: JSONException) {
-                throw IllegalArgumentException("Invalid hosted UI action JSON")
-            }
-            val keys = parsed.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val value = parsed.opt(key)
-                require(value is String) { "Hosted UI action arguments must be strings" }
-                args.putString(key, value)
+        return when (val result = MainUiActionContract.parseContent(content)) {
+            is ContractValidationResult.Err ->
+                throw IllegalArgumentException("Invalid hosted UI action content")
+            is ContractValidationResult.Ok -> result.value.let {
+                HostedPluginMainUiAction(
+                    it.actionId, it.actionLabel, it.enabled, it.args,
+                    it.actionPresentation, it.actionIcon, it.actionPlacement, it.actionGroup, it.showTitle,
+                )
             }
         }
-        when (val result = BundleContractValidator.validateContentBundle(args)) {
-            is ContractValidationResult.Err -> throw IllegalArgumentException("Invalid hosted UI action arguments")
-            is ContractValidationResult.Ok -> Unit
-        }
-        return args
     }
 }

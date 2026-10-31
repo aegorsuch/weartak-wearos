@@ -12,6 +12,12 @@ import com.weartak.plugin.sdk.host.v1.HostServicesContract as C
 import java.util.UUID
 
 internal class PluginMapActions(private val app: WearTakApplication, private val pluginPackage: String) {
+    private val targetPrefix = "plugin:$pluginPackage:"
+
+    fun activeIncidentUid(): String? = app.bhRepo.activeUid.value
+        ?.takeIf { it.startsWith(targetPrefix) }
+        ?.removePrefix(targetPrefix)
+
     private data class Target(
         val uid: String,
         val label: String,
@@ -24,6 +30,14 @@ internal class PluginMapActions(private val app: WearTakApplication, private val
     )
 
     fun execute(request: PluginMapRequest): Bundle {
+        if (request.action == C.ACTION_STOP_BLOODHOUND) {
+            val uid = request.uid ?: return C.result(C.INVALID_REQUEST, "Incident UID required")
+            if (!app.bhRepo.stopTracking("$targetPrefix$uid")) {
+                return C.result(C.NOT_FOUND, "Incident is not actively tracked")
+            }
+            requestBloodhoundComplicationUpdate(app)
+            return C.result(C.OK).apply { putString(C.KEY_UID, uid) }
+        }
         val target = resolve(request) ?: return C.result(C.NOT_FOUND, "UID has no known location")
         if (!target.lat.isFinite() || !target.lon.isFinite() ||
             target.lat !in -90.0..90.0 || target.lon !in -180.0..180.0) {
@@ -49,13 +63,19 @@ internal class PluginMapActions(private val app: WearTakApplication, private val
             }
             app.bhRepo.requestActivateBloodhound(target.uid)
             requestBloodhoundComplicationUpdate(app)
+            if (request.returnToMain) {
+                app.startActivity(Intent(app, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                })
+            }
         }
         return C.result(C.OK).apply { putString(C.KEY_UID, target.uid) }
     }
 
     private fun resolve(request: PluginMapRequest): Target? {
         if (request.latitude != null && request.longitude != null) {
-            return Target("plugin:$pluginPackage:${request.uid ?: UUID.randomUUID()}",
+            return Target("$targetPrefix${request.uid ?: UUID.randomUUID()}",
                 request.label ?: request.uid ?: pluginPackage, request.latitude, request.longitude)
         }
         val uid = request.uid ?: return null

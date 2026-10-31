@@ -112,13 +112,36 @@ internal fun MapActionIconButton(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
+    MapActionIconButton(icon, stringResource(description), enabled, onClick)
+}
+
+@Composable
+internal fun MapActionIconButton(
+    icon: Int,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    MapStyleActionButton(description, enabled, onClick) {
+        Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+internal fun MapStyleActionButton(
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    backgroundColor: Color = Color.DarkGray,
+    icon: @Composable () -> Unit,
+) {
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.size(48.dp),
+        modifier = Modifier.size(48.dp).semantics { contentDescription = description },
         colors = ButtonDefaults.buttonColors(
-            backgroundColor = Color.DarkGray, contentColor = Color.White)
+            backgroundColor = backgroundColor, contentColor = Color.White)
     ) {
-        Icon(painterResource(icon), stringResource(description), modifier = Modifier.size(22.dp))
+        icon()
     }
 }

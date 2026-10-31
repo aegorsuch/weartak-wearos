@@ -153,12 +153,25 @@ android {
     }
 
     def isBuildingBundle = gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }
+    def emulatorAbi = providers.gradleProperty("weartakEmulatorAbi").orNull
+    def debugAbi = providers.gradleProperty("weartakDebugAbi").orNull
+    def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last().toLowerCase() }
+    if (emulatorAbi != null && (emulatorAbi != "x86_64" ||
+            !requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakEmulatorAbi=x86_64 is supported only for explicit debug tasks.")
+    }
+    if (debugAbi != null && (emulatorAbi != null || !(debugAbi in ["x86_64", "arm64-v8a"]) ||
+            !requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakDebugAbi requires an explicit debug task and x86_64 or arm64-v8a; do not combine ABI properties.")
+    }
 
     splits {
         abi {
             enable !isBuildingBundle
             reset()
-            include "armeabi-v7a"
+            include debugAbi ?: emulatorAbi ?: "armeabi-v7a"
             universalApk false
         }
     }

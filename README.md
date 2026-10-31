@@ -401,6 +401,36 @@ If a loaded plugin advertises the SDK `hostedMainUi` capability, tapping its row
 page from its main UI schema; otherwise, tapping opens the plugin's launcher activity. Hosted pages render
 SDK `STATUS`, `KEY_VALUE_LIST`, and `ACTION` cards. Actions run only after a wearer tap. Host does not
 define plugin-specific controls or collect secret text input. Swipe the row to access remove and info.
+The host advertises `com.weartak.hostedUi.actionPresentationVersion = 1` (an Int) in
+`PluginInitParcel.hostExtras`. Only after that advertisement may plugins send optional ACTION
+presentation fields: `actionPresentation` (`TEXT`/`ICON`), `actionIcon`
+(`NOTE`/`BLOODHOUND`/`STOP`/`TARGET`/`BACK`), `actionPlacement` (`BODY`/`HEADER_END`),
+`actionGroup`, and `showTitle`. Without it, use the original four-key text-action content.
+Visible text defaults remain unchanged. `actionLabel` always remains a required accessibility label;
+semantic card titles remain required even when `showTitle = false` suppresses them.
+ICON actions require `showTitle = false` and use the same 48dp buttons/22dp icons as map contact
+actions. Consecutive BODY icons with the same group share a centered row (up to three per row);
+place an incident's action group before detail cards to show it at the top.
+At most one HEADER_END action is allowed: ICON/BACK, without a group. It appears at the top right
+and replaces the bottom host back control. BODY text actions can suppress just their title,
+avoiding separator-only cards in server pickers. Invalid fields or combinations reject the page
+explicitly; argument validation and credential-key rejection still apply.
+Non-action STATUS/KEY_VALUE_LIST titles are bold accessible headings; subtitles remain normal text.
+Plugins can use these cards for fields such as Address, Responders, and Summary without markup.
+
+Plugin host services expose the calling plugin's active incident UID and an ownership-checked
+`bloodhound.stop` action; Bloodhound start can opt in to returning to WearTAK main.
+See [the host-services contract](weartak-plugin-host-services-sdk/README.md).
+Debug emulator previews hide the bottom DEV badge on Android emulator hardware
+(`ranchu`/`goldfish`); physical debug builds keep it and release branding is unchanged.
+For an x86_64 Wear OS emulator, build explicit debug tasks with
+`-PweartakEmulatorAbi=x86_64`; normal/release ABI packaging remains unchanged.
+For an ARM64 diagnostics dev APK, use `-PweartakDebugAbi=arm64-v8a` with explicit debug
+tasks. The debug ABI option also accepts `x86_64`; do not combine it with the emulator option.
+Neither override permits release or broad build tasks.
+The optional `HostedTakCadEmulatorTest` requires the TAK CAD debug plugin installed on the emulator.
+It uses a test-only in-process, read-only incident response and the host activation request lane,
+with no real server calls or sensor requirements.
 Plugins without a launchable activity (or whose activity cannot be opened) reveal those actions on tap instead.
 Opening an activity does not load the plugin.
 Plugin authors can override the menu subtitle by placing this metadata **inside the plugin's
@@ -2524,12 +2554,11 @@ set a commanded level or start a filter timer.
 
 The bundled `weartak-plugin-sdk-release.aar` is derived from canonical SDK
 `https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` at immutable merged
-commit `175ebe0d5e237f0a6656b599d64588b8c99e9d9b` (tree
-`b46a93eeaf9d868afc187f961d8682459c6e5800`). Release SHA-256:
-`2c8c33cdeb9cc019f412c9c67b47baf1126ef59a40c3d2a3d2975b66246a4df9`.
-The Windows source build used commit `2da3a77e27efc92407f6a4544eb479f7c3064ae6`,
-whose tree is identical to that merged commit; the hash identifies this build,
-not a reproducibility guarantee.
+commit `5362609f69b0c527acb5d75d429ebcc16fa5772f` (tree
+`d51b1088ed550fcc605d6ae854e34707bdac5254`, merge of SDK MR !6). Release SHA-256:
+`25898D3F51D8367E877F2BB5C41EDD7FA8C513D24E35C07E0919ADD5BDC0BFBE`.
+A clean Windows JDK 17 build of that merged commit reproduced this hash; the
+hash identifies this build, not a cross-platform reproducibility guarantee.
 This is a source-built dependency, not an independently trusted binary release.
 
 ### Plugin route status and home connection priority

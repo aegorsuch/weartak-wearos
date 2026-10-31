@@ -715,7 +715,11 @@ class WearTAKSettingsViewModel : ViewModel() {
                     }
                     result
                 },
-                connect = { TAKConnectService.getInstance().registerServer(serverId) },
+                connect = {
+                    TAKConnectService.serverRegistration.atStep(TakServerRegistration.Step.SERVICE_INSTANCE) {
+                        TAKConnectService.getInstance()
+                    }.registerServer(serverId)
+                },
                 ticket = ticket,
             )
         }
