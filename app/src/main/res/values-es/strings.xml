@@ -6,7 +6,7 @@
     <string name="ca_trust_untrusted">El emisor del certificado del servidor no es de confianza. Si su servidor usa una CA privada, importe su certificado público tras verificar la huella con su administrador.</string>
     <string name="ca_trust_default">Confianza CA: valores existentes</string>
     <string name="ca_trust_selected">CA aprobada para este servidor</string>
-    <string name="ca_trust_stage_hint">CA pública: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_stage_hint">Opcional, solo CA privada: files/trust/ca.crt (ADB)</string>
     <string name="ca_trust_review">Revisar CA preparada</string>
     <string name="ca_trust_loading">Leyendo CA...</string>
     <string name="ca_trust_endpoint">Confiar solo en %1$s:%2$s (inscripción 8446 y API 8443)</string>
@@ -16,6 +16,7 @@
     <string name="ca_trust_approve">Aprobar esta CA</string>
     <string name="ca_trust_remove">Eliminar CA aprobada al guardar</string>
     <string name="ca_trust_import_error">No se puede importar la CA. Prepare exactamente un certificado CA PEM o DER válido y no caducado (máximo 64 KiB) y reintente.</string>
+    <string name="ca_trust_not_staged">No hay CA preparada. La importación es opcional; las CA públicas ya son de confianza. Prepare solo una CA privada proporcionada por su administrador.</string>
     <string name="ca_trust_load_error">No se puede cargar la CA guardada. Vuelva a abrir el servidor y reintente; no se guardaron los cambios.</string>
     <string name="manual_alert_add_hint">Escribe una alerta personalizada</string>
     <string name="chat_preset_add_hint">Escribe un mensaje personalizado</string>

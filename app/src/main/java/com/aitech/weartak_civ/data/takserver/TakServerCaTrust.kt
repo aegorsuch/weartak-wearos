@@ -13,13 +13,18 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 import okhttp3.OkHttpClient
+import okhttp3.internal.tls.OkHostnameVerifier
 
 /** Explicit, local trust for one configured endpoint. Never changes platform-wide trust. */
 object TakServerCaTrust {
     const val MAX_BYTES = 64 * 1024
 
+    /** Review was requested without a staged file; distinct from an invalid staged file. */
+    class NoStagedCaException : IllegalStateException("No CA file staged at trust/ca.crt")
+
     fun readCandidate(directory: File): X509Certificate {
         val file = File(directory, "trust/ca.crt")
+        if (!file.exists()) throw NoStagedCaException()
         require(file.isFile) { "Stage trust/ca.crt first" }
         val bytes = file.inputStream().use { it.readNBytes(MAX_BYTES + 1) }
         return parse(bytes)
@@ -64,6 +69,56 @@ object TakServerCaTrust {
         return TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
             init(store)
         }.trustManagers.filterIsInstance<X509TrustManager>().single()
+    }
+
+    fun platformTrustManager(): X509TrustManager =
+        TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
+            init(null as KeyStore?)
+        }.trustManagers.filterIsInstance<X509TrustManager>().single()
+
+    /**
+     * Streaming/REST trust for one server: enrolled TAK root, platform (public) roots and an
+     * optional approved CA are additive; nothing is trust-all. Chains validated by the enrolled
+     * root without an approved CA keep legacy behavior (TAK certificates often lack IP SANs);
+     * every other accepted chain must also match [host]. Expiry is enforced by each delegate.
+     */
+    fun streamingTrustManager(
+        host: String,
+        enrolled: X509TrustManager?,
+        approvedCa: String?,
+        platform: X509TrustManager = platformTrustManager(),
+    ): X509TrustManager {
+        val approved = approvedCa?.let(::trustManager)
+        return object : X509TrustManager {
+            override fun getAcceptedIssuers(): Array<X509Certificate> =
+                listOfNotNull(enrolled, approved, platform).flatMap { it.acceptedIssuers.asList() }
+                    .distinct().toTypedArray()
+
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) =
+                (enrolled ?: platform).checkClientTrusted(chain, authType)
+
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+                if (chain.isEmpty()) throw CertificateException("Server certificate chain is empty")
+                var failure: CertificateException? = null
+                fun attempt(manager: X509TrustManager?, verifyHost: Boolean): Boolean {
+                    if (manager == null) return false
+                    try {
+                        manager.checkServerTrusted(chain, authType)
+                    } catch (error: CertificateException) {
+                        failure?.addSuppressed(error) ?: run { failure = error }
+                        return false
+                    }
+                    if (verifyHost && !OkHostnameVerifier.verify(host, chain[0])) {
+                        throw CertificateException("Server certificate does not match $host")
+                    }
+                    return true
+                }
+                if (attempt(enrolled, verifyHost = approved != null)) return
+                if (attempt(approved, verifyHost = true)) return
+                if (attempt(platform, verifyHost = true)) return
+                throw failure ?: CertificateException("Server certificate is not trusted")
+            }
+        }
     }
 
     fun configureHostnameVerification(socket: SSLSocket) {

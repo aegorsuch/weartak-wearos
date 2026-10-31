@@ -32,6 +32,7 @@ import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.junit.Assert.*
+import okhttp3.internal.platform.Platform
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -48,10 +49,13 @@ class TakServerCaTrustTest {
             if (provider.javaClass.name.startsWith("org.conscrypt.")) provider to index + 1 else null
         }
         androidProviders.forEach { (provider, _) -> Security.removeProvider(provider.name) }
+        // OkHttp caches its platform; a cached ConscryptPlatform rejects JVM trust managers.
+        Platform.resetForTests()
     }
 
     @After fun restoreAndroidProviders() {
         androidProviders.forEach { (provider, position) -> Security.insertProviderAt(provider, position) }
+        Platform.resetForTests()
     }
 
     @Test fun pemAndDerRoundTripAndDisplayFullSha256Fingerprint() {
@@ -264,6 +268,119 @@ class TakServerCaTrustTest {
 
     }
 
+    @Test fun streamingTrustAcceptsPublicRootWithoutImportOnlyWhenHostnameMatches() {
+        val publicKey = keys()
+        val publicCa = certificate(publicKey, true, issuerKey = publicKey)
+        val enrolledCa = certificate()
+        val platform = TakServerCaTrust.trustManager(TakServerCaTrust.encode(publicCa))
+        val enrolled = TakServerCaTrust.trustManager(TakServerCaTrust.encode(enrolledCa))
+        val publicChain = arrayOf(certificate(serverKey, false, issuerKey = publicKey), publicCa)
+        assertFalse(File(temporary.root, "trust/ca.crt").exists())
+        TakServerCaTrust.streamingTrustManager("127.0.0.1", enrolled, null, platform)
+            .checkServerTrusted(publicChain, "RSA")
+        assertThrows(CertificateException::class.java) {
+            TakServerCaTrust.streamingTrustManager("localhost", enrolled, null, platform)
+                .checkServerTrusted(publicChain, "RSA")
+        }
+        val now = System.currentTimeMillis()
+        val expired = arrayOf(certificate(serverKey, false, issuerKey = publicKey,
+            start = now - 120_000, end = now - 60_000), publicCa)
+        assertThrows(CertificateException::class.java) {
+            TakServerCaTrust.streamingTrustManager("127.0.0.1", enrolled, null, platform)
+                .checkServerTrusted(expired, "RSA")
+        }
+    }
+
+    @Test fun streamingTrustKeepsLegacyEnrolledRootCompatibilityWithoutApprovedCa() {
+        val publicKey = keys()
+        val platform = TakServerCaTrust.trustManager(
+            TakServerCaTrust.encode(certificate(publicKey, true, issuerKey = publicKey)))
+        val enrolledCa = certificate()
+        val enrolled = TakServerCaTrust.trustManager(TakServerCaTrust.encode(enrolledCa))
+        val chain = arrayOf(certificate(serverKey, false), enrolledCa)
+        // Unchanged: enrolled TAK roots were never hostname-checked on the CoT socket.
+        TakServerCaTrust.streamingTrustManager("localhost", enrolled, null, platform)
+            .checkServerTrusted(chain, "RSA")
+        TakServerCaTrust.streamingTrustManager("127.0.0.1", enrolled, null, platform)
+            .checkServerTrusted(chain, "RSA")
+    }
+
+    @Test fun streamingApprovedCaIsAdditiveAndEveryChainKeepsHostnameEnforcement() {
+        val publicKey = keys()
+        val publicCa = certificate(publicKey, true, issuerKey = publicKey)
+        val approvedKey = keys()
+        val approvedCa = certificate(approvedKey, true, issuerKey = approvedKey)
+        val enrolledCa = certificate()
+        val platform = TakServerCaTrust.trustManager(TakServerCaTrust.encode(publicCa))
+        val enrolled = TakServerCaTrust.trustManager(TakServerCaTrust.encode(enrolledCa))
+        val approved = TakServerCaTrust.encode(approvedCa)
+        val chains = listOf(
+            arrayOf(certificate(serverKey, false), enrolledCa),
+            arrayOf(certificate(serverKey, false, issuerKey = approvedKey), approvedCa),
+            arrayOf(certificate(serverKey, false, issuerKey = publicKey), publicCa),
+        )
+        chains.forEach { chain ->
+            TakServerCaTrust.streamingTrustManager("127.0.0.1", enrolled, approved, platform)
+                .checkServerTrusted(chain, "RSA")
+            assertThrows(CertificateException::class.java) {
+                TakServerCaTrust.streamingTrustManager("localhost", enrolled, approved, platform)
+                    .checkServerTrusted(chain, "RSA")
+            }
+        }
+    }
+
+    @Test fun streamingTrustRejectsUnknownRootAsUntrustedIssuerWithoutTrustAll() {
+        val publicKey = keys()
+        val platform = TakServerCaTrust.trustManager(
+            TakServerCaTrust.encode(certificate(publicKey, true, issuerKey = publicKey)))
+        val enrolled = TakServerCaTrust.trustManager(TakServerCaTrust.encode(certificate()))
+        val unknownKey = keys()
+        val unknownChain = arrayOf(
+            certificate(serverKey, false, issuerKey = unknownKey, issuerName = "CN=Unknown CA"),
+            certificate(unknownKey, true, issuerKey = unknownKey, issuerName = "CN=Unknown CA"))
+        listOf(enrolled, null).forEach { enrolledTrust ->
+            val error = assertThrows(CertificateException::class.java) {
+                TakServerCaTrust.streamingTrustManager("127.0.0.1", enrolledTrust, null, platform)
+                    .checkServerTrusted(unknownChain, "RSA")
+            }
+            val handshake = javax.net.ssl.SSLHandshakeException("handshake").apply { initCause(error) }
+            assertTrue(TakConnectionFailure.from(TakEnrollmentStage.CONNECTION, handshake).untrustedServerCa)
+        }
+        assertThrows(CertificateException::class.java) {
+            TakServerCaTrust.streamingTrustManager("127.0.0.1", enrolled, null, platform)
+                .checkServerTrusted(emptyArray(), "RSA")
+        }
+    }
+
+    @Test fun streamingSocketHandshakesWithPublicRootAndRejectsWrongHostname() {
+        val publicKey = keys()
+        val publicCa = certificate(publicKey, true, issuerKey = publicKey)
+        val platform = TakServerCaTrust.trustManager(TakServerCaTrust.encode(publicCa))
+        val enrolled = TakServerCaTrust.trustManager(TakServerCaTrust.encode(certificate()))
+        listOf("127.0.0.1" to true, "localhost" to false).forEach { (host, accepted) ->
+            val manager = TakServerCaTrust.streamingTrustManager(host, enrolled, null, platform)
+            val tls = SSLContext.getInstance("TLS", "SunJSSE").apply { init(null, arrayOf(manager), null) }
+            serve(publicCa, expectTlsRejection = !accepted, issuerKey = publicKey) { port ->
+                (tls.socketFactory.createSocket(host, port) as SSLSocket).use { socket ->
+                    socket.soTimeout = 5_000
+                    if (accepted) socket.startHandshake()
+                    else assertThrows(SSLException::class.java) { socket.startHandshake() }
+                }
+            }
+        }
+    }
+
+    @Test fun reviewWithoutStagedFileIsDistinctFromInvalidStagedFile() {
+        assertThrows(TakServerCaTrust.NoStagedCaException::class.java) {
+            TakServerCaTrust.readCandidate(temporary.newFolder())
+        }
+        val invalid = temporary.newFolder().also {
+            File(it, "trust/ca.crt").apply { parentFile.mkdirs(); writeText("not a certificate") }
+        }
+        val error = assertThrows(Exception::class.java) { TakServerCaTrust.readCandidate(invalid) }
+        assertFalse(error is TakServerCaTrust.NoStagedCaException)
+    }
+
     @Test fun approvedTrustUsesStrictHostnameChecksAndNoRedirectsForAllRestClients() {
         val ca = certificate(caKey, true)
         val manager = TakServerCaTrust.trustManager(TakServerCaTrust.encode(ca))
@@ -348,10 +465,11 @@ class TakServerCaTrustTest {
             issuerKey: KeyPair = caKey,
             start: Long = System.currentTimeMillis() - 60_000,
             end: Long = System.currentTimeMillis() + 86_400_000,
+            issuerName: String = "CN=Test CA",
         ): X509Certificate {
             val builder = JcaX509v3CertificateBuilder(
-                X500Name("CN=Test CA"), BigInteger.valueOf(System.nanoTime()),
-                Date(start), Date(end), X500Name(if (ca) "CN=Test CA" else "CN=Test Server"), key.public
+                X500Name(issuerName), BigInteger.valueOf(System.nanoTime()),
+                Date(start), Date(end), X500Name(if (ca) issuerName else "CN=Test Server"), key.public
             ).addExtension(Extension.basicConstraints, true, BasicConstraints(ca))
                 .addExtension(Extension.keyUsage, true,
                     KeyUsage(if (ca) KeyUsage.keyCertSign else KeyUsage.digitalSignature or KeyUsage.keyEncipherment))
