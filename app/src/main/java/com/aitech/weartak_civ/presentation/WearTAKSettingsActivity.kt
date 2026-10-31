@@ -4192,10 +4192,13 @@ fun WearTAKConfirmCancelButtons(
 
 //Used to return to previous page
 @Composable
-fun WearTAKBackButton(onClick: () -> Unit /* What happens when pressed */) {
+fun WearTAKBackButton(
+    onClick: () -> Unit,
+    compact: Boolean = false
+) {
     Button(
         onClick = { onClick() },
-        modifier = Modifier.size(height = 48.dp, width = 80.dp),
+        modifier = Modifier.size(height = 48.dp, width = if (compact) 48.dp else 80.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = Color.Gray,
             contentColor = Color.Red
@@ -4204,6 +4207,7 @@ fun WearTAKBackButton(onClick: () -> Unit /* What happens when pressed */) {
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowLeft,
             contentDescription = "Go back to Main Settings Screen",
+            modifier = Modifier.size(if (compact) 18.dp else 24.dp),
         )
     }
 }
