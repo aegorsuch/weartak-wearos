@@ -144,20 +144,20 @@ class GitHub:
             env[f"GIT_CONFIG_KEY_{index}"] = key
             env[f"GIT_CONFIG_VALUE_{index}"] = value
 
-        def git(*args):
+        def git(step, *args, accepted=(0,)):
             result = subprocess.run(
                 ["git", *args], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, check=False,
             )
-            if result.returncode:
+            if result.returncode not in accepted:
                 raise PublishError(
-                    "Personal main synchronization failed its Git source/ancestry/"
-                    "non-force push check. No force, tag changes or deletion "
+                    f"Personal main synchronization failed at {step} "
+                    f"(Git exit code {result.returncode}). No force, tag changes or deletion "
                     "will be attempted; inspect canonical history and repository access."
                 )
-            return result.stdout.strip()
+            return result
 
-        if git("rev-parse", "HEAD") != source_sha:
+        if git("checkout inspection", "rev-parse", "HEAD").stdout.strip() != source_sha:
             raise PublishError("CI checkout does not match the publishing pipeline source.")
         path = "git/ref/heads/main"
         remote = self.request("GET", path)
@@ -168,16 +168,31 @@ class GitHub:
             raise PublishError("Personal main must already reference a verified commit.")
         if remote_sha != source_sha:
             url = f"https://github.com/{PERSONAL_REPO}.git"
-            git("fetch", "--no-tags", "--no-recurse-submodules", url, "refs/heads/main")
-            if git("rev-parse", "FETCH_HEAD") != remote_sha:
+            git("main fetch", "fetch", "--no-tags", "--no-recurse-submodules", url, "refs/heads/main")
+            if git("fetched ref inspection", "rev-parse", "FETCH_HEAD").stdout.strip() != remote_sha:
                 raise PublishError("Personal main changed during source inspection; refusing update.")
-            git("merge-base", "--is-ancestor", remote_sha, source_sha)
-            git("push", "--no-follow-tags", "--recurse-submodules=no",
+            forward = git("forward ancestry", "merge-base", "--is-ancestor",
+                          remote_sha, source_sha, accepted=(0, 1))
+            if forward.returncode == 1:
+                reverse = git("reverse ancestry", "merge-base", "--is-ancestor",
+                              source_sha, remote_sha, accepted=(0, 1))
+                if reverse.returncode == 1:
+                    raise PublishError(
+                        "Personal main has divergent history: forward ancestry and reverse "
+                        "ancestry both returned Git exit code 1. Refusing publication."
+                    )
+                confirmed = self.request("GET", path)
+                if confirmed.get("object", {}).get("sha") != remote_sha:
+                    raise PublishError("Personal main changed during superseded readback; refusing update.")
+                print("Skipping superseded pipeline: personal main already contains a newer source.")
+                return "superseded"
+            git("main push", "push", "--no-follow-tags", "--recurse-submodules=no",
                 url, f"{source_sha}:refs/heads/main")
         confirmed = self.request("GET", path)
         if confirmed.get("object", {}).get("sha") != source_sha:
             raise PublishError("Personal main readback differs from the canonical pipeline source.")
         print(f"Verified {PERSONAL_REPO} main={source_sha} (non-force, no other refs changed).")
+        return "synced"
 
 
 def configuration(env):
@@ -365,7 +380,8 @@ def publish(api, state, apk, digest, version, code):
         previous if release else None,
         generated_body(state, version, code),
     )
-    api.sync_main(state["source_sha"])
+    if api.sync_main(state["source_sha"]) == "superseded":
+        return "superseded"
     if not release:
         release = api.request("POST", "releases", {
             "tag_name": TAG, "name": title, "body": body,

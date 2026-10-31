@@ -64,6 +64,7 @@ class FakeGitHub:
         self.fail = None
         self.synced_sources = []
         self.sync_failure = False
+        self.sync_result = "synced"
         if state:
             self.release = {
                 "id": 1, "tag_name": p.TAG, "draft": False, "prerelease": False,
@@ -116,6 +117,7 @@ class FakeGitHub:
         if self.sync_failure:
             raise p.PublishError("Injected non-fast-forward source failure")
         self.synced_sources.append(source_sha)
+        return self.sync_result
 
 
 class PublisherTests(unittest.TestCase):
@@ -148,6 +150,21 @@ class PublisherTests(unittest.TestCase):
 
     def assert_no_writes(self, api):
         self.assertFalse([c for c in api.calls if c[0] != "GET"])
+
+    def test_ahead_mirror_skips_before_any_release_or_asset_writes(self):
+        for previous in (None, dict(self.state, pipeline_iid=11)):
+            with self.subTest(previous=previous):
+                api = FakeGitHub(previous)
+                api.sync_result = "superseded"
+                api.items = [asset(2, 11)]
+                release_before = copy.deepcopy(api.release)
+                assets_before = copy.deepcopy(api.items)
+                result = p.publish(api, self.state, *p.artifact(self.root))
+                self.assertEqual(result, "superseded")
+                self.assertEqual(api.release, release_before)
+                self.assertEqual(api.items, assets_before)
+                self.assertFalse(any(c[0] in ("POST", "PATCH", "DELETE", "DOWNLOAD")
+                                     for c in api.calls))
 
     def test_initial_release_is_draft_until_verified_then_stable(self):
         api = FakeGitHub()
@@ -650,17 +667,65 @@ class SourceSyncTests(unittest.TestCase):
                     api.sync_main(self.source)
             self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
 
-    def test_divergent_history_and_push_race_fail_without_force_retry_or_secret_output(self):
-        for failing_step in (3, 4):
+    def test_git_failures_report_step_and_exit_without_secrets_or_retry(self):
+        for failing_step, name in enumerate((
+                "checkout inspection", "main fetch", "fetched ref inspection",
+                "forward ancestry", "main push")):
             api = self.api()
             results = self.results()
-            results[failing_step] = self.result(returncode=1)
+            results[failing_step] = self.result(returncode=128)
             with patch.object(p.subprocess, "run", side_effect=results) as run:
                 with self.assertRaises(p.PublishError) as caught:
                     api.sync_main(self.source)
+            self.assertIn(name, str(caught.exception))
+            self.assertIn("Git exit code 128", str(caught.exception))
             self.assertNotIn("sensitive transport detail", str(caught.exception))
+            self.assertNotIn("mock-personal-token", str(caught.exception))
             self.assertEqual(run.call_count, failing_step + 1)
             self.assertFalse(any("--force" in call.args[0] for call in run.call_args_list))
+
+    def test_ahead_mirror_returns_superseded_without_push(self):
+        api = self.api(readback=self.previous)
+        results = self.results()[:3] + [self.result(returncode=1), self.result()]
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            self.assertEqual(api.sync_main(self.source), "superseded")
+        self.assertEqual(api.request.call_count, 2)
+        self.assertEqual(run.call_args.args[0],
+                         ["git", "merge-base", "--is-ancestor", self.source, self.previous])
+        self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
+
+    def test_divergent_history_fails_without_push(self):
+        api = self.api()
+        results = self.results()[:3] + [self.result(returncode=1), self.result(returncode=1)]
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            with self.assertRaisesRegex(p.PublishError, "divergent history"):
+                api.sync_main(self.source)
+        self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
+
+    def test_reverse_ancestry_error_is_not_treated_as_superseded(self):
+        api = self.api()
+        results = self.results()[:3] + [self.result(returncode=1), self.result(returncode=128)]
+        with patch.object(p.subprocess, "run", side_effect=results):
+            with self.assertRaisesRegex(p.PublishError, "reverse ancestry.*Git exit code 128") as caught:
+                api.sync_main(self.source)
+        self.assertNotIn("sensitive transport detail", str(caught.exception))
+
+    def test_ahead_mirror_ref_race_fails_instead_of_skipping_or_pushing(self):
+        api = self.api(readback="b" * 40)
+        results = self.results()[:3] + [self.result(returncode=1), self.result()]
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            with self.assertRaisesRegex(p.PublishError, "superseded readback"):
+                api.sync_main(self.source)
+        self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
+
+    def test_non_fast_forward_push_race_fails_without_retry(self):
+        api = self.api()
+        results = self.results()
+        results[-1] = self.result(returncode=1)
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            with self.assertRaisesRegex(p.PublishError, "main push.*Git exit code 1"):
+                api.sync_main(self.source)
+        self.assertEqual(run.call_count, 5)
 
     def test_unexpected_readback_is_reported_not_rolled_back(self):
         api = self.api(readback="b" * 40)

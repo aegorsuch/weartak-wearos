@@ -197,8 +197,13 @@ Before personal artifact publication, the job verifies its checkout is the exact
 pipeline source SHA, inspects and fetches the existing personal `main`, requires
 it to be an ancestor of that source, pushes **only** that commit to `main`
 without force, tag following, submodule pushes or deletions, then verifies the
-remote SHA. Missing/divergent/ahead state or a tip change detected during fetch
-fails closed; the normal non-force push also rejects non-fast-forward races.
+remote SHA. If the pipeline source is instead an ancestor of personal `main`,
+the job verifies that tip again and returns `superseded`, without pushing or
+changing release assets, body or tags. This also covers a mirror advanced before
+its newer APK has been published. Missing/divergent state or a tip change detected
+during fetch/readback fails closed; the normal non-force push also rejects
+non-fast-forward races. Git failures report only a fixed step name and exit code,
+never raw stderr, command credentials or transport details.
 This is not a lock against external writers and never adopts unrelated work or
 rewrites history. A newer owned
 release skips an older pipeline before source synchronization. Complete canonical
