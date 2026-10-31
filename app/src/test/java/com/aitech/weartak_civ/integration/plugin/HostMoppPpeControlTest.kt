@@ -214,6 +214,7 @@ class HostMoppPpeControlTest {
         val ingress = mockk<PluginIngressPort>(relaxed = true)
         every { ingress.packagesForUid(app, Process.myUid()) } returns setOf(MoppPluginAvailability.PACKAGE)
         val manager = mockk<PluginManager>(relaxed = true)
+        every { manager.onConnectionReady(any()) } returns true
         val component = ComponentName(MoppPluginAvailability.PACKAGE, ".PluginService")
         val connection = PluginConnection(app, ingress, component, Process.myUid(), manager,
             mockk<PluginTrust>(relaxed = true))
