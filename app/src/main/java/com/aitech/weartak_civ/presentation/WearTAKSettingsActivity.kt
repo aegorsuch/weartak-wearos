@@ -712,23 +712,6 @@ fun WearTAKSettingsNav(
                             description = stringResource(R.string.on_off)
                         )
                     }
-                    item{
-                        WearTAKToggleChip(
-                            checkedLive = enableBatdokCot,
-                            onCheckedChange = { settingsVm.storeEnableBatdokCot(it) },
-                            appIcon = {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.batdok),
-                                    tint = Color.Unspecified,
-                                    contentDescription = "null",
-                                    modifier = Modifier
-                                        .size(20.dp),
-                                )
-                            },
-                            title = stringResource(R.string.batdok),
-                            description = stringResource(R.string.on_off)
-                        )
-                    }
                 },
                 navController,
             )
@@ -3176,6 +3159,7 @@ fun WearTAKSettingsNav(
             val pluginMenuScope = rememberCoroutineScope()
             val menuEntries = (
                 listOf(
+                    PluginMenuEntry.BuiltIn(BuiltInPlugin.BATDOK, stringResource(R.string.batdok)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMMANDS, stringResource(R.string.chat_commands)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMPANION, stringResource(R.string.companion_app)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
@@ -3220,6 +3204,22 @@ fun WearTAKSettingsNav(
                     itemsIndexed(items = menuEntries, key = { _, entry -> entry.key }) { _, entry ->
                         when (entry) {
                             is PluginMenuEntry.BuiltIn -> when (entry.kind) {
+                                BuiltInPlugin.BATDOK -> {
+                                    WearTAKToggleChip(
+                                        checkedLive = enableBatdokCot,
+                                        onCheckedChange = settingsVm::storeEnableBatdokCot,
+                                        appIcon = {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.batdok),
+                                                tint = Color.Unspecified,
+                                                contentDescription = "null",
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        },
+                                        title = entry.title,
+                                        description = stringResource(R.string.on_off),
+                                    )
+                                }
                                 BuiltInPlugin.COMPANION -> {
                                     CompanionPluginChip(
                                         enabled = enableCompanionAppService,
