@@ -218,7 +218,7 @@ class MapSourceTest {
         var leo = ""
         var dismissals = 0
         compose.setContent {
-            LayerTogglePopup(
+            OverlayManagerPopup(
                 mapSource = MapSource.DEFAULT, onMapSourceSelected = {},
                 mapError = null, onRetryMap = {},
                 topoLayers = emptyList(), hiddenLayers = emptySet(), onToggle = {},
@@ -244,19 +244,19 @@ class MapSourceTest {
             assertEquals(listOf("Bing Hybrid", "Google Hybrid", "OSM Vector"),
                 MapSource.selectable.map { it.title })
         }
-        compose.onNodeWithTag("layers-menu-top-back").performScrollTo().performClick()
-        compose.onNodeWithTag("layers-menu-bottom-back").assertDoesNotExist()
+        compose.onNodeWithTag("overlay-manager-top-back").performScrollTo().performClick()
+        compose.onNodeWithTag("overlay-manager-bottom-back").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, dismissals) }
 
     }
 
-    @Test fun mapBackIsAbsentFromAccessibilityWhileLayersAreOpen() {
-        val layersOpen = mutableStateOf(true)
+    @Test fun mapBackIsAbsentFromAccessibilityWhileOverlayManagerIsOpen() {
+        val managerOpen = mutableStateOf(true)
         var exits = 0
         compose.setContent {
             androidx.compose.foundation.layout.Column {
-                MapBackButton(!layersOpen.value, { exits++ })
-                if (layersOpen.value) LayersMenuBackButton({ layersOpen.value = false })
+                MapBackButton(!managerOpen.value, { exits++ })
+                if (managerOpen.value) OverlayManagerBackButton({ managerOpen.value = false })
             }
         }
         compose.onNodeWithContentDescription("Back from map").assertDoesNotExist()
@@ -274,7 +274,7 @@ class MapSourceTest {
         compose.setContent {
             androidx.compose.foundation.layout.Column {
                 MapChannelsButton(true, { channelClicks++ }, visible = !hidden.value)
-                MapLayersButton({ managerClicks++ })
+                MapOverlayManagerButton({ managerClicks++ })
             }
         }
         compose.onNodeWithContentDescription("Channels").assertIsDisplayed().performClick()
@@ -309,7 +309,7 @@ class MapSourceTest {
         compose.runOnIdle { assertEquals(2, lineCount) }
     }
 
-    @Test fun layersButtonBoundsStayFixedBelowEveryProviderCredit() {
+    @Test fun overlayManagerButtonBoundsStayFixedBelowEveryProviderCredit() {
         val source = mutableStateOf(MapSource.DEFAULT)
         compose.setContent {
             androidx.compose.foundation.layout.Box(
@@ -326,7 +326,7 @@ class MapSourceTest {
                 )
                 androidx.compose.foundation.layout.Box(
                     Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(10.dp)
-                ) { MapLayersButton({}) }
+                ) { MapOverlayManagerButton({}) }
             }
         }
         var baseline: androidx.compose.ui.geometry.Rect? = null
@@ -337,7 +337,7 @@ class MapSourceTest {
             val credit = compose.onNodeWithTag("top-credit")
                 .fetchSemanticsNode().boundsInRoot
             if (baseline == null) baseline = button else assertEquals(baseline, button)
-            assertTrue("Credits must end above Layers", credit.bottom <= button.top)
+            assertTrue("Credits must end above Overlay Manager", credit.bottom <= button.top)
         }
     }
 
@@ -359,7 +359,7 @@ class MapSourceTest {
                         overflow = it.hasVisualOverflow
                     }
                 )
-                LayersMenuBackButton({})
+                OverlayManagerBackButton({})
             }
         }
         compose.runOnIdle {
@@ -451,7 +451,7 @@ class MapSourceTest {
             val source = mutableStateOf(MapSource.BING_HYBRID)
             var toggles = 0
             compose.setContent {
-                LayerTogglePopup(
+                OverlayManagerPopup(
                     mapSource = source.value, onMapSourceSelected = { source.value = it },
                     mapError = null, onRetryMap = {},
                     topoLayers = listOf("contours" to "Contours"),
@@ -475,5 +475,108 @@ class MapSourceTest {
             compose.onNodeWithText("OSM Vector").performScrollTo().performClick()
             compose.onNodeWithText("Contours").performScrollTo().assertIsEnabled().performClick()
             compose.runOnIdle { assertEquals(1, toggles) }
+    }
+
+    @Test fun overlayManagerCategoriesCollapseIndependentlyWithoutChangingVisibility() {
+        val layerToggles = mutableListOf<String>()
+        var overlayToggles = 0
+        var roleToggles = 0
+        var teamToggles = 0
+        compose.setContent {
+            OverlayManagerPopup(
+                mapSource = MapSource.DEFAULT, onMapSourceSelected = {},
+                mapError = null, onRetryMap = {},
+                topoLayers = listOf("contours" to "Contours"),
+                hiddenLayers = emptySet(), onToggle = { layerToggles += it },
+                hideControls = false, onHideControlsToggle = {},
+                visibleUserTeams = setOf("White"), visibleUserRoles = setOf("Medic"),
+                visibleUserRolesLEO = emptySet(), myRole = "",
+                roleCounts = mapOf("Medic" to 1), teamColorCount = mapOf("White" to 1),
+                onRoleToggle = { roleToggles++ }, onLeoRoleToggle = {},
+                onTeamToggle = { teamToggles++ },
+                overlays = listOf(OverlayToggle("Markers", true) { overlayToggles++ }),
+                availableTeams = setOf("White"), availableUserRoles = setOf("Medic"),
+                availableUserRolesLEO = emptySet(), onDismiss = {}
+            )
+        }
+        for ((category, child) in listOf(
+            "layers" to "Contours", "overlays" to "Markers", "maps" to "OSM Vector",
+            "roles" to "Medic (1)", "teams" to "White (1)"
+        )) {
+            val tag = "overlay-manager-$category"
+            compose.onNodeWithTag(tag).performScrollTo().assert(
+                androidx.compose.ui.test.SemanticsMatcher.expectValue(
+                    androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Expanded"))
+            compose.onNodeWithTag("$tag-arrow-down", useUnmergedTree = true).assertExists()
+            compose.onNodeWithTag(tag).performClick()
+            compose.onNodeWithText(child).assertDoesNotExist()
+            compose.onNodeWithTag("$tag-arrow-right", useUnmergedTree = true).assertExists()
+            compose.onNodeWithTag(tag).assert(
+                androidx.compose.ui.test.SemanticsMatcher.expectValue(
+                    androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Collapsed"))
+        }
+        compose.runOnIdle {
+            assertTrue(layerToggles.isEmpty())
+            assertEquals(0, overlayToggles + roleToggles + teamToggles)
+        }
+        for ((category, child) in listOf(
+            "layers" to "Contours", "overlays" to "Markers",
+            "roles" to "Medic (1)", "teams" to "White (1)"
+        )) {
+            compose.onNodeWithTag("overlay-manager-$category").performScrollTo().performClick()
+            compose.onNodeWithText(child).performScrollTo().performClick()
+            compose.onNodeWithTag("overlay-manager-maps-arrow-right", useUnmergedTree = true).assertExists()
+        }
+        compose.runOnIdle {
+            assertEquals(listOf("contours"), layerToggles)
+            assertEquals(1, overlayToggles)
+            assertEquals(1, roleToggles)
+            assertEquals(1, teamToggles)
+        }
+    }
+
+    @Test fun categoryArrowStaysInlineAndLabelChangesKeepDisclosureState() {
+        val count = mutableStateOf(1)
+        compose.setContent {
+            androidx.compose.foundation.layout.Box(Modifier.width(126.dp)) {
+                OverlayManagerCategory("Teams (${count.value})", "teams", initiallyExpanded = false) {
+                    androidx.wear.compose.material.Text("Team child")
+                }
+            }
+        }
+        fun assertInline(direction: String) {
+            val label = compose.onNodeWithText("Teams (${count.value})", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot
+            val arrow = compose.onNodeWithTag("teams-arrow-$direction", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot
+            assertEquals(label.center.y, arrow.center.y, 1f)
+            assertTrue(label.right <= arrow.left)
+        }
+        compose.onNodeWithContentDescription("Expand Teams (1)").assertExists()
+        assertInline("right")
+        compose.runOnIdle { count.value = 2 }
+        compose.onNodeWithText("Team child").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Expand Teams (2)").performClick()
+        compose.onNodeWithContentDescription("Collapse Teams (2)").assertExists()
+        compose.onNodeWithText("Team child").assertIsDisplayed()
+        assertInline("down")
+    }
+
+    @Test fun collapsedMapsRetainSelectionAndKeepFailureRecoveryReachable() {
+        val source = mutableStateOf(MapSource.DEFAULT)
+        var retries = 0
+        compose.setContent {
+            androidx.compose.foundation.layout.Column(Modifier.verticalScroll(rememberScrollState())) {
+                MapSourcePicker(source.value, { source.value = it }, "Map failed", { retries++ })
+            }
+        }
+        compose.onNodeWithContentDescription("Collapse Maps").performClick()
+        compose.runOnIdle { source.value = MapSource.BING_HYBRID }
+        compose.onNodeWithContentDescription("Expand Maps").assertExists()
+        compose.onNodeWithText("Bing Hybrid").assertDoesNotExist()
+        compose.onNodeWithText("Retry map").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, retries) }
+        compose.onNodeWithContentDescription("Expand Maps").performScrollTo().performClick()
+        compose.onNodeWithText("Bing Hybrid").performScrollTo().assertIsSelected()
     }
 }

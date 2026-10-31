@@ -10,12 +10,16 @@
     <string name="map_credits">Nguồn và bản quyền</string>
     <string name="map_credits_expanded">Đã mở rộng</string>
     <string name="map_credits_collapsed">Đã thu gọn</string>
-    <string name="map_credits_expand">Mở rộng nguồn và bản quyền</string>
-    <string name="map_credits_collapse">Thu gọn nguồn và bản quyền</string>
+    <string name="map_category_expand">Mở rộng %1$s</string>
+    <string name="map_category_collapse">Thu gọn %1$s</string>
+    <string name="map_category_layers">Lớp</string>
+    <string name="map_category_overlays">Lớp phủ</string>
+    <string name="map_category_roles">Vai trò (%1$d)</string>
+    <string name="map_category_teams">Đội (%1$d)</string>
     <string name="map_credit_link_unavailable">Không có trình duyệt. Mở: %1$s</string>
     <string name="map_load_failed">Không thể tải bản đồ. Kiểm tra kết nối, thử lại hoặc khôi phục bản đồ gốc.</string>
     <string name="map_load_timeout">Bản đồ vẫn đang tải. Kiểm tra kết nối, thử lại hoặc khôi phục bản đồ gốc.</string>
-    <string name="map_error_open_layers">Bản đồ không khả dụng. Mở quản lý lớp</string>
+    <string name="map_error_open_overlay_manager">Bản đồ không khả dụng. Mở quản lý lớp</string>
     <string name="map_retry">Thử tải lại bản đồ</string>
     <string name="map_restore_original">Khôi phục bản đồ gốc</string>
 </resources>

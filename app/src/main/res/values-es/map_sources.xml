@@ -10,12 +10,16 @@
     <string name="map_credits">Créditos</string>
     <string name="map_credits_expanded">Expandido</string>
     <string name="map_credits_collapsed">Contraído</string>
-    <string name="map_credits_expand">Expandir créditos</string>
-    <string name="map_credits_collapse">Contraer créditos</string>
+    <string name="map_category_expand">Expandir %1$s</string>
+    <string name="map_category_collapse">Contraer %1$s</string>
+    <string name="map_category_layers">Capas</string>
+    <string name="map_category_overlays">Superposiciones</string>
+    <string name="map_category_roles">Roles (%1$d)</string>
+    <string name="map_category_teams">Equipos (%1$d)</string>
     <string name="map_credit_link_unavailable">No hay navegador disponible. Abre: %1$s</string>
     <string name="map_load_failed">No se pudo cargar el mapa. Comprueba la conexión, reintenta o restaura el mapa original.</string>
     <string name="map_load_timeout">El mapa sigue cargando. Comprueba la conexión, reintenta o restaura el mapa original.</string>
-    <string name="map_error_open_layers">Mapa no disponible. Abre el gestor de capas</string>
+    <string name="map_error_open_overlay_manager">Mapa no disponible. Abre el gestor de capas</string>
     <string name="map_retry">Reintentar mapa</string>
     <string name="map_restore_original">Restaurar mapa original</string>
 </resources>

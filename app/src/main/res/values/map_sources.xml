@@ -10,13 +10,17 @@
     <string name="map_credits">Credits</string>
     <string name="map_credits_expanded">Expanded</string>
     <string name="map_credits_collapsed">Collapsed</string>
-    <string name="map_credits_expand">Expand credits</string>
-    <string name="map_credits_collapse">Collapse credits</string>
+    <string name="map_category_expand">Expand %1$s</string>
+    <string name="map_category_collapse">Collapse %1$s</string>
+    <string name="map_category_layers">Layers</string>
+    <string name="map_category_overlays">Overlays</string>
+    <string name="map_category_roles">Roles (%1$d)</string>
+    <string name="map_category_teams">Teams (%1$d)</string>
     <string name="map_credit_link_unavailable">No browser available. Open: %1$s</string>
     <string name="map_tak_attribution_compact" translatable="false">\u00a9 OpenStreetMap\nSRTM / \u00a9 OpenTopoMap (CC BY-SA)</string>
     <string name="map_load_failed">Map failed to load. Check connection, retry, or restore original map.</string>
     <string name="map_load_timeout">Map still loading. Check connection, retry, or restore original map.</string>
-    <string name="map_error_open_layers">Map unavailable. Open Overlay Manager</string>
+    <string name="map_error_open_overlay_manager">Map unavailable. Open Overlay Manager</string>
     <string name="map_retry">Retry map</string>
     <string name="map_restore_original">Restore original map</string>
 </resources>

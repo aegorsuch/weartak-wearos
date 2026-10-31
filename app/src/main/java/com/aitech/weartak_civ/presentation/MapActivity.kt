@@ -1341,7 +1341,7 @@ internal fun HiddenBaseMapLayers(baseLayerIds: Set<String>, hiddenLayerIds: Set<
     }
 }
 
-// SHARED LAYER MENU COMPONENTS
+// SHARED OVERLAY MANAGER COMPONENTS
 // Reusable models and rows for visibility options
 data class OverlayToggle(
     // Holds the label, current visibility, and action for an overlay
@@ -1480,10 +1480,10 @@ fun PopupBox(
 }
 
 
-// LAYERS MENU
+// OVERLAY MANAGER
 // Controls map layers, overlays, teams, roles, and map controls
 @Composable
-fun LayerTogglePopup(
+fun OverlayManagerPopup(
     mapSource: MapSource,
     onMapSourceSelected: (MapSource) -> Unit,
     mapError: String?,
@@ -1538,7 +1538,7 @@ fun LayerTogglePopup(
                         stringResource(R.string.map_overlay_manager), color = Color.White, fontSize = 10.sp,
                         fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
                     )
-                    LayersMenuBackButton(onDismiss, Modifier.testTag("layers-menu-top-back"))
+                    OverlayManagerBackButton(onDismiss, Modifier.testTag("overlay-manager-top-back"))
                 }
 
                 Spacer(Modifier.height(4.dp))
@@ -1558,52 +1558,64 @@ fun LayerTogglePopup(
 
 
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    // Layers menu heading
-                    "Layers", color = if (mapSource == MapSource.DEFAULT) Color.White else Color.Gray, fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                // style.json layers
-                topoLayers.forEach { (id, label) ->
-                    // A grouped option is visible when at least one of its layers is visible
-                    val visible = when (id) {
-                        "water" -> !listOf(
-                            "water-fill",
-                            "water-lines",
-                            "water-outline"
-                        ).all { it in hiddenLayers }
+                OverlayManagerCategory(
+                    label = stringResource(R.string.map_category_layers),
+                    tag = "overlay-manager-layers",
+                    color = if (mapSource == MapSource.DEFAULT) Color.White else Color.Gray
+                ) {
+                    // style.json layers
+                    topoLayers.forEach { (id, label) ->
+                        // A grouped option is visible when at least one of its layers is visible
+                        val visible = when (id) {
+                            "water" -> !listOf(
+                                "water-fill",
+                                "water-lines",
+                                "water-outline"
+                            ).all { it in hiddenLayers }
 
-                        "roads" -> !listOf(
-                            "motorway",
-                            "trunk",
-                            "primary",
-                            "secondary",
-                            "tertiary",
-                            "residential",
-                            "roads-bridge-casing",
-                            "roads-bridge-stroke",
-                            "roads-tunnel-overlay",
-                            "paths",
-                            "paths-tunnel"
-                        ).all { it in hiddenLayers }
+                            "roads" -> !listOf(
+                                "motorway",
+                                "trunk",
+                                "primary",
+                                "secondary",
+                                "tertiary",
+                                "residential",
+                                "roads-bridge-casing",
+                                "roads-bridge-stroke",
+                                "roads-tunnel-overlay",
+                                "paths",
+                                "paths-tunnel"
+                            ).all { it in hiddenLayers }
 
-                        "labels" -> !listOf(
-                            "place-labels",
-                            "road-labels"
-                        ).all { it in hiddenLayers }
+                            "labels" -> !listOf(
+                                "place-labels",
+                                "road-labels"
+                            ).all { it in hiddenLayers }
 
-                        else -> id !in hiddenLayers
+                            else -> id !in hiddenLayers
+                        }
+
+                        ToggleRow(
+                            label = label,
+                            visible = visible,
+                            onToggle = { onToggle(id) },
+                            enabled = mapSource == MapSource.DEFAULT
+                        )
                     }
-
-                    ToggleRow(
-                        label = label,
-                        visible = visible,
-                        onToggle = { onToggle(id) },
-                        enabled = mapSource == MapSource.DEFAULT
-                    )
                 }
 
                 Spacer(Modifier.height(8.dp))
+                if (overlays.isNotEmpty()) {
+                    OverlayManagerCategory(
+                        label = stringResource(R.string.map_category_overlays),
+                        tag = "overlay-manager-overlays"
+                    ) {
+                        overlays.forEach { overlay ->
+                            ToggleRow(overlay.label, overlay.visible, overlay.onToggle)
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
                 MapSourcePicker(mapSource, onMapSourceSelected, mapError, onRetryMap)
 
                 Spacer(Modifier.height(4.dp))
@@ -1616,29 +1628,28 @@ fun LayerTogglePopup(
                     "Armed Surveillance", "Assistant Team Leader", "Aviation", "Bomb Tech", "Command Post", "Critical Response", "Hazards", "Negotiator", "Surveillance", "Tactical Communicator", "TOC"
                 ).filter { (it in availableUserRolesLEO) && ((roleCounts[it] ?: 0) > 0) }
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Roles (${userRoles.size + userRolesLEO.size})",
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    fontSize = 10.sp
-                )
-                userRoles.forEach { role ->
-                    val count = roleCounts[role] ?: 0
-                    val meSuffix = if (role ==  myRole) ", me" else ""
-                    ToggleRow(
-                        label = "$role ($count$meSuffix)",
-                        visible = role in visibleUserRoles,
-                        onToggle = { onRoleToggle(role) }
-                    )
-                }
-                userRolesLEO.forEach { role ->
-                    val count = roleCounts[role] ?: 0
-                    val meSuffix = if (role == myRole) ", me" else ""
-                    ToggleRow(
-                        label = "$role ($count$meSuffix)",
-                        visible = role in visibleUserRolesLEO,
-                        onToggle = { onLeoRoleToggle(role) }
-                    )
+                OverlayManagerCategory(
+                    label = stringResource(R.string.map_category_roles, userRoles.size + userRolesLEO.size),
+                    tag = "overlay-manager-roles"
+                ) {
+                    userRoles.forEach { role ->
+                        val count = roleCounts[role] ?: 0
+                        val meSuffix = if (role ==  myRole) ", me" else ""
+                        ToggleRow(
+                            label = "$role ($count$meSuffix)",
+                            visible = role in visibleUserRoles,
+                            onToggle = { onRoleToggle(role) }
+                        )
+                    }
+                    userRolesLEO.forEach { role ->
+                        val count = roleCounts[role] ?: 0
+                        val meSuffix = if (role == myRole) ", me" else ""
+                        ToggleRow(
+                            label = "$role ($count$meSuffix)",
+                            visible = role in visibleUserRolesLEO,
+                            onToggle = { onLeoRoleToggle(role) }
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(4.dp))
@@ -1651,20 +1662,19 @@ fun LayerTogglePopup(
                 val totalOtherTeamCategories = userTeams.count { team ->
                     (teamColorCount[team] ?: 0) > 0
                 }
-                Text(
-                    text = "Teams ($totalOtherTeamCategories)",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
-                )
-                userTeams.forEach { team ->
-                    val count = teamColorCount[team] ?: 0
-                    val meSuffix = if (team == MainActivity.Constants.team) ", me" else ""
-                    ToggleRow(
-                        "$team ($count$meSuffix)",
-                        visible = team in visibleUserTeams,
-                        onToggle = { onTeamToggle(team) }
-                    )
+                OverlayManagerCategory(
+                    label = stringResource(R.string.map_category_teams, totalOtherTeamCategories),
+                    tag = "overlay-manager-teams"
+                ) {
+                    userTeams.forEach { team ->
+                        val count = teamColorCount[team] ?: 0
+                        val meSuffix = if (team == MainActivity.Constants.team) ", me" else ""
+                        ToggleRow(
+                            "$team ($count$meSuffix)",
+                            visible = team in visibleUserTeams,
+                            onToggle = { onTeamToggle(team) }
+                        )
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 MapCreditsSection(mapSource)
@@ -1815,7 +1825,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     val takChannels by mapVm.takChannels.collectAsStateWithLifecycle()
     val networkSettingsLocked by mapVm.networkSettingsLocked.collectAsStateWithLifecycle()
 
-    // Saves Layers menu settings between app sessions
+    // Saves Overlay Manager settings between app sessions
     val mapPreferences = remember {
         context.getSharedPreferences(
             "map_layer_preferences",
@@ -2030,7 +2040,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         )
     )
 
-    // Define the map style options shown in the Layers menu
+    // Define the map style options shown in Overlay Manager
     val topoLayers = remember {
         listOf(
             "contours" to "Contours",
@@ -2146,8 +2156,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         )
     }
 
-    // Show or hide the Layers menu
-    var showLayerToggle by remember { mutableStateOf(false) }
+    // Show or hide Overlay Manager
+    var showOverlayManager by remember { mutableStateOf(false) }
 
     var showChannelToggle by remember {mutableStateOf(false)}
 
@@ -2155,7 +2165,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         if (networkSettingsLocked) showChannelToggle = false
     }
 
-    // Hide zoom, snap-to-self, and the scale while keeping Layers and Back
+    // Hide zoom, snap-to-self, and the scale while keeping Overlay Manager and Back
     var hideControls by remember { mutableStateOf(mapPreferences.getBoolean(
         "hide_controls",
         false
@@ -2455,7 +2465,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     }
 
     // TEAM AND ROLE FILTERING
-    // Builds the options displayed in the Layers menu
+    // Builds the options displayed in Overlay Manager
 
     // Teams currently present on the map
     val presentTeams = remember(receivedMapUsers, team) {
@@ -2644,7 +2654,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
 
     val activity = context as? MapActivity
     val mapOverlayOpen by rememberUpdatedState(
-        showLayerToggle || showChannelToggle || showPopup ||
+        showOverlayManager || showChannelToggle || showPopup ||
             selectedMapTargetKeys != null || selectedRoute != null || selectedRoutePoint != null
     )
     DisposableEffect(activity, lifecycleOwner) {
@@ -2987,12 +2997,12 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         ) {
             if (mapError != null) {
                 Text(
-                    stringResource(R.string.map_error_open_layers),
+                    stringResource(R.string.map_error_open_overlay_manager),
                     color = Color.White,
                     fontSize = 11.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.background(Color.Black)
-                        .clickable { showLayerToggle = true }.padding(4.dp)
+                        .clickable { showOverlayManager = true }.padding(4.dp)
                 )
             }
             Text(
@@ -3055,9 +3065,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 snapToSelf()
             },
 
-            // Opens the Layers menu
-            onOpenLayers = {
-                showLayerToggle = true
+            // Opens Overlay Manager
+            onOpenOverlayManager = {
+                showOverlayManager = true
             },
             onTogglePitch = {
                 val tilted = cameraState.position.tilt < 22.5
@@ -3066,22 +3076,22 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     cameraState.animateTo(mapPitchPosition(cameraState.position, tilted))
                 }
             },
-            showPitchButton = showMapPitchButton(hideControls, showLayerToggle),
+            showPitchButton = showMapPitchButton(hideControls, showOverlayManager),
             pitchEnabled = mapSource == MapSource.DEFAULT,
             onOpenChannels = {
                 if (!networkSettingsLocked) showChannelToggle = true
             },
             channelsEnabled = !networkSettingsLocked,
-            showBackButton = !showLayerToggle,
+            showBackButton = !showOverlayManager,
             // Exits the map screen
             onBack = {
                 exitActivity()
             }
         )
 
-        // Displays the Layers menu
-        if (showLayerToggle) {
-            LayerTogglePopup(
+        // Displays Overlay Manager
+        if (showOverlayManager) {
+            OverlayManagerPopup(
                 mapSource = mapSource,
                 onMapSourceSelected = {
                     sourcePreferences.save(it)
@@ -3235,9 +3245,9 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     },
                 ),
 
-                // Closes the Layers menu
+                // Closes Overlay Manager
                 onDismiss = {
-                    showLayerToggle = false
+                    showOverlayManager = false
                 }
             )
         }
@@ -3658,7 +3668,7 @@ private fun MapControlsOverlay(
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onCenterOnSelf: () -> Unit,
-    onOpenLayers: () -> Unit,
+    onOpenOverlayManager: () -> Unit,
     onTogglePitch: () -> Unit,
     showPitchButton: Boolean,
     pitchEnabled: Boolean,
@@ -3766,7 +3776,7 @@ private fun MapControlsOverlay(
         }
 
         // Always visible so the user can reopen the menu and restore controls.
-        MapLayersButton(onOpenLayers, Modifier.align(Alignment.TopCenter))
+        MapOverlayManagerButton(onOpenOverlayManager, Modifier.align(Alignment.TopCenter))
 
         MapChannelsButton(
             onClick = onOpenChannels,
@@ -3802,7 +3812,7 @@ internal fun MapPitchButton(
 }
 
 @Composable
-internal fun MapLayersButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun MapOverlayManagerButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     CircularMapButton(
         onClick = onClick,
         size = 40.dp,
@@ -3819,7 +3829,7 @@ internal fun MapLayersButton(onClick: () -> Unit, modifier: Modifier = Modifier)
 }
 
 @Composable
-internal fun LayersMenuBackButton(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+internal fun OverlayManagerBackButton(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier.size(32.dp)
             .clickable(onClick = onDismiss)
