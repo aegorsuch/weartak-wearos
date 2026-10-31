@@ -2,6 +2,7 @@ package com.aitech.weartak_civ.data.takserver
 
 import java.io.File
 import java.math.BigInteger
+import java.net.SocketException
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -134,6 +135,113 @@ class TakServerCaTrustTest {
         }
     }
 
+    @Test fun defaultEnrollmentAcceptsPlatformChainWithoutStagedOrApprovedCa() {
+        val publicKey = keys()
+        val publicCa = certificate(publicKey, true, issuerKey = publicKey)
+        withPlatformCa(publicCa) {
+            assertFalse(File(temporary.root, "trust/ca.crt").exists())
+            val client = TakServerCaTrust.enrollmentClient(null)
+            serve(publicCa, issuerKey = publicKey) { port ->
+                client.newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                    .execute().use { assertEquals(200, it.code) }
+            }
+            serve(publicCa, expectTlsRejection = true, issuerKey = publicKey) { port ->
+                assertThrows(SSLException::class.java) {
+                    client.newCall(Request.Builder().url("https://localhost:$port/").build())
+                        .execute().close()
+                }
+            }
+        }
+    }
+
+    @Test fun approvedEnrollmentAcceptsBothPlatformAndApprovedChainsWithoutChangingOtherServers() {
+        val publicKey = keys()
+        val publicCa = certificate(publicKey, true, issuerKey = publicKey)
+        val privateCa = certificate()
+        withPlatformCa(publicCa) {
+            val approved = TakServerCaTrust.enrollmentClient(TakServerCaTrust.encode(privateCa))
+            val otherServer = TakServerCaTrust.enrollmentClient(null)
+            val otherApprovedServer = TakServerCaTrust.enrollmentClient(TakServerCaTrust.encode(publicCa))
+            serve(publicCa, issuerKey = publicKey) { port ->
+                approved.newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                    .execute().use { assertEquals(200, it.code) }
+            }
+            serve(privateCa) { port ->
+                approved.newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                    .execute().use { assertEquals(200, it.code) }
+            }
+            serve(publicCa, issuerKey = publicKey) { port ->
+                otherServer.newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                    .execute().use { assertEquals(200, it.code) }
+            }
+            serve(privateCa, expectTlsRejection = true) { port ->
+                assertThrows(SSLException::class.java) {
+                    otherServer.newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                        .execute().close()
+                }
+            }
+            serve(privateCa, expectTlsRejection = true) { port ->
+                assertThrows(SSLException::class.java) {
+                    otherApprovedServer.newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                        .execute().close()
+                }
+            }
+            serve(publicCa, expectTlsRejection = true, issuerKey = publicKey) { port ->
+                assertThrows(SSLException::class.java) {
+                    approved.newCall(Request.Builder().url("https://localhost:$port/").build())
+                        .execute().close()
+                }
+            }
+        }
+    }
+
+    @Test fun stagingPrivateCaDoesNotAddTrustToDefaultEnrollment() {
+        val publicKey = keys()
+        val publicCa = certificate(publicKey, true, issuerKey = publicKey)
+        val privateCa = certificate()
+        File(temporary.root, "trust/ca.crt").apply {
+            parentFile.mkdirs()
+            writeBytes(pem(privateCa))
+        }
+        withPlatformCa(publicCa) {
+            serve(publicCa, issuerKey = publicKey) { port ->
+                TakServerCaTrust.enrollmentClient(null)
+                    .newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                    .execute().use { assertEquals(200, it.code) }
+            }
+            serve(privateCa, expectTlsRejection = true) { port ->
+                assertThrows(SSLException::class.java) {
+                    TakServerCaTrust.enrollmentClient(null)
+                        .newCall(Request.Builder().url("https://127.0.0.1:$port/").build())
+                        .execute().close()
+                }
+            }
+        }
+    }
+
+    private fun withPlatformCa(ca: X509Certificate, action: () -> Unit) {
+        val trustStoreFile = temporary.newFile("platform.jks")
+        KeyStore.getInstance("JKS").apply {
+            load(null, null)
+            setCertificateEntry("platform-test-ca", ca)
+            trustStoreFile.outputStream().use { store(it, "test".toCharArray()) }
+        }
+        val properties = mapOf(
+            "javax.net.ssl.trustStore" to trustStoreFile.absolutePath,
+            "javax.net.ssl.trustStoreType" to "JKS",
+            "javax.net.ssl.trustStorePassword" to "test",
+        )
+        val previous = properties.mapValues { (key, _) -> System.getProperty(key) }
+        try {
+            properties.forEach { (key, value) -> System.setProperty(key, value) }
+            action()
+        } finally {
+            previous.forEach { (key, value) ->
+                if (value == null) System.clearProperty(key) else System.setProperty(key, value)
+            }
+        }
+    }
+
     @Test fun streamingHttpsEndpointIdentificationAcceptsMatchingIpAndRejectsWrongHostname() {
         val ca = certificate(caKey, true)
         val manager = TakServerCaTrust.trustManager(TakServerCaTrust.encode(ca))
@@ -176,11 +284,16 @@ class TakServerCaTrustTest {
         }
     }
 
-    private fun serve(ca: X509Certificate, expectTlsRejection: Boolean = false, action: (Int) -> Unit) {
+    private fun serve(
+        ca: X509Certificate,
+        expectTlsRejection: Boolean = false,
+        issuerKey: KeyPair = caKey,
+        action: (Int) -> Unit,
+    ) {
         val store = KeyStore.getInstance("PKCS12").apply {
             load(null, null)
             setKeyEntry("server", serverKey.private, "test".toCharArray(),
-                arrayOf(certificate(serverKey, false), ca))
+                arrayOf(certificate(serverKey, false, issuerKey = issuerKey), ca))
         }
         val keys = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
             init(store, "test".toCharArray())
@@ -190,10 +303,12 @@ class TakServerCaTrustTest {
         (tls.serverSocketFactory.createServerSocket(0) as SSLServerSocket).use { listener ->
             listener.soTimeout = 5_000
             val serving = executor.submit {
+                var handshakeCompleted = false
                 try {
                     (listener.accept() as SSLSocket).use { socket ->
                         socket.soTimeout = 5_000
                         socket.startHandshake()
+                        handshakeCompleted = true
                         socket.inputStream.bufferedReader().let { reader ->
                             if (reader.readLine() == null) return@use
                             while (!reader.readLine().isNullOrEmpty()) { /* consume HTTP headers */ }
@@ -205,6 +320,9 @@ class TakServerCaTrustTest {
                 } catch (error: SSLException) {
                     // Negative tests intentionally abort TLS before an HTTP request.
                     if (!expectTlsRejection) throw error
+                } catch (error: SocketException) {
+                    // A client rejecting the peer can close before the server sends its TLS alert.
+                    if (!expectTlsRejection || handshakeCompleted) throw error
                 }
             }
             try {
