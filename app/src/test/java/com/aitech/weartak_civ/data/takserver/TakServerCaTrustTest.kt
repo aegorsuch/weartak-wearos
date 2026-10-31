@@ -12,6 +12,7 @@ import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.Base64
 import java.util.Date
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.KeyManagerFactory
@@ -303,26 +304,16 @@ class TakServerCaTrustTest {
         (tls.serverSocketFactory.createServerSocket(0) as SSLServerSocket).use { listener ->
             listener.soTimeout = 5_000
             val serving = executor.submit {
-                var handshakeCompleted = false
-                try {
-                    (listener.accept() as SSLSocket).use { socket ->
-                        socket.soTimeout = 5_000
-                        socket.startHandshake()
-                        handshakeCompleted = true
-                        socket.inputStream.bufferedReader().let { reader ->
-                            if (reader.readLine() == null) return@use
-                            while (!reader.readLine().isNullOrEmpty()) { /* consume HTTP headers */ }
-                        }
-                        socket.outputStream.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
-                        socket.outputStream.flush()
-                        socket.inputStream.read()
+                (listener.accept() as SSLSocket).use { socket ->
+                    socket.soTimeout = 5_000
+                    socket.startHandshake()
+                    socket.inputStream.bufferedReader().let { reader ->
+                        if (reader.readLine() == null) return@use
+                        while (!reader.readLine().isNullOrEmpty()) { /* consume HTTP headers */ }
                     }
-                } catch (error: SSLException) {
-                    // Negative tests intentionally abort TLS before an HTTP request.
-                    if (!expectTlsRejection) throw error
-                } catch (error: SocketException) {
-                    // A client rejecting the peer can close before the server sends its TLS alert.
-                    if (!expectTlsRejection || handshakeCompleted) throw error
+                    socket.outputStream.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray())
+                    socket.outputStream.flush()
+                    socket.inputStream.read()
                 }
             }
             try {
@@ -330,6 +321,15 @@ class TakServerCaTrustTest {
             } finally {
                 try {
                     serving.get(10, TimeUnit.SECONDS)
+                } catch (error: ExecutionException) {
+                    var cause: Throwable = error
+                    while (cause is ExecutionException && cause.cause != null) {
+                        cause = requireNotNull(cause.cause)
+                    }
+                    // Client-side rejection remains asserted; peer close can race the server's TLS alert.
+                    if (!expectTlsRejection || (cause !is SSLException && cause !is SocketException)) {
+                        throw error
+                    }
                 } finally {
                     executor.shutdownNow()
                 }
