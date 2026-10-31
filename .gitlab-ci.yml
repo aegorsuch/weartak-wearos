@@ -45,6 +45,7 @@ android_mopp_check:
       --tests '*PluginSettingsCoordinatorTest'
       --tests '*MapSourceTest' --tests '*MapCameraTest' --tests '*MapLayerLifecycleTest'
       --tests '*MapUserActionsTest' --tests '*MarkerReadabilityTest' --tests '*MapTargetSelectionTest'
+      --tests '*MarkerBloodhoundActionsTest' --tests '*BloodhoundPickerActionsTest'
       --tests '*LollipopGeometryTest' --tests '*LollipopOverlayTest'
       --tests '*ElevationTest' --tests '*AwsTerrainProviderTest'
       --tests '*RouteDetailsViewTest' --tests '*RoutePointDetailsViewTest'

@@ -869,15 +869,16 @@ identities, visibility filters and stored precision remain unchanged. No target
 is offset, deleted or converted to historical copies.
 
 Tap a user on the map to show one compact row of existing icons: **Bloodhound**,
-**Chat**, then **Target**. Bloodhound starts tracking and returns to the map.
+**Chat**, then **Target**. Bloodhound starts tracking and returns to the WearTAK
+home/main menu, without opening the Bloodhound app.
 Target centers on the selected contact at zoom 17, then preserves subsequent
 manual navigation rather than repeatedly snapping back. The Bloodhound action uses the
 selected user's UID and location; subsequent PLI from that same source refreshes
 the target while preserving tracking state. Users without a valid position cannot
 be selected for Bloodhound. If the user disappears, the last known target remains
 until stopped or removed through the existing Bloodhound controls. This action is
-also available on the map opened from Chat: it starts Bloodhound and returns to
-that map without selecting a chat contact or sending a message. **Open Chat**
+also available on the map opened from Chat: it starts Bloodhound and returns home
+without selecting a chat contact or sending a message. **Open Chat**
 retains the chat picker's existing contact-selection behavior.
 The icons use 22 dp artwork with 48 dp touch targets, including on small round
 screens. Bloodhound and Target are disabled without a valid contact position;
@@ -888,8 +889,12 @@ are unchanged.
 Routes, route points, received map points and saved pins use the same compact
 **Bloodhound / Target** row without Chat. Whole-route Bloodhound opens the existing
 nearest/beginning start chooser; Target frames the entire route. Point Target
-centers at zoom 17. Active point targets retain their existing **nPos** acknowledgement.
-Invalid coordinates disable both actions. Other point-edit and route-removal
+centers at zoom 17. Starting a saved pin, received marker or individual route point
+also returns home. For the actively tracked contact or point, Bloodhound becomes
+the picker's red **Stop** control with a white square. Stopping keeps the target
+available, does not send an **nPos** acknowledgement and stays on its detail screen.
+Invalid coordinates disable starting and Target, but do not prevent stopping an
+active Bloodhound. Other point-edit and route-removal
 controls remain available.
 Saved pins and received points append a trash icon after Target, replacing their
 old Delete text controls. Saved pins retain their existing confirmation; received
@@ -1338,7 +1343,7 @@ Bonded operation delegates these decisions to ATAK and therefore uses the native
 phone's exact objective and completion events.
 
 Route lines and named point markers remain visible on the map. Selecting a point
-uses the standard marker range/bearing display, Bloodhound/In Position action,
+uses the standard marker range/bearing display, Bloodhound/Stop action,
 and Back control. **Whole route** returns from point details to route removal
 and the named point list. The list excludes blank names but keeps original point
 indices; its count distinguishes named entries from all geometry points. Routes

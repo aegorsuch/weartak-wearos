@@ -42,21 +42,38 @@ class RoutePointDetailsViewTest {
     }
 
     @Test
-    fun activePointUsesSameInPositionActionAsStandardMarker() {
-        var position = 0
+    fun activePointUsesPickerStopActionInsteadOfInPosition() {
+        var stops = 0
         var bloodhound = 0
         compose.setContent {
             RoutePointsDetailsView(
                 "Start", 34.0, -117.0, isBloodhounding = true,
-                onBloodhound = { bloodhound++ }, onInPosition = { position++ }, onBack = {}
+                onBloodhound = { bloodhound++ }, onStop = { stops++ }, onBack = {}
             )
         }
         compose.onNodeWithContentDescription("Bloodhound to Marker").assertDoesNotExist()
-        compose.onNodeWithContentDescription("nPos")
+        compose.onNodeWithContentDescription("nPos").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Stop Bloodhound to Start")
             .performScrollTo().performClick()
         compose.runOnIdle {
-            assertEquals(1, position)
+            assertEquals(1, stops)
             assertEquals(0, bloodhound)
+        }
+    }
+
+    @Test fun activeMarkerCanStopWithoutLocationAndKeepsTargetAndDeleteActions() {
+        var stops = 0
+        var deletes = 0
+        compose.setContent {
+            PointBloodhoundAction(true, { error("Must not start active marker") }, { stops++ }, {},
+                enabled = false, onDelete = { deletes++ }, targetName = "Rally Point")
+        }
+        compose.onNodeWithContentDescription("Stop Bloodhound to Rally Point").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("Center and zoom to target").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Delete").assertIsEnabled().performClick()
+        compose.runOnIdle {
+            assertEquals(1, stops)
+            assertEquals(1, deletes)
         }
     }
 

@@ -70,7 +70,7 @@ fun RoutePointsDetailsView(
     orientation: Float = 0f,
     isBloodhounding: Boolean = false,
     onBloodhound: () -> Unit = {},
-    onInPosition: () -> Unit = {},
+    onStop: () -> Unit = {},
     onWholeRoute: () -> Unit = {},
     onTarget: () -> Unit = {},
     onBack: () -> Unit
@@ -112,8 +112,8 @@ fun RoutePointsDetailsView(
             if (validPosition) MarkerBearingDistance(distance, latitude, longitude, orientation)
             else Text(stringResource(R.string.remote_emergency_no_location),
                 color = Color.LightGray, textAlign = TextAlign.Center)
-            PointBloodhoundAction(isBloodhounding, onBloodhound, onInPosition, onTarget,
-                enabled = validPosition)
+            PointBloodhoundAction(isBloodhounding, onBloodhound, onStop, onTarget,
+                enabled = validPosition, targetName = pointName)
             if (!sender.isNullOrBlank()) {
                 Text(sender, color = Color.LightGray, fontSize = 13.sp)
             }
