@@ -138,6 +138,12 @@ class HomeBloodhoundLayoutTest {
         val bounds = back.fetchSemanticsNode().boundsInRoot
         val removeAllBounds = compose.onNodeWithText("Remove All").fetchSemanticsNode().boundsInRoot
         assertTrue("Back touch target too small", bounds.width >= 48 * density - 1)
+        val arrow = compose.onNodeWithContentDescription("Go back to Main Settings Screen", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("Back arrow not visible: $arrow", arrow.width >= 24 * density - 1 && arrow.height >= 24 * density - 1)
+        assertTrue("Back arrow outside its circle", bounds.contains(arrow.center))
+        assertTrue("Back arrow not centered", kotlin.math.abs(bounds.center.x - arrow.center.x) <= density &&
+            kotlin.math.abs(bounds.center.y - arrow.center.y) <= density)
         assertTrue("Back is not right of Remove All", bounds.left >= removeAllBounds.right)
         assertTrue("Back is not aligned with Remove All", kotlin.math.abs(bounds.center.y - removeAllBounds.center.y) <= density)
         assertTrue("Back clipped at screen edge", bounds.right <= pixels - 8 * density + 1)
