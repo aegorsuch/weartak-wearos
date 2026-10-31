@@ -10,12 +10,16 @@
     <string name="map_credits">Kaynaklar ve haklar</string>
     <string name="map_credits_expanded">Genişletildi</string>
     <string name="map_credits_collapsed">Daraltıldı</string>
-    <string name="map_credits_expand">Kaynakları ve hakları genişlet</string>
-    <string name="map_credits_collapse">Kaynakları ve hakları daralt</string>
+    <string name="map_category_expand">%1$s genişlet</string>
+    <string name="map_category_collapse">%1$s daralt</string>
+    <string name="map_category_layers">Katmanlar</string>
+    <string name="map_category_overlays">Kaplamalar</string>
+    <string name="map_category_roles">Roller (%1$d)</string>
+    <string name="map_category_teams">Takımlar (%1$d)</string>
     <string name="map_credit_link_unavailable">Tarayıcı bulunamadı. Açın: %1$s</string>
     <string name="map_load_failed">Harita yüklenemedi. Bağlantıyı kontrol edin, yeniden deneyin veya özgün haritayı geri yükleyin.</string>
     <string name="map_load_timeout">Harita hâlâ yükleniyor. Bağlantıyı kontrol edin, yeniden deneyin veya özgün haritayı geri yükleyin.</string>
-    <string name="map_error_open_layers">Harita kullanılamıyor. Katman yöneticisini açın</string>
+    <string name="map_error_open_overlay_manager">Harita kullanılamıyor. Katman yöneticisini açın</string>
     <string name="map_retry">Haritayı yeniden yükle</string>
     <string name="map_restore_original">Özgün haritayı geri yükle</string>
 </resources>

@@ -10,12 +10,16 @@
     <string name="map_credits">出典・権利表記</string>
     <string name="map_credits_expanded">展開中</string>
     <string name="map_credits_collapsed">折りたたみ中</string>
-    <string name="map_credits_expand">出典・権利表記を展開</string>
-    <string name="map_credits_collapse">出典・権利表記を折りたたむ</string>
+    <string name="map_category_expand">%1$sを展開</string>
+    <string name="map_category_collapse">%1$sを折りたたむ</string>
+    <string name="map_category_layers">レイヤー</string>
+    <string name="map_category_overlays">オーバーレイ</string>
+    <string name="map_category_roles">役割 (%1$d)</string>
+    <string name="map_category_teams">チーム (%1$d)</string>
     <string name="map_credit_link_unavailable">ブラウザーがありません。次を開いてください：%1$s</string>
     <string name="map_load_failed">地図を読み込めません。接続を確認し、再試行するか元の地図に戻してください。</string>
     <string name="map_load_timeout">地図を読み込み中です。接続を確認し、再試行するか元の地図に戻してください。</string>
-    <string name="map_error_open_layers">地図を利用できません。レイヤー管理を開いてください</string>
+    <string name="map_error_open_overlay_manager">地図を利用できません。レイヤー管理を開いてください</string>
     <string name="map_retry">地図の読み込みを再試行</string>
     <string name="map_restore_original">元の地図に戻す</string>
 </resources>

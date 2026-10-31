@@ -10,12 +10,16 @@
     <string name="map_credits">Quellen und Rechte</string>
     <string name="map_credits_expanded">Ausgeklappt</string>
     <string name="map_credits_collapsed">Eingeklappt</string>
-    <string name="map_credits_expand">Quellen und Rechte ausklappen</string>
-    <string name="map_credits_collapse">Quellen und Rechte einklappen</string>
+    <string name="map_category_expand">%1$s ausklappen</string>
+    <string name="map_category_collapse">%1$s einklappen</string>
+    <string name="map_category_layers">Ebenen</string>
+    <string name="map_category_overlays">Overlays</string>
+    <string name="map_category_roles">Rollen (%1$d)</string>
+    <string name="map_category_teams">Teams (%1$d)</string>
     <string name="map_credit_link_unavailable">Kein Browser verfügbar. Öffnen: %1$s</string>
     <string name="map_load_failed">Karte konnte nicht geladen werden. Verbindung prüfen, erneut versuchen oder ursprüngliche Karte wiederherstellen.</string>
     <string name="map_load_timeout">Karte wird noch geladen. Verbindung prüfen, erneut versuchen oder ursprüngliche Karte wiederherstellen.</string>
-    <string name="map_error_open_layers">Karte nicht verfügbar. Ebenenverwaltung öffnen</string>
+    <string name="map_error_open_overlay_manager">Karte nicht verfügbar. Ebenenverwaltung öffnen</string>
     <string name="map_retry">Karte erneut laden</string>
     <string name="map_restore_original">Ursprüngliche Karte wiederherstellen</string>
 </resources>

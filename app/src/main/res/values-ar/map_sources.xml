@@ -10,12 +10,16 @@
     <string name="map_credits">المصادر والحقوق</string>
     <string name="map_credits_expanded">موسّع</string>
     <string name="map_credits_collapsed">مطوي</string>
-    <string name="map_credits_expand">عرض المصادر والحقوق</string>
-    <string name="map_credits_collapse">طي المصادر والحقوق</string>
+    <string name="map_category_expand">توسيع %1$s</string>
+    <string name="map_category_collapse">طي %1$s</string>
+    <string name="map_category_layers">الطبقات</string>
+    <string name="map_category_overlays">التراكبات</string>
+    <string name="map_category_roles">الأدوار (%1$d)</string>
+    <string name="map_category_teams">الفرق (%1$d)</string>
     <string name="map_credit_link_unavailable">لا يوجد متصفح. افتح: %1$s</string>
     <string name="map_load_failed">تعذر تحميل الخريطة. تحقق من الاتصال أو أعد المحاولة أو استعد الخريطة الأصلية.</string>
     <string name="map_load_timeout">ما زالت الخريطة قيد التحميل. تحقق من الاتصال أو أعد المحاولة أو استعد الخريطة الأصلية.</string>
-    <string name="map_error_open_layers">الخريطة غير متاحة. افتح مدير الطبقات</string>
+    <string name="map_error_open_overlay_manager">الخريطة غير متاحة. افتح مدير الطبقات</string>
     <string name="map_retry">إعادة تحميل الخريطة</string>
     <string name="map_restore_original">استعادة الخريطة الأصلية</string>
 </resources>

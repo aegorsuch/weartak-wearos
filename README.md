@@ -94,15 +94,20 @@ showing its HTTP-200 "max zoom layer =17" placeholder. TAK vectors overzoom from
 14; hybrid rasters from verified zoom 20. Camera limits are 20 for OSM and 22 for
 hybrids. The existing remote contour endpoint currently returns HTTP 403 even at
 lower zooms; this is not solved by zoom caps or a silent provider substitution.
-The menu order is Buttons, Layers (alphabetical filters), Maps, Roles, Teams;
+The menu order is Buttons, Layers (alphabetical filters), Overlays, Maps, Roles, Teams;
 Roles combines the existing standard and LEO / Civil Use options without changing
 their independently saved selections.
+Each grouped category has an inline disclosure arrow: right when collapsed,
+down when expanded. Tap the header or arrow to show or hide its items without
+changing their eye toggles, selected map, or saved visibility. Categories start
+expanded except Credits, and retain disclosure state while the popup is open.
 The top-right back arrow dismisses only Overlay Manager; the underlying map
 back button is absent while that menu is open, and system Back dismisses it first.
 The Buttons toggle also hides Channels, while Overlay Manager remains available.
 Credits is the last section. Its arrow row is
 collapsed by default; tap to reveal active-source copyright, source and license
-links. Reopening the menu or changing source resets it to collapsed.
+links. Reopening the menu resets it to collapsed; changing source preserves
+its disclosure state and updates its links.
 Required on-map notices remain visible.
 If the watch has no browser, the selected URL is shown with an explicit error.
 
@@ -609,8 +614,8 @@ are rejected with diagnostics; there is no fallback parser. Compatibility with
 other producers is limited to this shape, not a claim of general ATAK Ditto support.
 
 Ditto connectivity/presence alone does not provide a map position: a peer must
-publish a supported, current PLI document. Received users still obey **Layers >
-Users**, team-color and role filters. Standard and LEO role selections are saved
+publish a supported, current PLI document. Received users still obey **Overlay
+Manager > Overlays > Users**, team-color and role filters. Standard and LEO role selections are saved
 independently, so editing one section no longer hides the other after reopening
 the map. For the old shared role preference, a nonempty selection containing only
 one section's roles is retained for that section; the overwritten other section
@@ -804,7 +809,7 @@ local tests does not establish phone consumption or server/ATAK receipt.
 ### Map rotary bezel zoom
 
 On the map, rotate the bezel clockwise to zoom in and counterclockwise to zoom
-out. Rotary input falls through to normal handling while Layers, Channels,
+out. Rotary input falls through to normal handling while Overlay Manager, Channels,
 own-location details, the overlapping-target picker, route details, or route-point
 details are open, and while navigating to the selected-user menu. Zoom resumes
 when the unobstructed map is active again.
