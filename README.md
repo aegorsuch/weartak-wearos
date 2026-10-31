@@ -2554,12 +2554,11 @@ set a commanded level or start a filter timer.
 
 The bundled `weartak-plugin-sdk-release.aar` is derived from canonical SDK
 `https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` at immutable merged
-commit `175ebe0d5e237f0a6656b599d64588b8c99e9d9b` (tree
-`b46a93eeaf9d868afc187f961d8682459c6e5800`). Release SHA-256:
-`2c8c33cdeb9cc019f412c9c67b47baf1126ef59a40c3d2a3d2975b66246a4df9`.
-The Windows source build used commit `2da3a77e27efc92407f6a4544eb479f7c3064ae6`,
-whose tree is identical to that merged commit; the hash identifies this build,
-not a reproducibility guarantee.
+commit `5362609f69b0c527acb5d75d429ebcc16fa5772f` (tree
+`d51b1088ed550fcc605d6ae854e34707bdac5254`, merge of SDK MR !6). Release SHA-256:
+`25898D3F51D8367E877F2BB5C41EDD7FA8C513D24E35C07E0919ADD5BDC0BFBE`.
+A clean Windows JDK 17 build of that merged commit reproduced this hash; the
+hash identifies this build, not a cross-platform reproducibility guarantee.
 This is a source-built dependency, not an independently trusted binary release.
 
 ### Plugin route status and home connection priority
