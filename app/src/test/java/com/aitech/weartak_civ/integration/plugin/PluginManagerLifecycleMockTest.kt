@@ -209,6 +209,8 @@ class PluginManagerLifecycleMockTest {
             awaitPluginLifecycle(pluginPkg)
             mgr.connectionForTest(pluginPkg)!!.onBindingDied(null)
             if (shutdown) mgr.shutdownAll() else mgr.unbindPackage(pluginPkg)
+            // Finish remote cleanup before the next iteration reuses the same package.
+            awaitPluginLifecycle(pluginPkg)
             ShadowLooper.shadowMainLooper().idleFor(Duration.ofMinutes(1))
             assertFalse(mgr.hasConnectionForTest(pluginPkg))
             verify(exactly = 1) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
