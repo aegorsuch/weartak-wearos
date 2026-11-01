@@ -90,7 +90,7 @@ internal fun ServerCaTrustEditor(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var candidate by remember(address, port) { mutableStateOf<X509Certificate?>(null) }
-    var error by remember(address, port) { mutableStateOf(false) }
+    var error by remember(address, port) { mutableStateOf<Int?>(null) }
     var loading by remember { mutableStateOf(false) }
     // Discard results if the user edits the endpoint while the file is being read.
     val endpoint = remember(address, port) { Any() }
@@ -98,7 +98,7 @@ internal fun ServerCaTrustEditor(
     val canReview = enabled && !loading && address.isNotBlank() && port.toIntOrNull() in 1..65535
     val review: () -> Unit = {
         loading = true
-        error = false
+        error = null
         candidate = null
         scope.launch {
             try {
@@ -108,9 +108,12 @@ internal fun ServerCaTrustEditor(
                 if (currentEndpoint.value === endpoint) candidate = read
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: TakServerCaTrust.NoStagedCaException) {
+                Log.i("ServerCaTrust", "No CA staged for optional import")
+                if (currentEndpoint.value === endpoint) error = R.string.ca_trust_not_staged
             } catch (e: Exception) {
                 Log.e("ServerCaTrust", "Unable to read CA import", e)
-                if (currentEndpoint.value === endpoint) error = true
+                if (currentEndpoint.value === endpoint) error = R.string.ca_trust_import_error
             } finally {
                 loading = false
             }
@@ -132,7 +135,7 @@ internal fun ServerCaTrustEditor(
             label = { Text(stringResource(if (loading) R.string.ca_trust_loading else R.string.ca_trust_review)) },
             onClick = review,
         )
-        if (error) Text(stringResource(R.string.ca_trust_import_error))
+        error?.let { Text(stringResource(it)) }
         candidate?.let { ca ->
             Dialog(
                 onDismissRequest = { candidate = null },

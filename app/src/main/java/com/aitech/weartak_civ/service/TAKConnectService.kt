@@ -3444,9 +3444,11 @@ class TAKConnectService: Service() {
                     val trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
                     trustManagerFactory.init(takServerDetail.keyStore)
                      */
-                    val trustManager = takServerDetail.approvedCa?.let {
-                        com.aitech.weartak_civ.data.takserver.TakServerCaTrust.trustManager(it)
-                    } ?: trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull()
+                    val trustManager = com.aitech.weartak_civ.data.takserver.TakServerCaTrust.streamingTrustManager(
+                        takServer,
+                        trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull(),
+                        takServerDetail.approvedCa,
+                    )
 
                     val sslContext = SSLContext.getInstance("TLSv1.3")
                     if (null != trustManager) {
