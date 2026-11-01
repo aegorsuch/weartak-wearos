@@ -4211,11 +4211,13 @@ fun WearTAKBackButton(
             containerColor = Color.Gray,
             contentColor = Color.Red
         ),
+        // Default 24dp horizontal padding would leave no room for the arrow in a 48dp circle.
+        contentPadding = if (compact) PaddingValues(0.dp) else ButtonDefaults.ContentPadding,
     ) {
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowLeft,
             contentDescription = "Go back to Main Settings Screen",
-            modifier = Modifier.size(if (compact) 18.dp else 24.dp),
+            modifier = Modifier.size(24.dp),
         )
     }
 }
