@@ -3137,10 +3137,6 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             onOpenOverlayManager = {
                 showOverlayManager = true
             },
-            onImportShapes = {
-                mapShapeImportPicker.launch(arrayOf("*/*"))
-            },
-            importingMapShapes = importingMapShapes,
             onTogglePitch = {
                 val tilted = cameraState.position.tilt < 22.5
                 MapSourcePreferences(mapPreferences).saveTiltedView(tilted)
@@ -3752,8 +3748,6 @@ private fun MapControlsOverlay(
     onZoomOut: () -> Unit,
     onCenterOnSelf: () -> Unit,
     onOpenOverlayManager: () -> Unit,
-    onImportShapes: () -> Unit,
-    importingMapShapes: Boolean,
     onTogglePitch: () -> Unit,
     showPitchButton: Boolean,
     pitchEnabled: Boolean,
@@ -3862,21 +3856,6 @@ private fun MapControlsOverlay(
 
         // Always visible so the user can reopen the menu and restore controls.
         MapOverlayManagerButton(onOpenOverlayManager, Modifier.align(Alignment.TopCenter))
-        CircularMapButton(
-            onClick = onImportShapes,
-            enabled = !importingMapShapes,
-            size = 40.dp,
-            showBorder = true,
-            modifier = Modifier.align(Alignment.TopCenter).offset(y = 58.dp)
-                .semantics { contentDescription = "Import map shapes" }
-        ) {
-            Text(
-                if (importingMapShapes) "..." else "IMP",
-                color = Color.White,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
 
         MapChannelsButton(
             onClick = onOpenChannels,
