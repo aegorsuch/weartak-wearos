@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_edit">تعديل</string>
+    <string name="manual_alert_validation_error">يجب أن يكون التنبيه فريداً وأن يتكون من 1 إلى 60 حرفاً. يمكن للقائمة أن تضم حتى 20 تنبيهاً.</string>
     <string name="ca_trust_advanced">متقدم</string>
     <string name="ca_trust_advanced_hide">إخفاء الخيارات المتقدمة</string>
     <string name="ca_trust_import">استيراد CA...</string>

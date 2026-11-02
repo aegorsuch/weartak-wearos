@@ -1,4 +1,6 @@
 <resources>
+    <string name="accessibility_edit">Edit</string>
+    <string name="manual_alert_validation_error">Alert must be unique, 1–60 characters, and the list can hold up to 20.</string>
     <string name="ca_trust_advanced">Advanced</string>
     <string name="ca_trust_advanced_hide">Hide advanced</string>
     <string name="ca_trust_import">Import CA...</string>

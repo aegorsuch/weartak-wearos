@@ -77,7 +77,7 @@ class MapBezelZoomTest {
             assertFalse(handleRotary!!(-1f))
             assertEquals(1, zoomChanges)
         }
-        compose.onNodeWithContentDescription("Go back to Main Settings Screen").performClick()
+        compose.onNodeWithContentDescription("Back").performClick()
         compose.runOnIdle {
             assertTrue(handleRotary!!(-1f))
             assertEquals(2, zoomChanges)

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.Image
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -107,6 +108,7 @@ internal fun companionPluginStatus(enabled: Boolean): String {
 @Composable
 internal fun CompanionPluginChip(enabled: Boolean, status: String, onToggle: (Boolean) -> Unit, onDetails: () -> Unit) {
     WearTAKSplitToggleChip(
+        modifier = Modifier.testTag("settings_companion"),
         appIcon = {
             Image(
                 painter = painterResource(R.drawable.weartak_companion_plugin),
@@ -147,6 +149,7 @@ internal fun CompanionDetailsPage(
             }
             item {
                 WearTAKToggleChip(
+                    testTag = "settings_companion_location_diagnostics",
                     checkedLive = diagnosticsEnabled,
                     onCheckedChange = onDiagnosticsEnabledChanged,
                     title = stringResource(R.string.companion_location_diagnostics)

@@ -55,15 +55,15 @@ class NetworkConnectivityChipTest {
         expected.forEach { (transport, destination) ->
             compose.runOnIdle { key.value = transport; checked.value = true }
             val before = toggles
-            compose.onNodeWithText("Transport").performTouchInput { click() }
+            compose.onNodeWithTag("network_${transport}_settings").performTouchInput { click() }
             compose.runOnIdle {
                 assertEquals(destination, routes.last())
                 assertTrue(checked.value)
                 assertEquals(before, toggles)
             }
             val navigations = routes.size
-            compose.onNode(isToggleable()).assertIsOn().performTouchInput { click() }
-            compose.onNode(isToggleable()).assertIsOff()
+            compose.onNodeWithTag("network_${transport}_toggle").assertIsOn().performTouchInput { click() }
+            compose.onNodeWithTag("network_${transport}_toggle").assertIsOff()
             compose.runOnIdle {
                 assertEquals(navigations, routes.size)
                 assertEquals(before + 1, toggles)

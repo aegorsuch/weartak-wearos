@@ -22,6 +22,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -70,6 +71,7 @@ internal fun MulticastNetworkToggle(
     onCheckedChange: (Boolean) -> Unit
 ) {
     WearTAKToggleChip(
+        testTag = "settings_multicast",
         checkedLive = enabled,
         onCheckedChange = onCheckedChange,
         title = stringResource(R.string.tak_sa_multicast),
@@ -121,6 +123,7 @@ internal fun NetworkConnectivityChip(
     }
     if (route == null) {
         WearTAKToggleChip(
+            testTag = "network_${row.key}_toggle",
             checkedLive = row.checked,
             onCheckedChange = row.toggle,
             title = row.title,
@@ -145,6 +148,7 @@ internal fun NetworkConnectivityChip(
     ) {
         Row(
             modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
+                .testTag("network_${row.key}_settings")
                 .clickable(role = Role.Button, onClickLabel = openSettings) {
                     when {
                         row.key == "tak" && phoneManagedSettings -> showPhoneManagedNotice()
@@ -169,6 +173,7 @@ internal fun NetworkConnectivityChip(
         }
         Box(
             modifier = Modifier.width(52.dp).fillMaxHeight().heightIn(min = 48.dp)
+                .testTag("network_${row.key}_toggle")
                 .background(colors.splitBackgroundOverlay(toggleEnabled, row.checked).value)
                 .semantics {
                     contentDescription = row.title

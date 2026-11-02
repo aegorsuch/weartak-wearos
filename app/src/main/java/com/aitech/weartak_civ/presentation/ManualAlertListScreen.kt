@@ -30,10 +30,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -76,6 +78,7 @@ fun ManualAlertListScreen(
     var alertToDelete by rememberSaveable { mutableStateOf("") }
     var showSaveError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val validationError = stringResource(R.string.manual_alert_validation_error)
 
     val submitAlert: () -> Unit = {
         scope.launch {
@@ -91,7 +94,11 @@ fun ManualAlertListScreen(
     }
 
     ScalingLazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().automationRoot(when (mode) {
+            ManualAlertScreenMode.LIST -> "manual_alert_list"
+            ManualAlertScreenMode.ADD -> "manual_alert_add_form"
+            ManualAlertScreenMode.DELETE -> "manual_alert_delete_confirmation"
+        }),
         state = rememberScalingLazyListState(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -109,6 +116,7 @@ fun ManualAlertListScreen(
                 item {
                     ManualAlertActionRow(
                         text = stringResource(R.string.route_back),
+                        testTag = "manual_alert_back",
                         onClick = onCancel,
                     )
                 }
@@ -117,6 +125,8 @@ fun ManualAlertListScreen(
                     item(key = "${entry.custom}-$alert") {
                         ManualAlertActionRow(
                             text = alert,
+                            testTag = if (entry.custom) "manual_alert_saved_${savedAlerts.indexOf(alert)}"
+                                else "manual_alert_builtin_${builtInAlerts.indexOf(alert)}",
                             onClick = { onAlertSelected(alert) },
                             onDelete = if (entry.custom) ({
                                 alertToDelete = alert
@@ -129,6 +139,7 @@ fun ManualAlertListScreen(
                 item {
                     ManualAlertActionRow(
                         text = "+",
+                        testTag = "manual_alert_add",
                         contentDescription = stringResource(R.string.manual_alert_add_hint),
                         onClick = {
                             showSaveError = false
@@ -155,7 +166,11 @@ fun ManualAlertListScreen(
                             showSaveError = false
                         },
                         placeholder = { Text(stringResource(R.string.manual_alert_add_hint), maxLines = 1) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+                            .testTag("manual_alert_draft")
+                            .semantics {
+                                if (showSaveError) error(validationError)
+                            },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions.Default,
                         colors = TextFieldDefaults.colors(
@@ -169,7 +184,7 @@ fun ManualAlertListScreen(
                 if (showSaveError) {
                     item {
                         Text(
-                            text = "Alert must be unique, 1–60 characters, and the list can hold up to 20.",
+                            text = validationError,
                             color = Color.Red,
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center,
@@ -177,11 +192,12 @@ fun ManualAlertListScreen(
                     }
                 }
                 item {
-                    ManualAlertActionRow(text = "Save alert", onClick = submitAlert)
+                    ManualAlertActionRow(text = "Save alert", testTag = "manual_alert_save", onClick = submitAlert)
                 }
                 item {
                     ManualAlertActionRow(
                         text = stringResource(R.string.route_back),
+                        testTag = "manual_alert_add_cancel",
                         onClick = { mode = ManualAlertScreenMode.LIST },
                     )
                 }
@@ -205,6 +221,7 @@ fun ManualAlertListScreen(
                 item {
                     ManualAlertActionRow(
                         text = "Delete",
+                        testTag = "manual_alert_delete_confirm",
                         onClick = {
                             scope.launch {
                                 onDeleteAlert(alertToDelete)
@@ -217,6 +234,7 @@ fun ManualAlertListScreen(
                 item {
                     ManualAlertActionRow(
                         text = stringResource(R.string.route_back),
+                        testTag = "manual_alert_delete_cancel",
                         onClick = {
                             alertToDelete = ""
                             mode = ManualAlertScreenMode.LIST
@@ -235,6 +253,7 @@ internal fun ManualAlertActionRow(
     contentDescription: String? = null,
     onDelete: (() -> Unit)? = null,
     allowLongLabel: Boolean = false,
+    testTag: String? = null,
 ) {
     val rowContentDescription = contentDescription
     Row(
@@ -244,12 +263,13 @@ internal fun ManualAlertActionRow(
             .padding(vertical = 3.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(Color.DarkGray)
-            .semantics { rowContentDescription?.let { this.contentDescription = it } }
             .padding(horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BoxWithConstraints(
             modifier = Modifier.weight(1f)
+                .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
+                .semantics { rowContentDescription?.let { this.contentDescription = it } }
                 .clickable(role = Role.Button, onClick = onClick)
                 .heightIn(min = 48.dp)
                 .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -282,7 +302,8 @@ internal fun ManualAlertActionRow(
             )
         }
         if (onDelete != null) {
-            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)
+                .then(if (testTag != null) Modifier.testTag("${testTag}_delete") else Modifier)) {
                 Icon(
                     imageVector = Icons.Outlined.Delete,
                     contentDescription = stringResource(R.string.preset_delete, text),

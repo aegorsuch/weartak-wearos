@@ -57,6 +57,12 @@ android_mopp_check:
       --tests '*HomeConnectionStatusTest' --tests '*ConnectionStatusPriorityUiTest'
       --tests '*DeveloperPreferencesOrderTest' --tests '*NetworkConnectivityIconsTest'
       --tests '*HomeBloodhoundLayoutTest'
+      --tests '*AccessibilitySemanticsTest' --tests '*ServerFormValidationTest'
+      --tests '*ManualAlertListScreenTest' --tests '*CommandCallsignEntryUiTest'
+      --tests '*HostedPluginMainUiPageTest' --tests '*MapBezelZoomTest'
+      --tests '*NetworkConnectivityChipTest' --tests '*NetworkToggleChipSubtitleTest'
+      --tests '*PluginBondLockTest' --tests '*CompanionPluginUiTest'
+      :app:compileDebugAndroidTestKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:
     when: always

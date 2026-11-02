@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_edit">编辑</string>
+    <string name="manual_alert_validation_error">警报必须唯一，长度为1至60个字符。列表最多可保存20条警报。</string>
     <string name="ca_trust_advanced">高级</string>
     <string name="ca_trust_advanced_hide">隐藏高级设置</string>
     <string name="ca_trust_import">导入 CA...</string>

@@ -186,7 +186,7 @@ fun ConfirmationAlertPage(
     if (shouldShowDialog.value) {
         AlertDialog(
             containerColor = if (isAlerting.value == true) Color.Red else colors.background,
-            modifier = if (isAlerting.value == true) {
+            modifier = (if (isAlerting.value == true) {
                 Modifier
                     .fillMaxSize()
                     .background(Color.Red)
@@ -196,7 +196,7 @@ fun ConfirmationAlertPage(
                     .fillMaxSize()
                     .background(colors.background)
                     .padding(0.dp)
-            },
+            }).automationRoot("sos_confirmation"),
             onDismissRequest = {
                 shouldShowDialog.value = false
             },
@@ -232,7 +232,7 @@ fun ConfirmationAlertPage(
                         isConfirmed.value = true
                         confirmFunction()
                     },
-                    modifier = Modifier.fillMaxWidth(0.45f),
+                    modifier = Modifier.fillMaxWidth(0.45f).automationRoot("sos_confirm"),
                     contentPadding = PaddingValues(0.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isAlerting.value == true) Color.Black else Color.Red),
@@ -256,7 +256,7 @@ fun ConfirmationAlertPage(
                         isConfirmed.value = false
                     },
                     contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.fillMaxWidth(0.45f),
+                    modifier = Modifier.fillMaxWidth(0.45f).automationRoot("sos_cancel"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.Gray,
                     )
@@ -281,6 +281,7 @@ fun SuccessDialogActivity(
     Dialog(onDismissRequest = { shouldShowDialog.value = false }) {
         Card(
             modifier = Modifier
+                .automationRoot("sos_result")
                 .fillMaxSize()
                 .height(200.dp),
             colors = CardDefaults.cardColors(containerColor = colors.background)
@@ -431,6 +432,7 @@ fun SosCivApp(exitActivity: () -> Unit, context: Context) {
     }
 
     SwipeDismissableNavHost(
+        modifier = Modifier.automationRoot("sos"),
         navController = navController,
         startDestination = if (isLicenseValid()) "sos_screen" else "invalid_license_screen"
     ) {

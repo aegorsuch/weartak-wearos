@@ -12,6 +12,7 @@ package com.aitech.weartak_civ.presentation
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 
 import android.annotation.SuppressLint
@@ -3218,6 +3219,11 @@ fun SOSButton(context: Context, isAlertingLiveData: Boolean?) {
             context.startActivity(Intent(context, SosActivity::class.java))
         },
         modifier = Modifier
+            .automationRoot("sos_open")
+            .semantics {
+                contentDescription = sosText
+                stateDescription = if (isAlertingLiveData == true) sosLiveText else context.getString(R.string.toggle_state_off)
+            }
             .border(
                 width = 4.dp,
                 color = Color.Red,

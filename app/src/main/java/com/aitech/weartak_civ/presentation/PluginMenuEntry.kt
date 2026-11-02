@@ -2,6 +2,8 @@ package com.aitech.weartak_civ.presentation
 
 import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.MoppStatus
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
@@ -39,6 +41,7 @@ internal fun BuiltInPluginToggleChip(
 ) {
     val bonded = phoneManagedSettings && kind.locksDuringPhoneManagement
     WearTAKSplitToggleChip(
+        modifier = Modifier.testTag("settings_plugin_${kind.name.lowercase(java.util.Locale.ROOT)}"),
         appIcon = { BuiltInPluginBrandIcon(kind) },
         title = title,
         label = networkControlSubtitle(label, bonded),

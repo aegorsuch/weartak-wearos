@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="tak_server_name" type="id" />
+    <item name="tak_server_address" type="id" />
+    <item name="tak_server_port" type="id" />
+    <item name="tak_server_username" type="id" />
+    <item name="tak_server_password" type="id" />
+</resources>
