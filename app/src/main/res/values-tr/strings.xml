@@ -403,6 +403,7 @@
     <string name="owned_pin_delete_help">Buradan hemen kaldırır. Bağlı TAK istemcilerinden kaldırma ister; diğer eşler bu isteği yok sayabilir.</string>
     <string name="map_select_target">Hedef Seç</string>
     <string name="map_no_targets">Kullanılabilir Hedef Yok</string>
+    <string name="map_shape_geometry">Geometri: %1$s</string>
     <string name="map_target_contact">Kişi</string>
     <string name="map_target_dropped">Bırakılan İşaretçi</string>
     <string name="map_target_received">Alınan İşaretçi</string>

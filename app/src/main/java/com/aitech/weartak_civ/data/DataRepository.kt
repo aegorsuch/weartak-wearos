@@ -179,6 +179,7 @@ import com.aitech.weartak_civ.data.model.TakRoute
 import com.aitech.weartak_civ.cot.CotEventTime
 import com.aitech.weartak_civ.cot.CotEventTimeFactory
 import com.aitech.weartak_civ.cot.CotMarkerEvent
+import com.aitech.weartak_civ.cot.CotMapShape
 import com.aitech.weartak_civ.cot.CotTimeOffset
 import com.aitech.weartak_civ.cot.CotUserPositionEvent
 import com.aitech.weartak_civ.ipc.AtosCotPacket
@@ -2558,6 +2559,7 @@ class DataRepository(
         val sourceServerId: String? = null,
         val receivedAt: Long = timeReceived,
         val circleRadiusMeters: Double? = null,
+        val mapShape: CotMapShape? = null,
         val isCamera: Boolean = false
     )
 
@@ -2606,6 +2608,10 @@ class DataRepository(
         _droppedMarkerList.emit(droppedMarkerList)
     }
 
+    private val importedMapShapePersistence = ImportedMapShapePersistence(
+        context.getSharedPreferences("imported-map-shapes-v1", Context.MODE_PRIVATE)
+    )
+    private val importedMapShapeMutex = Mutex()
     private val receivedMarkerStore = SourceAwareCotStore(
         sourceIdOf = { item: ReceivedMarker -> item.sourceServerId ?: NON_TAK_COT_SOURCE_ID },
         cotUidOf = ReceivedMarker::uid,
@@ -2622,8 +2628,61 @@ class DataRepository(
     )
     val receivedMarkerList: StateFlow<List<ReceivedMarker>> = receivedMarkerStore.visibleItems
 
+    init {
+        importedMapShapePersistence.load().forEach { record ->
+            receivedMarkerStore.upsertWithResult(record.toReceivedMarker())
+        }
+    }
+
     suspend fun upsertReceivedMarker(item: ReceivedMarker): SourceCotUpsertResult =
         receivedMarkerStore.upsertWithResult(item)
+
+    internal suspend fun replaceImportedMapShapes(sourceId: String, shapes: List<ImportedMapShapeRecord>) {
+        require(sourceId.startsWith("import:") && shapes.all { it.sourceId == sourceId }) {
+            "Invalid imported map shape source"
+        }
+        shapes.forEach(::validateImportedMapShape)
+        importedMapShapeMutex.withLock {
+            val retained = importedMapShapePersistence.loadStrict().filterNot { it.sourceId == sourceId }
+            importedMapShapePersistence.save(retained + shapes)
+            receivedMarkerStore.removeSource(sourceId)
+            shapes.forEach { receivedMarkerStore.upsertWithResult(it.toReceivedMarker()) }
+        }
+    }
+
+    suspend fun removeImportedMapShape(uid: String, sourceId: String): Boolean =
+        importedMapShapeMutex.withLock {
+            require(uid.isNotBlank() && sourceId.startsWith("import:")) {
+                "Invalid imported map shape identity"
+            }
+            val catalog = importedMapShapePersistence.loadStrict()
+            val retained = catalog.filterNot { it.sourceId == sourceId && it.uid == uid }
+            if (retained.size == catalog.size) return@withLock false
+            importedMapShapePersistence.save(retained)
+            receivedMarkerStore.remove(SourceCotKey(sourceId, uid)) != null
+        }
+
+    private fun validateImportedMapShape(record: ImportedMapShapeRecord) {
+        require(record.uid.isNotBlank() && record.title.isNotBlank() &&
+            record.sourceId.startsWith("import:")) { "Invalid imported map shape identity" }
+        require(com.aitech.weartak_civ.cot.CotMessageParser.isMapShapeType(record.markerType) &&
+            record.latitude.isFinite() && record.latitude in -90.0..90.0 &&
+            record.longitude.isFinite() && record.longitude in -180.0..180.0
+        ) { "Invalid imported map shape geometry" }
+    }
+
+    private fun ImportedMapShapeRecord.toReceivedMarker() = ReceivedMarker(
+        uid = uid,
+        markerType = markerType,
+        title = title,
+        timeReceived = timeMillis,
+        staleTime = Long.MAX_VALUE,
+        location = LocationSnapshot(timeMillis, latitude, longitude, null, null, null, null, null),
+        source = "imported-map-shapes",
+        sourceServerId = sourceId,
+        receivedAt = timeMillis,
+        mapShape = shape
+    )
 
     suspend fun removeReceivedMarkerByUid(uid: String) {
         receivedMarkerStore.removeUid(uid)
@@ -2814,6 +2873,7 @@ class DataRepository(
             sourceServerId = sourceServerId,
             receivedAt = receivedAt,
             circleRadiusMeters = event.detail.circleRadiusMeters,
+            mapShape = event.detail.mapShape,
             isCamera = event.detail.isCamera
         )
         val result = receivedMarkerStore.upsertWithResult(item,
@@ -2843,7 +2903,8 @@ class DataRepository(
                     markerIngressMutex.withLock { pruneGenericMarkers() }
                     val keepRunning = synchronized(receivedMarkerStore) {
                         val hasGeneric = receivedMarkerStore.snapshot().values.any {
-                            com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType)
+                            com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType) &&
+                                it.source != "imported-map-shapes"
                         }
                         if (!hasGeneric) genericExpiryJob = null
                         hasGeneric
@@ -2856,8 +2917,14 @@ class DataRepository(
 
     fun pruneGenericMarkers(now: Long = System.currentTimeMillis()) {
         receivedMarkerStore.pruneSelected(
-            selected = { com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType) },
-            expired = { it.staleTime <= now || now - it.receivedAt >= 15 * 60_000L },
+            selected = {
+                com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType) &&
+                    it.source != "imported-map-shapes"
+            },
+            expired = {
+                it.staleTime <= now ||
+                    (it.source != "imported-map-shapes" && now - it.receivedAt >= 15 * 60_000L)
+            },
             maxCount = 512
         ).forEach {
             genericBloodhounds?.removeMarkerCopy(it.uid, it.sourceServerId, it.timeReceived, now)

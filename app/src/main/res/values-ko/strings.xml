@@ -402,6 +402,7 @@
     <string name="owned_pin_delete_help">여기서 즉시 제거합니다. 연결된 TAK 클라이언트에도 제거를 요청하지만 상대 기기가 무시할 수 있습니다.</string>
     <string name="map_select_target">대상 선택</string>
     <string name="map_no_targets">사용 가능한 대상 없음</string>
+    <string name="map_shape_geometry">도형: %1$s</string>
     <string name="map_target_contact">연락처</string>
     <string name="map_target_dropped">배치한 마커</string>
     <string name="map_target_received">수신한 마커</string>

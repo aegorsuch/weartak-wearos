@@ -407,6 +407,7 @@
     <string name="owned_pin_delete_help">يزيلها هنا فورًا. يطلب إزالتها من عملاء TAK المتصلين؛ وقد تتجاهل الأجهزة الأخرى الطلب.</string>
     <string name="map_select_target">اختيار هدف</string>
     <string name="map_no_targets">لا توجد أهداف متاحة</string>
+    <string name="map_shape_geometry">الهندسة: %1$s</string>
     <string name="map_target_contact">جهة اتصال</string>
     <string name="map_target_dropped">علامة موضوعة</string>
     <string name="map_target_received">علامة مستلَمة</string>

@@ -402,6 +402,7 @@
     <string name="owned_pin_delete_help">この時計から直ちに削除します。接続中のTAKクライアントにも削除を要求しますが、相手側が無視する場合があります。</string>
     <string name="map_select_target">対象を選択</string>
     <string name="map_no_targets">利用できる対象がありません</string>
+    <string name="map_shape_geometry">形状: %1$s</string>
     <string name="map_target_contact">コンタクト</string>
     <string name="map_target_dropped">配置したマーカー</string>
     <string name="map_target_received">受信したマーカー</string>

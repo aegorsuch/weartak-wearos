@@ -402,6 +402,7 @@
     <string name="owned_pin_delete_help">立即从本机移除。向已连接的 TAK 客户端请求移除；其他端可能忽略请求。</string>
     <string name="map_select_target">选择目标</string>
     <string name="map_no_targets">没有可用目标</string>
+    <string name="map_shape_geometry">几何类型：%1$s</string>
     <string name="map_target_contact">联系人</string>
     <string name="map_target_dropped">已放置标记</string>
     <string name="map_target_received">已接收标记</string>

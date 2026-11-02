@@ -221,6 +221,7 @@
     <string name="owned_pin_delete_help">Removes here now. Requests removal on connected TAK clients; peers may ignore it.</string>
     <string name="map_select_target">Select Target</string>
     <string name="map_no_targets">No Targets Available</string>
+    <string name="map_shape_geometry">Geometry: %1$s</string>
     <string name="map_target_contact">Contact</string>
     <string name="map_target_dropped">Dropped Marker</string>
     <string name="map_target_received">Received Marker</string>

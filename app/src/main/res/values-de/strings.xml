@@ -403,6 +403,7 @@
     <string name="owned_pin_delete_help">Entfernt sie jetzt hier. Fordert die Entfernung auf verbundenen TAK-Clients an; andere Teilnehmer können dies ignorieren.</string>
     <string name="map_select_target">Ziel auswählen</string>
     <string name="map_no_targets">Keine Ziele verfügbar</string>
+    <string name="map_shape_geometry">Geometrie: %1$s</string>
     <string name="map_target_contact">Kontakt</string>
     <string name="map_target_dropped">Gesetzte Markierung</string>
     <string name="map_target_received">Empfangene Markierung</string>

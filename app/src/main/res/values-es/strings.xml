@@ -404,6 +404,7 @@
     <string name="owned_pin_delete_help">Los elimina aquí ahora. Solicita su eliminación en clientes TAK conectados; otros participantes pueden ignorarla.</string>
     <string name="map_select_target">Seleccionar objetivo</string>
     <string name="map_no_targets">No hay objetivos disponibles</string>
+    <string name="map_shape_geometry">Geometría: %1$s</string>
     <string name="map_target_contact">Contacto</string>
     <string name="map_target_dropped">Marcador colocado</string>
     <string name="map_target_received">Marcador recibido</string>

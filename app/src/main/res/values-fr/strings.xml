@@ -404,6 +404,7 @@
     <string name="owned_pin_delete_help">Les retire ici immédiatement. Demande leur suppression aux clients TAK connectés ; les autres participants peuvent l’ignorer.</string>
     <string name="map_select_target">Sélectionner une cible</string>
     <string name="map_no_targets">Aucune cible disponible</string>
+    <string name="map_shape_geometry">Géométrie : %1$s</string>
     <string name="map_target_contact">Contact</string>
     <string name="map_target_dropped">Repère placé</string>
     <string name="map_target_received">Repère reçu</string>

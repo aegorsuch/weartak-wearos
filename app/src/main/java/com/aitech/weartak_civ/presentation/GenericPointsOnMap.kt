@@ -121,7 +121,9 @@ internal fun GenericPointsOnMap(
             val circles = remember(points) {
                 FeatureCollection(points.mapNotNull { point ->
                     val center = validMapPositionOrNull(point.lat, point.lon) ?: return@mapNotNull null
-                    point.circleRadiusMeters?.takeIf { it.isFinite() && it > 0 && it <= 100_000 }?.let { radius ->
+                    point.circleRadiusMeters?.takeIf {
+                        point.mapShape == null && it.isFinite() && it > 0 && it <= 100_000
+                    }?.let { radius ->
                         Feature(
                             MultiLineString(circleSegments(circleOutline(
                                 center.latitude, center.longitude, radius
