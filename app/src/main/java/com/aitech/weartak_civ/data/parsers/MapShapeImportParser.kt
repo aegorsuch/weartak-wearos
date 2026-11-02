@@ -34,6 +34,7 @@ internal object MapShapeImportParser {
     private const val MAX_FEATURES = 500
     private const val MAX_VERTICES = 10_000
     private const val EARTH_RADIUS_METERS = 6_371_000.0
+    private const val ALTITUDE_WARNING = "Altitude values are preserved but not rendered"
 
     fun parse(fileName: String, bytes: ByteArray): List<ImportedMapShape> {
         require(fileName.length in 1..512 && fileName.none(Char::isISOControl)) {
@@ -103,7 +104,10 @@ internal object MapShapeImportParser {
             val width = rawWidth?.toFloat()?.also {
                 require(it.isFinite() && it in 0.5f..20f) { "Unsupported GeoJSON stroke width" }
             }
-            shapeFromGeometry(title, normalizedGeometry, stroke, fill, width)
+            shapeFromGeometry(
+                title, normalizedGeometry, stroke, fill, width,
+                altitudeWarnings(coordinates)
+            )
         }
     }
 
@@ -187,7 +191,8 @@ internal object MapShapeImportParser {
                     geometry,
                     style.stroke,
                     style.fill,
-                    style.width
+                    style.width,
+                    altitudeWarnings(geometry.get("coordinates"))
                 )
                 require(result.size <= MAX_FEATURES) { "KML contains more than $MAX_FEATURES shapes" }
             }
@@ -483,6 +488,7 @@ internal object MapShapeImportParser {
         stroke: Int? = null,
         fill: Int? = null,
         width: Float? = null,
+        warnings: List<String> = emptyList(),
     ): ImportedMapShape {
         val first = firstCoordinate(geometry.get("coordinates"))
         val longitude = first[0].asDouble
@@ -494,8 +500,21 @@ internal object MapShapeImportParser {
             longitude,
             if (geometry.get("type").asString == "LineString" ||
                 geometry.get("type").asString == "MultiLineString"
-            ) "u-d-f" else "u-d-r"
+            ) "u-d-f" else "u-d-r",
+            warnings
         )
+    }
+
+    private fun altitudeWarnings(coordinates: JsonElement): List<String> {
+        fun hasAltitude(value: JsonElement): Boolean {
+            if (!value.isJsonArray) return false
+            val array = value.asJsonArray
+            if (array.size() >= 2 && array[0].isJsonPrimitive && array[1].isJsonPrimitive &&
+                array[0].asJsonPrimitive.isNumber && array[1].asJsonPrimitive.isNumber
+            ) return array.size() == 3
+            return array.any(::hasAltitude)
+        }
+        return if (hasAltitude(coordinates)) listOf(ALTITUDE_WARNING) else emptyList()
     }
 
     private fun firstCoordinate(coordinates: JsonElement): JsonArray {

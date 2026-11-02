@@ -32,6 +32,14 @@ class MapShapeImportParserTest {
     }
 
     @Test
+    fun preservesGeoJsonAltitudeAndWarnsThatMapViewIsTwoDimensional() {
+        val source = """{"type":"Feature","properties":{},"geometry":{"type":"LineString","coordinates":[[1,2,100],[3,4,200]]}}"""
+        val shape = MapShapeImportParser.parse("3d.geojson", source.toByteArray()).single()
+        assertEquals(3, geometry(shape)["coordinates"].asJsonArray[0].asJsonArray.size())
+        assertTrue(shape.warnings.single().contains("Altitude values are preserved but not rendered"))
+    }
+
+    @Test
     fun rejectsUnsupportedGeoJsonGeometryAndUnsafeCoordinates() {
         val point = """{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[0,0]}}"""
         val invalid = """{"type":"Feature","properties":{},"geometry":{"type":"LineString","coordinates":[[181,0],[0,0]]}}"""
@@ -114,6 +122,7 @@ class MapShapeImportParserTest {
         assertEquals(0xffff0000.toInt(), shape.shape.strokeColor)
         assertEquals(0x7f00ff00, shape.shape.fillColor)
         assertEquals(3f, shape.shape.strokeWidth)
+        assertTrue(shape.warnings.single().contains("Altitude values are preserved but not rendered"))
     }
 
     @Test
