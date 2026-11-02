@@ -100,13 +100,18 @@ their independently saved selections.
 Each grouped category has an inline disclosure arrow: right when collapsed,
 down when expanded. Tap the header or arrow to show or hide its items without
 changing their eye toggles, selected map, or saved visibility. Categories start
-expanded except Credits, and retain disclosure state while the popup is open.
+expanded except Credits until a choice is saved. Each category independently
+remembers its expansion choice across closing/reopening Overlay Manager, activity
+recreation and app restarts, using stable category IDs rather than displayed labels
+or positions. Counts, map-source changes and temporarily absent groups do not clear
+saved choices. This includes Layers (feature filters), Overlays, Maps, Roles,
+Teams and Credits; individual filter rows are visibility toggles, not expandable groups.
 The top-right back arrow dismisses only Overlay Manager; the underlying map
 back button is absent while that menu is open, and system Back dismisses it first.
 The Buttons toggle also hides Channels, while Overlay Manager remains available.
 Credits is the last section. Its arrow row is
 collapsed by default; tap to reveal active-source copyright, source and license
-links. Reopening the menu resets it to collapsed; changing source preserves
+links. Reopening restores its saved expansion choice; changing source preserves
 its disclosure state and updates its links.
 Required on-map notices remain visible.
 If the watch has no browser, the selected URL is shown with an explicit error.

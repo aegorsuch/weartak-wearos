@@ -1,6 +1,7 @@
 package com.aitech.weartak_civ.presentation
 
 import android.graphics.Bitmap
+import android.content.Context
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.ComponentActivity
@@ -16,12 +17,22 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class OverlayManagerTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
+
+    @Before @After fun clearCategoryChoices() {
+        val preferences = instrumentation.targetContext.getSharedPreferences(
+            OverlayManagerCategoryPreferences.FILE_NAME, Context.MODE_PRIVATE)
+        val editor = preferences.edit()
+        preferences.all.keys.filter { it.startsWith("category_expanded_") }.forEach(editor::remove)
+        assertTrue(editor.commit())
+    }
 
     @Test fun categoryDisclosureAndVisibilityActionsSurviveCollapse() {
         var toggles = 0

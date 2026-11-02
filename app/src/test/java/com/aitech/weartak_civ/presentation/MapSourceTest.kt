@@ -28,6 +28,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Rule
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -42,6 +43,11 @@ class MapSourceTest {
     @get:Rule val compose = createComposeRule()
     private val context get() = RuntimeEnvironment.getApplication()
     private fun original() = context.assets.open("style.json").bufferedReader().use { it.readText() }
+
+    @Before fun clearCategoryChoices() {
+        context.getSharedPreferences(OverlayManagerCategoryPreferences.FILE_NAME, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+    }
 
     @Test fun existingMapIsUnchangedUntilExplicitSelectionAndCanBeRestored() {
         val prefs = context.getSharedPreferences("map-source-test", Context.MODE_PRIVATE)
