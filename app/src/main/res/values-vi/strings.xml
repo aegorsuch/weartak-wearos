@@ -402,6 +402,7 @@
     <string name="owned_pin_delete_help">Xóa ngay tại đây. Yêu cầu xóa trên các máy khách TAK đang kết nối; bên nhận có thể bỏ qua yêu cầu.</string>
     <string name="map_select_target">Chọn mục tiêu</string>
     <string name="map_no_targets">Không có mục tiêu khả dụng</string>
+    <string name="map_shape_geometry">Hình học: %1$s</string>
     <string name="map_target_contact">Liên hệ</string>
     <string name="map_target_dropped">Dấu mốc đã đặt</string>
     <string name="map_target_received">Dấu mốc đã nhận</string>

@@ -11,14 +11,17 @@ package com.aitech.weartak_civ.presentation
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Bundle
 import android.util.Log
 import android.view.MotionEvent
 import android.view.InputDevice
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -138,8 +141,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.aitech.weartak_civ.Utils.latLonToMgrs
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.data.ImportedMapShapeRecord
 import com.aitech.weartak_civ.data.observePassiveSaDemand
 import com.aitech.weartak_civ.data.RemoteEmergencyMapItem
 import androidx.compose.ui.res.stringResource
@@ -221,6 +226,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aitech.weartak_civ.data.model.TakChannelStatus
 import com.aitech.weartak_civ.data.model.TakServerChannels
+import com.aitech.weartak_civ.data.parsers.MapShapeImportParser
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.teamValue
 import com.aitech.weartak_civ.presentation.viewmodel.MapViewModel
 import com.aitech.weartak_civ.presentation.viewmodel.RoutePointDetails
@@ -526,6 +532,7 @@ data class MapMarkerItem(
     val cotType: DataRepository.MarkerCotType,
     val sourceServerId: String? = null,
     val circleRadiusMeters: Double? = null,
+    val mapShape: com.aitech.weartak_civ.cot.CotMapShape? = null,
     val mapLabel: String? = null,
     val selectionKey: String? = null,
     val hae: Double? = null,
@@ -1862,6 +1869,77 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     val dataRepository = remember(context) {
         (context.applicationContext as WearTakApplication).repo
     }
+    val scope = rememberCoroutineScope()
+    var importingMapShapes by remember { mutableStateOf(false) }
+    val mapShapeImportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null && !importingMapShapes) {
+            importingMapShapes = true
+            scope.launch {
+                try {
+                    val imported = withContext(Dispatchers.IO) {
+                        val fileName = context.contentResolver.query(
+                            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+                        )?.use { cursor ->
+                            if (cursor.moveToFirst()) cursor.getString(0) else null
+                        } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "map-import"
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                            val output = java.io.ByteArrayOutputStream()
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                require(output.size() + count <= 8 * 1024 * 1024) {
+                                    "Map file exceeds 8 MiB"
+                                }
+                                output.write(buffer, 0, count)
+                            }
+                            output.toByteArray()
+                        } ?: throw java.io.IOException("Cannot open selected map file")
+                        val sourceKey = java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(uri.toString().toByteArray(Charsets.UTF_8))
+                            .joinToString("") { "%02x".format(it) }
+                        Triple(fileName, sourceKey, MapShapeImportParser.parse(fileName, bytes))
+                    }
+                    val now = System.currentTimeMillis()
+                    withContext(Dispatchers.IO) {
+                        val sourceId = "import:${imported.second}"
+                        dataRepository.replaceImportedMapShapes(
+                            sourceId,
+                            imported.third.mapIndexed { index, shape ->
+                                ImportedMapShapeRecord(
+                                    uid = "import-${imported.second.take(32)}-$index",
+                                    title = shape.title,
+                                    markerType = shape.markerType,
+                                    timeMillis = now + index,
+                                    latitude = shape.latitude,
+                                    longitude = shape.longitude,
+                                    sourceId = sourceId,
+                                    shape = shape.shape
+                                )
+                            }
+                        )
+                    }
+                    val warnings = imported.third.flatMap { it.warnings }.distinct()
+                    val message = buildString {
+                        append("Imported ${imported.third.size} shapes from ${imported.first}")
+                        if (warnings.isNotEmpty()) append(". ${warnings.joinToString(". ")}")
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    Log.w(TAG, "Map shape import failed: ${error.message}", error)
+                    Toast.makeText(
+                        context, "Map import failed: ${error.message?.take(100) ?: "unsupported file"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } finally {
+                    importingMapShapes = false
+                }
+            }
+        }
+    }
     val takRoutes by dataRepository.takRoutes.collectAsStateWithLifecycle()
 
     LaunchedEffect(takRoutes) {
@@ -2048,7 +2126,6 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         )
     }
 
-    val scope = rememberCoroutineScope()
     fun focusMapGeometry(points: List<com.aitech.weartak_civ.data.model.TakRoutePoint>, zoom: Double? = null) {
         val frame = routeCameraFrame(points, screen.screenWidthDp.toDouble(), screen.screenHeightDp.toDouble())
         cameraBootstrap.userPanned()
@@ -2332,6 +2409,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         DataRepository.MarkerCotType.DROP,
                         sourceServerId = marker.sourceServerId,
                         circleRadiusMeters = marker.circleRadiusMeters,
+                        mapShape = marker.mapShape,
                         hae = location.hae,
                         le = location.le?.toDouble()
 
@@ -2623,11 +2701,13 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         }
     }
     var selectedMapTargetKeys by remember { mutableStateOf<Set<String>?>(null) }
+    var selectedMapShapeKey by remember { mutableStateOf<String?>(null) }
 
     val activity = context as? MapActivity
     val mapOverlayOpen by rememberUpdatedState(
         showOverlayManager || showChannelToggle || showPopup ||
-            selectedMapTargetKeys != null || selectedRoute != null || selectedRoutePoint != null
+            selectedMapTargetKeys != null || selectedMapShapeKey != null ||
+            selectedRoute != null || selectedRoutePoint != null
     )
     DisposableEffect(activity, lifecycleOwner) {
         activity?.setBezelZoomHandler { scroll ->
@@ -2640,6 +2720,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     }
 
     fun openMapTarget(target: MapSelectionTarget) {
+        selectedMapShapeKey = null
         if (target.kind == MapTargetKind.CONTACT) {
             onUserClick(target.uid)
             return
@@ -2661,6 +2742,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         })
     }
     fun selectMapTarget(key: String) {
+        selectedMapShapeKey = null
         val target = selectableMapTargets.firstOrNull { it.key == key }
         if (target == null) {
             Log.w(TAG, "Clicked map target is no longer available")
@@ -2721,23 +2803,45 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
 
             onMapClick = { _, offset ->
                 val mapProjection = cameraState.projection
-                val hit = mapProjection?.let { map ->
-                    findRouteMapSelection(
-                        takRoutes,
-                        RouteScreenPoint(offset.x.value.toDouble(), offset.y.value.toDouble()),
-                        pointsVisible = cameraState.position.zoom > 10.0
-                    ) { latitude, longitude ->
-                        val screen = map.screenLocationFromPosition(Position(longitude, latitude))
-                        RouteScreenPoint(screen.x.value.toDouble(), screen.y.value.toDouble())
+                val shapeHit = mapProjection?.let { map ->
+                    visibleReceived.asReversed().firstOrNull { marker ->
+                        val shape = marker.mapShape ?: return@firstOrNull false
+                        mapShapeHitTest(
+                            shape,
+                            MapTargetScreenPoint(offset.x.value.toDouble(), offset.y.value.toDouble())
+                        ) { longitude, latitude ->
+                            val screen = map.screenLocationFromPosition(Position(longitude, latitude))
+                            MapTargetScreenPoint(screen.x.value.toDouble(), screen.y.value.toDouble())
+                        }
                     }
                 }
-                if (hit == null) {
-                    ClickResult.Pass
-                } else {
-                    selectedRoute = hit.serverId to hit.routeUid
+                if (shapeHit != null) {
+                    selectedMapTargetKeys = null
+                    selectedMapShapeKey = mapSelectionKey(
+                        MapTargetKind.RECEIVED, shapeHit.uid, shapeHit.sourceServerId
+                    )
+                    selectedRoute = null
                     selectedRoutePoint = null
-                    hit.pointIndex?.let { selectRoutePoint(hit.serverId, hit.routeUid, it) }
                     ClickResult.Consume
+                } else {
+                    val hit = mapProjection?.let { map ->
+                        findRouteMapSelection(
+                            takRoutes,
+                            RouteScreenPoint(offset.x.value.toDouble(), offset.y.value.toDouble()),
+                            pointsVisible = cameraState.position.zoom > 10.0
+                        ) { latitude, longitude ->
+                            val screen = map.screenLocationFromPosition(Position(longitude, latitude))
+                            RouteScreenPoint(screen.x.value.toDouble(), screen.y.value.toDouble())
+                        }
+                    }
+                    if (hit == null) {
+                        ClickResult.Pass
+                    } else {
+                        selectedRoute = hit.serverId to hit.routeUid
+                        selectedRoutePoint = null
+                        hit.pointIndex?.let { selectRoutePoint(hit.serverId, hit.routeUid, it) }
+                        ClickResult.Consume
+                    }
                 }
             },
 
@@ -2938,6 +3042,10 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             }
             TacticalGeometryOverlay(cameraState, geometry.first, geometry.second)
         }
+        MapShapeCanvasOverlay(
+            cameraState,
+            if (showMarkers) visibleDropped + visibleReceived else emptyList()
+        )
         LollipopOverlay(lollipops) { target ->
             if (target.self) showPopup = true
             else if (target.alertUid != null) context.startActivity(
@@ -3029,6 +3137,10 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             onOpenOverlayManager = {
                 showOverlayManager = true
             },
+            onImportShapes = {
+                mapShapeImportPicker.launch(arrayOf("*/*"))
+            },
+            importingMapShapes = importingMapShapes,
             onTogglePitch = {
                 val tilted = cameraState.position.tilt < 22.5
                 MapSourcePreferences(mapPreferences).saveTiltedView(tilted)
@@ -3190,6 +3302,45 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     openMapTarget(target)
                 },
                 onBack = { selectedMapTargetKeys = null })
+        }
+        selectedMapShapeKey?.let { key ->
+            val marker = receivedMarkerListSetting.firstOrNull {
+                it.mapShape != null &&
+                    mapSelectionKey(MapTargetKind.RECEIVED, it.uid, it.sourceServerId) == key
+            }
+            if (marker != null) {
+                MapShapeDetailsDialog(
+                    title = marker.title.ifBlank { marker.uid },
+                    geometryType = com.google.gson.JsonParser.parseString(
+                        requireNotNull(marker.mapShape).geometryJson
+                    ).asJsonObject.get("type").asString,
+                    imported = marker.source == "imported-map-shapes",
+                    onRemove = {
+                        scope.launch {
+                            try {
+                                val removed = withContext(Dispatchers.IO) {
+                                    dataRepository.removeImportedMapShape(
+                                        marker.uid, requireNotNull(marker.sourceServerId)
+                                    )
+                                }
+                                if (removed) {
+                                    selectedMapShapeKey = null
+                                    Toast.makeText(context, "Shape removed", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Shape no longer exists", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (error: Exception) {
+                                if (error is kotlinx.coroutines.CancellationException) throw error
+                                Log.e(TAG, "Failed to remove imported map shape ${marker.uid}", error)
+                                Toast.makeText(context, "Could not remove shape", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    onBack = { selectedMapShapeKey = null }
+                )
+            } else {
+                LaunchedEffect(key) { selectedMapShapeKey = null }
+            }
         }
         selectedRoute?.let { (serverId, routeUid) ->
             val route = takRoutes.firstOrNull { it.serverId == serverId && it.uid == routeUid }
@@ -3601,6 +3752,8 @@ private fun MapControlsOverlay(
     onZoomOut: () -> Unit,
     onCenterOnSelf: () -> Unit,
     onOpenOverlayManager: () -> Unit,
+    onImportShapes: () -> Unit,
+    importingMapShapes: Boolean,
     onTogglePitch: () -> Unit,
     showPitchButton: Boolean,
     pitchEnabled: Boolean,
@@ -3709,6 +3862,21 @@ private fun MapControlsOverlay(
 
         // Always visible so the user can reopen the menu and restore controls.
         MapOverlayManagerButton(onOpenOverlayManager, Modifier.align(Alignment.TopCenter))
+        CircularMapButton(
+            onClick = onImportShapes,
+            enabled = !importingMapShapes,
+            size = 40.dp,
+            showBorder = true,
+            modifier = Modifier.align(Alignment.TopCenter).offset(y = 58.dp)
+                .semantics { contentDescription = "Import map shapes" }
+        ) {
+            Text(
+                if (importingMapShapes) "..." else "IMP",
+                color = Color.White,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
 
         MapChannelsButton(
             onClick = onOpenChannels,

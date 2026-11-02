@@ -82,6 +82,36 @@ internal fun MapTargetPicker(
                             )
                         }
                     }
+
+                },
+                rowContent = { WearTAKBackButton(onBack) }
+            )
+        }
+    }
+}
+
+@Composable
+internal fun MapShapeDetailsDialog(
+    title: String,
+    geometryType: String,
+    imported: Boolean,
+    onRemove: () -> Unit,
+    onBack: () -> Unit
+) {
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides Color.White) {
+            WearTakScreenDimensions(
+                text = title,
+                columnContent = {
+                    item { Text(stringResource(R.string.map_shape_geometry, geometryType)) }
+                    if (imported) {
+                        item {
+                            Chip(
+                                onClick = onRemove,
+                                label = { Text(stringResource(R.string.delete)) }
+                            )
+                        }
+                    }
                 },
                 rowContent = { WearTAKBackButton(onBack) }
             )

@@ -29,16 +29,30 @@ class TakServerCotIngestorTest {
     fun genericAffiliationMarkersReachTheMapSinkFromEveryDirectSource() = runTest {
         val sink = RecordingSink()
         val ingestor = ingestor(sink)
+        val shapeDetails = mapOf(
+            "u-d-c-c" to "<shape><ellipse major='100' minor='100'/></shape>",
+            "u-d-e" to "<shape><ellipse major='100' minor='50' angle='45'/></shape>",
+            "u-d-f" to "<shape><link point='41,-87'/><link point='41.001,-87.001'/></shape>",
+            "u-d-r" to "<shape><link point='41,-87'/><link point='41,-86.999'/>" +
+                "<link point='41.001,-86.999'/><link point='41.001,-87'/></shape>"
+        )
+        val types = listOf(
+            "a-n-A-C-F", "a-n-A-C-H", "a-f-Z", "a-h-G-U-C",
+            "a-s-S", "a-a-G-X", "b-m-p-s-m"
+        ) + shapeDetails.keys
         for (source in listOf(SERVER_ID, "multicast:239.2.3.1:6969", "plugin:mesh")) {
-            for (type in listOf("a-n-A-C-F", "a-n-A-C-H", "a-f-Z", "a-h-G-U-C", "a-s-S", "a-a-G-X", "b-m-p-s-m", "u-d-c-c")) {
-                val message = envelope(MARKER_XML.replace("type='a-h-G'", "type='$type'"), 102L)
+            for (type in types) {
+                val xml = MARKER_XML.replace("type='a-h-G'", "type='$type'")
+                    .replace("<detail>", "<detail>${shapeDetails[type].orEmpty()}")
+                val message = envelope(xml, 102L)
                     .copy(sourceServerId = source)
                 assertEquals(TakServerCotIngestResult.MARKER, ingestor.ingest(message))
                 assertEquals(type, sink.markers.last().first.type)
+                assertEquals(CotMessageParser.isMapShapeType(type), sink.markers.last().first.detail.mapShape != null)
                 assertEquals(message, sink.markers.last().second)
             }
         }
-        assertEquals(24, sink.markers.size)
+        assertEquals(33, sink.markers.size)
         assertEquals(TakServerCotIngestResult.USER, ingestor.ingest(envelope(USER_XML, 103L)))
     }
 

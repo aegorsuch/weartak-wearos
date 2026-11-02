@@ -101,8 +101,16 @@ data class CotMarkerDetail(
     val remarks: String?,
     val contact: String?,
     val circleRadiusMeters: Double? = null,
+    val mapShape: CotMapShape? = null,
     val isCamera: Boolean = false,
     val hasUrgentDetail: Boolean = false,
+)
+
+data class CotMapShape(
+    val geometryJson: String,
+    val strokeColor: Int? = null,
+    val fillColor: Int? = null,
+    val strokeWidth: Float? = null,
 )
 
 internal fun CotMarkerDetail.canCoalesceTrack(type: String, how: String, sourceId: String?): Boolean =

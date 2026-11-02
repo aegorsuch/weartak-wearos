@@ -170,15 +170,12 @@ object GeofenceCotParser {
     }
 
     // Fast parsing
-    val hasTypeUdrRegex = Regex("""\btype\s*=\s*['"]u-d-r['"]""")
     val hasTypeUdfRegex = Regex("""\btype\s*=\s*['"]u-d-f['"]""")
-
-    val isRadioSilenceGeofenceRegex = Regex("""<contact\b[^>]*\bcallsign\s*=\s*['"][^'"]*(SecureMode|SCIF|RadioSilence)[^'"]*['"]""")
 
     fun isRadioSilenceRectangleGeofence(xmlStr : String): Boolean {
         if (hasTypeUdfRegex.containsMatchIn(xmlStr)) {
             Log.i(TAG, "hasTypeUdfRegex is true")
         }
-        return hasTypeUdrRegex.containsMatchIn(xmlStr) && isRadioSilenceGeofenceRegex.containsMatchIn(xmlStr)
+        return CotMessageParser.isRadioSilenceRectangleGeofence(xmlStr)
     }
 }

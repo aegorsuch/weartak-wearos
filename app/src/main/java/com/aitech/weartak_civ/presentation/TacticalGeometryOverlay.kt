@@ -38,8 +38,11 @@ internal fun tacticalGroundGeometry(
     markers.filter { CotMessageParser.isGenericMapType(it.markerType) }.forEach { marker ->
         validMapPositionOrNull(marker.lat, marker.lon)?.let { center ->
             val color = Color(CotAffiliation.fromType(marker.markerType).argb)
-            if (center !in raisedGrounds) points += TacticalScreenPoint(center, color, 4f)
-            marker.circleRadiusMeters?.takeIf { it.isFinite() && it > 0 && it <= 100_000 }?.let {
+            if (marker.mapShape == null && center !in raisedGrounds) {
+                points += TacticalScreenPoint(center, color, 4f)
+            }
+            if (marker.mapShape == null) marker.circleRadiusMeters
+                ?.takeIf { it.isFinite() && it > 0 && it <= 100_000 }?.let {
                 circleSegments(circleOutline(center.latitude, center.longitude, it)).forEach { segment ->
                     lines += TacticalScreenLine(segment, color, 2f)
                 }
