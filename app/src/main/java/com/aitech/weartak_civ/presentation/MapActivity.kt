@@ -3044,7 +3044,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         }
         MapShapeCanvasOverlay(
             cameraState,
-            if (showMarkers) visibleDropped + visibleReceived else emptyList()
+            visibleDropped + visibleReceived
         )
         LollipopOverlay(lollipops) { target ->
             if (target.self) showPopup = true
