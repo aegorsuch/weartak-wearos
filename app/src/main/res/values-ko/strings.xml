@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_edit">편집</string>
+    <string name="manual_alert_validation_error">알림은 중복되지 않는 1~60자여야 합니다. 목록에는 최대 20개까지 저장할 수 있습니다.</string>
     <string name="ca_trust_advanced">고급</string>
     <string name="ca_trust_advanced_hide">고급 설정 숨기기</string>
     <string name="ca_trust_import">CA 가져오기...</string>

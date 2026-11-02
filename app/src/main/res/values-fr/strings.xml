@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_edit">Modifier</string>
+    <string name="manual_alert_validation_error">Chaque alerte doit être unique et comporter entre 1 et 60 caractères. La liste peut contenir 20 alertes au maximum.</string>
     <string name="ca_trust_advanced">Avancé</string>
     <string name="ca_trust_advanced_hide">Masquer les options avancées</string>
     <string name="ca_trust_import">Importer une AC...</string>

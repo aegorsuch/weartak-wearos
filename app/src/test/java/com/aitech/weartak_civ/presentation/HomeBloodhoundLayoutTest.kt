@@ -133,12 +133,12 @@ class HomeBloodhoundLayoutTest {
                 }
             }
         }
-        val back = compose.onNodeWithContentDescription("Go back to Main Settings Screen")
+        val back = compose.onNodeWithContentDescription("Back")
         back.assertIsDisplayed().performClick()
         val bounds = back.fetchSemanticsNode().boundsInRoot
         val removeAllBounds = compose.onNodeWithText("Remove All").fetchSemanticsNode().boundsInRoot
         assertTrue("Back touch target too small", bounds.width >= 48 * density - 1)
-        val arrow = compose.onNodeWithContentDescription("Go back to Main Settings Screen", useUnmergedTree = true)
+        val arrow = compose.onNodeWithContentDescription("Back", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
         assertTrue("Back arrow not visible: $arrow", arrow.width >= 24 * density - 1 && arrow.height >= 24 * density - 1)
         assertTrue("Back arrow outside its circle", bounds.contains(arrow.center))

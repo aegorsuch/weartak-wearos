@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_edit">編集</string>
+    <string name="manual_alert_validation_error">アラートは重複しない1～60文字で入力してください。リストには最大20件まで保存できます。</string>
     <string name="ca_trust_advanced">詳細設定</string>
     <string name="ca_trust_advanced_hide">詳細設定を閉じる</string>
     <string name="ca_trust_import">CA をインポート...</string>

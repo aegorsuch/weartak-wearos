@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_edit">Bearbeiten</string>
+    <string name="manual_alert_validation_error">Die Meldung muss eindeutig sein und 1–60 Zeichen enthalten. Die Liste kann bis zu 20 Meldungen enthalten.</string>
     <string name="ca_trust_advanced">Erweitert</string>
     <string name="ca_trust_advanced_hide">Erweitert ausblenden</string>
     <string name="ca_trust_import">CA importieren...</string>

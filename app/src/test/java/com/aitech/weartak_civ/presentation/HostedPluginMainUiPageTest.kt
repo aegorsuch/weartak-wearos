@@ -75,7 +75,7 @@ class HostedPluginMainUiPageTest {
         assertTrue(back.fetchSemanticsNode().positionInRoot.y < n.y)
         assertTrue(back.fetchSemanticsNode().positionInRoot.x > b.x)
         assertTrue(n.y < compose.onNodeWithText("Incident details").fetchSemanticsNode().positionInRoot.y)
-        compose.onNodeWithContentDescription("Go back to Main Settings Screen").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Back").assertDoesNotExist()
         note.performClick()
         back.performClick()
         compose.runOnIdle { assertEquals(listOf("note", "back"), invoked); assertEquals(0, exits) }

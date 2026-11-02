@@ -3354,6 +3354,61 @@ app/src/main/java/com/aitech/weartak_civ/
 - CEP rules and related runtime configuration are under `app/src/main/res/raw/` and `cep/`.
 - The repository currently has unit and instrumentation test dependencies, but it does not contain a broadly established test suite. Add targeted tests with feature changes where practical.
 
+### Accessibility and UI automation (WEARTAK-236)
+
+Settings, server forms, manual alerts, and SOS expose Compose test tags as Android
+accessibility resource IDs without replacing built-in text, toggle, or button
+semantics. Existing layouts and touch actions are unchanged. Server swipe actions
+also work through accessibility custom actions (Edit/Delete).
+
+Use unqualified IDs for Compose selectors (`By.res("tak_server_add")`), not
+`By.res(packageName, tag)`. Native server `EditText` fields instead use ordinary
+package-qualified IDs: `tak_server_name`, `tak_server_address`, `tak_server_port`,
+`tak_server_username`, and `tak_server_password`. Labels remain native hints;
+validation failures expose content-invalid/error metadata without additional
+visible decoration. Never put credentials or field contents into tags or labels.
+
+Priority Compose IDs:
+
+| Surface | IDs |
+| --- | --- |
+| Settings | `settings`, `settings_open_<route>`, `settings_<toggle>`, `network_<key>_toggle`, `network_<key>_settings` |
+| TAK servers | `tak_servers`, `tak_server_add`, `tak_server_<server UUID>`, `tak_server_<server UUID>_toggle`, `_edit`, `_delete` (list index fallback for unmigrated entries) |
+| Add/Edit server | `tak_server_add_form`, `tak_server_edit_form`, `form_confirm`, `form_cancel`, `settings_back` on list pages |
+| Manual alerts | `manual_alert_list`, `manual_alert_builtin_<source index>`, `manual_alert_saved_<source index>`, `manual_alert_back`, `manual_alert_add`, `manual_alert_draft`, `manual_alert_save` |
+| SOS | `sos_open`, `sos_confirmation`, `sos_confirm`, `sos_cancel` |
+
+Lazy lists expose composed/visible items; scroll before selecting offscreen
+controls. Scope repeated form/back selectors to their active page. Saved-alert
+indices refer to the current source list, not alphabetical display order. Server
+and built-in plugin split-chip tags identify containers; select their checkable
+descendant to toggle without invoking the separate configuration action.
+
+Focused, network-free regression checks:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --tests '*AccessibilitySemanticsTest' --tests '*ServerFormValidationTest' --tests '*ManualAlertListScreenTest'
+.\gradlew.bat :app:compileDebugAndroidTestKotlin
+```
+
+`PlatformAccessibilityTreeTest` checks the real Android accessibility tree from
+an isolated test host; it never starts WearTAK services or sends alerts. Running
+connected tests installs test APKs, so obtain device-install approval first.
+No connected/device validation is implied by passing Robolectric tests.
+
+Before closing WEARTAK-236, capture an approved-device UIAutomator hierarchy for
+TAK server list/Add/Edit, enabled/disabled Settings toggles, manual alerts, and
+SOS, then verify TalkBack names, focus order, checked/disabled/error states,
+and confirm/cancel using mocked alert dispatch. Do not select operational alerts
+or SOS actions against live services. Treat hierarchy dumps as sensitive; redact
+credentials and other private field values before sharing.
+
+An empty UIAutomator dump is not proof that tags are missing: verify the current
+foreground activity/window, accessibility automation connection, unlock/overlay
+state, and composition readiness. This change adds exportable metadata; it does
+not establish the cause of the originally reported empty tree without device
+reproduction.
+
 For live Android logs, use:
 
 ```bash

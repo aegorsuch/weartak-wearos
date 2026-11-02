@@ -124,7 +124,7 @@ class MarkerReadabilityTest {
                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertEquals(Color.White, layouts.single().layoutInput.style.color)
             compose.onNodeWithText("Clear All Markers").assertDoesNotExist()
-            compose.onNodeWithContentDescription("Go back to Main Settings Screen").performClick()
+            compose.onNodeWithContentDescription("Back").performClick()
             compose.onNodeWithText("Dropped Markers").assertIsDisplayed()
         }
     }

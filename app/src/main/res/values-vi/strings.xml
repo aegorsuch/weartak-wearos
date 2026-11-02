@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_edit">Chỉnh sửa</string>
+    <string name="manual_alert_validation_error">Cảnh báo phải là duy nhất và có từ 1 đến 60 ký tự. Danh sách có thể chứa tối đa 20 cảnh báo.</string>
     <string name="ca_trust_advanced">Nâng cao</string>
     <string name="ca_trust_advanced_hide">Ẩn nâng cao</string>
     <string name="ca_trust_import">Nhập CA...</string>
