@@ -813,6 +813,14 @@ data class MapUserItem(
     val le: Double? = null
 )
 
+internal fun mapUserMatchesFilters(
+    user: MapUserItem,
+    teams: Set<String>,
+    standardRoles: Set<String>,
+    leoRoles: Set<String>
+): Boolean = CotMessageParser.isGenericMapType(user.type) ||
+    (user.team in teams && (user.role in standardRoles || user.role in leoRoles))
+
 // Creates MapLibre symbol layers for connected users
 @Composable
 fun UsersOnMap(
@@ -1351,14 +1359,6 @@ internal fun HiddenBaseMapLayers(baseLayerIds: Set<String>, hiddenLayerIds: Set<
 }
 
 // SHARED OVERLAY MANAGER COMPONENTS
-// Reusable models and rows for visibility options
-data class OverlayToggle(
-    // Holds the label, current visibility, and action for an overlay
-    val label: String,
-    val visible: Boolean,
-    val onToggle: () -> Unit
-)
-
 // Displays one clickable visibility option with an eye icon
 @Composable
 fun ToggleRow(label: String, visible: Boolean, onToggle: () -> Unit, enabled: Boolean = true) {
@@ -1511,7 +1511,6 @@ fun OverlayManagerPopup(
     onRoleToggle: (String) -> Unit,
     onLeoRoleToggle: (String) -> Unit,
     onTeamToggle: (String) -> Unit,
-    overlays: List<OverlayToggle>,
     availableTeams : Set<String>,
     availableUserRoles : Set<String>,
     availableUserRolesLEO : Set<String>,
@@ -1614,17 +1613,6 @@ fun OverlayManagerPopup(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                if (overlays.isNotEmpty()) {
-                    OverlayManagerCategory(
-                        label = stringResource(R.string.map_category_overlays),
-                        tag = "overlay-manager-overlays"
-                    ) {
-                        overlays.forEach { overlay ->
-                            ToggleRow(overlay.label, overlay.visible, overlay.onToggle)
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                }
                 MapSourcePicker(mapSource, onMapSourceSelected, mapError, onRetryMap)
 
                 Spacer(Modifier.height(4.dp))
@@ -2157,14 +2145,6 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     var selectedRoute by remember { mutableStateOf<Pair<String, String>?>(null) }
     var choosingRouteStart by remember(selectedRoute) { mutableStateOf(false) }
 
-    // Show or hide connected users
-    var showUsers by remember { mutableStateOf(mapPreferences.getBoolean(
-        "show_Users",
-        true
-            )
-        )
-    }
-
     // Show or hide Overlay Manager
     var showOverlayManager by remember { mutableStateOf(false) }
 
@@ -2178,22 +2158,6 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     var hideControls by remember { mutableStateOf(mapPreferences.getBoolean(
         "hide_controls",
         false
-            )
-        )
-    }
-
-    // Show or hide dropped and received markers
-    var showMarkers by remember { mutableStateOf(mapPreferences.getBoolean(
-        "show_markers",
-        true
-            )
-        )
-    }
-
-    // Show or hide ATOS tags
-    var showAtosTags by remember { mutableStateOf(mapPreferences.getBoolean(
-        "show_Atos_Tags",
-        true
             )
         )
     }
@@ -2561,25 +2525,24 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         }
     }
 
-    val visibleMapUsers = if (showUsers || selectingChatContact) receivedMapUsers.filter {
+    val visibleMapUsers = receivedMapUsers.filter {
         if (selectingChatContact) {
             it.uid.isNotBlank() && it.uid != MainActivity.device_uid &&
                 it.uid != ChatDestinations.ALL_CHAT_ROOMS && it.title.isNotBlank() &&
                 receivedUserListSetting.any { user -> user.uid == it.uid && !user.chatEndpoint.isNullOrBlank() }
         } else {
-            CotMessageParser.isGenericMapType(it.type) || (it.team in visibleUserTeams &&
-                (it.role in visibleUserRoles || it.role in visibleUserRolesLEO))
+            mapUserMatchesFilters(it, visibleUserTeams, visibleUserRoles, visibleUserRolesLEO)
         }
-    } else emptyList()
-    val visibleDropped = if (showMarkers) droppedMapMarkers else emptyList()
-    val visibleReceived = if (showMarkers) receivedMapMarkers else emptyList()
+    }
+    val visibleDropped = droppedMapMarkers
+    val visibleReceived = receivedMapMarkers
     val selfAltitude by androidx.compose.runtime.produceState<DataRepository.LocationSnapshot?>(null, locationFlow) {
         value = locationFlow?.takeIf { it.hasAltitude() }?.let { dataRepository.snapshotLocation(it) }
     }
     val buildingFootprints = remember { RenderedBuildingFootprints() }
     val selfTitle = stringResource(R.string.map_self_location)
     val lollipopTargets = remember(visibleMapUsers, visibleDropped, visibleReceived, selfAltitude,
-        teamValue, selfTitle, receivedAtosTags, showAtosTags, remoteEmergencyMapItems) {
+        teamValue, selfTitle, receivedAtosTags, remoteEmergencyMapItems) {
         buildList {
             visibleMapUsers.forEach { user ->
                 validMapPositionOrNull(user.lat, user.lon)?.let {
@@ -2599,7 +2562,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             }
             addMarkers(visibleDropped, MapTargetKind.DROPPED)
             addMarkers(visibleReceived, MapTargetKind.RECEIVED)
-            if (showAtosTags) receivedAtosTags.forEach { tag ->
+            receivedAtosTags.forEach { tag ->
                 validMapPositionOrNull(tag.lat, tag.lon)?.let {
                     add(LollipopTarget("atos:${tag.uid}", it, tag.hae, tag.le,
                         tag.iconType.orEmpty(), tag.title.orEmpty(), tag.color, atos = true))
@@ -2886,60 +2849,48 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
             }
 
             // Displays dropped and received markers
-            if (showMarkers) {
+            MarkersOnMap(
+                collection = MarkerLayerCollection.DROPPED,
+                markers = visibleDropped.filterNot {
+                    mapSelectionKey(MapTargetKind.DROPPED, it.uid, it.sourceServerId) in raisedKeys
+                }.map {
+                    val key = mapSelectionKey(MapTargetKind.DROPPED, it.uid, it.sourceServerId)
+                    it.copy(mapLabel = targetLabels[key], selectionKey = key)
+                },
 
-                // Displays markers dropped by the current user
-                MarkersOnMap(
-                    collection = MarkerLayerCollection.DROPPED,
-                    markers = visibleDropped.filterNot {
-                        mapSelectionKey(MapTargetKind.DROPPED, it.uid, it.sourceServerId) in raisedKeys
-                    }.map {
-                        val key = mapSelectionKey(MapTargetKind.DROPPED, it.uid, it.sourceServerId)
-                        it.copy(mapLabel = targetLabels[key], selectionKey = key)
-                    },
+                onSelectionKey = ::selectMapTarget,
+                camera = cameraState
+            )
 
-                    onSelectionKey = ::selectMapTarget,
-                    camera = cameraState
-                )
+            MarkersOnMap(
+                collection = MarkerLayerCollection.RECEIVED,
+                markers = visibleReceived.filterNot {
+                    mapSelectionKey(MapTargetKind.RECEIVED, it.uid, it.sourceServerId) in raisedKeys
+                }.map {
+                    val key = mapSelectionKey(MapTargetKind.RECEIVED, it.uid, it.sourceServerId)
+                    it.copy(mapLabel = targetLabels[key], selectionKey = key)
+                },
 
-                // Displays markers received from other users
-                MarkersOnMap(
-                    collection = MarkerLayerCollection.RECEIVED,
-                    markers = visibleReceived.filterNot {
-                        mapSelectionKey(MapTargetKind.RECEIVED, it.uid, it.sourceServerId) in raisedKeys
-                    }.map {
-                        val key = mapSelectionKey(MapTargetKind.RECEIVED, it.uid, it.sourceServerId)
-                        it.copy(mapLabel = targetLabels[key], selectionKey = key)
-                    },
-
-                    onSelectionKey = ::selectMapTarget,
-                    camera = cameraState
-                )
-            }
-
+                onSelectionKey = ::selectMapTarget,
+                camera = cameraState
+            )
             // Displays ATOS tags
-            if (showAtosTags) {
-                ATOSTagsOnMap(
-                    tags = receivedAtosTags.filterNot { "atos:${it.uid}" in raisedKeys },
-                    camera = cameraState
-                )
-            }
+            ATOSTagsOnMap(
+                tags = receivedAtosTags.filterNot { "atos:${it.uid}" in raisedKeys },
+                camera = cameraState
+            )
 
             // Displays users that match the selected filters
-            if (showUsers || selectingChatContact) {
-                UsersOnMap(
-
-                    // Filters users by team and role
-                    users = visibleMapUsers.filterNot {
-                        mapSelectionKey(MapTargetKind.CONTACT, it.uid, it.sourceServerId) in raisedKeys
-                    }.map {
-                        val key = mapSelectionKey(MapTargetKind.CONTACT, it.uid, it.sourceServerId)
-                        it.copy(mapLabel = targetLabels[key], selectionKey = key)
-                    },
-                    onSelectionKey = ::selectMapTarget,
-                    camera = cameraState
-                )
-            }
+            UsersOnMap(
+                users = visibleMapUsers.filterNot {
+                    mapSelectionKey(MapTargetKind.CONTACT, it.uid, it.sourceServerId) in raisedKeys
+                }.map {
+                    val key = mapSelectionKey(MapTargetKind.CONTACT, it.uid, it.sourceServerId)
+                    it.copy(mapLabel = targetLabels[key], selectionKey = key)
+                },
+                onSelectionKey = ::selectMapTarget,
+                camera = cameraState
+            )
 
             // Displays the active Bloodhound target
             BhoundMap(
@@ -2965,12 +2916,12 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
         }
 
         if (mapSource == MapSource.DEFAULT && cameraState.position.tilt >= 22.5) {
-            val geometry = remember(missionMapRoutes, visibleDropped, visibleReceived, showMarkers,
+            val geometry = remember(missionMapRoutes, visibleDropped, visibleReceived,
                 lat, lon, teamValue, activeBloodhound, cameraState.position.zoom, userLocationState.location,
                 raisedKeys, visibleMapUsers) {
                 tacticalGroundGeometry(
                     missionMapRoutes,
-                    (if (showMarkers) visibleDropped + visibleReceived else emptyList()) +
+                    (visibleDropped + visibleReceived) +
                         visibleMapUsers.filter { CotMessageParser.isGenericMapType(it.type) }.map {
                             MapMarkerItem(it.uid, it.type, it.title, it.lat, it.lon,
                                 false, DataRepository.MarkerCotType.DROP)
@@ -3215,44 +3166,6 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                     userRolePreferences.saveLeoRoles(updatedRoles)
 
                 },
-
-                // Creates the main overlay visibility options
-                overlays = listOf(
-                    OverlayToggle(
-                        "Markers",
-                        showMarkers
-                    ) {
-                        val updatedValue = !showMarkers
-
-                        // Updates and saves marker visibility
-                        showMarkers = updatedValue
-                        mapPreferences.edit()
-                            .putBoolean("show_markers", updatedValue)
-                            .apply()
-                    },
-                    OverlayToggle(
-                        "Users",
-                        showUsers
-                    ) {
-                        val updatedValue = !showUsers
-                        // Updates and saves marker visibility
-                        showUsers = updatedValue
-                        mapPreferences.edit()
-                            .putBoolean("show_users", updatedValue)
-                            .apply()
-                    },
-                    OverlayToggle(
-                        "ATOS",
-                        showAtosTags
-                    ) {
-                        val updatedValue = !showAtosTags
-                        // Updates and saves marker visibility
-                        showAtosTags = updatedValue
-                        mapPreferences.edit()
-                            .putBoolean("show_Atos_Tags", updatedValue)
-                            .apply()
-                    },
-                ),
 
                 // Closes Overlay Manager
                 onDismiss = {

@@ -13,7 +13,6 @@
     <string name="map_category_expand">Expandir %1$s</string>
     <string name="map_category_collapse">Contraer %1$s</string>
     <string name="map_category_layers">Capas</string>
-    <string name="map_category_overlays">Superposiciones</string>
     <string name="map_category_roles">Roles (%1$d)</string>
     <string name="map_category_teams">Equipos (%1$d)</string>
     <string name="map_credit_link_unavailable">No hay navegador disponible. Abre: %1$s</string>

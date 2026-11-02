@@ -13,7 +13,6 @@
     <string name="map_category_expand">Mở rộng %1$s</string>
     <string name="map_category_collapse">Thu gọn %1$s</string>
     <string name="map_category_layers">Lớp</string>
-    <string name="map_category_overlays">Lớp phủ</string>
     <string name="map_category_roles">Vai trò (%1$d)</string>
     <string name="map_category_teams">Đội (%1$d)</string>
     <string name="map_credit_link_unavailable">Không có trình duyệt. Mở: %1$s</string>

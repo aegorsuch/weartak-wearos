@@ -13,7 +13,6 @@
     <string name="map_category_expand">Développer %1$s</string>
     <string name="map_category_collapse">Réduire %1$s</string>
     <string name="map_category_layers">Couches</string>
-    <string name="map_category_overlays">Superpositions</string>
     <string name="map_category_roles">Rôles (%1$d)</string>
     <string name="map_category_teams">Équipes (%1$d)</string>
     <string name="map_credit_link_unavailable">Aucun navigateur disponible. Ouvrir : %1$s</string>

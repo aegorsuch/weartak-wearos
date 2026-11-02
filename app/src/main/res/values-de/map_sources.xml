@@ -13,7 +13,6 @@
     <string name="map_category_expand">%1$s ausklappen</string>
     <string name="map_category_collapse">%1$s einklappen</string>
     <string name="map_category_layers">Ebenen</string>
-    <string name="map_category_overlays">Overlays</string>
     <string name="map_category_roles">Rollen (%1$d)</string>
     <string name="map_category_teams">Teams (%1$d)</string>
     <string name="map_credit_link_unavailable">Kein Browser verfügbar. Öffnen: %1$s</string>

@@ -1,5 +1,6 @@
 package com.aitech.weartak_civ.presentation
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -18,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -31,6 +33,7 @@ import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.Text
 import com.aitech.weartak_civ.R
 
+// Tags are durable category IDs: keep them unique and independent of labels or list order.
 @Composable
 internal fun OverlayManagerCategory(
     label: String,
@@ -39,7 +42,15 @@ internal fun OverlayManagerCategory(
     initiallyExpanded: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    var expanded by remember { mutableStateOf(initiallyExpanded) }
+    val context = LocalContext.current.applicationContext
+    val preferences = remember(context) {
+        OverlayManagerCategoryPreferences(
+            context.getSharedPreferences(OverlayManagerCategoryPreferences.FILE_NAME, Context.MODE_PRIVATE)
+        )
+    }
+    var expanded by remember(preferences, tag) {
+        mutableStateOf(preferences.expanded(tag, initiallyExpanded))
+    }
     val action = stringResource(
         if (expanded) R.string.map_category_collapse else R.string.map_category_expand, label)
     val state = stringResource(
@@ -49,7 +60,10 @@ internal fun OverlayManagerCategory(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().heightIn(min = 32.dp)
                 .testTag(tag)
-                .clickable(role = Role.Button, onClickLabel = action) { expanded = !expanded }
+                .clickable(role = Role.Button, onClickLabel = action) {
+                    expanded = !expanded
+                    preferences.saveExpanded(tag, expanded)
+                }
                 .semantics {
                     contentDescription = action
                     stateDescription = state

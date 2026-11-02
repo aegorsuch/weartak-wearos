@@ -13,7 +13,6 @@
     <string name="map_category_expand">%1$s 펼치기</string>
     <string name="map_category_collapse">%1$s 접기</string>
     <string name="map_category_layers">레이어</string>
-    <string name="map_category_overlays">오버레이</string>
     <string name="map_category_roles">역할 (%1$d)</string>
     <string name="map_category_teams">팀 (%1$d)</string>
     <string name="map_credit_link_unavailable">브라우저가 없습니다. 다음 주소를 여세요: %1$s</string>

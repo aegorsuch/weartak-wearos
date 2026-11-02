@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assert
@@ -28,6 +29,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Rule
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -42,6 +44,11 @@ class MapSourceTest {
     @get:Rule val compose = createComposeRule()
     private val context get() = RuntimeEnvironment.getApplication()
     private fun original() = context.assets.open("style.json").bufferedReader().use { it.readText() }
+
+    @Before fun clearCategoryChoices() {
+        context.getSharedPreferences(OverlayManagerCategoryPreferences.FILE_NAME, Context.MODE_PRIVATE)
+            .edit().clear().commit()
+    }
 
     @Test fun existingMapIsUnchangedUntilExplicitSelectionAndCanBeRestored() {
         val prefs = context.getSharedPreferences("map-source-test", Context.MODE_PRIVATE)
@@ -228,7 +235,7 @@ class MapSourceTest {
                 myRole = "", roleCounts = mapOf("Medic" to 1, "TOC" to 1),
                 teamColorCount = mapOf("White" to 1),
                 onRoleToggle = { standard = it }, onLeoRoleToggle = { leo = it },
-                onTeamToggle = {}, overlays = emptyList(),
+                onTeamToggle = {},
                 availableTeams = setOf("White"), availableUserRoles = setOf("Medic"),
                 availableUserRolesLEO = setOf("TOC"), onDismiss = { dismissals++ }
             )
@@ -247,7 +254,81 @@ class MapSourceTest {
         compose.onNodeWithTag("overlay-manager-top-back").performScrollTo().performClick()
         compose.onNodeWithTag("overlay-manager-bottom-back").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, dismissals) }
+    }
 
+    @Test fun retiredGlobalOffPreferencesCannotHideMapFeaturesOrReappearAsControls() {
+        val preferences = context.getSharedPreferences(
+            OverlayManagerCategoryPreferences.FILE_NAME, Context.MODE_PRIVATE)
+        assertTrue(preferences.edit().putBoolean("show_markers", false)
+            .putBoolean("show_users", false).putBoolean("show_Users", false)
+            .putBoolean("show_Atos_Tags", false).commit())
+        val oldPreferences = preferences.all
+        val teams = mutableStateOf(setOf("White"))
+        val roles = mutableStateOf(setOf("Medic"))
+        val user = MapUserItem("contact", "a-f-G-U-C", "White", "Medic", 41.0, -87.0, "Medic")
+        val marker = MapMarkerItem("point", "a-f-G", "Marker", 41.0, -87.0,
+            false, com.aitech.weartak_civ.data.DataRepository.MarkerCotType.DROP)
+        val atos = ATOSItem("tag", "a-f-G-U-C", "Tag", 41.0, -87.0, "White", 100.0)
+        var featureCounts = emptyList<Int>()
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            featureCounts = listOf(
+                rememberMarkerFeatures(listOf(marker)).features.size,
+                rememberOtherUsersFeatures(listOf(user).filter {
+                    mapUserMatchesFilters(it, teams.value, roles.value, emptySet())
+                }).features.size,
+                rememberATOSFeatures(listOf(atos)).features.size
+            )
+            OverlayManagerPopup(
+                mapSource = MapSource.DEFAULT, onMapSourceSelected = {},
+                mapError = null, onRetryMap = {},
+                topoLayers = listOf("contours" to "Contours"),
+                hiddenLayers = emptySet(), onToggle = {},
+                hideControls = false, onHideControlsToggle = {},
+                visibleUserTeams = teams.value, visibleUserRoles = roles.value,
+                visibleUserRolesLEO = emptySet(), myRole = "",
+                roleCounts = mapOf("Medic" to 1), teamColorCount = mapOf("White" to 1),
+                onRoleToggle = { roles.value = if (roles.value.isEmpty()) setOf(it) else emptySet() },
+                onLeoRoleToggle = {},
+                onTeamToggle = { teams.value = if (teams.value.isEmpty()) setOf(it) else emptySet() },
+                availableTeams = setOf("White"), availableUserRoles = setOf("Medic"),
+                availableUserRolesLEO = emptySet(), onDismiss = {}
+            )
+        }
+        fun assertNoGlobalControls() {
+            compose.onNodeWithTag("overlay-manager-overlays").assertDoesNotExist()
+            listOf("Overlays", "Markers", "Users", "ATOS").forEach {
+                compose.onNodeWithText(it).assertDoesNotExist()
+            }
+        }
+        assertNoGlobalControls()
+        compose.runOnIdle { assertEquals(listOf(1, 1, 1), featureCounts) }
+        restoration.emulateSavedInstanceStateRestore()
+        assertNoGlobalControls()
+        compose.runOnIdle { assertEquals(listOf(1, 1, 1), featureCounts) }
+        compose.onNodeWithText("Medic (1)").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf(1, 0, 1), featureCounts) }
+        compose.onNodeWithText("Medic (1)").performClick()
+        compose.onNodeWithText("White (1)").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf(1, 0, 1), featureCounts) }
+        compose.onNodeWithText("White (1)").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(1, 1, 1), featureCounts)
+            assertEquals(oldPreferences, preferences.all)
+        }
+    }
+
+    @Test fun userFilteringPreservesStandardLeoAndGenericPointSemantics() {
+        val medic = MapUserItem("medic", "a-f-G-U-C", "White", "Medic", 41.0, -87.0, "Medic")
+        val leo = medic.copy(uid = "leo", role = "TOC")
+        val generic = medic.copy(uid = "generic", type = "a-n-A-C-F", team = "", role = null)
+        assertTrue(mapUserMatchesFilters(medic, setOf("White"), setOf("Medic"), emptySet()))
+        assertFalse(mapUserMatchesFilters(medic, emptySet(), setOf("Medic"), emptySet()))
+        assertFalse(mapUserMatchesFilters(medic, setOf("White"), emptySet(), setOf("TOC")))
+        assertTrue(mapUserMatchesFilters(leo, setOf("White"), emptySet(), setOf("TOC")))
+        assertFalse(mapUserMatchesFilters(leo, emptySet(), emptySet(), setOf("TOC")))
+        assertFalse(mapUserMatchesFilters(medic.copy(role = null), setOf("White"), setOf("Medic"), emptySet()))
+        assertTrue(mapUserMatchesFilters(generic, emptySet(), emptySet(), emptySet()))
     }
 
     @Test fun mapBackIsAbsentFromAccessibilityWhileOverlayManagerIsOpen() {
@@ -461,7 +542,7 @@ class MapSourceTest {
                     visibleUserRolesLEO = emptySet(), myRole = "",
                     roleCounts = emptyMap(), teamColorCount = emptyMap(),
                     onRoleToggle = {}, onLeoRoleToggle = {}, onTeamToggle = {},
-                    overlays = emptyList(), availableTeams = emptySet(),
+                    availableTeams = emptySet(),
                     availableUserRoles = emptySet(), availableUserRolesLEO = emptySet(),
                     onDismiss = {}
                 )
@@ -479,7 +560,6 @@ class MapSourceTest {
 
     @Test fun overlayManagerCategoriesCollapseIndependentlyWithoutChangingVisibility() {
         val layerToggles = mutableListOf<String>()
-        var overlayToggles = 0
         var roleToggles = 0
         var teamToggles = 0
         compose.setContent {
@@ -494,13 +574,12 @@ class MapSourceTest {
                 roleCounts = mapOf("Medic" to 1), teamColorCount = mapOf("White" to 1),
                 onRoleToggle = { roleToggles++ }, onLeoRoleToggle = {},
                 onTeamToggle = { teamToggles++ },
-                overlays = listOf(OverlayToggle("Markers", true) { overlayToggles++ }),
                 availableTeams = setOf("White"), availableUserRoles = setOf("Medic"),
                 availableUserRolesLEO = emptySet(), onDismiss = {}
             )
         }
         for ((category, child) in listOf(
-            "layers" to "Contours", "overlays" to "Markers", "maps" to "OSM Vector",
+            "layers" to "Contours", "maps" to "OSM Vector",
             "roles" to "Medic (1)", "teams" to "White (1)"
         )) {
             val tag = "overlay-manager-$category"
@@ -517,10 +596,10 @@ class MapSourceTest {
         }
         compose.runOnIdle {
             assertTrue(layerToggles.isEmpty())
-            assertEquals(0, overlayToggles + roleToggles + teamToggles)
+            assertEquals(0, roleToggles + teamToggles)
         }
         for ((category, child) in listOf(
-            "layers" to "Contours", "overlays" to "Markers",
+            "layers" to "Contours",
             "roles" to "Medic (1)", "teams" to "White (1)"
         )) {
             compose.onNodeWithTag("overlay-manager-$category").performScrollTo().performClick()
@@ -529,7 +608,6 @@ class MapSourceTest {
         }
         compose.runOnIdle {
             assertEquals(listOf("contours"), layerToggles)
-            assertEquals(1, overlayToggles)
             assertEquals(1, roleToggles)
             assertEquals(1, teamToggles)
         }
