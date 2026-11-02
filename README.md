@@ -94,9 +94,15 @@ showing its HTTP-200 "max zoom layer =17" placeholder. TAK vectors overzoom from
 14; hybrid rasters from verified zoom 20. Camera limits are 20 for OSM and 22 for
 hybrids. The existing remote contour endpoint currently returns HTTP 403 even at
 lower zooms; this is not solved by zoom caps or a silent provider substitution.
-The menu order is Buttons, Layers (alphabetical filters), Overlays, Maps, Roles, Teams;
+The menu order is Buttons, Layers (alphabetical filters), Maps, Roles, Teams;
 Roles combines the existing standard and LEO / Civil Use options without changing
 their independently saved selections.
+Global Markers, Users and ATOS visibility switches are removed. Live markers and
+ATOS tags remain visible, and users remain subject to the existing role/team filters
+(the chat-contact picker retains its own eligibility rules). Legacy saved global
+OFF values are ignored, including both spellings of the former Users preference.
+This does not bypass source ownership, expiration/deletion, privacy, invalid-coordinate
+or emergency handling.
 Each grouped category has an inline disclosure arrow: right when collapsed,
 down when expanded. Tap the header or arrow to show or hide its items without
 changing their eye toggles, selected map, or saved visibility. Categories start
@@ -104,7 +110,7 @@ expanded except Credits until a choice is saved. Each category independently
 remembers its expansion choice across closing/reopening Overlay Manager, activity
 recreation and app restarts, using stable category IDs rather than displayed labels
 or positions. Counts, map-source changes and temporarily absent groups do not clear
-saved choices. This includes Layers (feature filters), Overlays, Maps, Roles,
+saved choices. This includes Layers (feature filters), Maps, Roles,
 Teams and Credits; individual filter rows are visibility toggles, not expandable groups.
 The top-right back arrow dismisses only Overlay Manager; the underlying map
 back button is absent while that menu is open, and system Back dismisses it first.

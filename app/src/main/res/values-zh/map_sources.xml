@@ -13,7 +13,6 @@
     <string name="map_category_expand">展开%1$s</string>
     <string name="map_category_collapse">折叠%1$s</string>
     <string name="map_category_layers">图层</string>
-    <string name="map_category_overlays">叠加层</string>
     <string name="map_category_roles">角色 (%1$d)</string>
     <string name="map_category_teams">团队 (%1$d)</string>
     <string name="map_credit_link_unavailable">没有可用浏览器。请打开：%1$s</string>

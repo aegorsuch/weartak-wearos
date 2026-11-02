@@ -13,7 +13,6 @@
     <string name="map_category_expand">Expand %1$s</string>
     <string name="map_category_collapse">Collapse %1$s</string>
     <string name="map_category_layers">Layers</string>
-    <string name="map_category_overlays">Overlays</string>
     <string name="map_category_roles">Roles (%1$d)</string>
     <string name="map_category_teams">Teams (%1$d)</string>
     <string name="map_credit_link_unavailable">No browser available. Open: %1$s</string>

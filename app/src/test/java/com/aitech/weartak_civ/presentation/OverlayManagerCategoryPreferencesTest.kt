@@ -40,7 +40,7 @@ class OverlayManagerCategoryPreferencesTest {
     private val preferences get() = context.getSharedPreferences(
         OverlayManagerCategoryPreferences.FILE_NAME, Context.MODE_PRIVATE)
     private val categories = listOf(
-        "overlay-manager-layers", "overlay-manager-overlays", "overlay-manager-maps",
+        "overlay-manager-layers", "overlay-manager-maps",
         "overlay-manager-roles", "overlay-manager-teams", "map-credits-disclosure"
     )
 
@@ -59,7 +59,7 @@ class OverlayManagerCategoryPreferencesTest {
 
     @Test fun everyCategoryAndNestedDynamicGroupHaveIndependentChoices() {
         val store = OverlayManagerCategoryPreferences(preferences)
-        val ids = categories + listOf("features:routes", "overlays:plugin:example")
+        val ids = categories + listOf("features:routes", "features:points")
         ids.forEachIndexed { index, id -> store.saveExpanded(id, index % 2 == 0) }
         ids.reversed().forEach { id ->
             val expected = ids.indexOf(id) % 2 == 0
@@ -67,7 +67,7 @@ class OverlayManagerCategoryPreferencesTest {
         }
         store.saveExpanded("features:routes", false)
         assertFalse(store.expanded("features:routes", true))
-        assertFalse(store.expanded("overlays:plugin:example", true))
+        assertTrue(store.expanded("features:points", false))
         assertTrue(store.expanded("overlay-manager-layers", false))
     }
 

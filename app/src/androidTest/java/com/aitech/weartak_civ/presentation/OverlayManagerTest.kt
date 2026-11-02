@@ -50,7 +50,6 @@ class OverlayManagerTest {
                             visibleUserRolesLEO = emptySet(), myRole = "",
                             roleCounts = emptyMap(), teamColorCount = emptyMap(),
                             onRoleToggle = {}, onLeoRoleToggle = {}, onTeamToggle = {},
-                            overlays = listOf(OverlayToggle("Markers", true) { toggles++ }),
                             availableTeams = emptySet(), availableUserRoles = emptySet(),
                             availableUserRolesLEO = emptySet(), onDismiss = {}
                         )
@@ -59,7 +58,7 @@ class OverlayManagerTest {
             }
             awaitNode("Collapse Layers")
             capture("overlay-manager-expanded.png")
-            for (category in listOf("Layers", "Overlays", "Maps", "Roles (0)", "Teams (0)")) {
+            for (category in listOf("Layers", "Maps", "Roles (0)", "Teams (0)")) {
                 click(scrollTo("Collapse $category"))
                 assertState("Expand $category", "Collapsed")
             }

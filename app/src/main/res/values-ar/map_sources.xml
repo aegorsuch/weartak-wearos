@@ -13,7 +13,6 @@
     <string name="map_category_expand">توسيع %1$s</string>
     <string name="map_category_collapse">طي %1$s</string>
     <string name="map_category_layers">الطبقات</string>
-    <string name="map_category_overlays">التراكبات</string>
     <string name="map_category_roles">الأدوار (%1$d)</string>
     <string name="map_category_teams">الفرق (%1$d)</string>
     <string name="map_credit_link_unavailable">لا يوجد متصفح. افتح: %1$s</string>
