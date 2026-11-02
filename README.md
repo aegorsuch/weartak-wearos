@@ -1,8 +1,136 @@
 # WearTAK-WearOS
 
+## Purpose and Capabilities
+
 WearTAK-WearOS is a standalone Wear OS application that connects a watch to the Team Awareness Kit (TAK) ecosystem. It is designed to collect location and on-watch sensor data, publish Cursor-on-Target (CoT) events, and provide a watch-native interface for operational awareness and alerts.
 
 The app can connect directly to a TAK server and can optionally use SITX, Ditto mesh, BLE companion, and plugin integrations when those capabilities are configured. A phone is not required for the app's primary watch workflow.
+
+### What it does
+
+- Connects to TAK endpoints and sends and receives CoT traffic.
+- Publishes position/location information (PLI), markers, SOS/manual alerts, sensor-driven alerts, and TAK chat payloads.
+- Collects health, activity, and environmental data, including heart rate, location, activity, skin temperature (where supported), BLE beacons, pressure, and off-body state.
+- Provides Wear OS activities, a Tile, and watch-face complications for common operations and status.
+- Supports managed configuration, allowing an enterprise mobility/MDM provider to apply settings and service enablement.
+- Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
+- Provides optional audio detection pipelines for gunshot and UAS events, and optional CRM inference.
+- Hosts supported WearTAK plugins through the included plugin SDK contract.
+
+Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
+
+## Status
+
+Protected canonical `main` pipelines publish signed APKs through the
+[GitHub pipeline release](#github-pipeline-release) workflow. Project policy treats
+those builds as stable, not prereleases; this is not blanket hardware or field
+acceptance. Feature-specific prototypes, placeholders, pending hardware checks,
+security boundaries, and known limitations remain documented under
+[Developer Notes](#developer-notes). A general operational-readiness certification
+or release schedule is not established by this README.
+
+## Point of Contacts
+
+### Point of Contact: Alex Gorsuch on chat.tak.gov or Signal
+
+## Ports Required
+
+Network requirements depend on enabled transports and configured endpoints;
+not every deployment requires every port below.
+
+| Transport / feature | Protocol and port | Direction / scope |
+| --- | --- | --- |
+| Direct TAK server CoT | TCP/TLS, configured server port (default `8089`) | Watch connects to the configured server. |
+| TAK channel/mission APIs and route package downloads | HTTPS/TCP `8443` | Watch connects to the source server; multicast peer packages use source-bound peer HTTPS with the restrictions in [Route point selection](#route-point-selection). |
+| Username/password certificate enrollment | HTTPS/TCP `8446` | Watch connects to the configured enrollment server. |
+| TAK SA / direct CoT multicast | UDP, configured group/port (default `239.2.3.1:6969`), plus `224.10.10.1:6969` | Send/receive on local Wi-Fi; access point must permit multicast between clients. |
+| GeoChat multicast | UDP `224.10.10.1:17012` | Send/receive on local Wi-Fi. |
+
+See [TAK SA multicast](#tak-sa-multicast) and
+[TAK certificate enrollment](#tak-certificate-enrollment) for routing and trust
+boundaries. Companion uses BLE GATT rather than an IP listening port.
+Optional SITX, Ditto, map/terrain/weather endpoints, plugins, and wireless ADB
+have deployment-dependent network requirements; a complete port inventory for
+those integrations is not established here. Verify their configured endpoints
+and provider requirements before setting firewall policy.
+
+## Equipment Required
+
+A Wear OS watch with GPS and Android API 34 or later is required by the app's
+minimum SDK and manifest. A phone is not required for standalone operation.
+Direct TAK networking requires a reachable configured endpoint and appropriate
+credentials/certificates; multicast requires a multicast-capable local Wi-Fi
+network. Optional sensors and integrations require their corresponding hardware,
+permissions, and provisioning.
+
+For source builds, use Android Studio, JDK 17, Android SDK API 35,
+build-tools 35.0.0, NDK 27.0.12077973, and the local binary dependencies described
+under [Platform and requirements](#platform-and-requirements).
+
+## Equipment Supported
+
+The documented target family is Samsung Galaxy Watch 7/8 and Galaxy Watch Ultra
+7/8; Samsung-specific sensors require compatible Samsung hardware and services.
+This identifies intended hardware, not a verified compatibility matrix for every
+model or feature. BLE and telephony are optional. Debug packaging defaults to
+`armeabi-v7a`; explicit emulator/diagnostics ABI overrides and their restrictions
+remain documented below. Paired operation requires a compatible ATAK-side
+WearTAK Companion; feature-specific phone/watch version and acceptance
+requirements still apply.
+
+## Compilation
+
+### Getting started
+
+1. Install Android Studio and an Android SDK that includes API 35, build-tools 35.0.0, and the Android NDK 27.0.12077973.
+2. Configure JDK 17 for Gradle.
+3. If required for your environment, create `signing.properties` with the debug/release keystore values expected by `app/build.gradle`. The build also accepts the corresponding `WEARTAK_*` environment variables.
+4. Build a debug APK:
+
+   ```bash
+   ./gradlew :app:assembleDebug
+   ```
+
+5. Install the generated `armeabi-v7a` APK on a connected watch:
+
+   ```bash
+   adb install -r app/build/outputs/apk/debug/*armeabi-v7a-debug.apk
+   ```
+
+6. Launch the app:
+
+   ```bash
+   adb shell am start -n com.aitech.weartak_civ.dev/.presentation.MainActivity
+   ```
+
+Debug builds add `.dev` to the application ID; release builds use
+`com.aitech.weartak_civ`. Use the installed package ID for ADB commands.
+
+The app requests permissions at runtime. On a physical device, grant only the permissions required for the services you intend to enable (for example, location, body sensors, activity recognition, notifications, Bluetooth, and microphone access).
+
+### GitHub pipeline release
+
+Protected `main` push pipelines publish the signed WearOS APK only to the rolling
+**TAK.gov Forge CI/CD Pipeline Release** in the public
+[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) repository.
+Project policy treats these as stable builds, not prereleases. See
+[CI release setup and retention](ci/README.md) for pipeline setup and safeguards.
+Existing company Releases and tags remain untouched. The publisher first fast-forwards
+personal `main` to the exact canonical
+pipeline source, then publishes the same verified signed APK using a separate
+repository-scoped CI credential. It does not build or sign independently. The CI
+documentation covers required administrator configuration, provenance and verified replacement behavior.
+Other numbered releases and unrelated assets are preserved.
+
+For focused compile checks, test-cache behavior, and debugging commands, see
+[Development notes](#development-notes). Explicit debug ABI overrides and the
+optional hosted-plugin emulator test are described under
+[Received CoT marker symbols](#received-cot-marker-symbols).
+
+## Developer Notes
+
+Detailed behavior, configuration, architecture, security limitations, and
+feature-specific testing/acceptance instructions follow.
 
 ### Map sources and 3D overlays
 
@@ -607,19 +735,6 @@ mapping; the existing Companion mark, Commands megaphone, integration artwork,
 MOPP mask and independent Data Sync icon are retained. Icons do not enable an
 integration or change its saved state, navigation or placeholder status.
 
-## What it does
-
-- Connects to TAK endpoints and sends and receives CoT traffic.
-- Publishes position/location information (PLI), markers, SOS/manual alerts, sensor-driven alerts, and TAK chat payloads.
-- Collects health, activity, and environmental data, including heart rate, location, activity, skin temperature (where supported), BLE beacons, pressure, and off-body state.
-- Provides Wear OS activities, a Tile, and watch-face complications for common operations and status.
-- Supports managed configuration, allowing an enterprise mobility/MDM provider to apply settings and service enablement.
-- Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
-- Provides optional audio detection pipelines for gunshot and UAS events, and optional CRM inference.
-- Hosts supported WearTAK plugins through the included plugin SDK contract.
-
-Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
-
 ### Ditto receive support and deletion boundary
 
 With Ditto running, SDK **4.10.2** store observers consume initial local snapshots
@@ -951,7 +1066,7 @@ and installed compass complications remain heading consumers without an active
 target; active guidance also owns background heading. The listener-demand and
 cached-ambient behavior is described below, independently of reporting policy.
 
-## Performance and heading demand
+### Performance and heading demand
 
 Routine foreground services share one silent, ongoing **WearTAK active**
 notification. Its count and expanded capability list describe foreground service
@@ -1095,21 +1210,7 @@ registration. Shutdown records actual removal. These numeric events use the
 existing five-second aggregation and privacy/storage bounds, not individual
 samples or a measured energy saving.
 
-## GitHub pipeline release
-
-Protected `main` push pipelines publish the signed WearOS APK only to the rolling
-**TAK.gov Forge CI/CD Pipeline Release** in the public
-[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) repository.
-Project policy treats these as stable builds, not prereleases. See
-[CI release setup and retention](ci/README.md) for pipeline setup and safeguards.
-Existing company Releases and tags remain untouched. The publisher first fast-forwards
-personal `main` to the exact canonical
-pipeline source, then publishes the same verified signed APK using a separate
-repository-scoped CI credential. It does not build or sign independently. The CI
-documentation covers required administrator configuration, provenance and verified replacement behavior.
-Other numbered releases and unrelated assets are preserved.
-
-## Platform and requirements
+### Platform and requirements
 
 ### WEARTAK-169: Bluetooth name is no longer changed
 
@@ -1198,31 +1299,6 @@ connection is unbound, including on unload, disconnect or shutdown. Every replac
 connection starts unprivileged and must pass admission again. Certificate trust uses
 the existing first-handshake pinning policy, not a new signer allowlist.
 
-## Getting started
-
-1. Install Android Studio and an Android SDK that includes API 35, build-tools 35.0.0, and the Android NDK 27.0.12077973.
-2. Configure JDK 17 for Gradle.
-3. If required for your environment, create `signing.properties` with the debug/release keystore values expected by `app/build.gradle`. The build also accepts the corresponding `WEARTAK_*` environment variables.
-4. Build a debug APK:
-
-   ```bash
-   ./gradlew :app:assembleDebug
-   ```
-
-5. Install the generated `armeabi-v7a` APK on a connected watch:
-
-   ```bash
-   adb install -r app/build/outputs/apk/debug/*armeabi-v7a-debug.apk
-   ```
-
-6. Launch the app:
-
-   ```bash
-   adb shell am start -n com.aitech.weartak_civ/.presentation.MainActivity
-   ```
-
-The app requests permissions at runtime. On a physical device, grant only the permissions required for the services you intend to enable (for example, location, body sensors, activity recognition, notifications, Bluetooth, and microphone access).
-
 ### Bonded Location Diagnostics (WEARTAK-165)
 
 The **Bonded Location Diagnostics** switch is in Developer Preferences and is persisted independently of Developer Mode. Diagnostics run only after a versioned capability exchange over the authenticated, bonded, ready single-watch Companion BLE session; setup and gateway routes do not enable observation. Disabling the switch sends a session-scoped stop so both devices unregister diagnostics-only callbacks. An unsupported Companion peer receives no repeated capability probes, and a new connection negotiates a new session.
@@ -1233,7 +1309,7 @@ Without an accepted session, both readouts explicitly show diagnostics inactive;
 
 The Developer Preferences diagnostics page shows watch and phone quality separately and provides diagnostic-only Entry/Exit markers, JSON export, and Clear. Local daily summaries retain no exact coordinates, device identifiers, or raw satellite identifiers; logs are bounded to 256 KiB per day and seven days of retention. Diagnostic messages are versioned, session-fenced, size-limited, rate-limited, and best-effort behind operational BLE traffic.
 
-## Configuration and operation
+### Configuration and operation
 
 The legacy `SettingsActivity` component redirects to `WearTAKSettingsActivity`.
 Debug tools are a screen within settings, not a separately launchable activity.
@@ -2461,7 +2537,7 @@ Plugin `requestCotDispatch` retains its existing TAK-server relay by default; a 
 can declare `relayInboundToNetwork` and set it false for local-only injection. That relay
 does not enable disconnected TAK servers or fan out to other transports.
 
-## Architecture
+### Architecture
 
 ### Paired Bloodhound tracking
 
@@ -3253,7 +3329,7 @@ app/src/main/java/com/aitech/weartak_civ/
 └── WearTakApplication.kt
 ```
 
-## Development notes
+### Development notes
 
 - Use `./gradlew :app:assembleDebug` for a focused compile/package check.
 - Robolectric unit tests reuse the real home directory's `.m2/repository` cache
@@ -3279,18 +3355,15 @@ To inspect app-private files on a debuggable install:
 adb shell run-as com.aitech.weartak_civ ls files
 ```
 
-## Security and data handling
+### Security and data handling
 
 WearTAK-WearOS handles potentially sensitive location, health, communications, and credential data. Treat device logs, exported app files, managed configurations, and build artifacts accordingly. Configure secure TAK endpoints and credentials appropriate to your deployment, and review required Android permissions before field use.
 
-## Contributing
+### Contributing
 
 Unlimited Rights granted to TPC
 
 Keep changes focused and validate them with the narrowest relevant Gradle task or test. When adding or changing a service, account for its manifest declaration, permission requirements, persisted enablement, and registration with the service orchestration layer.
-
-### Point of Contact: Alex Gorsuch on chat.tak.gov or Signal
-
 
 #### Bloodhound picker controls and artwork
 
@@ -3312,3 +3385,25 @@ of this artwork is pending with the project owner.
 ### Stationary location battery saving
 
 With location and activity recognition enabled, a stationary location latch (a usable still fix with significant-motion monitoring) and STILL activity at 50% confidence must agree for 30 seconds before GPS acquisition and self PLI use a minimum 60-second interval. Slower configured, docked, or network-power intervals are preserved. No additional sensors or polling are enabled. Motion, activity changes, screen wake, and user interaction restore the normal cadence; alerts and explicit sends bypass the stationary delay. Self PLI advertises at least twice the effective interval plus 15 seconds of validity, including an announcement when the stationary interval increases. Existing off-body transport policy is unchanged.
+
+## License
+
+No standalone repository-wide license file is present in this source tree.
+Source notices, including
+[`WearTakApplication.kt`](app/src/main/java/com/aitech/weartak_civ/WearTakApplication.kt),
+state Copyright (C) 2025, Ascent Integrated Tech, all rights reserved, and restrict
+use/copying to explicit written permission and the applicable license agreement
+and/or contract. The existing [Contributing](#contributing) statement grants
+Unlimited Rights to TPC; it is not a general public license grant.
+Repository-wide redistribution terms require confirmation from the project owner.
+This README reformat does not relicense code, SDKs, datasets, or artwork.
+
+Third-party terms and obligations remain separate: retain the map-provider and
+terrain/geoid credits and usage caveats under
+[Map sources and 3D overlays](#map-sources-and-3d-overlays), integration-artwork
+provenance and permission limitations under
+[Bonded phone transport](#bonded-phone-transport-weartak-272), and the GPLv3 ATAK
+artwork notice and pending distribution/licensing review under
+[Bloodhound picker controls and artwork](#bloodhound-picker-controls-and-artwork).
+Bundled third-party SDKs remain subject to their own terms; their presence does
+not establish unrestricted redistribution rights.
