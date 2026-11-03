@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ditto_direct_peers">Pairs directs</string>
+    <string name="ditto_ble_peers">Pairs BLE</string>
+    <string name="ditto_lan_peers">Pairs LAN</string>
+    <string name="ditto_p2p_peers">Pairs Wi-Fi Aware</string>
+    <string name="ditto_websocket_peers">Pairs WebSocket</string>
+    <string name="ditto_ble_recovery">Récupération BLE</string>
+    <string name="ditto_status_unavailable">Indisponible</string>
+    <string name="ditto_recovery_active">Active</string>
+    <string name="ditto_recovery_timed_out">Délai dépassé</string>
+    <string name="ditto_recovery_user_paused">Suspendue par l’utilisateur</string>
+    <string name="ditto_recovery_ineligible">Conditions non remplies</string>
+    <string name="ditto_recovery_stopped">Arrêtée</string>
     <string name="home_warning_review">Revoir les avertissements</string>
     <string name="crm_warning_title">État CRM</string>
     <string name="crm_warning_status_format">CRM %2$s : %1$d</string>

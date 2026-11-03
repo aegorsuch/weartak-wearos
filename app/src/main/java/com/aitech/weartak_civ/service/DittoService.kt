@@ -86,6 +86,12 @@ class DittoService : Service() {
     private var chatRetention: DittoChatRetention? = null
     private var storeObservers: DittoStoreObservers? = null
     private var bleDiscovery: DittoBleDiscoverySession? = null
+    private var liveStatusSession: DittoLiveStatusStore.Session? = null
+
+    private fun setSyncActive(value: Boolean) {
+        liveStatusSession?.setSyncing(value)
+        syncActiveState.value = value
+    }
     private var networkMonitor: DittoNetworkMonitor? = null
     private var powerMonitor: DittoPowerMonitor? = null
     private var publicationRetry: DittoPublicationRetry? = null
@@ -126,6 +132,7 @@ class DittoService : Service() {
         )
         val application = applicationContext as WearTakApplication
         dataRepository = application.repo
+        liveStatusSession = liveStatusStore.begin()
         activeService.value = this
         if (reconfiguring.value || dataRepository.shouldSuppressWatchTransportNow()) {
             Log.i(TAG, "Ditto startup suppressed: identity changing or Companion handoff active")
@@ -187,6 +194,8 @@ class DittoService : Service() {
                 ) { enabled, companion, changing, syncing -> enabled && !companion && !changing && syncing },
                 transportLock = transportLock,
                 transportChanged = ::logTransportSet,
+                peersChanged = { liveStatusSession?.peers(it) },
+                statusChanged = { liveStatusSession?.recovery(it) },
                 persistedRecovery = runBlocking {
                     runCatching { dataRepository.getDittoBleRecoveryState.first() }
                         .getOrDefault(BLE_BUDGET_UNREADABLE)
@@ -227,7 +236,7 @@ class DittoService : Service() {
             startupResult.value = false
             stopPeer()
             isRunning.set(false)
-            syncActiveState.value = false
+            setSyncActive(false)
             dataRepository.setEndpointDisconnected(DataRepository.Endpoint.DITTO)
             stopSelf()
         }
@@ -243,7 +252,7 @@ class DittoService : Service() {
         ditto.startSync()
         recordDittoLifecycle(DittoDiagnosticPhase.SYNC, true)
         setPowerSuppression(null)
-        syncActiveState.value = true
+        setSyncActive(true)
         true
     }
 
@@ -259,13 +268,13 @@ class DittoService : Service() {
         try {
             if (suppressed) {
                 ditto.stopSync()
-                syncActiveState.value = false
+                setSyncActive(false)
                 setPowerSuppression(reason)
                 dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
             } else {
                 ditto.startSync()
                 setPowerSuppression(null)
-                syncActiveState.value = true
+                setSyncActive(true)
                 trackGate.reset()
                 updateTrackDocument()
                 dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
@@ -334,6 +343,7 @@ class DittoService : Service() {
     private fun stopPeer() = synchronized(peerLock) {
         if (peerStopped) return@synchronized
         peerStopped = true
+        liveStatusSession?.close()
         if (ownsDitto) {
             try {
                 getDittoInstance()?.stopSync()
@@ -344,7 +354,7 @@ class DittoService : Service() {
                 Log.e(TAG, "Error stopping Ditto sync", error)
             }
         }
-        syncActiveState.value = false
+        setSyncActive(false)
         setPowerSuppression(null)
         networkMonitor?.close()
         networkMonitor = null
@@ -418,6 +428,8 @@ class DittoService : Service() {
                         val next = ditto.transportConfig.clone()
                         DittoTransportPolicy.apply(next, packageManager, wifi, internet, websocketUrls)
                         if (next != ditto.transportConfig) ditto.transportConfig = next
+                        liveStatusSession?.transports(dittoDiagnosticTransports(
+                            packageManager, next, websocketUrls.isNotEmpty()))
                         logTransportSet(next)
                     } catch (error: Exception) {
                         recordDittoLifecycle(DittoDiagnosticPhase.TRANSPORT, false)
@@ -953,6 +965,8 @@ class DittoService : Service() {
         private val DITTO_SERVICE_NOTIFICATION_ID = 3333
         val isRunning: AtomicBoolean = AtomicBoolean(false)
         private val syncActiveState = MutableStateFlow(false)
+        private val liveStatusStore = DittoLiveStatusStore()
+        internal val liveStatus = liveStatusStore.state
         val syncActive = syncActiveState.asStateFlow()
         private val powerSuppressedState = MutableStateFlow(false)
         val powerSuppressed = powerSuppressedState.asStateFlow()

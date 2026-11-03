@@ -47,6 +47,8 @@ class DittoBleDiscoverySessionTest {
         val pdl = MutableStateFlow("")
         val changes = mutableListOf<Boolean>()
         val warnings = mutableListOf<BleLinkWarning>()
+        val livePeers = mutableListOf<DittoDirectPeers>()
+        val liveRecovery = mutableListOf<DittoRecoveryStatus>()
         val stored = mutableListOf<String?>()
         val actions = MutableSharedFlow<DataRepository.DittoBleRecoveryAction>(extraBufferCapacity = 4)
         var radio = true
@@ -82,8 +84,44 @@ class DittoBleDiscoverySessionTest {
                 combine(master, companion, reconfiguring) { enabled, connected, changing ->
                     enabled && !connected && !changing
                 }, elapsedClock = { scope.testScheduler.currentTime },
-                radioProbe = { radio }, jitter = { 0.5 }, persistedRecovery = persisted, bootCount = { boot })
+                radioProbe = { radio }, jitter = { 0.5 }, persistedRecovery = persisted, bootCount = { boot },
+                peersChanged = { livePeers += it }, statusChanged = { liveRecovery += it })
             session.start()
+        }
+
+        @Test fun liveStatusUsesExistingObserverAndObservingNeverRequestsRecovery() = runTest {
+            Fixture(this, persisted = "TIMED_OUT").use { f ->
+                runCurrent()
+                assertEquals(DittoRecoveryStatus.TIMED_OUT, f.liveRecovery.last())
+                assertEquals(DittoDirectPeers(0, 0, 0, 0, 0), f.livePeers.last())
+                val before = f.changes.toList()
+                repeat(3) { assertEquals(DittoRecoveryStatus.TIMED_OUT, f.liveRecovery.last()) }
+                assertEquals(before, f.changes)
+                verify(exactly = 1) { f.presence.observe(any<(DittoPresenceGraph) -> Unit>()) }
+                f.callback.captured(graph(listOf(connection("ble", "watch", "phone", DittoConnectionType.Bluetooth))))
+                runCurrent()
+                assertEquals(DittoDirectPeers(1, 1, 0, 0, 0), f.livePeers.last())
+                assertEquals(DittoRecoveryStatus.ACTIVE, f.liveRecovery.last())
+                f.callback.captured(graph())
+                runCurrent()
+                assertEquals(DittoDirectPeers(0, 0, 0, 0, 0), f.livePeers.last())
+                f.adapter(BluetoothAdapter.STATE_OFF)
+                runCurrent()
+                assertEquals(DittoRecoveryStatus.INELIGIBLE, f.liveRecovery.last())
+            }
+        }
+
+        @Test fun diagnosticsPublishAtCaptureTimeNotFromQueuedPreGateDiscoveryGraphs() = runTest {
+            Fixture(this).use { f ->
+                runCurrent()
+                f.callback.captured(graph(listOf(connection("ble", "watch", "phone", DittoConnectionType.Bluetooth))))
+                assertEquals(DittoDirectPeers(1, 1, 0, 0, 0), f.livePeers.last())
+                f.callback.captured(graph())
+                assertEquals(DittoDirectPeers(0, 0, 0, 0, 0), f.livePeers.last())
+                val captures = f.livePeers.size
+                runCurrent()
+                assertEquals("draining the discovery queue cannot republish an older snapshot", captures, f.livePeers.size)
+            }
         }
 
         fun adapter(state: Int) {

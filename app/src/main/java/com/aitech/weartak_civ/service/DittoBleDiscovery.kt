@@ -107,6 +107,7 @@ internal class DittoBleDiscovery(
     private val warningChanged: (BleLinkWarning) -> Unit = {},
     initialBudgetUsedMs: Long = 0L,
     private val budgetChanged: (BleBudgetSnapshot) -> Unit = {},
+    private val statusChanged: (DittoRecoveryStatus) -> Unit = {},
 ) : AutoCloseable {
     private enum class Timer { WINDOW, RETRY, STOP }
 
@@ -254,6 +255,15 @@ internal class DittoBleDiscovery(
         }
         checkpoint(force = false)
         publishWarning(reason)
+        statusChanged(when {
+            closed -> DittoRecoveryStatus.STOPPED
+            !eligible -> DittoRecoveryStatus.INELIGIBLE
+            else -> when (recovery) {
+                BleRecoveryState.ACTIVE -> DittoRecoveryStatus.ACTIVE
+                BleRecoveryState.TIMED_OUT -> DittoRecoveryStatus.TIMED_OUT
+                BleRecoveryState.USER_PAUSED -> DittoRecoveryStatus.USER_PAUSED
+            }
+        })
     }
 
     /**
@@ -544,6 +554,8 @@ internal class DittoBleDiscoverySession(
     persistedRecovery: String? = null,
     private val warningChanged: (BleLinkWarning) -> Unit = repo::setDittoBleLinkWarning,
     private val bootCount: () -> Int? = { deviceBootCount(application) },
+    private val peersChanged: (DittoDirectPeers) -> Unit = {},
+    private val statusChanged: (DittoRecoveryStatus) -> Unit = {},
 ) : Application.ActivityLifecycleCallbacks, AutoCloseable {
     private val jobs = mutableListOf<Job>()
     private val graphs = Channel<DittoPresenceGraph>(Channel.CONFLATED)
@@ -556,7 +568,8 @@ internal class DittoBleDiscoverySession(
     private val restored = restoreBleBudget(persistedRecovery, elapsedClock(), bootCount())
     private val discovery = DittoBleDiscovery(
         scope, ::setBleEnabled, ::recordTransition, elapsedClock, jitter,
-        restored.state, {}, { warningChanged(it) }, restored.usedMs, { recoveryWrites.trySend(it) }
+        restored.state, {}, { warningChanged(it) }, restored.usedMs, { recoveryWrites.trySend(it) },
+        statusChanged
     )
 
     init {
@@ -592,7 +605,7 @@ internal class DittoBleDiscoverySession(
             }
         }
         discovery.setRadioAvailable(radioProbe())
-        updatePeers(ditto.presence.graph)
+        updatePeers(readPeers())
         jobs += scope.launch {
             for (graph in graphs) updatePeers(graph)
         }
@@ -600,8 +613,13 @@ internal class DittoBleDiscoverySession(
             // true re-probes adapter and permissions; false is an adapter OFF transition.
             for (on in radioEvents) discovery.setRadioAvailable(on && radioProbe())
         }
-        // The SDK invokes observers under its presence lock; never write config on that callback.
-        observer = ditto.presence.observe { graph: DittoPresenceGraph -> graphs.trySend(graph); Unit }
+        // Publish read-only counts at capture time, not later from a pre-gate queued graph.
+        // SDK presence lock permits no config writes; discovery still runs through the channel.
+        observer = ditto.presence.observe { graph: DittoPresenceGraph ->
+            peersChanged(dittoDirectPeers(graph))
+            graphs.trySend(graph)
+            Unit
+        }
         application.registerActivityLifecycleCallbacks(this)
         application.registerReceiver(
             adapterReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
@@ -609,7 +627,10 @@ internal class DittoBleDiscoverySession(
         )
         receiverRegistered = true
         jobs += scope.launch {
-            allowed.distinctUntilChanged().collect { discovery.setAllowed(it) }
+            allowed.distinctUntilChanged().collect {
+                discovery.setAllowed(it)
+                if (it) readPeers()
+            }
         }
         jobs += scope.launch {
             repo.latestDeviceWornObservation.collect {
@@ -643,6 +664,12 @@ internal class DittoBleDiscoverySession(
     private fun updatePeers(graph: DittoPresenceGraph) {
         val snapshot = blePeerSnapshot(graph)
         discovery.peersChanged(snapshot.topology, snapshot.localBleConnections)
+    }
+
+    private fun readPeers(): DittoPresenceGraph {
+        val graph = ditto.presence.graph
+        peersChanged(dittoDirectPeers(graph))
+        return graph
     }
 
     private fun recordTransition(event: BleDiscoveryRecord) {

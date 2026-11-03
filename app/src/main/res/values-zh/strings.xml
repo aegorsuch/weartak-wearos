@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ditto_direct_peers">直连设备</string>
+    <string name="ditto_ble_peers">BLE 设备</string>
+    <string name="ditto_lan_peers">LAN 设备</string>
+    <string name="ditto_p2p_peers">Wi-Fi Aware 设备</string>
+    <string name="ditto_websocket_peers">WebSocket 设备</string>
+    <string name="ditto_ble_recovery">BLE 恢复</string>
+    <string name="ditto_status_unavailable">不可用</string>
+    <string name="ditto_recovery_active">活动</string>
+    <string name="ditto_recovery_timed_out">已超时</string>
+    <string name="ditto_recovery_user_paused">用户已暂停</string>
+    <string name="ditto_recovery_ineligible">条件不满足</string>
+    <string name="ditto_recovery_stopped">已停止</string>
     <string name="home_warning_review">查看警告</string>
     <string name="crm_warning_title">CRM状态</string>
     <string name="crm_warning_status_format">CRM %2$s: %1$d</string>

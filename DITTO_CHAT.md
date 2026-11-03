@@ -148,6 +148,56 @@ Example JSON (the native `_c` CRDT is created by the SDK, so is omitted here):
 
 ## Watch power and sync policy
 
+### Live settings diagnostics
+
+**Plugins > Ditto > Ditto Identity**, below PDL Help, shows read-only direct-peer
+counts and current BLE recovery state. Counts come from SDK 4.14.6 presence
+snapshots: inspect local and remote connection lists, retain only connections
+with this watch as an endpoint, then count distinct opposite peer keys per
+transport. Repeated edges, reversed directions and multiple sockets do not
+inflate counts. One peer linked over both BLE and LAN counts in both rows;
+**Direct Peers** is their unique union, not the sum or `remotePeers.size`.
+No peer identifiers are displayed or logged.
+
+The [SDK connection types](https://software.ditto.live/android/Ditto/4.14.6/api-reference/ditto/live.ditto/-ditto-connection-type/index.html)
+map Bluetooth to BLE, AccessPoint to Wi-Fi LAN, P2PWiFi to Wi-Fi Aware/Direct
+(the SDK does not distinguish them), and WebSocket to a remote server link.
+These are established SDK-reported links, not configured enable flags,
+reachable mesh peers, expected-peer health, radio activity or proof of delivery.
+Rows use compact inline labels and values, with no diagnostics heading.
+BLE and LAN rows require their public Android hardware features; temporary
+radio/discovery windows or Wi-Fi disconnection do not make supported hardware
+disappear. The Wi-Fi Aware row additionally requires public `FEATURE_WIFI_AWARE`
+and the existing policy's enabled Aware config; Samsung's private Wi-Fi Direct
+feature is not sufficient. A WebSocket row requires an actually configured
+endpoint, retained across temporary internet gating. Unsupported/unconfigured
+rows are hidden, never shown as misleading zeroes. This display filtering does
+not change transports or networking policy.
+Unavailable counts are not reported as zero. Sync suppression, stop and service
+replacement clear previous counts; resumption waits for an SDK graph read.
+
+Recovery is emitted by the existing controller: Active, Timed out, User paused,
+Ineligible (service/power/Companion/radio/permission gates), or Stopped.
+Unavailable is shown before a live recovery state exists. Active does not mean
+continuously scanning or connected. No countdown is displayed. Observation uses
+the existing presence registration and lifecycle-aware UI collection, adds no
+scanning or polling, and never invokes Retry. Opening the identity page no
+longer explicitly requests a discovery window; existing activity-resume,
+wrist/settings and explicit Retry policy remain unchanged.
+
+An emulator-only offline UI fixture uses the same production settings page:
+`gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PweartakDittoUiDemo=true -PweartakDebugAbi=x86_64`.
+This opt-in debug package is `com.aitech.weartak_civ.ditto.diagnostics.fixture`,
+separate from `.dev`, with a **Ditto diagnostics - SYNTHETIC** launcher entry.
+It uses a non-operational Application, no SDK instance, DataStore writes or
+authentication, and a persistent **SYNTHETIC / OFFLINE** label outside production
+content. Run `DittoDiagnosticsEmulatorTest` with its configured instrumentation
+runner on a round emulator for count, recovery, unavailable, large-font,
+read-only and back-navigation evidence. Fixture screenshots are not live peer
+or physical-radio acceptance evidence. The flag is rejected for release tasks.
+
+### Transport and recovery policy
+
 - Wi-Fi Aware requires Android's public `FEATURE_WIFI_AWARE`. Ditto Android
   4.14.6 exposes BLE, LAN and Aware, not a separate Wi-Fi Direct switch; no
   Wi-Fi Direct transport is enabled, regardless of Samsung's private
