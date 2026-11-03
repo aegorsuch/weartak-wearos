@@ -7,6 +7,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DittoDiagnosticsUiTest {
+    @Test fun compactSummaryKeepsUniqueTotalSeparateFromOverlappingTransports() {
+        assertEquals("3 Peers (2 BLE, 3 LAN)",
+            dittoDiagnosticSummary(listOf("3 Peers", "2 BLE", "3 LAN")))
+        assertEquals("Unavailable Peers (Unavailable BLE, Unavailable LAN)",
+            dittoDiagnosticSummary(listOf("Unavailable Peers", "Unavailable BLE", "Unavailable LAN")))
+        assertEquals("0 Peers", dittoDiagnosticSummary(listOf("0 Peers")))
+        assertEquals("3 Peers (2 BLE, 3 LAN, 0 Wi-Fi Aware, 1 WebSocket)",
+            dittoDiagnosticSummary(listOf("3 Peers", "2 BLE", "3 LAN", "0 Wi-Fi Aware", "1 WebSocket")))
+    }
+
     @Test fun unsupportedOrUnconfiguredTransportRowsAreAbsentNotZero() {
         val state = DittoLiveStatus(DittoDirectPeers(3, 2, 1, 0, 0),
             transports = DittoDiagnosticTransports(bluetooth = true, lan = true))

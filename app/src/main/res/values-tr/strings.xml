@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ditto_direct_peers">Doğrudan eşler</string>
-    <string name="ditto_ble_peers">BLE eşleri</string>
-    <string name="ditto_lan_peers">LAN eşleri</string>
-    <string name="ditto_p2p_peers">Wi-Fi Aware eşleri</string>
-    <string name="ditto_websocket_peers">WebSocket eşleri</string>
+    <string name="ditto_direct_peers">Eşler</string>
+    <string name="ditto_ble_peers">BLE</string>
+    <string name="ditto_lan_peers">LAN</string>
+    <string name="ditto_p2p_peers">Wi-Fi Aware</string>
+    <string name="ditto_websocket_peers">WebSocket</string>
     <string name="ditto_ble_recovery">BLE kurtarma</string>
     <string name="ditto_status_unavailable">Kullanılamıyor</string>
     <string name="ditto_recovery_active">Etkin</string>

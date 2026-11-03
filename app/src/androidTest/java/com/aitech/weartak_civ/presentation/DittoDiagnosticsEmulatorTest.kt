@@ -24,10 +24,8 @@ class DittoDiagnosticsEmulatorTest {
         assertTrue(instrumentation.targetContext.resources.configuration.isScreenRound)
         ActivityScenario.launch(DittoDiagnosticsFixtureActivity::class.java).use { scenario ->
             click { it.text?.toString() == "Review Ditto settings" }
-            show("total", "3")
-            show("ble", "2")
+            show("total", "3 Peers (2 BLE, 3 LAN)")
             capture("direct-ble")
-            show("lan", "1")
             show("recovery", "Active")
             assertNull(findNode { it.viewIdResourceName == "ditto-diagnostics-p2p" })
             assertNull(findNode { it.viewIdResourceName == "ditto-diagnostics-websocket" })
@@ -37,7 +35,7 @@ class DittoDiagnosticsEmulatorTest {
                 activity.fixtureStatus = activity.fixtureStatus.copy(
                     transports = checkNotNull(activity.fixtureStatus.transports).copy(websocket = true))
             }
-            show("websocket", "0")
+            show("total", "3 Peers (2 BLE, 3 LAN, 0 WebSocket)")
             capture("configured-websocket")
             scenario.onActivity { it.fixtureStatus = DittoDiagnosticsFixtureActivity.sampleStatus() }
             DittoRecoveryStatus.entries.forEach { status ->
@@ -52,16 +50,20 @@ class DittoDiagnosticsEmulatorTest {
                 })
             }
             capture("unavailable-recovery")
-            show("ble", "Unavailable")
+            show("total", "Unavailable Peers (Unavailable BLE, Unavailable LAN)")
             capture("unavailable-peers")
             scenario.onActivity { it.fixtureFontScale = 1.3f }
-            show("lan", "Unavailable")
+            show("total", "Unavailable Peers (Unavailable BLE, Unavailable LAN)")
             show("recovery", "Unavailable")
             capture("large-font-unavailable")
             scenario.onActivity {
                 assertEquals(0, it.settingsMutations)
                 it.fixtureStatus = DittoDiagnosticsFixtureActivity.sampleStatus()
+                it.fixtureFontScale = 1f
             }
+            show("total", "3 Peers (2 BLE, 3 LAN)")
+            show("recovery", "Active")
+            capture("compact-summary")
             click { it.viewIdResourceName == "settings_back" }
             awaitNode { it.text?.toString() == "Review Ditto settings" }
         }

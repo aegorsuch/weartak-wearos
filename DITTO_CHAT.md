@@ -155,8 +155,8 @@ counts and current BLE recovery state. Counts come from SDK 4.14.6 presence
 snapshots: inspect local and remote connection lists, retain only connections
 with this watch as an endpoint, then count distinct opposite peer keys per
 transport. Repeated edges, reversed directions and multiple sockets do not
-inflate counts. One peer linked over both BLE and LAN counts in both rows;
-**Direct Peers** is their unique union, not the sum or `remotePeers.size`.
+inflate counts. One peer linked over both BLE and LAN counts in both transport counts;
+the leading **Peers** count is their unique union, not the sum or `remotePeers.size`.
 No peer identifiers are displayed or logged.
 
 The [SDK connection types](https://software.ditto.live/android/Ditto/4.14.6/api-reference/ditto/live.ditto/-ditto-connection-type/index.html)
@@ -164,7 +164,8 @@ map Bluetooth to BLE, AccessPoint to Wi-Fi LAN, P2PWiFi to Wi-Fi Aware/Direct
 (the SDK does not distinguish them), and WebSocket to a remote server link.
 These are established SDK-reported links, not configured enable flags,
 reachable mesh peers, expected-peer health, radio activity or proof of delivery.
-Rows use compact inline labels and values, with no diagnostics heading.
+Peer counts share one wrapping summary, e.g. `3 Peers (2 BLE, 3 LAN)`, with no
+diagnostics heading. BLE Recovery remains a separate read-only status row.
 BLE and LAN rows require their public Android hardware features; temporary
 radio/discovery windows or Wi-Fi disconnection do not make supported hardware
 disappear. The Wi-Fi Aware row additionally requires public `FEATURE_WIFI_AWARE`

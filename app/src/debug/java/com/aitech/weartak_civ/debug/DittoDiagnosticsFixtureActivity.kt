@@ -79,7 +79,7 @@ class DittoDiagnosticsFixtureActivity : ComponentActivity() {
     }
 
     internal companion object {
-        fun sampleStatus() = DittoLiveStatus(DittoDirectPeers(3, 2, 1, 0, 0), DittoRecoveryStatus.ACTIVE,
+        fun sampleStatus() = DittoLiveStatus(DittoDirectPeers(3, 2, 3, 0, 0), DittoRecoveryStatus.ACTIVE,
             DittoDiagnosticTransports(bluetooth = true, lan = true))
     }
 }
