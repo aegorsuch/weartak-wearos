@@ -130,7 +130,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import com.aitech.weartak_civ.service.BleLinkWarning
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.emitAll
@@ -4432,6 +4435,31 @@ class DataRepository(
 
     private val _companionAppConnected = MutableStateFlow<Boolean>(false)
     val isCompanionConnected: StateFlow<Boolean> = _companionAppConnected.asStateFlow()
+
+    // Local-only: this watch's direct Ditto BLE links. Never an alert event or mesh health.
+    private val _dittoBleLinkWarning = MutableStateFlow(BleLinkWarning.NONE)
+    val dittoBleLinkWarning: StateFlow<BleLinkWarning> = _dittoBleLinkWarning.asStateFlow()
+    fun setDittoBleLinkWarning(warning: BleLinkWarning) {
+        _dittoBleLinkWarning.value = warning
+    }
+
+    enum class DittoBleRecoveryAction { RETRY_NOW, PAUSE }
+    private val _dittoBleRecoveryActions = MutableSharedFlow<DittoBleRecoveryAction>(
+        extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val dittoBleRecoveryActions: SharedFlow<DittoBleRecoveryAction> =
+        _dittoBleRecoveryActions.asSharedFlow()
+    fun requestDittoBleRecovery(action: DittoBleRecoveryAction) {
+        _dittoBleRecoveryActions.tryEmit(action)
+    }
+
+    /** Persisted so service/process restart and reboot cannot bypass a timeout or pause. */
+    val getDittoBleRecoveryState: Flow<String?> = context.dataStore.data.map { it[DITTO_BLE_RECOVERY_STATE] }
+    suspend fun storeDittoBleRecoveryState(state: String?) {
+        context.dataStore.edit { prefs ->
+            if (state == null) prefs.remove(DITTO_BLE_RECOVERY_STATE) else prefs[DITTO_BLE_RECOVERY_STATE] = state
+        }
+    }
     private val _companionEverReady = MutableStateFlow<Boolean?>(null)
     val companionEverReady: StateFlow<Boolean?> = _companionEverReady.asStateFlow()
     private val companionHistoryLoaded = CompletableDeferred<Unit>()
@@ -5270,6 +5298,9 @@ class DataRepository(
                 prefs[TAK_ENDPOINT_USER_CHOICE] = enabled
             } else if (key == ENABLE_MULTICAST) {
                 prefs[MULTICAST_USER_CHOICE] = enabled
+            } else if (key == ENABLE_DITTO_SERVICE && !enabled) {
+                // Explicit Ditto off/on starts a fresh BLE recovery budget.
+                prefs.remove(DITTO_BLE_RECOVERY_STATE)
             }
         }
         return rejection
@@ -6198,6 +6229,7 @@ class DataRepository(
         private val HIGH_ATM_PRESSURE_ALERT_THRESHOLD = intPreferencesKey("high_atm_pressure_alert_threshold")
         private val ENABLE_ACTIVITY_RECOGNITION_SERVICE = booleanPreferencesKey("enable_activity_recognition_service")
         private val ENABLE_DITTO_SERVICE = booleanPreferencesKey("enable_ditto_service")
+        private val DITTO_BLE_RECOVERY_STATE = stringPreferencesKey("ditto_ble_recovery_state")
         private val ENABLE_CHAT_SERVICE = booleanPreferencesKey("enable_chat_service")
         private val ENABLE_AUDIO_CAP_SERVICE = booleanPreferencesKey("enable_audio_capture_service")
         private val ENABLE_BETA_FEATURES = booleanPreferencesKey("enable_beta_features")

@@ -9,6 +9,7 @@
 
 package com.aitech.weartak_civ.data.audio
 
+import android.util.Log
 import com.aitech.weartak_civ.Utils.AlertChipState
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.DataRepository
@@ -45,6 +46,9 @@ class AudioDetectionStore(
     private val recentEventsMap = ConcurrentHashMap<String, AudioDetectionEvent>()
     private val _recentEventsFlow = MutableStateFlow<List<AudioDetectionEvent>>(emptyList())
     val recentEventsFlow: StateFlow<List<AudioDetectionEvent>> = _recentEventsFlow
+    private val _pendingEvent = MutableStateFlow<AudioDetectionEvent?>(null)
+    val pendingEvent: StateFlow<AudioDetectionEvent?> = _pendingEvent
+    private val reviewedEventUids = HashSet<String>()
 
     suspend fun createEvent(
         uid: String,
@@ -76,14 +80,32 @@ class AudioDetectionStore(
             inferEndElapsedMs = inferEnd,
             classification = classification
         )
+        synchronized(this) {
+            upsertRecent(event)
+            _pendingEvent.value = event
+        }
         _events.emit(event)
-        upsertRecent(event)
         return event
     }
 
-    fun tryEmitFeedback(feedback: AudioDetectionFeedback): Boolean =
-        _feedback.tryEmit(feedback)
+    @Synchronized
+    fun tryEmitFeedback(feedback: AudioDetectionFeedback): Boolean {
+        if (!recentEventsMap.containsKey(feedback.eventUid) || feedback.eventUid in reviewedEventUids) {
+            Log.w("AudioDetectionStore", "$detectorKey feedback rejected: missing or reviewed uid=${feedback.eventUid}")
+            return false
+        }
+        if (_feedback.subscriptionCount.value == 0 || !_feedback.tryEmit(feedback)) {
+            Log.e("AudioDetectionStore", "$detectorKey feedback unavailable uid=${feedback.eventUid}")
+            return false
+        }
+        if (feedback.label == AudioDetectionUserLabel.YES || feedback.label == AudioDetectionUserLabel.NO) {
+            reviewedEventUids.add(feedback.eventUid)
+            if (_pendingEvent.value?.uid == feedback.eventUid) _pendingEvent.value = null
+        }
+        return true
+    }
 
+    @Synchronized
     fun upsertRecent(event: AudioDetectionEvent) {
         recentEventsMap[event.uid] = event
         _recentEventsFlow.value = recentEventsMap.values.sortedByDescending { it.timestamp }
@@ -91,6 +113,7 @@ class AudioDetectionStore(
 
     fun getEventFromUid(uid: String): AudioDetectionEvent? = recentEventsMap[uid]
 
+    @Synchronized
     fun setEventAlertLevel(uid: String, level: AlertChipState): Boolean {
         val current = recentEventsMap[uid] ?: return false
         recentEventsMap[uid] = current.copy(alertLevel = level)
@@ -98,16 +121,22 @@ class AudioDetectionStore(
         return true
     }
 
+    @Synchronized
     fun remove(uid: String): Boolean {
         val removed = recentEventsMap.remove(uid) != null
         if (removed) {
+            reviewedEventUids.remove(uid)
+            if (_pendingEvent.value?.uid == uid) _pendingEvent.value = null
             _recentEventsFlow.value = recentEventsMap.values.sortedByDescending { it.timestamp }
         }
         return removed
     }
 
+    @Synchronized
     fun clearAll() {
         recentEventsMap.clear()
+        reviewedEventUids.clear()
+        _pendingEvent.value = null
         _recentEventsFlow.value = emptyList()
     }
 }

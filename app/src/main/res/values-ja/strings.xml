@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_warning_review">警告を確認</string>
+    <string name="crm_warning_title">CRM状態</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">低い</string>
+    <string name="crm_warning_moderate">中程度</string>
+    <string name="crm_warning_details">CRM詳細</string>
+    <string name="audio_detection_gunshot_question">銃声を検出しましたか？</string>
+    <string name="audio_detection_uas_question">UASを検出しましたか？</string>
+    <string name="audio_detection_pending">検出を確認 (%1$d)</string>
+    <string name="audio_detection_score">スコア: %1$d%%</string>
+    <string name="audio_detection_yes">はい</string>
+    <string name="audio_detection_no">いいえ</string>
+    <string name="audio_detection_feedback_failed">回答を記録できませんでした。再試行してください。</string>
     <string name="accessibility_edit">編集</string>
     <string name="manual_alert_validation_error">アラートは重複しない1～60文字で入力してください。リストには最大20件まで保存できます。</string>
     <string name="ca_trust_advanced">詳細設定</string>
@@ -418,6 +432,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">測位なし</string>
     <string name="top_display_metric">表示する指標</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync オフライン</string>
+    <string name="ditto_edge_sync_retry">再試行</string>
     <string name="crm_reserve">CRM予備力</string>
     <string name="metric_alerts">アラート</string>
     <string name="metric_alert_thresholds">アラートしきい値を変更</string>

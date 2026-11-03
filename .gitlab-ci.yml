@@ -62,6 +62,12 @@ android_mopp_check:
       --tests '*HostedPluginMainUiPageTest' --tests '*MapBezelZoomTest'
       --tests '*NetworkConnectivityChipTest' --tests '*NetworkToggleChipSubtitleTest'
       --tests '*PluginBondLockTest' --tests '*CompanionPluginUiTest'
+      --tests '*AudioDetectionPendingTest' --tests '*AudioDetectionWarningTest'
+      --tests '*CrmHomeWarningTest' --tests '*CrmWarningLifecycleTest'
+      --tests '*TopMetricDisplayTest' --tests '*TopMetricRecoveryTest'
+      --tests '*DittoBleRecoveryUiTest' --tests '*TopMetricSettingsUiTest'
+      --tests '*PhysioControlsLayoutTest' --tests '*DittoBleDiscoveryTest'
+      --tests '*DittoBleDiscoverySessionTest' --tests '*DittoCompanionLifecycleTest'
       :app:compileDebugAndroidTestKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:

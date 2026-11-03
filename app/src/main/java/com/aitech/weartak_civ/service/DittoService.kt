@@ -186,7 +186,11 @@ class DittoService : Service() {
                     syncActive
                 ) { enabled, companion, changing, syncing -> enabled && !companion && !changing && syncing },
                 transportLock = transportLock,
-                transportChanged = ::logTransportSet
+                transportChanged = ::logTransportSet,
+                persistedRecovery = runBlocking {
+                    runCatching { dataRepository.getDittoBleRecoveryState.first() }
+                        .getOrDefault(BLE_BUDGET_UNREADABLE)
+                }
             )
             bleDiscovery?.start()
             powerMonitor?.start()

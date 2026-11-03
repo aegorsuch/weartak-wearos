@@ -84,6 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -271,7 +272,6 @@ import com.aitech.weartak_civ.data.BloodhoundRepository
 import com.aitech.weartak_civ.data.GunshotOnnxRepository
 import com.aitech.weartak_civ.data.UasOnnxRepository
 import com.aitech.weartak_civ.data.DataRepository.SitxServerStatus
-import com.aitech.weartak_civ.presentation.audio.AudioDetectionPromptHost
 import com.aitech.weartak_civ.data.secure.sitx.SitxSecretsRepository
 import com.aitech.weartak_civ.service.sitx.SitxServiceEvent
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.bhRepo
@@ -2501,6 +2501,21 @@ fun MainScreen(
             UasOnnxRepository(context.applicationContext)
         }
     }
+    val pendingGunshot by gunshotOnnxRepo.pendingGunshot.collectAsStateWithLifecycle()
+    val pendingUas by uasRepo.pendingUas.collectAsStateWithLifecycle()
+    val dittoWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
+    val crmInference by dataRepository.latestCrmInference.collectAsStateWithLifecycle()
+    val crmThresholds by settingsVm.savedCrmThresholdRanges.collectAsStateWithLifecycle()
+    val crmEnabled by settingsVm.savedEnableCrmService.collectAsStateWithLifecycle()
+    val worn by dataRepository.latestIsDeviceWorn.collectAsStateWithLifecycle()
+    val crmWarning = rememberCrmHomeWarning(crmInference, crmThresholds, crmEnabled, worn)
+    val physioEnabled by settingsVm.savedEnablePhysiologicalServices.collectAsStateWithLifecycle()
+    val physioAlertsEnabled by settingsVm.savedEnablePhysiologicalAlerts.collectAsStateWithLifecycle()
+    val physioAlerts by dataRepository.physioAndAutoGenAlertList.collectAsStateWithLifecycle()
+    val physioState = physioAlerts.alertChipState(physioEnabled && physioAlertsEnabled)
+    val physioAlert = if (physioEnabled && physioAlertsEnabled &&
+        physioAlerts.any { it.alertState == DataRepository.AlertState.ALERT }) alertText(physioAlerts) else null
+    val openPhysio = { context.startActivity(homeMetricIntent(context)) }
 
     LaunchedEffect(Unit) {
         dataRepository.refreshUnreadCount()
@@ -2510,6 +2525,27 @@ fun MainScreen(
     }
 
     WearTAKCIVTheme {
+        HomeWarningReviewHost(
+            gunshotPending = pendingGunshot,
+            uasPending = pendingUas,
+            findEvent = { detectorKey, uid ->
+                if (detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
+                    gunshotOnnxRepo.getEventFromUid(uid) else uasRepo.getEventFromUid(uid)
+            },
+            emitFeedback = { event, feedback ->
+                if (event.detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
+                    gunshotOnnxRepo.tryEmitGunshotFeedback(feedback) else uasRepo.tryEmitUasFeedback(feedback)
+            },
+            crmWarning = crmWarning,
+            onCrmDetails = { context.startActivity(Intent(context, CrmReserveActivity::class.java)) },
+            physioWarning = if (physioState != Utils.AlertChipState.None)
+                HomeStatusWarning("physio", TopMetricAlertSource.PHYSIO,
+                    physioAlert ?: stringResource(R.string.top_display_metric), physioState, openPhysio) else null,
+            dittoWarning = dittoWarning,
+            onDittoRetry = {
+                dataRepository.requestDittoBleRecovery(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
+            }
+        ) { warnings, onReviewWarnings ->
         SwipeToDismissBox(
             state = dismissState,
             modifier = Modifier.unswipeable(),
@@ -2531,7 +2567,7 @@ fun MainScreen(
                             .padding(vertical = 0.dp)
                     ) {
                         requestPhysioStatusAndAlertingComplicationUpdate(context)
-                        HeartRate(context, settingsVm)
+                        HeartRate(context, settingsVm, physioState, physioAlert, warnings, onReviewWarnings)
                     }
 //                    Spacer(
 //                        modifier = Modifier.height(10.dp)
@@ -2603,22 +2639,8 @@ fun MainScreen(
 
                 TimeWithSecondsAware(context)
 
-                AudioDetectionPromptHost(
-                    logTag = TAG,
-                    logPrefix = "GS",
-                    promptText = "Was that a gunshot?",
-                    events = gunshotOnnxRepo.gunshotEvents,
-                    emitFeedback = gunshotOnnxRepo::tryEmitGunshotFeedback
-                )
-
-                AudioDetectionPromptHost(
-                    logTag = TAG,
-                    logPrefix = "UAS",
-                    promptText = "Was that a UAS?",
-                    events = uasRepo.uasEvents,
-                    emitFeedback = uasRepo::tryEmitUasFeedback
-                )
             }
+        }
         }
     }
 }
@@ -2774,27 +2796,30 @@ fun selectedMetricTitleFromKey(key: String?): String {
 
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
-fun HeartRate(context: Context, settingsVm: WearTAKSettingsViewModel) {
-    val physioCheckedLive by settingsVm.savedEnablePhysiologicalServices.collectAsState()
-    val physioAlertsCheckedLive by settingsVm.savedEnablePhysiologicalAlerts.collectAsState()
-    val alerts by dataRepository.physioAndAutoGenAlertList.collectAsState() // or collectAsStateWithLifecycle()
+internal fun HeartRate(
+    context: Context,
+    settingsVm: WearTAKSettingsViewModel,
+    physioState: Utils.AlertChipState,
+    physioAlert: String?,
+    warnings: List<HomeStatusWarning>,
+    onReviewWarnings: () -> Unit
+) {
     val metricKey by settingsVm.savedSelectedPhysioMetric.collectAsState()
 
-    val chipState = alerts.alertChipState(physioCheckedLive && physioAlertsCheckedLive)
     val metric = com.aitech.weartak_civ.data.TopDisplayMetric.fromKey(metricKey)
-    val containsAlert = physioCheckedLive && physioAlertsCheckedLive &&
-        alerts.any { it.alertState == DataRepository.AlertState.ALERT }
     val value = selectedMetricValueFromKey(metricKey)
 
     HomeTopMetricCard(
         title = selectedMetricTitleFromKey(metricKey),
         value = value,
         metric = metric,
-        iconRes = if (physioAlertsCheckedLive && containsAlert) R.drawable.warning
+        iconRes = if (physioAlert != null) R.drawable.warning
             else selectedMetricIconFromKey(metricKey),
-        chipState = chipState,
-        alert = if (containsAlert) alertText(alerts) else null,
-        onClick = { context.startActivity(homeMetricIntent(context)) }
+        chipState = physioState,
+        alert = physioAlert,
+        onClick = { context.startActivity(homeMetricIntent(context)) },
+        warnings = warnings,
+        onReviewWarnings = onReviewWarnings
     )
 }
 
@@ -2806,9 +2831,30 @@ internal fun HomeTopMetricCard(
     iconRes: Int,
     chipState: Utils.AlertChipState,
     alert: String?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    warnings: List<HomeStatusWarning> = emptyList(),
+    onReviewWarnings: () -> Unit = {}
 ) {
-    val containsAlert = alert != null
+    val crm = warnings.firstOrNull { it.source == TopMetricAlertSource.CRM }
+    val source = resolveTopMetricAlert(
+        if (alert != null && chipState == Utils.AlertChipState.None) Utils.AlertChipState.Warning else chipState,
+        warnings.any { it.source == TopMetricAlertSource.DETECTION },
+        crm?.let { if (it.chipState == Utils.AlertChipState.Emergency)
+            com.aitech.weartak_civ.data.CrmDisplayState.POOR else com.aitech.weartak_civ.data.CrmDisplayState.MODERATE },
+        warnings.any { it.source == TopMetricAlertSource.DITTO_BLE }
+    )
+    val primary = warnings.firstOrNull { it.source == source && it.source != TopMetricAlertSource.PHYSIO }
+    val detectionCount = warnings.count { it.source == TopMetricAlertSource.DETECTION }
+    val displayAlert = if (primary?.source == TopMetricAlertSource.DETECTION && detectionCount > 1)
+        stringResource(R.string.audio_detection_pending, detectionCount) else primary?.label ?: alert
+    val displayState = primary?.chipState ?: chipState
+    val containsAlert = displayAlert != null
+    val hasSecondary = warnings.any { it.source != source }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = if (hasSecondary) 20.dp else 0.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+    Box(Modifier.weight(1f)) {
     Column(
         modifier = Modifier
             .fillMaxWidth(),
@@ -2822,11 +2868,19 @@ internal fun HomeTopMetricCard(
             )
         }
         Chip(
-            modifier = if (metric.physiological || containsAlert) Modifier
+            modifier = if (primary != null) Modifier.padding(horizontal = if (hasSecondary) 0.dp else 40.dp)
+                .automationRoot(when (source) {
+                    TopMetricAlertSource.DETECTION -> "audio-detection-warning"
+                    TopMetricAlertSource.CRM -> "crm-warning-indicator"
+                    TopMetricAlertSource.DITTO_BLE -> "ditto_ble_warning_indicator"
+                    else -> error("Primary warning must have a review domain")
+                })
+                else if (metric.physiological || containsAlert) Modifier
                 else Modifier.padding(horizontal = 24.dp),
-            border = ChipDefaults.outlinedChipBorder(alertChipColors(chipState), borderWidth = 2.dp),
+            border = ChipDefaults.outlinedChipBorder(alertChipColors(displayState), borderWidth = 2.dp),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-            onClick = onClick,
+            onClick = if (primary?.source == TopMetricAlertSource.DETECTION && detectionCount > 1)
+                onReviewWarnings else primary?.onReview ?: onClick,
             colors =  ChipDefaults.chipColors(
             backgroundColor = Color.Transparent,
             contentColor = Color.White,
@@ -2835,9 +2889,9 @@ internal fun HomeTopMetricCard(
             icon = if (!containsAlert && !metric.physiological) null else {
               {
                 Icon(
-                    painter = painterResource(iconRes),
-                    contentDescription = stringResource(R.string.top_display_metric),
-                    tint = alertChipColors(chipState),
+                    painter = painterResource(if (primary != null) R.drawable.warning else iconRes),
+                    contentDescription = if (primary != null) null else stringResource(R.string.top_display_metric),
+                    tint = alertChipColors(displayState),
                     modifier = Modifier.size(19.dp),
                 )
               }
@@ -2854,8 +2908,19 @@ internal fun HomeTopMetricCard(
                             textAlign = if (metric.physiological) TextAlign.Start else TextAlign.Center,
                             fontWeight = FontWeight.SemiBold, color = Color.White),
                             minFontSize = if (metric.physiological) 0.25.sp else 10.sp)
-                    } else Text(
-                        text = alert ?: value,
+                    } else if (primary != null) FittedTopMetricText(
+                        displayAlert.orEmpty(),
+                        style = MaterialTheme.typography.body1.copy(fontSize = 12.sp, color = Color.White,
+                            textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold),
+                        minFontSize = 10.sp,
+                        maxLines = 2
+                    ) else if (hasSecondary) FittedTopMetricText(
+                        displayAlert.orEmpty(),
+                        style = MaterialTheme.typography.body1.copy(fontSize = 12.sp, color = Color.White),
+                        minFontSize = 10.sp,
+                        maxLines = 3
+                    ) else Text(
+                        text = displayAlert ?: value,
                         textAlign = TextAlign.Start,
                         fontSize = if (containsAlert) 12.sp else if (!metric.physiological) 14.sp else 16.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -2864,6 +2929,20 @@ internal fun HomeTopMetricCard(
                 }
             },
         )
+    }
+    }
+    if (hasSecondary) {
+        Spacer(Modifier.width(8.dp))
+        IconButton(
+            onClick = onReviewWarnings,
+            modifier = Modifier.size(48.dp).automationRoot("home-secondary-warnings")
+        ) {
+            Icon(Icons.Default.Warning, contentDescription = stringResource(R.string.home_warning_review),
+                tint = alertChipColors(warnings.filter { it.source != source }
+                    .maxBy { if (it.chipState == Utils.AlertChipState.Emergency) 1 else 0 }.chipState),
+                modifier = Modifier.size(24.dp))
+        }
+    }
     }
 }
 

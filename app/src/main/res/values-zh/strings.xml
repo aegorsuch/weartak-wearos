@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_warning_review">查看警告</string>
+    <string name="crm_warning_title">CRM状态</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">低</string>
+    <string name="crm_warning_moderate">中等</string>
+    <string name="crm_warning_details">CRM详情</string>
+    <string name="audio_detection_gunshot_question">检测到枪声？</string>
+    <string name="audio_detection_uas_question">检测到UAS？</string>
+    <string name="audio_detection_pending">查看检测 (%1$d)</string>
+    <string name="audio_detection_score">分数：%1$d%%</string>
+    <string name="audio_detection_yes">是</string>
+    <string name="audio_detection_no">否</string>
+    <string name="audio_detection_feedback_failed">未记录回答。请重试。</string>
     <string name="accessibility_edit">编辑</string>
     <string name="manual_alert_validation_error">警报必须唯一，长度为1至60个字符。列表最多可保存20条警报。</string>
     <string name="ca_trust_advanced">高级</string>
@@ -418,6 +432,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">未定位</string>
     <string name="top_display_metric">显示指标</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync 离线</string>
+    <string name="ditto_edge_sync_retry">重试</string>
     <string name="crm_reserve">CRM 储备</string>
     <string name="metric_alerts">警报</string>
     <string name="metric_alert_thresholds">更改警报阈值</string>

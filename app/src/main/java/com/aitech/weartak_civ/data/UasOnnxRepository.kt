@@ -55,6 +55,7 @@ class UasOnnxRepository(private val context: Context) {
 
     val uasEvents = store.events
     val recentUasFlow = store.recentEventsFlow
+    val pendingUas = store.pendingEvent
 
     fun upsertRecentUas(event: AudioDetectionEvent) = store.upsertRecent(event)
     fun getEventFromUid(uid: String): AudioDetectionEvent? = store.getEventFromUid(uid)

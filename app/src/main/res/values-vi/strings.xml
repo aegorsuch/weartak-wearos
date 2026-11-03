@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_warning_review">Xem cảnh báo</string>
+    <string name="crm_warning_title">Trạng thái CRM</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">THẤP</string>
+    <string name="crm_warning_moderate">TRUNG BÌNH</string>
+    <string name="crm_warning_details">Chi tiết CRM</string>
+    <string name="audio_detection_gunshot_question">Đã phát hiện tiếng súng?</string>
+    <string name="audio_detection_uas_question">Đã phát hiện UAS?</string>
+    <string name="audio_detection_pending">Xem phát hiện (%1$d)</string>
+    <string name="audio_detection_score">Điểm: %1$d%%</string>
+    <string name="audio_detection_yes">Có</string>
+    <string name="audio_detection_no">Không</string>
+    <string name="audio_detection_feedback_failed">Chưa ghi nhận phản hồi. Hãy thử lại.</string>
     <string name="accessibility_edit">Chỉnh sửa</string>
     <string name="manual_alert_validation_error">Cảnh báo phải là duy nhất và có từ 1 đến 60 ký tự. Danh sách có thể chứa tối đa 20 cảnh báo.</string>
     <string name="ca_trust_advanced">Nâng cao</string>
@@ -418,6 +432,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">Chưa xác định vị trí</string>
     <string name="top_display_metric">Chỉ số hiển thị</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync ngoại tuyến</string>
+    <string name="ditto_edge_sync_retry">Thử lại</string>
     <string name="crm_reserve">Dự trữ CRM</string>
     <string name="metric_alerts">Cảnh báo</string>
     <string name="metric_alert_thresholds">Thay đổi ngưỡng cảnh báo</string>

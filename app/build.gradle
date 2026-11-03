@@ -61,7 +61,13 @@ android {
 
         def buildTimestampUtc = System.getenv("WEARTAK_BUILD_TIMESTAMP_UTC") ?: Instant.now().toString()
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        def warningUiDemo = providers.gradleProperty("weartakWarningUiDemo").orElse("false").get()
+        if (!(warningUiDemo in ["true", "false"])) {
+            throw new GradleException("weartakWarningUiDemo must be true or false")
+        }
+        testInstrumentationRunner warningUiDemo == "true"
+                ? "com.aitech.weartak_civ.presentation.WarningUiTestRunner"
+                : "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary true
         }
@@ -156,6 +162,11 @@ android {
     def emulatorAbi = providers.gradleProperty("weartakEmulatorAbi").orNull
     def debugAbi = providers.gradleProperty("weartakDebugAbi").orNull
     def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last().toLowerCase() }
+    if (providers.gradleProperty("weartakWarningUiDemo").orElse("false").get() == "true" &&
+            (!requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakWarningUiDemo=true is supported only for explicit debug tasks.")
+    }
     if (emulatorAbi != null && (emulatorAbi != "x86_64" ||
             !requestedTasks.any { it.contains("debug") } ||
             requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {

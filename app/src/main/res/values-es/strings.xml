@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_warning_review">Revisar avisos</string>
+    <string name="crm_warning_title">Estado CRM</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">BAJO</string>
+    <string name="crm_warning_moderate">MODERADO</string>
+    <string name="crm_warning_details">Detalles CRM</string>
+    <string name="audio_detection_gunshot_question">¿Disparo detectado?</string>
+    <string name="audio_detection_uas_question">¿UAS detectado?</string>
+    <string name="audio_detection_pending">Revisar detecciones (%1$d)</string>
+    <string name="audio_detection_score">Puntuación: %1$d%%</string>
+    <string name="audio_detection_yes">Sí</string>
+    <string name="audio_detection_no">No</string>
+    <string name="audio_detection_feedback_failed">Respuesta no registrada. Inténtelo de nuevo.</string>
     <string name="accessibility_edit">Editar</string>
     <string name="manual_alert_validation_error">La alerta debe ser única y tener entre 1 y 60 caracteres. La lista admite hasta 20 alertas.</string>
     <string name="ca_trust_advanced">Avanzado</string>
@@ -422,6 +436,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">Sin posición</string>
     <string name="top_display_metric">Métrica mostrada</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync sin conexión</string>
+    <string name="ditto_edge_sync_retry">Reintentar</string>
     <string name="crm_reserve">Reserva CRM</string>
     <string name="metric_alerts">Alertas</string>
     <string name="metric_alert_thresholds">Cambiar umbrales de alerta</string>

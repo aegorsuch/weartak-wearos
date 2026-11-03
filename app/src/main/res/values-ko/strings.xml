@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_warning_review">경고 확인</string>
+    <string name="crm_warning_title">CRM 상태</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">낮음</string>
+    <string name="crm_warning_moderate">보통</string>
+    <string name="crm_warning_details">CRM 상세</string>
+    <string name="audio_detection_gunshot_question">총성이 감지되었나요?</string>
+    <string name="audio_detection_uas_question">UAS가 감지되었나요?</string>
+    <string name="audio_detection_pending">감지 확인 (%1$d)</string>
+    <string name="audio_detection_score">점수: %1$d%%</string>
+    <string name="audio_detection_yes">예</string>
+    <string name="audio_detection_no">아니요</string>
+    <string name="audio_detection_feedback_failed">응답이 기록되지 않았습니다. 다시 시도하세요.</string>
     <string name="accessibility_edit">편집</string>
     <string name="manual_alert_validation_error">알림은 중복되지 않는 1~60자여야 합니다. 목록에는 최대 20개까지 저장할 수 있습니다.</string>
     <string name="ca_trust_advanced">고급</string>
@@ -418,6 +432,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">측위 없음</string>
     <string name="top_display_metric">표시할 지표</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync 오프라인</string>
+    <string name="ditto_edge_sync_retry">다시 시도</string>
     <string name="crm_reserve">CRM 예비력</string>
     <string name="metric_alerts">알림</string>
     <string name="metric_alert_thresholds">알림 임계값 변경</string>

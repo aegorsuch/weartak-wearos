@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_warning_review">مراجعة التحذيرات</string>
+    <string name="crm_warning_title">حالة CRM</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">منخفض</string>
+    <string name="crm_warning_moderate">متوسط</string>
+    <string name="crm_warning_details">تفاصيل CRM</string>
+    <string name="audio_detection_gunshot_question">هل تم اكتشاف إطلاق نار؟</string>
+    <string name="audio_detection_uas_question">هل تم اكتشاف UAS؟</string>
+    <string name="audio_detection_pending">مراجعة الاكتشافات (%1$d)</string>
+    <string name="audio_detection_score">الدرجة: %1$d%%</string>
+    <string name="audio_detection_yes">نعم</string>
+    <string name="audio_detection_no">لا</string>
+    <string name="audio_detection_feedback_failed">لم يتم تسجيل الإجابة. حاول مجددًا.</string>
     <string name="accessibility_edit">تعديل</string>
     <string name="manual_alert_validation_error">يجب أن يكون التنبيه فريداً وأن يتكون من 1 إلى 60 حرفاً. يمكن للقائمة أن تضم حتى 20 تنبيهاً.</string>
     <string name="ca_trust_advanced">متقدم</string>
@@ -428,6 +442,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">لا يوجد تحديد للموقع</string>
     <string name="top_display_metric">المقياس المعروض</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync غير متصل</string>
+    <string name="ditto_edge_sync_retry">إعادة المحاولة</string>
     <string name="crm_reserve">احتياطي CRM</string>
     <string name="metric_alerts">التنبيهات</string>
     <string name="metric_alert_thresholds">تغيير عتبات التنبيه</string>
