@@ -1472,6 +1472,23 @@ fun WearTAKSettingsNav(
             val dittoSubtitle = stringResource(dittoPdlSubtitle(dittoPdlSource, dittoCustomPdl.isNotBlank()))
             val dittoSuppression = dittoSuppressionLabel(enableDittoService, dittoPowerSuppressionReason)
             val suppressedLabel = dittoSuppression?.let { stringResource(it) }
+            val dittoBleWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
+            var showDittoBleRecovery by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(dittoBleWarning) {
+                if (dittoBleWarning == com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
+                    showDittoBleRecovery = false
+                }
+            }
+            if (showDittoBleRecovery && dittoBleWarning != com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
+                DittoBleRecoveryDialog(
+                    warning = dittoBleWarning,
+                    onRetryNow = {
+                        showDittoBleRecovery = false
+                        dataRepository.requestDittoBleRecovery(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
+                    },
+                    onDismiss = { showDittoBleRecovery = false }
+                )
+            }
             val enabledLabel = stringResource(R.string.enabled)
             val disabledLabel = stringResource(R.string.disabled)
             val takIndicator = TakServerIndicator.resolve(
@@ -1536,6 +1553,11 @@ fun WearTAKSettingsNav(
                                 Toast.makeText(context, networkLockedNotice, Toast.LENGTH_SHORT).show()
                             }
                         )
+                    }
+                    if (dittoBleWarning != com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
+                        item {
+                            DittoBleRecoverySettingsChip(dittoBleWarning) { showDittoBleRecovery = true }
+                        }
                     }
                     item {
                         if (phoneManagedSettings) {

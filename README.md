@@ -19,6 +19,47 @@ The app can connect directly to a TAK server and can optionally use SITX, Ditto 
 
 Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
 
+DART/FALCON detections show a yellow home top-display warning, not an automatic
+popup. Tap to review "Gunshot detected?" or "UAS detected?" with the model score.
+Only the latest unanswered event per detector remains pending (at most two);
+superseded event records remain in history without an inferred Yes/No label.
+Opening a review freezes its event identity even if a newer detection arrives.
+Yes/No records that event's response and closes the dialog; another review requires
+another tap. Back closes without answering, leaving the latest event pending.
+There is no automatic review timeout. Actual emergencies always keep priority;
+a separate warning button keeps lower-priority reviews reachable beside it.
+When several warnings coexist, that button opens a compact selector so each
+domain remains reachable without answering another domain first.
+Pending review state survives activity recreation but is in memory, not persisted
+across process termination or reboot. Existing service feedback logging writes
+app-private `gunshot_debug/gunshot_feedback.jsonl` and `uas_debug/uas_feedback.jsonl`,
+including UID, detector, answer timestamp, tap-to-answer latency, and
+detection-to-feedback latency. These files have no explicit rotation; asynchronous
+logging is not a transactional audit guarantee. This flow adds no remote sends.
+
+CRM uses the same compact review shell, with score/status, CRM details, and Back;
+it never asks the user to confirm a health state with Yes/No. Only current accepted
+readings while CRM is enabled and the watch is worn can show a home warning:
+MODERATE is yellow, POOR is red status only, and GOOD clears it. Readings older
+than 30 seconds or unavailable/rejected readings do not remain live warnings.
+The existing CRM Reserve measurement screen and sampling controls remain reachable
+through CRM details. Home priority is actual physio/emergency, CRM POOR, physio
+warning, detection, CRM MODERATE, then Ditto BLE status. No CRM event queue,
+threshold change, medical acknowledgement, emergency dispatch, or transmission is added.
+Ditto BLE recovery uses this same shell with Retry and Back, retaining its
+30-minute eligible recovery budget and persisted timeout/pause. The shared
+warning selector and Network Preferences both keep Retry reachable under
+higher-priority warnings. An open review remains bound to its domain when
+priority changes; a cleared Ditto warning closes its review without reopening
+automatically if the warning returns. See [Ditto notes](DITTO_CHAT.md) for
+BLE-specific recovery, persistence, and eligibility details.
+The emulator-only `WarningReviewEmulatorTest` fixture uses production warning
+widgets with local synthetic state. Build debug instrumentation with
+`-PweartakEmulatorAbi=x86_64 -PweartakWarningUiDemo=true` and run only that class
+with `WarningUiTestRunner`. This opt-in runner substitutes a plain Application,
+does not bootstrap WearTAK operational services, and refuses physical hardware.
+The normal instrumentation runner is unchanged; the fixture skips there.
+
 ## Status
 
 Protected canonical `main` pipelines publish signed APKs through the

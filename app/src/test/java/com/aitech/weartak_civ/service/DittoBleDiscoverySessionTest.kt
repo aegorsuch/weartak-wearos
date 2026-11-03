@@ -2,6 +2,9 @@ package com.aitech.weartak_civ.service
 
 import android.app.Activity
 import android.app.Application
+import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
+import android.content.Intent
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.DittoPdlSource
 import io.mockk.*
@@ -22,7 +25,12 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class DittoBleDiscoverySessionTest {
-    private class Fixture(scope: TestScope, initiallyEnabled: Boolean = true) : AutoCloseable {
+    private class Fixture(
+        scope: TestScope,
+        initiallyEnabled: Boolean = true,
+        persisted: String? = null,
+        boot: Int = 7
+    ) : AutoCloseable {
         val application = mockk<Application>(relaxed = true)
         val repo = mockk<DataRepository>()
         val ditto = mockk<Ditto>(relaxed = true)
@@ -38,6 +46,10 @@ class DittoBleDiscoverySessionTest {
         val source = MutableStateFlow(DittoPdlSource.COMMUNITY)
         val pdl = MutableStateFlow("")
         val changes = mutableListOf<Boolean>()
+        val warnings = mutableListOf<BleLinkWarning>()
+        val stored = mutableListOf<String?>()
+        val actions = MutableSharedFlow<DataRepository.DittoBleRecoveryAction>(extraBufferCapacity = 4)
+        var radio = true
         var config = DittoTransportConfig().apply {
             enableAllPeerToPeer()
             peerToPeer.bluetoothLe.enabled = false
@@ -54,6 +66,10 @@ class DittoBleDiscoverySessionTest {
             every { repo.getDittoAuthToken } returns token
             every { repo.getDittoPdlSource } returns source
             every { repo.getDittoCustomPdl } returns pdl
+            every { repo.setDittoBleLinkWarning(any()) } answers { warnings += firstArg<BleLinkWarning>() }
+            coEvery { repo.storeDittoBleRecoveryState(any()) } answers { stored += firstArg<String?>() }
+            every { repo.dittoBleRecoveryActions } returns actions
+            every { repo.getEnableDittoService } returns master
             every { ditto.presence } returns presence
             every { presence.graph } returns graph()
             every { presence.observe(capture(callback)) } returns observer
@@ -65,8 +81,16 @@ class DittoBleDiscoverySessionTest {
             session = DittoBleDiscoverySession(application, repo, ditto, scope,
                 combine(master, companion, reconfiguring) { enabled, connected, changing ->
                     enabled && !connected && !changing
-                }, elapsedClock = { scope.testScheduler.currentTime })
+                }, elapsedClock = { scope.testScheduler.currentTime },
+                radioProbe = { radio }, jitter = { 0.5 }, persistedRecovery = persisted, bootCount = { boot })
             session.start()
+        }
+
+        fun adapter(state: Int) {
+            val receiver = slot<BroadcastReceiver>()
+            verify { application.registerReceiver(capture(receiver), any(), any<Int>()) }
+            receiver.captured.onReceive(application, Intent(BluetoothAdapter.ACTION_STATE_CHANGED)
+                .putExtra(BluetoothAdapter.EXTRA_STATE, state))
         }
 
         override fun close() = session.close()
@@ -87,7 +111,14 @@ class DittoBleDiscoverySessionTest {
             assertEquals(f.original.global, f.config.global)
             advanceTimeBy(24 * 60 * 60 * 1_000L)
             runCurrent()
-            assertEquals(listOf(true, false), f.changes)
+            // Bounded retry windows only, then a hard stop at the 30 min no-link budget.
+            assertTrue(f.changes.zipWithNext().all { (a, b) -> a != b })
+            assertEquals(28, f.changes.size)
+            assertFalse(f.config.peerToPeer.bluetoothLe.enabled)
+            assertEquals(listOf(BleLinkWarning.DISCONNECTED), f.warnings)
+            assertEquals("TIMED_OUT", f.stored.last())
+            assertEquals(f.original.peerToPeer.lan, f.config.peerToPeer.lan)
+            assertEquals(f.original.connect, f.config.connect)
             verify(exactly = 0) { f.ditto.startSync() }
             verify(exactly = 0) { f.ditto.stopSync() }
         }
@@ -162,12 +193,12 @@ class DittoBleDiscoverySessionTest {
             f.callback.captured(graph(listOf(lan)))
             runCurrent()
             assertFalse(f.changes.last())
-            advanceTimeBy(DittoBleDiscovery.TOPOLOGY_BACKOFF_MS)
+            advanceTimeBy(30_000)
             runCurrent()
-            assertFalse(f.changes.last())
-            f.callback.captured(graph())
+            assertEquals("retry window despite topology cooldown", listOf(true, false, true), f.changes)
+            advanceTimeBy(30_000)
             runCurrent()
-            assertTrue(f.changes.last())
+            assertEquals("LAN peer does not keep BLE on", listOf(true, false, true, false), f.changes)
         }
     }
 
@@ -272,7 +303,219 @@ class DittoBleDiscoverySessionTest {
                 advanceTimeBy(36_000)
                 runCurrent()
             }
+            // Only the retry ladder (starts 0, 60, 150, 270, then every 150 s) runs, until the
+            // 30 min budget stops it: LAN churn neither reopens nor resets the budget.
+            assertEquals(28, f.changes.size)
+            assertTrue(f.changes.zipWithNext().all { (a, b) -> a != b })
+            assertFalse(f.changes.last())
+            assertEquals(listOf(BleLinkWarning.DISCONNECTED), f.warnings)
+        }
+    }
+
+    @Test fun adapterBroadcastsAreOrderedOffCancelsAndOnReopensDuringCooldown() = runTest {
+        Fixture(this).use { f ->
+            runCurrent()
+            advanceTimeBy(30_000)
+            runCurrent()
             assertEquals(listOf(true, false), f.changes)
+            f.radio = false
+            f.adapter(BluetoothAdapter.STATE_TURNING_OFF)
+            f.adapter(BluetoothAdapter.STATE_OFF)
+            runCurrent()
+            advanceTimeBy(600_000)
+            f.session.onUiOpened()
+            f.wrist.value = true
+            runCurrent()
+            assertEquals("no retry or trigger while adapter is off", listOf(true, false), f.changes)
+            f.radio = true
+            f.adapter(BluetoothAdapter.STATE_TURNING_ON)
+            runCurrent()
+            assertEquals(listOf(true, false), f.changes)
+            f.adapter(BluetoothAdapter.STATE_ON)
+            runCurrent()
+            assertEquals(listOf(true, false, true), f.changes)
+            advanceTimeBy(10_000)
+            // Fast toggle: OFF then ON queued before processing must both apply, in order.
+            f.adapter(BluetoothAdapter.STATE_OFF)
+            f.adapter(BluetoothAdapter.STATE_ON)
+            runCurrent()
+            assertEquals(listOf(true, false, true, false, true), f.changes)
+            advanceTimeBy(30_000)
+            runCurrent()
+            assertFalse(f.changes.last())
+            advanceTimeBy(30_000)
+            runCurrent()
+            assertTrue("ladder reset by adapter ON", f.changes.last())
+            verify(exactly = 0) { f.ditto.stopSync() }
+        }
+    }
+
+    @Test fun missingPermissionBlocksDiscoveryUntilResumeReprobesIt() = runTest {
+        val f = Fixture(this, initiallyEnabled = false)
+        f.radio = false
+        f.close()
+        val second = DittoBleDiscoverySession(f.application, f.repo, f.ditto, this,
+            f.master, elapsedClock = { testScheduler.currentTime },
+            radioProbe = { f.radio }, jitter = { 0.5 })
+        second.start()
+        f.master.value = true
+        runCurrent()
+        advanceTimeBy(600_000)
+        runCurrent()
+        assertTrue(f.changes.none { it })
+        f.radio = true
+        second.onActivityResumed(mockk<Activity>())
+        runCurrent()
+        assertTrue(f.changes.last())
+        second.close()
+    }
+
+    @Test fun serviceRestartUnregistersReceiverAndOldTimersCannotTouchNewSession() = runTest {
+        val f = Fixture(this)
+        runCurrent()
+        advanceTimeBy(30_000)
+        runCurrent()
+        f.close()
+        val receiver = slot<BroadcastReceiver>()
+        verify { f.application.registerReceiver(capture(receiver), any(), any<Int>()) }
+        verify(exactly = 1) { f.application.unregisterReceiver(receiver.captured) }
+        val oldCallback = f.callback.captured
+        val restarted = DittoBleDiscoverySession(f.application, f.repo, f.ditto, this,
+            f.master, elapsedClock = { testScheduler.currentTime },
+            radioProbe = { f.radio }, jitter = { 0.5 })
+        restarted.start()
+        runCurrent()
+        assertEquals(listOf(true, false, true), f.changes)
+        receiver.captured.onReceive(f.application, Intent(BluetoothAdapter.ACTION_STATE_CHANGED)
+            .putExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.STATE_OFF))
+        oldCallback(graph(listOf(connection("ble", "watch", "phone", DittoConnectionType.Bluetooth))))
+        advanceTimeBy(29_999)
+        runCurrent()
+        assertEquals("stale receiver/observer must not affect restart", listOf(true, false, true), f.changes)
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf(true, false, true, false), f.changes)
+        restarted.close()
+    }
+
+    @Test fun persistedTimeoutSurvivesServiceRestartAndOnlyRetryNowReopens() = runTest {
+        Fixture(this, persisted = "TIMED_OUT").use { f ->
+            runCurrent()
+            f.session.onActivityResumed(mockk<Activity>())
+            f.session.onUiOpened()
+            f.wrist.value = true
+            f.adapter(BluetoothAdapter.STATE_OFF)
+            f.adapter(BluetoothAdapter.STATE_ON)
+            advanceTimeBy(3_600_000)
+            runCurrent()
+            assertTrue(f.changes.isEmpty())
+            assertEquals(BleLinkWarning.DISCONNECTED, f.warnings.last())
+            f.actions.emit(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
+            runCurrent()
+            assertEquals(listOf(true), f.changes)
+            assertEquals(BleLinkWarning.NONE, f.warnings.last())
+            assertTrue(f.stored.last()!!.startsWith("v1;ACTIVE;0;1;"))
+            verify(exactly = 0) { f.ditto.stopSync() }
+        }
+    }
+
+    @Test fun corruptOrUnreadableRecordFailsClosedPausedUntilRetryNow() = runTest {
+        listOf("ACTIVE;600000;1;0;7", "v2;ACTIVE;0;1;0;7", "v1;ACTIVE;x;1;0;7", BLE_BUDGET_UNREADABLE).forEach { bad ->
+            Fixture(this, persisted = bad).use { f ->
+                runCurrent()
+                f.session.onActivityResumed(mockk<Activity>())
+                f.session.onUiOpened()
+                f.wrist.value = true
+                f.adapter(BluetoothAdapter.STATE_OFF)
+                f.adapter(BluetoothAdapter.STATE_ON)
+                advanceTimeBy(3_600_000)
+                runCurrent()
+                assertTrue("$bad must not grant a fresh budget", f.changes.isEmpty())
+                assertEquals(BleLinkWarning.PAUSED, f.warnings.last())
+                assertEquals("bad record replaced by a well-formed paused one", "USER_PAUSED", f.stored.last())
+                verify(exactly = 0) { f.ditto.stopSync() }
+                f.actions.emit(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
+                runCurrent()
+                assertEquals(listOf(true), f.changes)
+                assertEquals(BleLinkWarning.NONE, f.warnings.last())
+                assertTrue(f.stored.last()!!.startsWith("v1;ACTIVE;0;1;"))
+            }
+        }
+    }
+
+    @Test fun sameBootRecreationContinuesTheBudgetIncludingDowntime() = runTest {
+        val first = Fixture(this)
+        runCurrent()
+        advanceTimeBy(600_000)
+        runCurrent()
+        first.close()
+        runCurrent()
+        val saved = first.stored.last()
+        assertEquals("v1;ACTIVE;600000;1;600000;7", saved)
+        advanceTimeBy(100_000) // service dead
+        Fixture(this, persisted = saved).use { f ->
+            runCurrent()
+            assertEquals(listOf(true), f.changes)
+            advanceTimeBy(1_800_000 - 700_000 - 1)
+            runCurrent()
+            assertTrue(f.warnings.none { it == BleLinkWarning.DISCONNECTED })
+            advanceTimeBy(1)
+            runCurrent()
+            assertEquals("continuous zero-link budget ends at 30 min absolute",
+                BleLinkWarning.DISCONNECTED, f.warnings.last())
+            assertFalse(f.changes.last())
+        }
+    }
+
+    @Test fun rebootCarriesUsedBudgetWithoutRefundAndSpentBudgetRestoresTimedOut() = runTest {
+        Fixture(this, persisted = "v1;ACTIVE;600000;1;0;7", boot = 8).use { f ->
+            advanceTimeBy(1_199_999)
+            runCurrent()
+            assertTrue(f.warnings.isEmpty())
+            advanceTimeBy(1)
+            runCurrent()
+            assertEquals(BleLinkWarning.DISCONNECTED, f.warnings.last())
+        }
+        Fixture(this, persisted = "v1;ACTIVE;1700000;1;0;7").use { f ->
+            advanceTimeBy(DittoBleDiscovery.WINDOW_MS)
+            runCurrent()
+            assertTrue("spent same-boot budget never opens a window", f.changes.isEmpty())
+            assertEquals(listOf(BleLinkWarning.DISCONNECTED), f.warnings)
+        }
+    }
+
+    @Test fun pauseActionPersistsAndKeepsOtherTransportsAndSyncUntouched() = runTest {
+        Fixture(this).use { f ->
+            runCurrent()
+            f.actions.emit(DataRepository.DittoBleRecoveryAction.PAUSE)
+            runCurrent()
+            assertEquals(listOf(true, false), f.changes)
+            assertEquals("USER_PAUSED", f.stored.last())
+            assertEquals(BleLinkWarning.PAUSED, f.warnings.last())
+            f.session.onActivityResumed(mockk<Activity>())
+            f.wrist.value = true
+            advanceTimeBy(3_600_000)
+            runCurrent()
+            assertEquals(listOf(true, false), f.changes)
+            assertEquals(f.original.peerToPeer.lan, f.config.peerToPeer.lan)
+            assertEquals(f.original.peerToPeer.wifiAware, f.config.peerToPeer.wifiAware)
+            assertEquals(f.original.connect, f.config.connect)
+            verify(exactly = 0) { f.ditto.stopSync() }
+            verify(exactly = 0) { f.ditto.startSync() }
+        }
+    }
+
+    @Test fun explicitDittoDisableClearsPauseAndReEnableStartsANewBudget() = runTest {
+        Fixture(this, persisted = "USER_PAUSED").use { f ->
+            runCurrent()
+            assertTrue(f.changes.isEmpty())
+            f.master.value = false
+            runCurrent()
+            assertEquals(BleLinkWarning.NONE, f.warnings.last())
+            assertEquals(null, f.stored.last())
+            f.master.value = true
+            runCurrent()
+            assertEquals(listOf(true), f.changes)
         }
     }
 

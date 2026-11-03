@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="home_warning_review">Uyarıları incele</string>
+    <string name="crm_warning_title">CRM durumu</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">DÜŞÜK</string>
+    <string name="crm_warning_moderate">ORTA</string>
+    <string name="crm_warning_details">CRM ayrıntıları</string>
+    <string name="audio_detection_gunshot_question">Silah sesi algılandı mı?</string>
+    <string name="audio_detection_uas_question">UAS algılandı mı?</string>
+    <string name="audio_detection_pending">Algılamaları incele (%1$d)</string>
+    <string name="audio_detection_score">Puan: %1$d%%</string>
+    <string name="audio_detection_yes">Evet</string>
+    <string name="audio_detection_no">Hayır</string>
+    <string name="audio_detection_feedback_failed">Yanıt kaydedilmedi. Yeniden deneyin.</string>
     <string name="accessibility_edit">Düzenle</string>
     <string name="manual_alert_validation_error">Uyarı benzersiz olmalı ve 1–60 karakter içermelidir. Liste en fazla 20 uyarı içerebilir.</string>
     <string name="ca_trust_advanced">Gelişmiş</string>
@@ -420,6 +434,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">Konum yok</string>
     <string name="top_display_metric">Gösterilen Ölçüm</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync çevrimdışı</string>
+    <string name="ditto_edge_sync_retry">Yeniden dene</string>
     <string name="crm_reserve">CRM Rezervi</string>
     <string name="metric_alerts">Uyarılar</string>
     <string name="metric_alert_thresholds">Uyarı eşiklerini değiştir</string>

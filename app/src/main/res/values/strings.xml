@@ -1,4 +1,18 @@
 <resources>
+    <string name="home_warning_review">Review warnings</string>
+    <string name="crm_warning_title">CRM status</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">POOR</string>
+    <string name="crm_warning_moderate">MODERATE</string>
+    <string name="crm_warning_details">CRM details</string>
+    <string name="audio_detection_gunshot_question">Gunshot detected?</string>
+    <string name="audio_detection_uas_question">UAS detected?</string>
+    <string name="audio_detection_pending">Review detections (%1$d)</string>
+    <string name="audio_detection_score">Score: %1$d%%</string>
+    <string name="audio_detection_yes">Yes</string>
+    <string name="audio_detection_no">No</string>
+    <string name="audio_detection_feedback_failed">Response not recorded. Try again.</string>
     <string name="accessibility_edit">Edit</string>
     <string name="manual_alert_validation_error">Alert must be unique, 1–60 characters, and the list can hold up to 20.</string>
     <string name="ca_trust_advanced">Advanced</string>
@@ -762,6 +776,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">No fix</string>
     <string name="top_display_metric">Metric Shown</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync Offline</string>
+    <string name="ditto_edge_sync_retry">Retry</string>
     <string name="crm_reserve">CRM Reserve</string>
     <string name="metric_alerts">Alerts</string>
     <string name="metric_alert_thresholds">Change alert thresholds</string>
