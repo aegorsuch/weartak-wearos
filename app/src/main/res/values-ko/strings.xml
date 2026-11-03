@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ditto_direct_peers">직접 연결 피어</string>
-    <string name="ditto_ble_peers">BLE 피어</string>
-    <string name="ditto_lan_peers">LAN 피어</string>
-    <string name="ditto_p2p_peers">Wi-Fi Aware 피어</string>
-    <string name="ditto_websocket_peers">WebSocket 피어</string>
+    <string name="ditto_direct_peers">피어</string>
+    <string name="ditto_ble_peers">BLE</string>
+    <string name="ditto_lan_peers">LAN</string>
+    <string name="ditto_p2p_peers">Wi-Fi Aware</string>
+    <string name="ditto_websocket_peers">WebSocket</string>
     <string name="ditto_ble_recovery">BLE 복구</string>
     <string name="ditto_status_unavailable">사용 불가</string>
     <string name="ditto_recovery_active">활성</string>

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ditto_direct_peers">Pares directos</string>
-    <string name="ditto_ble_peers">Pares BLE</string>
-    <string name="ditto_lan_peers">Pares LAN</string>
-    <string name="ditto_p2p_peers">Pares Wi-Fi Aware</string>
-    <string name="ditto_websocket_peers">Pares WebSocket</string>
+    <string name="ditto_direct_peers">Pares</string>
+    <string name="ditto_ble_peers">BLE</string>
+    <string name="ditto_lan_peers">LAN</string>
+    <string name="ditto_p2p_peers">Wi-Fi Aware</string>
+    <string name="ditto_websocket_peers">WebSocket</string>
     <string name="ditto_ble_recovery">Recuperación BLE</string>
     <string name="ditto_status_unavailable">No disponible</string>
     <string name="ditto_recovery_active">Activa</string>

@@ -17,23 +17,27 @@ import com.aitech.weartak_civ.service.DittoLiveStatus
 import com.aitech.weartak_civ.service.DittoRecoveryStatus
 
 internal fun ScalingLazyListScope.dittoDiagnosticItems(status: DittoLiveStatus) {
-    dittoDiagnosticPeerRows(status).forEach { (label, count, tag) ->
-        item {
-            DittoDiagnosticValue(stringResource(label),
-                count?.toString() ?: stringResource(R.string.ditto_status_unavailable), tag)
+    item {
+        val rows = dittoDiagnosticPeerRows(status).map { (label, count, _) ->
+            "${count?.toString() ?: stringResource(R.string.ditto_status_unavailable)} ${stringResource(label)}"
         }
+        DittoDiagnosticValue(dittoDiagnosticSummary(rows), "total")
     }
     item {
-        DittoDiagnosticValue(stringResource(R.string.ditto_ble_recovery), stringResource(when (status.recovery) {
+        val value = stringResource(when (status.recovery) {
             DittoRecoveryStatus.ACTIVE -> R.string.ditto_recovery_active
             DittoRecoveryStatus.TIMED_OUT -> R.string.ditto_recovery_timed_out
             DittoRecoveryStatus.USER_PAUSED -> R.string.ditto_recovery_user_paused
             DittoRecoveryStatus.INELIGIBLE -> R.string.ditto_recovery_ineligible
             DittoRecoveryStatus.STOPPED -> R.string.ditto_recovery_stopped
             DittoRecoveryStatus.UNAVAILABLE -> R.string.ditto_status_unavailable
-        }), "recovery")
+        })
+        DittoDiagnosticValue("${stringResource(R.string.ditto_ble_recovery)} $value", "recovery")
     }
 }
+
+internal fun dittoDiagnosticSummary(rows: List<String>): String =
+    rows.first() + if (rows.size > 1) rows.drop(1).joinToString(", ", " (", ")") else ""
 
 internal fun dittoDiagnosticPeerRows(status: DittoLiveStatus): List<Triple<Int, Int?, String>> = buildList {
     val peers = status.peers
@@ -46,9 +50,9 @@ internal fun dittoDiagnosticPeerRows(status: DittoLiveStatus): List<Triple<Int, 
 }
 
 @Composable
-private fun DittoDiagnosticValue(label: String, value: String, tag: String) {
+private fun DittoDiagnosticValue(value: String, tag: String) {
     Text(
-        text = "$label $value",
+        text = value,
         style = MaterialTheme.typography.body2,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)

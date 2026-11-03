@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ditto_direct_peers">Thiết bị trực tiếp</string>
-    <string name="ditto_ble_peers">Thiết bị BLE</string>
-    <string name="ditto_lan_peers">Thiết bị LAN</string>
-    <string name="ditto_p2p_peers">Thiết bị Wi-Fi Aware</string>
-    <string name="ditto_websocket_peers">Thiết bị WebSocket</string>
+    <string name="ditto_direct_peers">Thiết bị</string>
+    <string name="ditto_ble_peers">BLE</string>
+    <string name="ditto_lan_peers">LAN</string>
+    <string name="ditto_p2p_peers">Wi-Fi Aware</string>
+    <string name="ditto_websocket_peers">WebSocket</string>
     <string name="ditto_ble_recovery">Khôi phục BLE</string>
     <string name="ditto_status_unavailable">Không khả dụng</string>
     <string name="ditto_recovery_active">Đang hoạt động</string>
