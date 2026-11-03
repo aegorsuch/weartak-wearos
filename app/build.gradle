@@ -65,7 +65,11 @@ android {
         if (!(warningUiDemo in ["true", "false"])) {
             throw new GradleException("weartakWarningUiDemo must be true or false")
         }
-        testInstrumentationRunner warningUiDemo == "true"
+        def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get()
+        if (!(dittoUiDemo in ["true", "false"])) {
+            throw new GradleException("weartakDittoUiDemo must be true or false")
+        }
+        testInstrumentationRunner warningUiDemo == "true" || dittoUiDemo == "true"
                 ? "com.aitech.weartak_civ.presentation.WarningUiTestRunner"
                 : "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -167,6 +171,11 @@ android {
             requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
         throw new GradleException("weartakWarningUiDemo=true is supported only for explicit debug tasks.")
     }
+    if (providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true" &&
+            (!requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakDittoUiDemo=true is supported only for explicit debug tasks.")
+    }
     if (emulatorAbi != null && (emulatorAbi != "x86_64" ||
             !requestedTasks.any { it.contains("debug") } ||
             requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
@@ -189,7 +198,13 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix ".dev"
+            def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true"
+            applicationIdSuffix dittoUiDemo ? ".ditto.diagnostics.fixture" : ".dev"
+            manifestPlaceholders.debugApplication = dittoUiDemo
+                    ? "com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureApplication"
+                    : "com.aitech.weartak_civ.WearTakApplication"
+            manifestPlaceholders.dittoUiDemo = dittoUiDemo.toString()
+            buildConfigField "boolean", "DITTO_UI_DEMO", dittoUiDemo.toString()
             minifyEnabled false
             shrinkResources false
             signingConfig signingConfigs.debug

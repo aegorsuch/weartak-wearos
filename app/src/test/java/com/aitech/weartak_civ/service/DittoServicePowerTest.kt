@@ -91,6 +91,28 @@ class DittoServicePowerTest {
         assertNull(DittoService.powerSuppressionReason.value)
     }
 
+    @Test fun livePeerCountsClearSynchronouslyOnPowerGateAndDestroy() {
+        val diagnostics = DittoLiveStatusStore()
+        val session = diagnostics.begin()
+        field("liveStatusSession").set(service, session)
+        val counts = DittoDirectPeers(1, 1, 0, 0, 0)
+        service.onPowerStateChanged(healthy)
+        session.peers(counts)
+        session.recovery(DittoRecoveryStatus.ACTIVE)
+        assertEquals(counts, diagnostics.state.value.peers)
+        service.onPowerStateChanged(healthy.copy(worn = false))
+        assertEquals(DittoLiveStatus(recovery = DittoRecoveryStatus.INELIGIBLE), diagnostics.state.value)
+        session.peers(counts)
+        assertNull(diagnostics.state.value.peers)
+        service.onPowerStateChanged(healthy)
+        assertNull(diagnostics.state.value.peers)
+        session.peers(counts)
+        service.onDestroy()
+        session.peers(counts)
+        session.recovery(DittoRecoveryStatus.ACTIVE)
+        assertEquals(DittoLiveStatus(), diagnostics.state.value)
+    }
+
     @Test fun cotMetadataUsesConfiguredWatchIdentityOnlyWhileLocalSyncEligible() = runBlocking {
         val enabled = MutableStateFlow(true)
         every { repo.getEnableDittoService } returns enabled

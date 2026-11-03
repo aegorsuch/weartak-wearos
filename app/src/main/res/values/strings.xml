@@ -1,4 +1,16 @@
 <resources>
+    <string name="ditto_direct_peers">Direct Peers</string>
+    <string name="ditto_ble_peers">BLE Peers</string>
+    <string name="ditto_lan_peers">LAN Peers</string>
+    <string name="ditto_p2p_peers">Wi-Fi Aware Peers</string>
+    <string name="ditto_websocket_peers">WebSocket Peers</string>
+    <string name="ditto_ble_recovery">BLE Recovery</string>
+    <string name="ditto_status_unavailable">Unavailable</string>
+    <string name="ditto_recovery_active">Active</string>
+    <string name="ditto_recovery_timed_out">Timed out</string>
+    <string name="ditto_recovery_user_paused">User paused</string>
+    <string name="ditto_recovery_ineligible">Ineligible</string>
+    <string name="ditto_recovery_stopped">Stopped</string>
     <string name="home_warning_review">Review warnings</string>
     <string name="crm_warning_title">CRM status</string>
     <string name="crm_warning_status_format">CRM %2$s: %1$d</string>

@@ -68,6 +68,8 @@ android_mopp_check:
       --tests '*DittoBleRecoveryUiTest' --tests '*TopMetricSettingsUiTest'
       --tests '*PhysioControlsLayoutTest' --tests '*DittoBleDiscoveryTest'
       --tests '*DittoBleDiscoverySessionTest' --tests '*DittoCompanionLifecycleTest'
+      --tests '*DittoLiveStatusTest' --tests '*DittoDiagnosticsUiTest'
+      --tests '*DittoTransportPolicyTest' --tests '*DittoServicePowerTest'
       :app:compileDebugAndroidTestKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:

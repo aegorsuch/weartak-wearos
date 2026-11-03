@@ -603,9 +603,6 @@ fun WearTAKSettingsNav(
             }
         }
         composable("ditto_pdl") {
-            LaunchedEffect(Unit) {
-                com.aitech.weartak_civ.service.DittoService.onDittoScreenOpened()
-            }
             DittoPdlSelectionPage(
                 navController = navController,
                 selectedSource = dittoPdlSource
@@ -4314,8 +4311,31 @@ fun DittoPdlSelectionPage(
     selectedSource: DittoPdlSource
 ) {
     val scope = rememberCoroutineScope()
-    val showPdlHelp = remember { mutableStateOf(false) }
     val savedCustomPdl by dataRepository.getDittoCustomPdl.collectAsState(initial = "")
+    val liveStatus by com.aitech.weartak_civ.service.DittoService.liveStatus.collectAsStateWithLifecycle()
+    val enabled by dataRepository.getEnableDittoService.collectAsStateWithLifecycle(initialValue = false)
+    val context = LocalContext.current
+    val platformTransports = remember(context) {
+        com.aitech.weartak_civ.service.dittoDiagnosticTransports(context.packageManager)
+    }
+    val visibleStatus = if (enabled) liveStatus else liveStatus.copy(
+        peers = null, recovery = com.aitech.weartak_civ.service.DittoRecoveryStatus.STOPPED)
+    DittoIdentitySettingsPage(navController, selectedSource, savedCustomPdl,
+        visibleStatus.copy(transports = visibleStatus.transports ?: platformTransports),
+        onCommunitySelected = {
+            scope.launch { dataRepository.storeDittoPdlSource(DittoPdlSource.COMMUNITY) }
+        })
+}
+
+@Composable
+internal fun DittoIdentitySettingsPage(
+    navController: NavController,
+    selectedSource: DittoPdlSource,
+    savedCustomPdl: String,
+    liveStatus: com.aitech.weartak_civ.service.DittoLiveStatus,
+    onCommunitySelected: () -> Unit,
+) {
+    val showPdlHelp = remember { mutableStateOf(false) }
     val communityTitle = stringResource(R.string.community_pdl)
     val customTitle = stringResource(R.string.custom_pdl)
     val pdlOptions = listOf(communityTitle, customTitle)
@@ -4326,13 +4346,7 @@ fun DittoPdlSelectionPage(
             item {
                 WearTAKSelectableChip(
                     selected = selectedSource == DittoPdlSource.COMMUNITY,
-                    onClick = {
-                        scope.launch {
-                            dataRepository.storeDittoPdlSource(
-                                DittoPdlSource.COMMUNITY
-                            )
-                        }
-                    },
+                    onClick = onCommunitySelected,
                     title = communityTitle,
                     secondaryTitle = stringResource(R.string.community_pdl),
                     combined = true,
@@ -4390,6 +4404,7 @@ fun DittoPdlSelectionPage(
                     )
                 )
             }
+            dittoDiagnosticItems(liveStatus)
         },
         navController = navController
     )

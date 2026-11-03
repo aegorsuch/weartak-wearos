@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ditto_direct_peers">الأقران المباشرون</string>
+    <string name="ditto_ble_peers">أقران BLE</string>
+    <string name="ditto_lan_peers">أقران LAN</string>
+    <string name="ditto_p2p_peers">أقران Wi-Fi Aware</string>
+    <string name="ditto_websocket_peers">أقران WebSocket</string>
+    <string name="ditto_ble_recovery">استعادة BLE</string>
+    <string name="ditto_status_unavailable">غير متاح</string>
+    <string name="ditto_recovery_active">نشطة</string>
+    <string name="ditto_recovery_timed_out">انتهت المهلة</string>
+    <string name="ditto_recovery_user_paused">أوقفها المستخدم مؤقتًا</string>
+    <string name="ditto_recovery_ineligible">الشروط غير مستوفاة</string>
+    <string name="ditto_recovery_stopped">متوقفة</string>
     <string name="home_warning_review">مراجعة التحذيرات</string>
     <string name="crm_warning_title">حالة CRM</string>
     <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
