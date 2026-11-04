@@ -189,7 +189,7 @@ android {
 
     splits {
         abi {
-            enable !isBuildingBundle
+            enable !isBuildingBundle && !gradle.startParameter.taskNames.any { it.toLowerCase().contains("nearbyfixture") }
             reset()
             include debugAbi ?: emulatorAbi ?: "armeabi-v7a"
             universalApk false
@@ -197,6 +197,15 @@ android {
     }
 
     buildTypes {
+        nearbyFixture {
+            initWith debug
+            applicationIdSuffix ".nearbyfixture"
+            matchingFallbacks = ['debug']
+            signingConfig signingConfigs.debug
+            buildConfigField "Boolean", "CEP_SIMULATION", "false"
+            buildConfigField "Boolean", "CEP_TEST_ALERTS", "false"
+            manifestPlaceholders.cepSimulationEnabled = "false"
+        }
         debug {
             def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true"
             applicationIdSuffix dittoUiDemo ? ".ditto.diagnostics.fixture" : ".dev"
@@ -287,10 +296,52 @@ android {
     }
 }
 
+def pluginSdkPin = new groovy.json.JsonSlurper().parse(rootProject.file('ci/plugin-sdk.json'))
+def pluginSdkOs = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
+def pluginSdkPlatform = pluginSdkOs.contains('windows') ? 'windows' : pluginSdkOs.contains('linux') ? 'linux' : null
+if (pluginSdkPlatform == null) {
+    throw new GradleException('Plugin SDK has verified source-build hashes only for Windows and Linux')
+}
+def pluginSdkExpectedHash = pluginSdkPin.release_sha256[pluginSdkPlatform]
+def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
+        .orElse(rootProject.file(".gradle/sdk/${pluginSdkPin.commit.take(12)}/build/outputs/aar/weartak-plugin-sdk-release.aar").absolutePath)
+def sdkNoticeAssets = layout.buildDirectory.dir('generated/pluginSdkNotices')
+def sdkNoticeSource = rootProject.file(".gradle/sdk/${pluginSdkPin.commit.take(12)}")
+def sdkNotices = tasks.register('generatePluginSdkNotices', Copy) {
+    from(sdkNoticeSource) {
+        include 'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'
+        into 'licenses/weartak-plugin-sdk'
+    }
+    into sdkNoticeAssets
+    doFirst {
+        ['LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'].each { name ->
+            if (!new File(sdkNoticeSource, name).isFile()) {
+                throw new GradleException('Missing plugin SDK notices; run python ci/build_plugin_sdk.py')
+            }
+        }
+    }
+}
+android.sourceSets.main.assets.srcDir(sdkNoticeAssets)
+tasks.register('verifyPluginSdk') {
+    inputs.file(pluginSdkAarPath)
+    inputs.property('expectedSha256', pluginSdkExpectedHash)
+    doLast {
+        def aar = file(pluginSdkAarPath.get())
+        if (!aar.isFile()) {
+            throw new GradleException('Missing pinned plugin SDK; run python ci/build_plugin_sdk.py')
+        }
+        def digest = java.security.MessageDigest.getInstance('SHA-256').digest(aar.bytes).encodeHex().toString()
+        if (digest != pluginSdkExpectedHash) {
+            throw new GradleException("Plugin SDK SHA-256 mismatch: ${digest}")
+        }
+    }
+}
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('verifyPluginSdk'), sdkNotices
+}
+
 dependencies {
     implementation project(':weartak-plugin-host-services-sdk')
-    def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
-            .orElse(rootProject.file('weartak-plugin-sdk-release.aar').absolutePath)
     implementation files(pluginSdkAarPath.get())
     implementation files('libs/samsung-health-sensor-api-1.4.1.aar')
     implementation files('libs/hail-sdk.aar')

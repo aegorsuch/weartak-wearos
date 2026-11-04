@@ -112,6 +112,12 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault">
+        <activity
+            android:name=".presentation.CertificateImportActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
+        <activity android:name=".presentation.ServerPackageExportActivity"
+            android:exported="false" android:excludeFromRecents="true" />
         <!-- Prevent dependency receivers from starting the WearTAK process at boot or after
              time/power changes. Their runtime APIs remain available after manual launch. -->
         <receiver

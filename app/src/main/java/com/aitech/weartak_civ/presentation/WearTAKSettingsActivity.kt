@@ -4233,7 +4233,8 @@ fun WearTAKOutlinedTextField(
     autoFocus: Boolean = false,
     @androidx.annotation.IdRes fieldId: Int = android.view.View.NO_ID,
     accessibilityError: String? = null,
-): TextFieldValue = PlatformTextField(string, label, keyboardType, keyboardActions, autoFocus, fieldId, accessibilityError)
+    saveState: Boolean = true,
+): TextFieldValue = PlatformTextField(string, label, keyboardType, keyboardActions, autoFocus, fieldId, accessibilityError, saveState)
 
 //Used when the user should have the ability to cancel whatever they entered
 @Composable

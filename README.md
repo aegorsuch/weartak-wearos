@@ -6,6 +6,96 @@ WearTAK-WearOS is a standalone Wear OS application that connects a watch to the 
 
 The app can connect directly to a TAK server and can optionally use SITX, Ditto mesh, BLE companion, and plugin integrations when those capabilities are configured. A phone is not required for the app's primary watch workflow.
 
+### Nearby server review
+
+The optional V3 host controls stage PKCS12 or canonical ServerPackage V1 data in
+host-owned memory, limited to 32,700 bytes and a 300-second lease. Every Binder
+method authenticates the plugin UID, registered package, signer and live
+connection. Random, origin-bound handles are one-use; cancellation, expiry and
+connection death erase staged bytes. Opening review/export requires a one-use
+grant from the host's foreground plugin launcher. No plugin apply endpoint exists.
+
+The wearer chooses the destination and explicitly applies changes. Private CAs
+require certificate/fingerprint review, independently of client identity.
+Nearby-imported client chains do not automatically become server trust roots.
+Public-CA packages use platform trust and strict endpoint verification. Existing
+server and CA snapshots, management policy and lease authorization are checked
+again at the persistence boundary; failures restore the prior configuration.
+Runtime connection/enrollment starts are fenced while settings are provisional;
+the previous enrolled identity cache is retained for rollback. Connection starts
+only after a successful review commit. A post-commit start failure is reported
+without misrepresenting the saved configuration as unapplied.
+`APPLIED` means configuration saved, not enrollment or connection success.
+Receiver enrollment uses receiver-entered credentials (or explicitly accepted
+shared login) and a fresh, receiver-local certificate-cache identity. Separate
+administrator PKCS12 mode saves the server disabled until its client bundle is
+imported and the server is enabled.
+
+Sender export is host-owned: choose a configured server, then separately opt in
+to sharing the client identity/private key and username/password. Sensitive export
+requires an additional explicit confirmation. Managed sources, stale snapshots,
+non-exportable or unavailable keys, invalid identities and oversized packages are
+refused. Only settings, reviewed CA material and specifically approved server
+credentials are exported, never watch UID, callsign or device settings. Sharing a
+certificate allows every recipient to impersonate that identity; revocation
+affects all shared watches. Export is one-use and rechecks source authorization
+when the plugin takes the package. Sensitive bytes have no independent
+application-layer encryption: transport must use Nearby UKEY2 encryption and
+mutual code confirmation. Actual credential transmission requires separate
+authorization.
+
+This work extracts shared PKCS12 classification, CA review and guarded save logic
+from unmerged NFC MR !585 (`d6a7611a61eaebc9074ac3af9c7de135ecaf40e2`);
+it does not include NFC HCE, transport or prefilling. The SDK source pin is
+`86bdc8b04797c2cf6caa30e78e796abac1c2a330` from
+`https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` (public mirror:
+`https://github.com/aegorsuch/weartak-plugin-sdk`), tree
+`a03d33bc077d81f80cdb53b04ea75e18cf0200a1`. Build that exact source with JDK 17
+and Android SDK 34 using `gradlew.bat assembleRelease`, then pass the resulting
+AAR to host Gradle using `-PweartakPluginSdkAar=<absolute-path>`.
+Alternatively, run `python ci/build_plugin_sdk.py` to build the pinned source
+into the default ignored SDK directory. Host Gradle verifies its SHA-256 before
+building; CI uses the same helper and hash check.
+For reproducible source extraction, use `git -c core.autocrlf=false archive`;
+Windows Git newline conversion otherwise changes packaged AIDL/proguard files.
+The neutral-source release AAR SHA-256 is
+`f90a36a6cada1a55a3154944a8b524119217cb95176fd055c2a7dd3aeafaa7a7`.
+That hash is Windows-specific. Verified Linux CI output is
+`beae3192d0e80d6e1f8da39ffbb20f5e0921c904a34ab44268b9b4b35e04faa1`;
+only generated manifest line endings differ. Source pin and all other AAR
+payload entries are identical. Build verification selects the exact platform hash.
+The checked-in legacy AAR does not provide the new optional controls and must
+not be used for this integration. The SDK has no signed published AAR;
+source-built binaries are unsigned dependency artifacts, not signed releases.
+The canonical LF source manifest SHA-256 is
+`3ed70060a8435a90bd3b7369c1cc399183a0861139bf81462b821ad9757e45f9`.
+This includes the SDK owner-controlled Covered Work linking permission from
+SDK MR !9. It does not relicense Google Play services or other third-party code;
+their independent distribution terms still apply.
+Earlier synthetic demos used the equivalent uncommitted Windows-source AAR
+`a67356ae6de956033b89e834b8d91b2aaf064335fde22cb120e2f4975fbb258f`.
+Dependency reconciliation with NFC and normal distribution/licensing approvals
+remain release gates. Frozen V1 exposes stale
+destination rejection as `REJECTED/FAILED`, while the wearer sees the specific
+stale-destination message; it has no distinct stale Binder status.
+
+`:app:assembleNearbyFixture` builds an isolated `.nearbyfixture` application with
+no TAK/application startup or Internet permission. It renders production round-
+watch review/export widgets with synthetic client keys, CA certificates and a
+memory-only backend. Its optional signature-bound plugin bridge demonstrates the
+real SDK Binder and plugin UI without starting Nearby advertising/discovery.
+The fixture's visible foreground service keeps its Binder host alive while the
+plugin is foreground; stopping the fixture process ends that synthetic session.
+Debug receive injection uses the plugin's debug-only, host-bound synthetic
+loopback service; neither fixture nor receive hook belongs in release builds.
+
+Repository integration tests also exercise the production review adapter and
+encrypted disk DataStore, including rollback of server settings and approved
+CAs. They use real Tink AEAD encryption with only Android Keystore key wrapping
+substituted; physical hardware-backed key storage and radio transfer remain
+separate validation gates. The visible fixture's memory backend is not evidence
+of production persistence.
+
 ### What it does
 
 - Connects to TAK endpoints and sends and receives CoT traffic.
@@ -674,6 +764,9 @@ Companion JSON envelopes (`vers: 1`) also expose the full, untruncated standalon
 identity as `payload.standaloneCallsign` in `watch_info`, `settings_request`,
 and the initial/changed `settings_changed` payload. The existing `watch_info.cs`
 and settings `callsign` remain the effective (possibly phone-managed) identity.
+The optional legacy `watch_info.mac` value is unavailable and omitted from JSON;
+WearTAK does not read the watch's local Bluetooth MAC address. BLE discovery,
+pairing, connection behavior, and saved settings are unchanged.
 For example, while managed, `watch_info.payload` includes
 `{"cs":"PHONE","standaloneCallsign":"ODIN-WEARTAK"}` and settings include
 `{"callsign":"PHONE","standaloneCallsign":"ODIN-WEARTAK"}` alongside their other
@@ -2692,14 +2785,17 @@ read; reconnecting never creates a new save timestamp. No plugin means no
 editable MOPP entry. This does not detect PPE/CBRN, assess protection/compliance,
 set a commanded level or start a filter timer.
 
-The bundled `weartak-plugin-sdk-release.aar` is derived from canonical SDK
+The legacy bundled `weartak-plugin-sdk-release.aar` is derived from canonical SDK
 `https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` at immutable merged
 commit `5362609f69b0c527acb5d75d429ebcc16fa5772f` (tree
 `d51b1088ed550fcc605d6ae854e34707bdac5254`, merge of SDK MR !6). Release SHA-256:
 `25898D3F51D8367E877F2BB5C41EDD7FA8C513D24E35C07E0919ADD5BDC0BFBE`.
 A clean Windows JDK 17 build of that merged commit reproduced this hash; the
 hash identifies this build, not a cross-platform reproducibility guarantee.
-This is a source-built dependency, not an independently trusted binary release.
+This historical binary is no longer the build default. Current builds use the
+verified immutable source pin in `ci/plugin-sdk.json`, described under
+[Nearby server review](#nearby-server-review). Source-built dependencies are not
+independently trusted binary releases.
 
 ### Plugin route status and home connection priority
 

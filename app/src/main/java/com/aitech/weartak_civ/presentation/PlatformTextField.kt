@@ -57,10 +57,14 @@ internal fun PlatformTextField(
     autoFocus: Boolean = false,
     @IdRes fieldId: Int = View.NO_ID,
     accessibilityError: String? = null,
+    saveState: Boolean = true,
 ): TextFieldValue {
-    var value by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+    val state = if (saveState) rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(string, TextRange(string.length)))
+    } else remember {
         mutableStateOf(TextFieldValue(string, TextRange(string.length)))
     }
+    var value by state
     val actions by rememberUpdatedState(keyboardActions)
     val currentError by rememberUpdatedState(accessibilityError)
     val holder = remember { arrayOfNulls<EditText>(1) }

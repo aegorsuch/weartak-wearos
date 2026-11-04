@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import org.junit.Assert.*
@@ -105,5 +106,25 @@ class SettingsImeInputConnectionTest {
         compose.pressPlatformImeDone()
         assertEquals(1, doneCount)
         assertEquals("5", compose.platformText())
+    }
+
+    @Test fun transientReviewPasswordIsMaskedAndNotRestored() {
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            value = WearTAKOutlinedTextField("", "Password", KeyboardType.Password, saveState = false)
+        }
+        val field = compose.platformField()
+        compose.runOnUiThread {
+            field.requestFocus()
+            connection = requireNotNull(field.onCreateInputConnection(editor))
+            connection.commitText("synthetic-transient-password", 1)
+        }
+        assertText("synthetic-transient-password")
+        assertEquals(InputType.TYPE_TEXT_VARIATION_PASSWORD, editor.inputType and InputType.TYPE_MASK_VARIATION)
+        assertFalse(field.isSaveEnabled)
+        restoration.emulateSavedInstanceStateRestore()
+        compose.waitForIdle()
+        assertEquals("", compose.platformText())
+        compose.runOnIdle { assertEquals("", value.text) }
     }
 }

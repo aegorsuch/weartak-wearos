@@ -12,6 +12,17 @@ import java.util.Base64
 import java.util.Date
 
 internal object TestClientP12 {
+    fun ca(name: String = "Synthetic Test CA"): java.security.cert.X509Certificate {
+        val pair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+        val subject = X500Name("CN=$name")
+        val now = System.currentTimeMillis()
+        val builder = JcaX509v3CertificateBuilder(subject, BigInteger.valueOf(now), Date(now - 60_000),
+            Date(now + 86_400_000), subject, pair.public)
+        builder.addExtension(org.bouncycastle.asn1.x509.Extension.basicConstraints, true,
+            org.bouncycastle.asn1.x509.BasicConstraints(true))
+        return JcaX509CertificateConverter().getCertificate(
+            builder.build(JcaContentSignerBuilder("SHA256withRSA").build(pair.private)))
+    }
     fun p12(password: String, validAt: Long = System.currentTimeMillis()): String {
         val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
         val name = X500Name("CN=WearTAK Test Client")

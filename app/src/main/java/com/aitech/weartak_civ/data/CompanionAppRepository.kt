@@ -9,7 +9,6 @@
 
 package com.aitech.weartak_civ.data
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import androidx.datastore.preferences.core.Preferences
@@ -394,7 +393,7 @@ class CompanionAppRepository(private val context: Context) {
         val uid: String,    // Android Device UUID
         val cs: String,     // callsign
         val wtVrs: String,  // WearTAK Version
-        val mac: String?,   // Mac address Bluetooth
+        val mac: String?,   // Optional legacy field; local Bluetooth address is unavailable.
         val bat: Int?,
         val int: Int,       // reporting interval
         val standaloneCallsign: String
@@ -421,13 +420,11 @@ class CompanionAppRepository(private val context: Context) {
 
     suspend fun buildWatchInfoPayload(): WatchInfoPayload {
         val sys = repo.snapshotSystem()
-        val mac = getLocalBluetoothMacOrNull(context)
-
         return WatchInfoPayload(
             uid       = sys.deviceId,
             cs       = sys.callsign,
             wtVrs = sys.wearTakVersion,
-            mac     = mac,
+            mac     = null,
             bat = sys.batteryPercent,
             int  = sys.reportIntSecs,
             standaloneCallsign = sys.standaloneCallsign
@@ -716,22 +713,6 @@ class CompanionAppRepository(private val context: Context) {
     // --- JSON helper ------------------------------------------------------------
     fun <T> envelopeToJson(envelope: Envelope<T>): String {
         return gson.toJson(envelope)
-    }
-
-    @SuppressLint("HardwareIds")
-    private fun getLocalBluetoothMacOrNull(ctx: Context): String? {
-        // [Unverified] On modern Android/WearOS this will often return a
-        // constant like "02:00:00:00:00:00" or null. Treat as best-effort / debug-only.
-        return try {
-            val manager  = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
-            val adapter  = manager?.adapter ?: android.bluetooth.BluetoothAdapter.getDefaultAdapter()
-            adapter?.address
-        } catch (e: SecurityException) {
-            // No BLUETOOTH permission or restricted; just return null.
-            null
-        } catch (t: Throwable) {
-            null
-        }
     }
 
     companion object {

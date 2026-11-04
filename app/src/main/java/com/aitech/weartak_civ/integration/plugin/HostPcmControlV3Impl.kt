@@ -57,6 +57,8 @@ class HostPcmControlV3Impl(
     private val expectedPluginUid: Int,
     private val callerUidProvider: () -> Int = { Binder.getCallingUid() },
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val pkcs12Import: HostPkcs12ImportControl? = null,
+    private val serverPackages: HostServerPackageControl? = null,
 ) : IWearTakPluginHostControlV3.Stub() {
 
     private val lock = Any()
@@ -130,6 +132,14 @@ class HostPcmControlV3Impl(
             pcmStreaming = true,
         )
     }
+
+    override fun getPkcs12ImportCapability() =
+        pkcs12Import?.capability() ?: com.weartak.plugin.sdk.nearbyimport.model.Pkcs12ImportCapabilityParcel()
+
+    override fun getPkcs12ImportControlV1() = pkcs12Import?.authenticatedBinder()
+    override fun getServerPackageCapability() =
+        serverPackages?.capability() ?: com.weartak.plugin.sdk.serverpackage.model.ServerPackageCapabilityParcel()
+    override fun getServerPackageControlV1() = serverPackages?.authenticatedBinder()
 
     /** Connection-owned cleanup for unbind, disconnect, bind failure, and binder death. */
     fun close() {
