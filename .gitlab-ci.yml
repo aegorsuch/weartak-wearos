@@ -83,6 +83,7 @@ android_mopp_check:
       junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
     paths:
       - app/build/reports/tests/
+      - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
       - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
       - weartak-plugin-host-services-sdk/build/reports/lint-results-release.*
   rules:
@@ -112,6 +113,7 @@ host_lint_debug:
     expire_in: 14 days
     paths:
       - app/build/reports/lint-results-debug.*
+      - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'

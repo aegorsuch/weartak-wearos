@@ -32,5 +32,6 @@ git -c core.autocrlf=false checkout --quiet --detach "$COMMIT"
 chmod +x gradlew
 ./gradlew assembleRelease --no-daemon --max-workers=2 \
     -Pkotlin.compiler.execution.strategy=in-process --console=plain
+sha256sum build/outputs/aar/weartak-plugin-sdk-release.aar
 printf '%s  %s\n' "$SHA" build/outputs/aar/weartak-plugin-sdk-release.aar | sha256sum -c -
 printf 'Verified plugin SDK %s: %s\n' "$COMMIT" "$SHA"
