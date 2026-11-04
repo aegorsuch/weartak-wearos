@@ -764,6 +764,9 @@ Companion JSON envelopes (`vers: 1`) also expose the full, untruncated standalon
 identity as `payload.standaloneCallsign` in `watch_info`, `settings_request`,
 and the initial/changed `settings_changed` payload. The existing `watch_info.cs`
 and settings `callsign` remain the effective (possibly phone-managed) identity.
+The optional legacy `watch_info.mac` value is unavailable and omitted from JSON;
+WearTAK does not read the watch's local Bluetooth MAC address. BLE discovery,
+pairing, connection behavior, and saved settings are unchanged.
 For example, while managed, `watch_info.payload` includes
 `{"cs":"PHONE","standaloneCallsign":"ODIN-WEARTAK"}` and settings include
 `{"callsign":"PHONE","standaloneCallsign":"ODIN-WEARTAK"}` alongside their other
