@@ -57,6 +57,18 @@ object TakServerCaTrust {
         return parse(Base64.getDecoder().decode(encoded))
     }
 
+    fun encodeAll(certificates: List<X509Certificate>): String {
+        require(certificates.size in 1..4)
+        return certificates.distinctBy(::fingerprint).joinToString(".") { encode(it) }
+    }
+
+    fun decodeAll(encoded: String): List<X509Certificate> {
+        require(encoded.length <= MAX_BYTES * 2)
+        val parts = encoded.split('.')
+        require(parts.size in 1..4)
+        return parts.map(::decode).also { require(it.distinctBy(::fingerprint).size == it.size) }
+    }
+
     fun fingerprint(certificate: X509Certificate): String =
         MessageDigest.getInstance("SHA-256").digest(certificate.encoded)
             .joinToString(":") { "%02X".format(it.toInt() and 0xff) }
@@ -64,7 +76,7 @@ object TakServerCaTrust {
     fun trustManager(encoded: String): X509TrustManager {
         val store = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
             load(null, null)
-            setCertificateEntry("approved-ca", decode(encoded))
+            decodeAll(encoded).forEachIndexed { index, ca -> setCertificateEntry("approved-ca-$index", ca) }
         }
         return TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
             init(store)
@@ -87,11 +99,13 @@ object TakServerCaTrust {
         enrolled: X509TrustManager?,
         approvedCa: String?,
         platform: X509TrustManager = platformTrustManager(),
+        allowEnrolledTrust: Boolean = true,
     ): X509TrustManager {
         val approved = approvedCa?.let(::trustManager)
+        val legacyEnrolled = enrolled.takeIf { allowEnrolledTrust }
         return object : X509TrustManager {
             override fun getAcceptedIssuers(): Array<X509Certificate> =
-                listOfNotNull(enrolled, approved, platform).flatMap { it.acceptedIssuers.asList() }
+                listOfNotNull(legacyEnrolled, approved, platform).flatMap { it.acceptedIssuers.asList() }
                     .distinct().toTypedArray()
 
             override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) =
@@ -113,7 +127,7 @@ object TakServerCaTrust {
                     }
                     return true
                 }
-                if (attempt(enrolled, verifyHost = approved != null)) return
+                if (attempt(legacyEnrolled, verifyHost = approved != null)) return
                 if (attempt(approved, verifyHost = true)) return
                 if (attempt(platform, verifyHost = true)) return
                 throw failure ?: CertificateException("Server certificate is not trusted")

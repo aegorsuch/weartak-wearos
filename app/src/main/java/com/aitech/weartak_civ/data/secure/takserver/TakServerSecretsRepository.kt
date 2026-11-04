@@ -38,7 +38,7 @@ class TakServerSecretsRepository(private val store: TakServerEncryptedDataStore)
 
     suspend fun setApprovedCa(serverId: String, address: String, port: Int, certificate: String?) {
         val json = certificate?.let {
-            TakServerCaTrust.decode(it)
+            TakServerCaTrust.decodeAll(it)
             require(port in 1..65535)
             Gson().toJson(ApprovedCa(serverId, host(address), port, it))
         }

@@ -65,6 +65,10 @@ class PluginConnection(
     private val handshakeTimeout = Runnable {
         if (!closed) failBind("lifecycle_timeout")
     }
+    @Volatile private var certificateImport: HostPkcs12ImportControl? = null
+    @Volatile private var serverPackages: HostServerPackageControl? = null
+    private val wearerLaunchUntil = java.util.concurrent.atomic.AtomicLong()
+    @Volatile private var sessionActive = false
 
     /**
      * Set when [onServiceConnected] fails before [PluginManager.bind] registers this connection.
@@ -82,12 +86,16 @@ class PluginConnection(
     private val deathRecipient = IBinder.DeathRecipient {
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
+        sessionActive = false
+        certificateImport?.close()
+        serverPackages?.close()
         appScope.launch {
             onBinderDiedInternal()
         }
     }
 
     private fun onBinderDiedInternal() {
+        revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
         PluginDiagnostics.recordBinderDeath(pluginPackage)
@@ -220,7 +228,41 @@ class PluginConnection(
             null
         }
         val controlV3 = if (api == WearTakPluginV3Contract.CONTRACT_API_VERSION) {
-            HostPcmControlV3Impl(app.audioRepo, pluginPackage, pluginUid)
+            sessionActive = true
+            val authenticate = {
+                    if (closed || !sessionActive || pluginBinder?.isBinderAlive != true) false
+                    else try {
+                        runBlocking {
+                            pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+                        }
+                        true
+                    } catch (_: com.aitech.weartak_civ.cep.engine.config.ParserException) {
+                        Log.w(TAG, "Certificate import session authentication rejected")
+                        false
+                    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                        Log.w(TAG, "Certificate import plugin package unavailable")
+                        false
+                    } catch (_: Exception) {
+                        Log.e(TAG, "Certificate import session verification unavailable")
+                        false
+                    }
+            }
+            val launch: (String) -> Unit = { handle ->
+                    app.startActivity(android.content.Intent(app,
+                        com.aitech.weartak_civ.presentation.CertificateImportActivity::class.java)
+                        .putExtra("review_handle", handle).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            val consumeLaunch = { wearerLaunchUntil.getAndSet(0) > android.os.SystemClock.elapsedRealtime() }
+            val importer = HostPkcs12ImportControl(pluginUid, authenticate, launch, consumeWearerLaunch = consumeLaunch)
+            certificateImport = importer
+            val packages = HostServerPackageControl(pluginUid, authenticate, launch, launchExport = { handle ->
+                app.startActivity(android.content.Intent(app,
+                    com.aitech.weartak_civ.presentation.ServerPackageExportActivity::class.java)
+                    .putExtra("export_handle", handle).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }, consumeWearerLaunch = consumeLaunch)
+            serverPackages = packages
+            HostPcmControlV3Impl(app.audioRepo, pluginPackage, pluginUid,
+                pkcs12Import = importer, serverPackages = packages)
         } else {
             null
         }
@@ -261,6 +303,7 @@ class PluginConnection(
         )
         synchronized(stateLock) {
             if (closed) {
+                revokeCertificateSessions()
                 routeStatusControl.close()
                 moppControl?.close()
                 controlV3?.close()
@@ -323,6 +366,7 @@ class PluginConnection(
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
+        revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
         Log.w(TAG, "onServiceDisconnected pkg=$pluginPackage")
@@ -330,6 +374,7 @@ class PluginConnection(
     }
 
     override fun onBindingDied(name: ComponentName?) {
+        revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
         Log.w(TAG, "onBindingDied pkg=$pluginPackage")
@@ -341,11 +386,22 @@ class PluginConnection(
         failBind("null_binder")
     }
 
+    private fun revokeCertificateSessions() {
+        sessionActive = false
+        wearerLaunchUntil.set(0)
+        certificateImport?.close()
+        serverPackages?.close()
+    }
+
     fun tearDownBinder(reason: String) {
+        revokeCertificateSessions()
         Log.i(TAG, "tearDownBinder pkg=$pluginPackage reason=$reason")
         val cleanup = synchronized(stateLock) {
             if (closed) return
             closed = true
+            revokeCertificateSessions()
+            certificateImport = null
+            serverPackages = null
             hostRouteStatusControl?.close()
             hostRouteStatusControl = null
             hostMoppControl?.close()
@@ -389,6 +445,12 @@ class PluginConnection(
     internal fun pluginInfoSnapshot(): PluginInfoParcel? = pluginInfoSnapshot
 
     internal fun apiVersionSnapshot(): Int = apiVersionSnapshot
+
+    internal fun allowCertificateReviewFromWearerLaunch() {
+        wearerLaunchUntil.set(android.os.SystemClock.elapsedRealtime() + 300_000L)
+        certificateImport?.allowReviewFromWearerLaunch()
+        serverPackages?.allowFromWearerLaunch()
+    }
 
     companion object {
         private const val TAG = "CEP-PluginConnection"

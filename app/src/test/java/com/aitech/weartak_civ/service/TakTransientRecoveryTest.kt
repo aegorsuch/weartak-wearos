@@ -516,6 +516,20 @@ class TakTransientRecoveryTest {
         return attempt
     }
 
+    @Test fun provisionalReviewedEndpointCannotBeginConnectionAttempt() {
+        val target = detail()
+        val begin = TAKConnectService.Companion::class.java.getDeclaredMethod(
+            "beginConnectionAttempt", TAKConnectService.TakServerDetail::class.java
+        ).apply { isAccessible = true }
+        val gate = com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate
+        gate.hold(target.address, target.port)
+        try {
+            assertNull(begin.invoke(TAKConnectService.Companion, target))
+            assertNull(target.runtime.currentAttempt)
+        } finally { gate.release(target.address, target.port) }
+        assertNotNull(begin.invoke(TAKConnectService.Companion, target))
+    }
+
     private fun detail() = TAKConnectService.TakServerDetail(
         "recovery-test", true, "Test", "recovery.invalid", 8089, true, "", "", "preserved-cert", ""
     )

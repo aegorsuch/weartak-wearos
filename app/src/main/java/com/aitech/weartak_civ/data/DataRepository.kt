@@ -4675,7 +4675,9 @@ class DataRepository(
         val password: String,
         val p12Cert: String,
         val p12CertPassword: String,
-        val serverId: String? = null
+        val serverId: String? = null,
+        val identityEpoch: String? = null,
+        val strictServerTrust: Boolean = false
     ) {
         override fun toString() = "TakServerItem(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
@@ -4734,30 +4736,97 @@ class DataRepository(
         apply: suspend () -> Unit
     ): Boolean {
         awaitTakServerMigration()
+        val target = readTakServerList().firstOrNull { it.serverId == serverId } ?: return false
+        return try {
+            applyReviewedCertificate(target, p12, null, apply = apply)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: CertificateRecoveryException) {
+            throw error
+        } catch (_: IllegalStateException) {
+            Log.e(TAG, "Chat P12 refused: settings locked or changed")
+            false
+        }
+    }
+
+    internal class CertificateRecoveryException(cause: Throwable) :
+        IllegalStateException("Certificate recovery failed; configuration requires attention", cause)
+
+    internal class StaleCertificateDestinationException :
+        IllegalStateException("Server changed; review again")
+
+    internal class ManagedServerExportException : IllegalStateException("Managed server export is prohibited")
+
+    internal suspend fun applyReviewedCertificate(
+        expected: TakServerItem,
+        identity: com.aitech.weartak_civ.command.ValidatedChatP12?,
+        certificate: String?,
+        stillAuthorized: () -> Boolean = { true },
+        complete: () -> Boolean = { true },
+        apply: suspend () -> Unit,
+    ): Boolean {
+        require(identity != null || certificate != null)
+        val proposed = if (identity == null) expected else expected.copy(isP12Cert = true,
+            p12Cert = identity.base64, p12CertPassword = identity.password)
+        return applyReviewedServer(expected, proposed, certificate, stillAuthorized = stillAuthorized,
+            complete = complete, apply = { apply() })
+    }
+
+    internal suspend fun applyReviewedServer(
+        expected: TakServerItem?,
+        proposed: TakServerItem,
+        certificate: String?,
+        expectedCa: String? = null,
+        checkCaSnapshot: Boolean = false,
+        stillAuthorized: () -> Boolean,
+        complete: () -> Boolean,
+        apply: suspend (String) -> Unit,
+        rollback: suspend () -> Unit = { expected?.serverId?.let { apply(it) } },
+    ): Boolean {
+        awaitTakServerMigration()
         return TakServerEndpointIdentity.mutationMutex.withLock {
-            if (phoneManagedSettingsLocked.first() || getNetworkPreferencesLocked.first()) return@withLock false
+            check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
             val before = readTakServerList()
-            val index = before.indexOfFirst { it.serverId == serverId }
-            if (index < 0) return@withLock false
-            val after = before.toMutableList().apply {
-                this[index] = this[index].copy(isP12Cert = true, p12Cert = p12.base64, p12CertPassword = p12.password)
+            val id = expected?.serverId ?: TakServerId.ensureUnique(null, before.mapNotNullTo(mutableSetOf(), TakServerItem::serverId))
+            val index = before.indexOfFirst { it.serverId == id }
+            if (expected != null && (index < 0 || before[index] != expected)) throw StaleCertificateDestinationException()
+            val endpoint = TakServerEndpointIdentity.key(proposed)
+            if (before.any { it.serverId != id && TakServerEndpointIdentity.key(it) == endpoint }) {
+                throw StaleCertificateDestinationException()
             }
+            val oldCa = if (expected != null && (certificate != null || checkCaSnapshot))
+                getApprovedServerCa(id, expected.address, expected.port) else null
+            if (checkCaSnapshot && oldCa != expectedCa) throw StaleCertificateDestinationException()
+            certificate?.let(com.aitech.weartak_civ.data.takserver.TakServerCaTrust::decodeAll)
+            require(proposed.name.isNotBlank() && proposed.name.length <= 128 && proposed.port in 1..65535)
+            okhttp3.HttpUrl.Builder().scheme("https").host(proposed.address).port(proposed.port).build()
+            val after = before.toMutableList()
+            if (expected == null) after.add(proposed.copy(serverId = id)) else after[index] = proposed.copy(serverId = id)
+            check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
             try {
-                writeTakServerList(after, "installChatP12")
-                apply()
+                writeTakServerList(after, "applyReviewedCertificate")
+                if (certificate != null || checkCaSnapshot)
+                    takServerSecretsRepository.setApprovedCa(id, proposed.address, proposed.port, certificate)
+                check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
+                apply(id)
+                check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
+                check(complete()) { "Certificate review was cancelled before commit" }
                 true
             } catch (error: Exception) {
-                try {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                        writeTakServerList(before, "rollbackChatP12")
-                        apply()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        writeTakServerList(before, "rollbackReviewedCertificate")
+                        if (expected == null) takServerSecretsRepository.removeApprovedCa(id)
+                        else if (certificate != null || checkCaSnapshot)
+                            takServerSecretsRepository.setApprovedCa(id, expected.address, expected.port, oldCa)
+                        rollback()
+                    } catch (recovery: Exception) {
+                        Log.e(TAG, "Certificate recovery failed; configuration requires attention")
+                        throw CertificateRecoveryException(recovery)
                     }
-                } catch (_: Exception) {
-                    Log.e(TAG, "Chat P12 rollback failed; configuration requires attention")
-                    throw IllegalStateException("P12 recovery failed; configuration requires attention")
                 }
                 if (error is CancellationException) throw error
-                Log.e(TAG, "Chat P12 apply failed; previous credentials restored")
+                Log.e(TAG, "Certificate apply failed; previous settings restored")
                 false
             }
         }
@@ -4850,6 +4919,33 @@ class DataRepository(
         }
     }
 
+    internal suspend fun reviewedExportStillAllowed(expected: TakServerItem, ca: String?): Boolean {
+        awaitTakServerMigration()
+        return TakServerEndpointIdentity.mutationMutex.withLock {
+            !chatEnrollmentBlocked() && readTakServerList().any { it == expected } &&
+                getApprovedServerCa(requireNotNull(expected.serverId), expected.address, expected.port) == ca
+        }
+    }
+
+    internal suspend fun exportReviewedServer(
+        expected: TakServerItem,
+        ca: String?,
+        create: suspend () -> ByteArray,
+    ): ByteArray {
+        awaitTakServerMigration()
+        return TakServerEndpointIdentity.mutationMutex.withLock {
+            if (chatEnrollmentBlocked()) throw ManagedServerExportException()
+            if (readTakServerList().none { it == expected } ||
+                getApprovedServerCa(requireNotNull(expected.serverId), expected.address, expected.port) != ca)
+                throw StaleCertificateDestinationException()
+            val bytes = create()
+            try {
+                if (chatEnrollmentBlocked()) throw ManagedServerExportException()
+                bytes
+            } catch (error: Exception) { bytes.fill(0); throw error }
+        }
+    }
+
     suspend fun tryAwaitTakServerList(): List<TakServerItem>? {
         return try {
             awaitTakServerList()
@@ -4893,6 +4989,7 @@ class DataRepository(
             clearObsoleteServerCa(currentList, uniqueList)
             Log.i(TAG, "storeTakServerList: writing list size=${uniqueList.size}, len=${jsonString.length}")
             takServerSecretsRepository.setTakServerListJson(jsonString)
+            removeObsoleteApprovedCas(currentList, uniqueList)
             if (watchOwned) recordWatchOwnedTakServers(jsonString)
         }
 
@@ -5047,7 +5144,8 @@ class DataRepository(
                 return@withLock TakServerUpdateResult.INVALID_INDEX
             }
             val normalizedItem = normalizeTakServerItem(
-                newItem,
+                newItem.copy(identityEpoch = newItem.identityEpoch ?: currentList[oldItemIndex].identityEpoch,
+                    strictServerTrust = newItem.strictServerTrust || currentList[oldItemIndex].strictServerTrust),
                 preferredServerId = currentList[oldItemIndex].serverId
             )
             val duplicateIndex = currentList.indexOfFirst {
@@ -5065,10 +5163,11 @@ class DataRepository(
     }
 
     private suspend fun writeTakServerList(list: List<TakServerItem>, operation: String) {
-        clearObsoleteServerCa(readTakServerList(), list)
+        val before = readTakServerList()
         val json = gson.toJson(normalizeTakServerList(list))
         Log.i(TAG, "$operation: writing list size=${list.size}, len=${json.length}")
         takServerSecretsRepository.setTakServerListJson(json)
+        clearObsoleteServerCa(before, list)
         recordWatchOwnedTakServers(json)
     }
 

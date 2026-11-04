@@ -189,7 +189,7 @@ android {
 
     splits {
         abi {
-            enable !isBuildingBundle
+            enable !isBuildingBundle && !gradle.startParameter.taskNames.any { it.toLowerCase().contains("nearbyfixture") }
             reset()
             include debugAbi ?: emulatorAbi ?: "armeabi-v7a"
             universalApk false
@@ -197,6 +197,15 @@ android {
     }
 
     buildTypes {
+        nearbyFixture {
+            initWith debug
+            applicationIdSuffix ".nearbyfixture"
+            matchingFallbacks = ['debug']
+            signingConfig signingConfigs.debug
+            buildConfigField "Boolean", "CEP_SIMULATION", "false"
+            buildConfigField "Boolean", "CEP_TEST_ALERTS", "false"
+            manifestPlaceholders.cepSimulationEnabled = "false"
+        }
         debug {
             def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true"
             applicationIdSuffix dittoUiDemo ? ".ditto.diagnostics.fixture" : ".dev"

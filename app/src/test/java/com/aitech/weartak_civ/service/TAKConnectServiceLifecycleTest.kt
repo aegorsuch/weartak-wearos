@@ -88,6 +88,7 @@ class TAKConnectServiceLifecycleTest {
         coEvery { repository.awaitTakServerList() } coAnswers {
             checkNotNull(repository.tryAwaitTakServerList()) { "Fixture store unavailable" }
         }
+        coEvery { repository.getApprovedServerCa(any(), any(), any()) } returns null
         coEvery { repository.tryAwaitTakServerList() } returns listOf(
             DataRepository.TakServerItem(
                 true, "Test", "tak.example.invalid", 8089, false,

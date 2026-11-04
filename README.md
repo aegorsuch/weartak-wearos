@@ -6,6 +6,66 @@ WearTAK-WearOS is a standalone Wear OS application that connects a watch to the 
 
 The app can connect directly to a TAK server and can optionally use SITX, Ditto mesh, BLE companion, and plugin integrations when those capabilities are configured. A phone is not required for the app's primary watch workflow.
 
+### Nearby server review (local integration)
+
+The optional V3 host controls stage PKCS12 or canonical ServerPackage V1 data in
+host-owned memory, limited to 32,700 bytes and a 300-second lease. Every Binder
+method authenticates the plugin UID, registered package, signer and live
+connection. Random, origin-bound handles are one-use; cancellation, expiry and
+connection death erase staged bytes. Opening review/export requires a one-use
+grant from the host's foreground plugin launcher. No plugin apply endpoint exists.
+
+The wearer chooses the destination and explicitly applies changes. Private CAs
+require certificate/fingerprint review, independently of client identity.
+Nearby-imported client chains do not automatically become server trust roots.
+Public-CA packages use platform trust and strict endpoint verification. Existing
+server and CA snapshots, management policy and lease authorization are checked
+again at the persistence boundary; failures restore the prior configuration.
+Runtime connection/enrollment starts are fenced while settings are provisional;
+the previous enrolled identity cache is retained for rollback. Connection starts
+only after a successful review commit. A post-commit start failure is reported
+without misrepresenting the saved configuration as unapplied.
+`APPLIED` means configuration saved, not enrollment or connection success.
+Receiver enrollment uses receiver-entered credentials (or explicitly accepted
+shared login) and a fresh, receiver-local certificate-cache identity. Separate
+administrator PKCS12 mode saves the server disabled until its client bundle is
+imported and the server is enabled.
+
+Sender export is host-owned: choose a configured server, then separately opt in
+to sharing the client identity/private key and username/password. Sensitive export
+requires an additional explicit confirmation. Managed sources, stale snapshots,
+non-exportable or unavailable keys, invalid identities and oversized packages are
+refused. Only settings, reviewed CA material and specifically approved server
+credentials are exported, never watch UID, callsign or device settings. Sharing a
+certificate allows every recipient to impersonate that identity; revocation
+affects all shared watches. Export is one-use and rechecks source authorization
+when the plugin takes the package. Sensitive bytes have no independent
+application-layer encryption: transport must use Nearby UKEY2 encryption and
+mutual code confirmation. Actual credential transmission requires separate
+authorization.
+
+This work extracts shared PKCS12 classification, CA review and guarded save logic
+from unmerged NFC MR !585 (`d6a7611a61eaebc9074ac3af9c7de135ecaf40e2`);
+it does not include NFC HCE, transport or prefilling. Current SDK dependency is
+the **uncommitted, local-integration-only** AAR with SHA-256
+`a67356ae6de956033b89e834b8d91b2aaf064335fde22cb120e2f4975fbb258f`;
+its source manifest is
+`100596cb98aafaa2f40e00383ecce864797740073cc675a7cb99a89e79d15a3d`.
+An immutable SDK revision, dependency reconciliation with NFC and normal
+distribution/licensing approvals remain release gates. Frozen V1 exposes stale
+destination rejection as `REJECTED/FAILED`, while the wearer sees the specific
+stale-destination message; it has no distinct stale Binder status.
+
+`:app:assembleNearbyFixture` builds an isolated `.nearbyfixture` application with
+no TAK/application startup or Internet permission. It renders production round-
+watch review/export widgets with synthetic client keys, CA certificates and a
+memory-only backend. Its optional signature-bound plugin bridge demonstrates the
+real SDK Binder and plugin UI without starting Nearby advertising/discovery.
+The fixture's visible foreground service keeps its Binder host alive while the
+plugin is foreground; stopping the fixture process ends that synthetic session.
+Debug receive injection uses the plugin's debug-only, host-bound synthetic
+loopback service; neither fixture nor receive hook belongs in release builds.
+
 ### What it does
 
 - Connects to TAK endpoints and sends and receives CoT traffic.

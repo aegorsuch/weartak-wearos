@@ -232,6 +232,8 @@ class TAKConnectService: Service() {
         var duplicateEndpointSuppressed: Boolean = false,
         var approvedCa: String? = null,
         val connectionFailureLiveData: MutableLiveData<TakConnectionFailure?> = MutableLiveData(null),
+        var identityEpoch: String? = null,
+        var strictServerTrust: Boolean = false,
     ) {
         override fun toString() = "TakServerDetail(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
@@ -502,6 +504,8 @@ class TAKConnectService: Service() {
         password = password,
         p12Cert = p12Cert,
         p12CertPassword = p12CertPassword,
+        identityEpoch = identityEpoch,
+        strictServerTrust = strictServerTrust,
         numConnAttempts = 0
     )
 
@@ -513,7 +517,8 @@ class TAKConnectService: Service() {
             username == item.username &&
             password == item.password &&
             p12Cert.orEmpty() == item.p12Cert &&
-            p12CertPassword.orEmpty() == item.p12CertPassword
+            p12CertPassword.orEmpty() == item.p12CertPassword &&
+            identityEpoch == item.identityEpoch && strictServerTrust == item.strictServerTrust
 
     private fun TakServerDetail.hasChangedCredentialMaterial(item: TakServerItem): Boolean =
         address != item.address.trim() ||
@@ -522,7 +527,8 @@ class TAKConnectService: Service() {
             username != item.username ||
             password != item.password ||
             p12Cert.orEmpty() != item.p12Cert ||
-            p12CertPassword.orEmpty() != item.p12CertPassword
+            p12CertPassword.orEmpty() != item.p12CertPassword ||
+            identityEpoch != item.identityEpoch
 
     private fun startTakServerConfigurationCollector() {
         scope.launch {
@@ -555,9 +561,15 @@ class TAKConnectService: Service() {
                 getClientCertificateAndConnect(detail)
             }
         }
+
     }
 
-    private suspend fun reloadProvisionedTakServers(
+    internal suspend fun prepareReviewedServer(serverId: String) {
+        reloadProvisionedTakServers(registrationServerId = serverId)
+        check(getTakServerDetail(serverId) != null) { "Saved TAK server is unavailable" }
+    }
+
+    internal suspend fun reloadProvisionedTakServers(
         registrationServerId: String? = null,
         retryFailed: Boolean = false,
     ) = configurationMutex.withLock {
@@ -602,8 +614,12 @@ class TAKConnectService: Service() {
                     }
                     serverRegistration.replaceRuntime(serverId, previous, replacement)
                     invalidateConnection(previous, terminate = true)
-                    if (previous.hasChangedCredentialMaterial(stored) || previous.approvedCa != approvedCa) {
-                        context.deleteFile(certificateCacheFileName(previous))
+                    val reviewPending = com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate
+                        .blocked(stored.address, stored.port)
+                    if (!reviewPending && (previous.hasChangedCredentialMaterial(stored) || previous.approvedCa != approvedCa)) {
+                        // A fresh enrollment has its own cache; retain the prior identity for rollback.
+                        if (previous.identityEpoch == stored.identityEpoch)
+                            context.deleteFile(certificateCacheFileName(previous))
                         if (TakServerEndpointIdentity.key(previous.address, previous.port) !=
                             TakServerEndpointIdentity.key(stored)) {
                             context.deleteFile(
@@ -2057,7 +2073,7 @@ class TAKConnectService: Service() {
                 hostnameVerifier = checkNotNull(detail.channelHostnameVerifier) {
                     "TAK Server channel hostname verifier is unavailable"
                 },
-                strictEndpoint = detail.approvedCa != null,
+                strictEndpoint = detail.approvedCa != null || detail.strictServerTrust,
                 session = session,
             )
         }
@@ -2101,7 +2117,7 @@ class TAKConnectService: Service() {
                 requestsAllowed = {
                     dataRepository.getEnableDataSync.first() && missionConnectionReady(detail)
                 },
-                strictHostname = detail.approvedCa != null,
+                strictHostname = detail.approvedCa != null || detail.strictServerTrust,
                 session = session
             )
         }
@@ -2546,6 +2562,7 @@ class TAKConnectService: Service() {
         }
 
         private fun beginConnectionAttempt(detail: TakServerDetail): ConnectionAttempt? {
+            if (com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate.blocked(detail.address, detail.port)) return null
             val oldSockets: MutableList<java.net.Socket> = mutableListOf()
             val attempt: ConnectionAttempt
             synchronized(detail.runtime.lock) {
@@ -2699,7 +2716,7 @@ class TAKConnectService: Service() {
                 t.runtime.sideloadedP12Password = pwd
 
                 // Optional but very helpful during bring-up:
-                dumpKeyStoreAliases(t.keyStore, "$TAG/${t.address}")
+                if (!t.strictServerTrust) dumpKeyStoreAliases(t.keyStore, "$TAG/${t.address}")
 
                 true
             } catch (e: Exception) {
@@ -2966,10 +2983,30 @@ class TAKConnectService: Service() {
         }
 
         private fun certificateCacheFileName(takServerDetail: TakServerDetail): String =
-            certificateCacheFileName(takServerDetail.address, takServerDetail.port)
+            certificateCacheFileName(takServerDetail.address, takServerDetail.port, takServerDetail.identityEpoch)
 
-        private fun certificateCacheFileName(address: String, port: Int): String {
-            val endpoint = TakServerEndpointIdentity.key(address, port)
+        internal fun exportCachedClientIdentity(context: Context, expected: TakServerItem): Pair<ByteArray, String> {
+            val detail = requireNotNull(getTakServerDetail(requireNotNull(expected.serverId))) {
+                "No exportable client identity is loaded"
+            }
+            return synchronized(detail.runtime.lock) {
+                check(!detail.runtime.terminated && detail.address == expected.address &&
+                    detail.port == expected.port && detail.username == expected.username &&
+                    detail.password == expected.password && detail.isP12Cert == expected.isP12Cert &&
+                    detail.p12Cert.orEmpty() == expected.p12Cert &&
+                    detail.p12CertPassword.orEmpty() == expected.p12CertPassword &&
+                    detail.identityEpoch == expected.identityEpoch) { "Server identity changed" }
+                val bytes = context.openFileInput(certificateCacheFileName(detail)).use { it.readNBytes(32701) }
+                if (bytes.size > 32700) {
+                    bytes.fill(0)
+                    throw IllegalArgumentException("Client identity is too large")
+                }
+                bytes to KEYSTORE_PASS
+            }
+        }
+
+        private fun certificateCacheFileName(address: String, port: Int, identityEpoch: String? = null): String {
+            val endpoint = TakServerEndpointIdentity.key(address, port) + (identityEpoch?.let { ":$it" } ?: "")
             val digest = MessageDigest.getInstance(SHA256_ALGORITHM).digest(endpoint.toByteArray())
             val encoded = android.util.Base64.encodeToString(
                 digest,
@@ -3175,7 +3212,8 @@ class TAKConnectService: Service() {
                         recordConnectionCounts()
 
                         // see if we have one locally
-                        if (!takServerDetail.isP12Cert || takServerDetail.p12Cert.isNullOrBlank()) {
+                        if ((!takServerDetail.isP12Cert || takServerDetail.p12Cert.isNullOrBlank()) &&
+                            !takServerDetail.strictServerTrust) {
                             Log.i(TAG, "Not P12 for ${takServerDetail.address} ... checking if p12 locally loaded ...")
                             if (maybeLoadP12FromDisk(takServerDetail)) {
                                 Log.i(TAG, "Loaded PKCS12 from disk for ${takServerDetail.address}; short-circuiting to connect")
@@ -3414,7 +3452,7 @@ class TAKConnectService: Service() {
                 takServerDetail.connectionStatusLiveData.postValue(TAK_SERVER_CONNECTING_STRING)
                 try {
                     Log.d(TAG, "Aliases for server $takServer")
-                    dumpKeyStoreAliases(takServerDetail.keyStore, TAG)
+                    if (!takServerDetail.strictServerTrust) dumpKeyStoreAliases(takServerDetail.keyStore, TAG)
                     // Initialize the KeyManagerFactory with the client certificate
                     val keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
                     val sideloadedPassword = takServerDetail.runtime.sideloadedP12Password
@@ -3448,6 +3486,7 @@ class TAKConnectService: Service() {
                         takServer,
                         trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull(),
                         takServerDetail.approvedCa,
+                        allowEnrolledTrust = !takServerDetail.strictServerTrust,
                     )
 
                     val sslContext = SSLContext.getInstance("TLSv1.3")
@@ -3494,7 +3533,7 @@ class TAKConnectService: Service() {
                     }
                     Log.d(TAG, "Starting secureSocket handshake")
                     socket.soTimeout = 15_000
-                    if (takServerDetail.approvedCa != null) {
+                    if (takServerDetail.approvedCa != null || takServerDetail.strictServerTrust) {
                         com.aitech.weartak_civ.data.takserver.TakServerCaTrust.configureHostnameVerification(socket)
                     }
                     socket.startHandshake()
@@ -3518,7 +3557,7 @@ class TAKConnectService: Service() {
                     }
                     takServerDetail.channelSslContext = sslContext
                     takServerDetail.channelTrustManager = trustManager
-                    takServerDetail.channelHostnameVerifier = if (takServerDetail.approvedCa != null) {
+                    takServerDetail.channelHostnameVerifier = if (takServerDetail.approvedCa != null || takServerDetail.strictServerTrust) {
                         OkHttpClient().hostnameVerifier
                     } else TakSanHostnameVerifier(takServerDetail.address, trustManager)
                     isAnyTakConnected = true

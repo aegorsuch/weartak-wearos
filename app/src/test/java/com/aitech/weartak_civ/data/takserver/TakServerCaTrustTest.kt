@@ -20,6 +20,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
+import javax.net.ssl.X509TrustManager
 import okhttp3.Request
 import okhttp3.OkHttpClient
 import org.bouncycastle.asn1.x500.X500Name
@@ -40,6 +41,33 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class TakServerCaTrustTest {
+    @Test fun independentlyApprovedMultipleCasRoundTripAndInitializeTrust() {
+        val cas = listOf(TestClientP12.ca("First"), TestClientP12.ca("Second"))
+        val encoded = TakServerCaTrust.encodeAll(cas)
+        assertEquals(cas, TakServerCaTrust.decodeAll(encoded))
+        assertEquals(2, TakServerCaTrust.trustManager(encoded).acceptedIssuers.size)
+        assertTrue(runCatching { TakServerCaTrust.decodeAll(encoded + "." + encoded) }.isFailure)
+    }
+
+    @Test fun strictImportedIdentityDoesNotImplicitlyTrustItsOwnCaChain() {
+        val certificate = TestClientP12.ca()
+        val accept = object : X509TrustManager {
+            override fun getAcceptedIssuers() = arrayOf(certificate)
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+        }
+        val reject = object : X509TrustManager {
+            override fun getAcceptedIssuers() = emptyArray<X509Certificate>()
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) { throw CertificateException() }
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) { throw CertificateException() }
+        }
+        val strict = TakServerCaTrust.streamingTrustManager("event.example", accept, null, reject, allowEnrolledTrust = false)
+        assertTrue(runCatching { strict.checkServerTrusted(arrayOf(certificate), "RSA") }.exceptionOrNull() is CertificateException)
+        assertEquals(0, strict.acceptedIssuers.size)
+        val legacy = TakServerCaTrust.streamingTrustManager("event.example", accept, null, reject)
+        legacy.checkServerTrusted(arrayOf(certificate), "RSA")
+    }
+
     @get:Rule val temporary = TemporaryFolder()
     private var androidProviders = emptyList<Pair<Provider, Int>>()
 

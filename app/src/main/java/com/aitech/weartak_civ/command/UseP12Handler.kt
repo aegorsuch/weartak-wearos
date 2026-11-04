@@ -28,12 +28,26 @@ object ChatP12Validator {
         } else {
             Base64.getDecoder().decode(encoded)
         }
+        return try {
+            validateBytes(bytes, password, now = now)
+        } finally { bytes.fill(0) }
+    }
+
+    fun validateBytes(
+        bytes: ByteArray,
+        password: String,
+        maxBytes: Int = MAX_BYTES,
+        now: Long = System.currentTimeMillis(),
+        maxPasswordChars: Int = 128,
+    ): ValidatedChatP12 {
+        require(bytes.isNotEmpty() && bytes.size <= maxBytes)
+        require(password.isNotEmpty() && password.length <= maxPasswordChars)
+        val ownedBytes = bytes.copyOf()
         try {
-            require(bytes.isNotEmpty() && bytes.size <= MAX_BYTES)
             val chars = password.toCharArray()
             try {
                 val store = KeyStore.getInstance("PKCS12")
-                ByteArrayInputStream(bytes).use { store.load(it, chars) }
+                ByteArrayInputStream(ownedBytes).use { store.load(it, chars) }
                 val aliases = store.aliases().toList().filter { store.isKeyEntry(it) }
                 require(aliases.size == 1)
                 val alias = aliases.single()
@@ -65,10 +79,10 @@ object ChatP12Validator {
                 KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).init(store, chars)
                 val fingerprint = MessageDigest.getInstance("SHA-256").digest(leaf.encoded)
                     .joinToString("") { "%02x".format(it.toInt() and 255) }
-                return ValidatedChatP12(Base64.getEncoder().encodeToString(bytes), password,
+                return ValidatedChatP12(Base64.getEncoder().encodeToString(ownedBytes), password,
                     fingerprint, certificates.minOf { it.notAfter.time })
             } finally { chars.fill('\u0000') }
-        } finally { bytes.fill(0) }
+        } finally { ownedBytes.fill(0) }
     }
 }
 
