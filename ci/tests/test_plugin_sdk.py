@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import shutil
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,7 +39,20 @@ class PluginSdkTests(unittest.TestCase):
                          ("host_lint_debug:", "agp_resolution_diagnostic:"),
                          (".release_build:", "main_release:")):
             section = ci.split("\n" + job, 1)[1].split("\n" + end, 1)[0]
-            self.assertIn("python3 ci/build_plugin_sdk.py", section)
+            self.assertIn("sh ci/build_plugin_sdk.sh", section)
+
+    def test_android_bootstrap_uses_existing_shell_tools(self):
+        helper = ROOT / "ci" / "build_plugin_sdk.sh"
+        shell = shutil.which("sh")
+        if not shell:
+            git = shutil.which("git")
+            shell = str(Path(git).resolve().parents[1] / "usr" / "bin" / "sh.exe") if git else None
+        self.assertTrue(shell and Path(shell).is_file(), "POSIX shell required")
+        subprocess.run([shell, "-n", str(helper)], check=True)
+        text = helper.read_text()
+        for invariant in ("ci/plugin-sdk.json", "core.autocrlf=false", "HEAD^{tree}",
+                          "sha256sum -c -", "assembleRelease", "--untracked-files=no"):
+            self.assertIn(invariant, text)
 
 
 if __name__ == "__main__":

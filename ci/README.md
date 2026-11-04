@@ -6,7 +6,9 @@ Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
 pins the upstream source commit, tree and neutral-source release AAR SHA-256.
 The helper checks out source without Windows newline conversion, builds using
 JDK 17/Android SDK 34 and fails on a hash mismatch. Android CI jobs run the same
-helper before testing, lint or signing. Source and outputs stay under ignored
+pin through `sh ci/build_plugin_sdk.sh` before testing, lint or signing; the
+Android launcher has Git/jq but no Python. Both helpers enforce remote, exact
+commit/tree, neutral checkout and final AAR hash. Source and outputs stay under ignored
 `.gradle/sdk/<12-character-source-prefix>`, outside host `clean`; the complete
 commit and tree are still checked. The short directory avoids Windows AIDL
 path limits. No SDK publisher is required.

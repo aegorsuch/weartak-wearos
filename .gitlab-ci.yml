@@ -29,7 +29,7 @@ android_mopp_check:
     entrypoint: [""]
   script:
     - chmod +x gradlew
-    - python3 ci/build_plugin_sdk.py
+    - sh ci/build_plugin_sdk.sh
     - >-
       ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process
       :app:assembleDebug :app:testDebugUnitTest
@@ -105,7 +105,7 @@ host_lint_debug:
     entrypoint: [""]
   script:
     - chmod +x gradlew
-    - python3 ci/build_plugin_sdk.py
+    - sh ci/build_plugin_sdk.sh
     - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:lintDebug
   artifacts:
     when: always
@@ -149,7 +149,7 @@ agp_resolution_diagnostic:
   before_script:
     - !reference [.artifactory_credentials, before_script]
     - chmod +x gradlew
-    - python3 ci/build_plugin_sdk.py
+    - sh ci/build_plugin_sdk.sh
 
     # Verify required CI variables exist.
     - |
