@@ -31,7 +31,7 @@ class ProfileCommandsTest {
         teams = { listOf("White", "Dark Green", "Orange") },
         roles = { listOf("MIL" to "Team Member", "MIL" to "K9", "LEO" to "Detective") },
         sexes = { listOf("N/A", "Male", "Female") },
-        userTypes = { listOf("N/A", "Coalition Civilian") }
+        userTypes = { listOf("Air Force", "Army", "Civilian", "Foreign National", "Marine Corps", "Navy", "None") }
     )
 
     private fun run(name: String, text: String): ChatCommandResult = runBlocking {
@@ -46,13 +46,13 @@ class ProfileCommandsTest {
         val r = run(
             "setprofile",
             "callsign=ODIN-WEARTAK team=\"dark green\" role=k9 height=5'8\" weight=150 pants=30 waist=30 " +
-                "birthyear=1988 sex=male usertype=\"Coalition Civilian\""
+                "birthyear=1988 sex=male usertype=Civilian"
         )
         assertTrue(r.message, r.ok)
         assertEquals(
             setOf(
                 "callsign=ODIN-WEARTAK", "team=Dark Green", "role=MIL/K9", "height=5/8", "weight=150",
-                "pants=30", "waist=30", "birthyear=1988", "sex=Male", "usertype=Coalition Civilian"
+                "pants=30", "waist=30", "birthyear=1988", "sex=Male", "usertype=Civilian"
             ),
             calls.toSet()
         )
@@ -71,6 +71,20 @@ class ProfileCommandsTest {
         assertFalse(run("setrole", "role=Wizard").ok)
         assertFalse(run("setsex", "sex=Other").ok)
         assertFalse(run("setusertype", "usertype=Admin").ok)
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test
+    fun unitChoicesAreAcceptedAndLegacyClassificationsCannotBeNewlyAssigned() {
+        options.userTypes().forEach { unit ->
+            assertTrue(run("setusertype", "usertype=\"${unit.lowercase()}\"").ok)
+        }
+        assertEquals(options.userTypes().map { "usertype=$it" }, calls)
+        calls.clear()
+        listOf("Child", "Coalition Civilian", "Coalition Military", "NonCoalition Force",
+            "Non-Coalition Civilian", "Non-Coalition Military", "Opposing Force Detainee").forEach {
+            assertFalse(run("setprofile", "callsign=NEW usertype=\"$it\"").ok)
+        }
         assertTrue(calls.isEmpty())
     }
 

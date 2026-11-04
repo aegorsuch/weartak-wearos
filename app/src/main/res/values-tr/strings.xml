@@ -159,7 +159,7 @@
     <string name="weight">Weight</string>
     <string name="sex">Sex</string>
     <string name="blood_type">Blood Type</string>
-    <string name="user_type">User Type</string>
+    <string name="user_type">Unit</string>
     <string name="height">Height</string>
     <string name="allergies">Allergies</string>
     <string name="value_exceeds_maximum_please_re_enter">Value exceeds maximum, please re-enter</string>

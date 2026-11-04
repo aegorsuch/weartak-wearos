@@ -5920,12 +5920,12 @@ class DataRepository(
     }
 
     val getPhysiologicalMetricUserType: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[USER_TYPE] ?: DEFAULT_USER_TYPE
+        ProfileUnit.normalizeStored(prefs[USER_TYPE] ?: DEFAULT_USER_TYPE)
     }
 
     suspend fun storePhysiologicalMetricUserType(usertype: String) {
         context.dataStore.edit { prefs ->
-            prefs[USER_TYPE] = usertype
+            prefs[USER_TYPE] = ProfileUnit.normalizeStored(usertype)
         }
     }
 

@@ -712,7 +712,7 @@
     <string name="allergy_entry_muscle_relaxers" translatable="false">Muscle Relaxers</string>
 
     <!-- User Type entries -->
-    <string name="physiological_metrics_user_type_default" translatable="false">N/A</string>
+    <string name="physiological_metrics_user_type_default" translatable="false">none</string>
     <string name="user_type_entry_na" translatable="false">N/A</string>
     <string name="user_type_entry_coalition_military" translatable="false">Coalition Military</string>
     <string name="user_type_entry_coalition_civilian" translatable="false">Coalition Civilian</string>
@@ -722,8 +722,8 @@
     <string name="user_type_entry_child" translatable="false">Child</string>
 
     <!--  -->
-    <string name="physiological_metrics_user_type_title" translatable="false">Physiological Metrics: User Type</string>
-    <string name="physiological_metrics_user_type_description" translatable="false">Enter User Type</string>
+    <string name="physiological_metrics_user_type_title" translatable="false">Physiological Metrics: Unit</string>
+    <string name="physiological_metrics_user_type_description" translatable="false">Select Unit</string>
 
 
     <string name="resting_hr_high_alert_bpm_threshold_title" translatable="false">High Resting Heart Rate Threshold (bpm)</string>
@@ -810,7 +810,15 @@
     <string name="weight">Weight</string>
     <string name="sex">Sex</string>
     <string name="blood_type">Blood Type</string>
-    <string name="user_type">User Type</string>
+    <string name="user_type">Unit</string>
+    <string name="unit_air_force">Air Force</string>
+    <string name="unit_army">Army</string>
+    <string name="unit_civilian">Civilian</string>
+    <string name="unit_foreign_national">Foreign National</string>
+    <string name="unit_marine_corps">Marine Corps</string>
+    <string name="unit_navy">Navy</string>
+    <string name="unit_none">None</string>
+    <string name="unit_legacy_value">Legacy value: %1$s. Select a Unit.</string>
     <string name="height">Height</string>
     <string name="allergies">Allergies</string>
     <string name="value_exceeds_maximum_please_re_enter">Value exceeds maximum, please re-enter</string>

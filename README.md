@@ -3177,12 +3177,32 @@ Profile commands take the same values as the settings screens (case-insensitive)
 | `setweight` | `weight=<1-1000>` |
 | `setbirthyear` | `birthyear=<1900-current year>` |
 | `setsex` | `sex=<Male, Female, N/A>` |
-| `setusertype` | `usertype="Coalition Civilian"` |
+| `setusertype` | `usertype="Air Force"` (Unit: Air Force, Army, Civilian, Foreign National, Marine Corps, Navy, None) |
 | `setpants`, `setuniformpantslengthinches` | `pants=<20-50>` (inches) |
 | `setwaist`, `setwaistsize` | `waist=<20-60>` (inches) |
 | `setprofile` | any combination of the fields above plus `callsign` |
 
 The callsign, team and role fields (including in `setprofile`) are refused when settings are managed by the phone.
+
+The physiological profile's **Unit** replaces the former User Type choices.
+Unit labels are separate from stable stored/managed values: `air_force`, `army`,
+`civilian`, `foreign_national`, `marine_corps`, `navy`, `none`, in that order.
+The `user_type` storage key, `physiological_metrics_user_type` managed key, and
+`setusertype` command remain compatible identifiers. Legacy `N/A` means None;
+other legacy classifications remain visible and unselected until explicitly
+replaced. Opening the selector never assigns Air Force or infers service/nationality.
+
+These profile changes do not publish BATTAK patients or broaden the existing
+BATDOK switch's behavior. Future patient sharing requires explicit reconfirmation,
+an approved destination scope, and an authorized codec/key provisioning approach.
+The proposed patient mapping uses effective callsign for name/alias and Unit for
+nullable `unit` (None omitted), never a legacy classification. Birth year must be
+explicitly supplied before estimating age; default/cached age is not evidence.
+An interoperable unknown-age strategy and sex/gender mapping remain unresolved;
+do not invent either value or add an unsupported patient field.
+Future updates must retain a separate, persisted 16-hex-digit patient identity.
+Vitals must come from fresh policy-filtered samples, with source timestamps;
+skin temperature must not be presented as core temperature.
 
 Allowed Callsigns uses the same full-screen text-entry page as other settings
 when adding or editing an entry, with the standard confirm/cancel controls instead of a
