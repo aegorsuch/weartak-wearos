@@ -4986,10 +4986,9 @@ class DataRepository(
                 normalizeTakServerItem(item, preferredServerId = uniqueId)
             }
             val jsonString = gson.toJson(uniqueList)
-            clearObsoleteServerCa(currentList, uniqueList)
             Log.i(TAG, "storeTakServerList: writing list size=${uniqueList.size}, len=${jsonString.length}")
             takServerSecretsRepository.setTakServerListJson(jsonString)
-            removeObsoleteApprovedCas(currentList, uniqueList)
+            clearObsoleteServerCa(currentList, uniqueList)
             if (watchOwned) recordWatchOwnedTakServers(jsonString)
         }
 

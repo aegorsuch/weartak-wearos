@@ -1,5 +1,24 @@
 # Rolling GitHub pipeline release
 
+## Immutable plugin SDK source
+
+Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
+pins the upstream source commit, tree and neutral-source release AAR SHA-256.
+The helper checks out source without Windows newline conversion, builds using
+JDK 17/Android SDK 34 and fails on a hash mismatch. Android CI jobs run the same
+helper before testing, lint or signing. Source and outputs stay under ignored
+`.gradle/sdk/<12-character-source-prefix>`, outside host `clean`; the complete
+commit and tree are still checked. The short directory avoids Windows AIDL
+path limits. No SDK publisher is required.
+Host defaults to that verified source-build location, never the legacy bundled
+AAR. An explicit local `-PweartakPluginSdkAar=<absolute-path>` override remains
+available for integration validation. Neither SDK build nor override grants
+signing, distribution or third-party license rights.
+Host APKs include the pinned SDK GPL license and additional permission unchanged
+under `assets/licenses/weartak-plugin-sdk/`. The public source commit in the pin
+identifies the corresponding SDK source; these notices do not relicense host or
+third-party material.
+
 ## Host full-lint quality gate
 
 `host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.

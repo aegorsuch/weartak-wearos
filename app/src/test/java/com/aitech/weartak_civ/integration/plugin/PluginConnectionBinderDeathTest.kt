@@ -6,6 +6,16 @@ import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import com.weartak.plugin.sdk.nearbyimport.Pkcs12ImportState
+import com.weartak.plugin.sdk.serverpackage.ServerPackage
+import com.weartak.plugin.sdk.serverpackage.ServerPackageCodec
+import com.weartak.plugin.sdk.serverpackage.ServerPackageExportState
+import com.weartak.plugin.sdk.serverpackage.ServerPackageIdentityMode
+import com.weartak.plugin.sdk.serverpackage.ServerPackageTrustMode
+import com.weartak.plugin.sdk.serverpackage.model.ServerPackageStageRequestParcel
+import java.util.UUID
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,6 +24,47 @@ import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 class PluginConnectionBinderDeathTest {
+    @Test
+    fun everyConnectionLossRevokesPendingReviewAndReadyExportImmediately() {
+        for (termination in listOf("death", "disconnect", "binding", "teardown")) {
+            val app = mockk<WearTakApplication>(relaxed = true)
+            val ingress = mockk<PluginIngressPort>(relaxed = true)
+            val manager = mockk<PluginManager>(relaxed = true)
+            val trust = mockk<PluginTrust>(relaxed = true)
+            val connection = PluginConnection(app, ingress, ComponentName("com.synthetic.plugin", ".Svc"),
+                42, manager, trust)
+            val packages = HostServerPackageControl(42, { true }, {}, {}, { 42 })
+            PluginConnection::class.java.getDeclaredField("serverPackages").apply {
+                isAccessible = true
+                set(connection, packages)
+            }
+            val bytes = ServerPackageCodec.encode(ServerPackage("Synthetic", "event.example", 8089,
+                ServerPackageTrustMode.PUBLIC_CA, ServerPackageIdentityMode.RECEIVER_ENROLLMENT))
+            val staged = requireNotNull(packages.stageServerPackage(
+                ServerPackageStageRequestParcel(UUID.randomUUID().toString(), bytes.copyOf())).handle)
+            packages.allowFromWearerLaunch()
+            packages.requestReview(staged)
+            assertTrue(packages.imports.claimReview(staged))
+            val reviewState = requireNotNull(packages.imports.observe(staged))
+            val outgoing = requireNotNull(packages.requestExport(UUID.randomUUID().toString()).handle)
+            assertTrue(packages.claimExport(outgoing))
+            assertTrue(packages.approveExport(outgoing, bytes) { true })
+            val exportState = requireNotNull(packages.observeExport(outgoing))
+            when (termination) {
+                "death" -> connection.triggerBinderDeathSyncForTest()
+                "disconnect" -> connection.onServiceDisconnected(null)
+                "binding" -> connection.onBindingDied(null)
+                else -> connection.tearDownBinder("synthetic")
+            }
+            assertEquals(termination, Pkcs12ImportState.CANCELLED, reviewState.value.state)
+            assertEquals(termination, ServerPackageExportState.CANCELLED, exportState.value.state)
+            assertFalse(packages.imports.completeApplied(staged))
+            assertFalse(packages.exportLive(outgoing))
+            assertTrue(runCatching { packages.imports.openPackage(staged) }.isFailure)
+            packages.close()
+        }
+    }
+
 
     @Before
     fun resetDiag() {

@@ -336,71 +336,103 @@ class ServerPackageFlowTest {
             }
         }
 
-        @Test fun binderReviewPersistsEncryptedServerAndMultiCaAndRollsBackOnDisk() = runBlocking {
-            AeadConfig.register()
-            val aead = KeysetHandle.generateNew(AeadKeyTemplates.AES256_GCM).getPrimitive(Aead::class.java)
-            // Only Android Keystore key wrapping is substituted; serializer and disk DataStore are real.
-            mockkConstructor(AppKeyManager::class)
-            every { anyConstructed<AppKeyManager>().getAead(any(), any()) } returns aead
-            val host = host()
-            var savedId: String? = null
-            var realSecrets: TakServerSecretsRepository? = null
+    }
+
+    @Test fun binderReviewPersistsEncryptedServerAndMultiCaAndRollsBackOnDisk() = runBlocking {
+        AeadConfig.register()
+        val aead = KeysetHandle.generateNew(AeadKeyTemplates.AES256_GCM).getPrimitive(Aead::class.java)
+        // Only Android Keystore key wrapping is substituted; serializer and disk DataStore are real.
+        mockkConstructor(AppKeyManager::class)
+        every { anyConstructed<AppKeyManager>().getAead(any(), any()) } returns aead
+        val host = host()
+        var savedId: String? = null
+        var realSecrets: TakServerSecretsRepository? = null
+        try {
+            val encrypted = TakServerSecretsRepository(TakServerEncryptedDataStore(context))
+            realSecrets = encrypted
+            val actual = DataRepository(context).apply { takServerSecretsOverride = encrypted }
+            actual.storeTakServerList(emptyList())
+            actual.saveChatEnrollment("Original", "event.example", 8089, "old-user", "old-fixture")
+            val before = actual.awaitTakServerList().single()
+            val id = requireNotNull(before.serverId)
+            savedId = id
+            val oldCa = TakServerCaTrust.encode(TestClientP12.ca("Original"))
+            encrypted.setApprovedCa(id, before.address, before.port, oldCa)
+            val cas = listOf(TestClientP12.ca("First"), TestClientP12.ca("Second"))
+            val bytes = ServerPackageCodec.encode(ServerPackage("Replacement", before.address, before.port,
+                ServerPackageTrustMode.PRIVATE_CA, ServerPackageIdentityMode.SHARED_IDENTITY,
+                caCertificates = cas.map { it.encoded },
+                clientPkcs12 = Base64.getDecoder().decode(pkcs12),
+                clientPkcs12Password = "fixture-only".toByteArray()))
+            val client = proxy(host)
+            val handle = requireNotNull(client.stageServerPackage(
+                ServerPackageStageRequestParcel(UUID.randomUUID().toString(), bytes)).handle)
+            bytes.fill(0)
+            host.allowFromWearerLaunch()
+            client.requestReview(handle)
+            assertTrue(host.imports.claimReview(handle))
+            val decoded = host.imports.openPackage(handle)
             try {
-                val encrypted = TakServerSecretsRepository(TakServerEncryptedDataStore(context))
-                realSecrets = encrypted
-                val actual = DataRepository(context).apply { takServerSecretsOverride = encrypted }
-                actual.storeTakServerList(emptyList())
-                actual.saveChatEnrollment("Original", "event.example", 8089, "old-user", "old-fixture")
-                val before = actual.awaitTakServerList().single()
-                val id = requireNotNull(before.serverId)
-                savedId = id
-                val oldCa = TakServerCaTrust.encode(TestClientP12.ca("Original"))
-                encrypted.setApprovedCa(id, before.address, before.port, oldCa)
-                val cas = listOf(TestClientP12.ca("First"), TestClientP12.ca("Second"))
-                val bytes = ServerPackageCodec.encode(ServerPackage("Replacement", before.address, before.port,
-                    ServerPackageTrustMode.PRIVATE_CA, ServerPackageIdentityMode.RECEIVER_ENROLLMENT,
-                    caCertificates = cas.map { it.encoded }))
-                val client = proxy(host)
-                val handle = requireNotNull(client.stageServerPackage(
-                    ServerPackageStageRequestParcel(UUID.randomUUID().toString(), bytes)).handle)
-                bytes.fill(0)
-                host.allowFromWearerLaunch()
-                client.requestReview(handle)
-                assertTrue(host.imports.claimReview(handle))
-                val decoded = host.imports.openPackage(handle)
+                val destination = CertificateDestination(before, oldCa)
+                val identity = Pkcs12CertificateImport.open(requireNotNull(decoded.clientPkcs12),
+                    requireNotNull(decoded.clientPkcs12Password).toString(Charsets.UTF_8)) as Pkcs12CertificateImport.Opened.Client
+                val proposed = packageServer(decoded, destination, identity, "receiver-user", "receiver-fixture-password")
+                val ca = TakServerCaTrust.encodeAll(decoded.caCertificates.map(TakServerCaTrust::parse))
+                val failed = RepositoryCertificateReview(actual, { error("synthetic runtime failure") }, {}, {})
+                assertFalse(failed.apply(destination, proposed, ca, { host.imports.isLive(handle) },
+                    { host.imports.completeApplied(handle) }))
+                val reloaded = DataRepository(context).apply {
+                    takServerSecretsOverride = TakServerSecretsRepository(TakServerEncryptedDataStore(context))
+                }
+                assertEquals(before, reloaded.awaitTakServerList().single())
+                assertEquals(oldCa, reloaded.getApprovedServerCa(id, before.address, before.port))
+                assertEquals(Pkcs12ImportState.IN_REVIEW, client.getStatus(handle).state)
+                val approved = RepositoryCertificateReview(actual, {}, {}, {})
+                assertTrue(approved.apply(destination, proposed, ca, { host.imports.isLive(handle) },
+                    { host.imports.completeApplied(handle) }))
+                assertEquals(proposed.copy(serverId = id), reloaded.awaitTakServerList().single())
+                assertEquals(ca, reloaded.getApprovedServerCa(id, before.address, before.port))
+                assertEquals(Pkcs12ImportState.APPLIED, client.getStatus(handle).state)
+                assertEquals(Pkcs12ImportState.APPLIED, client.cancel(handle).state)
+                val disk = java.io.File(context.filesDir, "datastore/takserver_secrets.preferences_pb")
+                assertTrue(disk.isFile)
+                val persisted = disk.readBytes().toString(Charsets.ISO_8859_1)
+                assertFalse(persisted.contains("receiver-fixture-password"))
+                assertFalse(persisted.contains("receiver-user"))
+                assertFalse(persisted.contains(ca))
+                assertFalse(persisted.contains(pkcs12))
+                assertFalse(persisted.contains("fixture-only"))
+                val sender = host()
                 try {
-                    val destination = CertificateDestination(before, oldCa)
-                    val proposed = packageServer(decoded, destination, null, "receiver-user", "receiver-fixture-password")
-                    val ca = TakServerCaTrust.encodeAll(decoded.caCertificates.map(TakServerCaTrust::parse))
-                    val failed = RepositoryCertificateReview(actual, { error("synthetic runtime failure") }, {}, {})
-                    assertFalse(failed.apply(destination, proposed, ca, { host.imports.isLive(handle) },
-                        { host.imports.completeApplied(handle) }))
-                    val reloaded = DataRepository(context).apply {
-                        takServerSecretsOverride = TakServerSecretsRepository(TakServerEncryptedDataStore(context))
-                    }
-                    assertEquals(before, reloaded.awaitTakServerList().single())
-                    assertEquals(oldCa, reloaded.getApprovedServerCa(id, before.address, before.port))
-                    assertEquals(Pkcs12ImportState.IN_REVIEW, client.getStatus(handle).state)
-                    val approved = RepositoryCertificateReview(actual, {}, {}, {})
-                    assertTrue(approved.apply(destination, proposed, ca, { host.imports.isLive(handle) },
-                        { host.imports.completeApplied(handle) }))
-                    assertEquals(proposed.copy(serverId = id), reloaded.awaitTakServerList().single())
-                    assertEquals(ca, reloaded.getApprovedServerCa(id, before.address, before.port))
-                    assertEquals(Pkcs12ImportState.APPLIED, client.getStatus(handle).state)
-                    assertEquals(Pkcs12ImportState.APPLIED, client.cancel(handle).state)
-                    val disk = java.io.File(context.filesDir, "datastore/takserver_secrets.preferences_pb")
-                    assertTrue(disk.isFile)
-                    val persisted = disk.readBytes().toString(Charsets.ISO_8859_1)
-                    assertFalse(persisted.contains("receiver-fixture-password"))
-                    assertFalse(persisted.contains("receiver-user"))
-                    assertFalse(persisted.contains(ca))
-                } finally { decoded.wipe() }
-            } finally {
-                host.close()
-                savedId?.let { realSecrets?.removeApprovedCa(it) }
-                realSecrets?.setTakServerListJson(null)
-                unmockkConstructor(AppKeyManager::class)
-            }
+                    val outgoing = proxy(sender)
+                    sender.allowFromWearerLaunch()
+                    val exportHandle = requireNotNull(outgoing.requestExport(UUID.randomUUID().toString()).handle)
+                    assertTrue(sender.claimExport(exportHandle))
+                    val exporter = RepositoryServerExporter(context, reloaded)
+                    val exported = exporter.export(exporter.snapshot(reloaded.awaitTakServerList().single()),
+                        identity = true, credentials = true)
+                    assertTrue(sender.approveExport(exportHandle, exported.bytes, exported.authorized))
+                    val transfer = outgoing.takeExport(exportHandle)
+                    assertEquals(ServerPackageTakeCode.OK, transfer.code)
+                    val transferredBytes = requireNotNull(transfer.encodedPackage)
+                    try {
+                        val roundtrip = (ServerPackageCodec.decode(transferredBytes) as ServerPackageDecodeResult.Valid).serverPackage
+                        try {
+                            assertArrayEquals(Base64.getDecoder().decode(pkcs12), roundtrip.clientPkcs12)
+                            assertEquals("receiver-user", roundtrip.username)
+                            assertEquals("receiver-fixture-password", requireNotNull(roundtrip.password).toString(Charsets.UTF_8))
+                            assertEquals(2, roundtrip.caCertificates.size)
+                            assertEquals(ServerPackageIdentityMode.SHARED_IDENTITY, roundtrip.identityMode)
+                        } finally { roundtrip.wipe() }
+                    } finally { transferredBytes.fill(0) }
+                    assertEquals(ServerPackageTakeCode.TERMINAL, outgoing.takeExport(exportHandle).code)
+                } finally { sender.close() }
+            } finally { decoded.wipe() }
+        } finally {
+            host.close()
+            savedId?.let { realSecrets?.removeApprovedCa(it) }
+            realSecrets?.setTakServerListJson(null)
+            unmockkConstructor(AppKeyManager::class)
         }
     }
 }
