@@ -6,7 +6,10 @@ PIN="$ROOT/ci/plugin-sdk.json"
 REPOSITORY=$(jq -er .repository "$PIN")
 COMMIT=$(jq -er .commit "$PIN")
 TREE=$(jq -er .tree "$PIN")
-SHA=$(jq -er .release_sha256 "$PIN")
+SHA=$(jq -er .release_sha256.linux "$PIN")
+[ "$(uname -s)" = Linux ] || {
+    echo "Use the Python helper on Windows; no hash is verified for this platform" >&2; exit 1;
+}
 SHORT=$(printf '%s' "$COMMIT" | cut -c1-12)
 CHECKOUT="$ROOT/.gradle/sdk/$SHORT"
 mkdir -p "$CHECKOUT"

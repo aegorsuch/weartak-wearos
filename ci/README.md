@@ -4,6 +4,13 @@
 
 Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
 pins the upstream source commit, tree and neutral-source release AAR SHA-256.
+Exact hashes are platform-specific: Windows `f90a36a6...` and Linux
+`beae3192...`. Independent Linux jobs 7817240 and 7817241 produced byte-identical
+AARs. Exhaustive entry comparison with Windows found only generated
+`AndroidManifest.xml` CRLF versus LF; all other entries, including `classes.jar`,
+match byte-for-byte. The helpers and host select only the exact hash for their
+verified platform, not an unrestricted allowlist. Other platforms fail closed
+until independently verified.
 The helper checks out source without Windows newline conversion, builds using
 JDK 17/Android SDK 34 and fails on a hash mismatch. Android CI jobs run the same
 pin through `sh ci/build_plugin_sdk.sh` before testing, lint or signing; the

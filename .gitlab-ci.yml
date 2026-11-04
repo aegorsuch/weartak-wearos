@@ -74,6 +74,7 @@ android_mopp_check:
       --tests '*ServerPackageFlowTest' --tests '*HostServerPackageControlTest'
       --tests '*HostPkcs12ImportControlTest' --tests '*ReviewedCertificateApplyTest'
       --tests '*SettingsImeInputConnectionTest' --tests '*ChatP12*Test'
+      --tests '*CompanionBluetoothAddressPermissionTest'
       :app:compileDebugAndroidTestKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
   artifacts:

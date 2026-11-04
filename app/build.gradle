@@ -297,6 +297,12 @@ android {
 }
 
 def pluginSdkPin = new groovy.json.JsonSlurper().parse(rootProject.file('ci/plugin-sdk.json'))
+def pluginSdkOs = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
+def pluginSdkPlatform = pluginSdkOs.contains('windows') ? 'windows' : pluginSdkOs.contains('linux') ? 'linux' : null
+if (pluginSdkPlatform == null) {
+    throw new GradleException('Plugin SDK has verified source-build hashes only for Windows and Linux')
+}
+def pluginSdkExpectedHash = pluginSdkPin.release_sha256[pluginSdkPlatform]
 def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
         .orElse(rootProject.file(".gradle/sdk/${pluginSdkPin.commit.take(12)}/build/outputs/aar/weartak-plugin-sdk-release.aar").absolutePath)
 def sdkNoticeAssets = layout.buildDirectory.dir('generated/pluginSdkNotices')
@@ -318,14 +324,14 @@ def sdkNotices = tasks.register('generatePluginSdkNotices', Copy) {
 android.sourceSets.main.assets.srcDir(sdkNoticeAssets)
 tasks.register('verifyPluginSdk') {
     inputs.file(pluginSdkAarPath)
-    inputs.property('expectedSha256', pluginSdkPin.release_sha256)
+    inputs.property('expectedSha256', pluginSdkExpectedHash)
     doLast {
         def aar = file(pluginSdkAarPath.get())
         if (!aar.isFile()) {
             throw new GradleException('Missing pinned plugin SDK; run python ci/build_plugin_sdk.py')
         }
         def digest = java.security.MessageDigest.getInstance('SHA-256').digest(aar.bytes).encodeHex().toString()
-        if (digest != pluginSdkPin.release_sha256) {
+        if (digest != pluginSdkExpectedHash) {
             throw new GradleException("Plugin SDK SHA-256 mismatch: ${digest}")
         }
     }

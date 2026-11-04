@@ -26,7 +26,9 @@ class PluginSdkTests(unittest.TestCase):
         pin = json.loads((ROOT / "ci" / "plugin-sdk.json").read_text())
         self.assertRegex(pin["commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(pin["tree"], r"^[0-9a-f]{40}$")
-        self.assertRegex(pin["release_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual({"windows", "linux"}, pin["release_sha256"].keys())
+        for expected in pin["release_sha256"].values():
+            self.assertRegex(expected, r"^[0-9a-f]{64}$")
         gradle = (ROOT / "app" / "build.gradle").read_text()
         self.assertIn('pluginSdkPin.commit', gradle)
         self.assertNotIn("rootProject.file('weartak-plugin-sdk-release.aar')", gradle)

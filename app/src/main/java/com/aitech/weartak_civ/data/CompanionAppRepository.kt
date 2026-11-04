@@ -10,7 +10,9 @@
 package com.aitech.weartak_civ.data
 
 import android.annotation.SuppressLint
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Log
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.core.DataStore
@@ -720,6 +722,10 @@ class CompanionAppRepository(private val context: Context) {
 
     @SuppressLint("HardwareIds")
     private fun getLocalBluetoothMacOrNull(ctx: Context): String? {
+        if (ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+            ctx.checkSelfPermission("android.permission.LOCAL_MAC_ADDRESS") != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
         // [Unverified] On modern Android/WearOS this will often return a
         // constant like "02:00:00:00:00:00" or null. Treat as best-effort / debug-only.
         return try {
@@ -727,7 +733,7 @@ class CompanionAppRepository(private val context: Context) {
             val adapter  = manager?.adapter ?: android.bluetooth.BluetoothAdapter.getDefaultAdapter()
             adapter?.address
         } catch (e: SecurityException) {
-            // No BLUETOOTH permission or restricted; just return null.
+            Log.w(TAG, "Local Bluetooth address unavailable after permission check")
             null
         } catch (t: Throwable) {
             null

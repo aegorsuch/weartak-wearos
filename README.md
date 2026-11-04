@@ -60,6 +60,10 @@ For reproducible source extraction, use `git -c core.autocrlf=false archive`;
 Windows Git newline conversion otherwise changes packaged AIDL/proguard files.
 The neutral-source release AAR SHA-256 is
 `f90a36a6cada1a55a3154944a8b524119217cb95176fd055c2a7dd3aeafaa7a7`.
+That hash is Windows-specific. Verified Linux CI output is
+`beae3192d0e80d6e1f8da39ffbb20f5e0921c904a34ab44268b9b4b35e04faa1`;
+only generated manifest line endings differ. Source pin and all other AAR
+payload entries are identical. Build verification selects the exact platform hash.
 The checked-in legacy AAR does not provide the new optional controls and must
 not be used for this integration. The SDK has no signed published AAR;
 source-built binaries are unsigned dependency artifacts, not signed releases.

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,8 +46,10 @@ def main():
                     "-Pkotlin.compiler.execution.strategy=in-process", "--console=plain"],
                    cwd=checkout, check=True)
     aar = checkout / "build" / "outputs" / "aar" / "weartak-plugin-sdk-release.aar"
-    verify_hash(aar, pin["release_sha256"])
-    print(f"Verified plugin SDK {pin['commit']}: {pin['release_sha256']}")
+    platform = "windows" if os.name == "nt" else sys.platform
+    expected = pin["release_sha256"][platform]
+    verify_hash(aar, expected)
+    print(f"Verified plugin SDK {pin['commit']} ({platform}): {expected}")
     print(f"AAR: {aar}")
 
 
