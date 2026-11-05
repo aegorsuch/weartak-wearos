@@ -222,13 +222,21 @@ class CotDispatchService : Service() {
 
     private fun startBatdokPatientSharing() {
         var codec: com.aitech.weartak_civ.cot.BatdokPatientCodec? = null
+        var lastLoggedOutcome: String? = null
         val publisher = BatdokPatientPublisher(
             input = {
+                val waitReason = when {
+                    !locationAnnouncementAllowed() -> "location_service_off"
+                    !dataRepository.getEnableTakEndpoint.first() -> "tak_endpoint_off"
+                    dataRepository.shouldSuppressWatchTransportNow() -> "transport_suppressed"
+                    TAKConnectService.offBodyTakWaiting.value -> "off_wrist"
+                    !TAKConnectService.isAnyTakConnected -> "no_tak_connected"
+                    else -> null
+                }
                 BatdokPublishingInput(
                     consent = dataRepository.batdokSharing.consent.first(),
-                    allowed = locationAnnouncementAllowed() && dataRepository.getEnableTakEndpoint.first() &&
-                        !dataRepository.shouldSuppressWatchTransportNow() &&
-                        TAKConnectService.isAnyTakConnected,
+                    allowed = waitReason == null,
+                    waitReason = waitReason,
                     profile = com.aitech.weartak_civ.cot.BatdokPatientProfile(
                         dataRepository.getCallsign.first(), dataRepository.getPhysiologicalMetricUserType.first(),
                         dataRepository.confirmedBirthYear.first()
@@ -255,12 +263,19 @@ class CotDispatchService : Service() {
                 combine(dataRepository.batdokSharing.consent, dataRepository.outboundReadyRoutes, heartbeat) { _, _, _ -> Unit }
                     .collectLatest {
                         try {
-                            dataRepository.batdokPatientStatus.value = publisher.publish()
+                            val status = publisher.publish()
+                            dataRepository.batdokPatientStatus.value = status
                             dataRepository.batdokPatientFailureCode.value = null
+                            val outcome = batdokOutcomeLog(status, publisher.lastDetail)
+                            if (outcome != lastLoggedOutcome) {
+                                lastLoggedOutcome = outcome
+                                Log.i(TAG, outcome)
+                            }
                         } catch (error: kotlinx.coroutines.CancellationException) {
                             throw error
                         } catch (error: Exception) {
                             val code = batdokFailureCode(error)
+                            lastLoggedOutcome = null
                             Log.w(TAG, "BATTAK patient sharing blocked: $code")
                             dataRepository.batdokPatientFailureCode.value = code
                             dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED

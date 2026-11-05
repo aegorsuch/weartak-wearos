@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK متوقف</string>
     <string name="batdok_patient_confirmation_required">مشاركة المريض غير نشطة: أوقف التشغيل ثم أعد تشغيله مرة واحدة</string>
     <string name="batdok_patient_not_provisioned">لا توجد مشاركة: إعداد BATTAK غير موجود في هذا الإصدار</string>
-    <string name="batdok_patient_location_required">لا توجد مشاركة: يلزم موقع حديث</string>
+    <string name="batdok_patient_location_required">لا توجد مشاركة: يلزم الموقع</string>
     <string name="batdok_patient_callsign_required">لا توجد مشاركة: يلزم رمز نداء</string>
     <string name="batdok_patient_waiting_tak">في انتظار خادم TAK مفعّل</string>
     <string name="batdok_patient_sent">تم إرسال تحديث المريض إلى TAK</string>

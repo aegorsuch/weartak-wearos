@@ -163,15 +163,20 @@ class CommandReplyWriteTest {
                 server("duplicate").apply { duplicateEndpointSuppressed = true },
                 server("disconnected").apply { connectionStatus.set(TAKConnectService.TAK_SERVER_DISCONNECTED) }
             )
-            assertTrue(TAKConnectService.sendBatdokPatient("<synthetic-patient/>") { true })
+            assertEquals(BatdokTakWrite(2, 2), TAKConnectService.sendBatdokPatient("<synthetic-patient/>") { true })
             assertEquals("<synthetic-patient/>", outputs.getValue("first").toString("UTF-8"))
             assertEquals("<synthetic-patient/>", outputs.getValue("second").toString("UTF-8"))
             listOf("disabled", "duplicate", "disconnected").forEach { assertEquals(0, outputs.getValue(it).size()) }
             outputs.values.forEach { it.reset() }
-            assertFalse(TAKConnectService.sendBatdokPatient("<revoked/>") { false })
+            assertEquals(BatdokTakWrite(0, 2), TAKConnectService.sendBatdokPatient("<revoked/>") { false })
             assertTrue(outputs.values.all { it.size() == 0 })
             TAKConnectService.takEndpointEnabled = false
-            assertFalse(TAKConnectService.sendBatdokPatient("<disabled-endpoint/>") { true })
+            assertEquals(BatdokTakWrite(0, 0, "tak_endpoint_off"),
+                TAKConnectService.sendBatdokPatient("<disabled-endpoint/>") { true })
+            assertTrue(outputs.values.all { it.size() == 0 })
+            TAKConnectService.takEndpointEnabled = true
+            TAKConnectService.isNetworkConnected = false
+            assertEquals(BatdokTakWrite(0, 0, "network"), TAKConnectService.sendBatdokPatient("<offline/>") { true })
             assertTrue(outputs.values.all { it.size() == 0 })
         } finally {
             TAKConnectService.takServerDetails = previous

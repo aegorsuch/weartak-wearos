@@ -4090,20 +4090,29 @@ class TAKConnectService: Service() {
             return result ?: false
         }
 
-        internal suspend fun sendBatdokPatient(xml: String, stillAllowed: suspend () -> Boolean): Boolean {
-            if (!isLicenseValid() || !isNetworkConnected || !takEndpointEnabled ||
-                !offBodyAllowsConnection() || dataRepository.shouldSuppressWatchTransportNow()) return false
-            var written = false
+        internal suspend fun sendBatdokPatient(xml: String, stillAllowed: suspend () -> Boolean): BatdokTakWrite {
+            val blockedBy = when {
+                !isLicenseValid() -> "license"
+                !isNetworkConnected -> "network"
+                !takEndpointEnabled -> "tak_endpoint_off"
+                !offBodyAllowsConnection() -> "off_wrist"
+                dataRepository.shouldSuppressWatchTransportNow() -> "transport_suppressed"
+                else -> null
+            }
+            if (blockedBy != null) return BatdokTakWrite(0, 0, blockedBy)
+            var written = 0
+            var eligible = 0
             // Deliberately bypass generic egress: only enabled direct TAK streams, no other destinations.
             for (detail in takServerDetails.toList()) {
                 if (!detail.isEnabled || detail.duplicateEndpointSuppressed ||
                     detail.connectionStatus.get() != TAK_SERVER_CONNECTED_COT_PORT) continue
+                eligible++
                 val accepted = writeCommandReply(detail, xml, beforeWrite = {
                     offBodyAllowsConnection() && isLicenseValid() && stillAllowed()
                 })
-                written = written || accepted
+                if (accepted) written++
             }
-            return written
+            return BatdokTakWrite(written, eligible)
         }
 
         fun sendFinalExpiredSelfPli(xml: String): Boolean {

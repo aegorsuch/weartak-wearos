@@ -822,7 +822,7 @@
     <string name="batdok_patient_disabled">BATTAK off</string>
     <string name="batdok_patient_confirmation_required">Patient sharing inactive: switch OFF then ON once</string>
     <string name="batdok_patient_not_provisioned">Not sharing: build lacks BATTAK configuration</string>
-    <string name="batdok_patient_location_required">Not sharing: fresh location required</string>
+    <string name="batdok_patient_location_required">Not sharing: location required</string>
     <string name="batdok_patient_callsign_required">Not sharing: callsign required</string>
     <string name="batdok_patient_waiting_tak">Waiting for enabled TAK server</string>
     <string name="batdok_patient_sent">Patient update sent to TAK</string>

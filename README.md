@@ -3301,8 +3301,11 @@ Vital timestamps use original Unix milliseconds. Skin temperature has no verifie
 receiver field and is omitted rather than mislabeled core `Temp`; locally stored
 sex is retained without inventing a wire field. Injury/treatment arrays are empty;
 ATMIST incident time is report creation time, not an asserted clinical injury onset.
-Outer CoT and nested location agree; a location must be valid and within the same
-120-second/30-second freshness bounds.
+Outer CoT and nested location agree. BATTAK uses the last valid known fix of any
+age (no freshness limit); its original fix timestamp and accuracy are sent
+unchanged, so an old fix is not presented as new. No fix since the location
+service/input started, invalid coordinates, or fixes more than 30 seconds in the
+future block sharing. Other location consumers keep their own freshness rules.
 
 Patient heartbeats run every 25 seconds while dispatch is running, and refresh on
 TAK readiness/consent changes, with 60-second outer CoT expiry. This path writes
@@ -3312,6 +3315,11 @@ generic egress, multicast, Ditto, plugins, Companion, ESRI or TabletCommand.
 Consent, policy, identity, sample freshness and connection generation are checked
 again before each socket write. No offline patient payload is queued for replay.
 Off stops updates; receiver records age out on their own independent timers.
+Logcat records one `BATTAK patient outcome:` line only when the status/detail
+changes: `SENT streams=<written>/<eligible>` or a fixed wait code such as
+`no_tak_connected`, `off_wrist`, `no_connected_stream` or `revalidation_rejected`. It never
+logs payload, patient ID, callsign, location, configuration or endpoint identity,
+and a SENT line proves only a local socket write, not server or phone receipt.
 No negative-stale patient deletion is sent because it can refresh downstream
 patient state before deletion. A successful write is not receiver acceptance,
 nor creation of a clinical encounter. No live interoperability is claimed.

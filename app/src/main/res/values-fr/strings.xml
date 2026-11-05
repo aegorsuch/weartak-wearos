@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK désactivé</string>
     <string name="batdok_patient_confirmation_required">Partage patient inactif : désactivez puis réactivez une fois</string>
     <string name="batdok_patient_not_provisioned">Aucun partage : configuration BATTAK absente de cette version</string>
-    <string name="batdok_patient_location_required">Aucun partage : position récente requise</string>
+    <string name="batdok_patient_location_required">Aucun partage : position requise</string>
     <string name="batdok_patient_callsign_required">Aucun partage : indicatif requis</string>
     <string name="batdok_patient_waiting_tak">En attente d’un serveur TAK activé</string>
     <string name="batdok_patient_sent">Mise à jour du patient envoyée à TAK</string>

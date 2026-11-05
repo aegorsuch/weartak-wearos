@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK オフ</string>
     <string name="batdok_patient_confirmation_required">患者共有は未開始：一度オフにしてからオンにしてください</string>
     <string name="batdok_patient_not_provisioned">共有していません：ビルドに BATTAK 設定がありません</string>
-    <string name="batdok_patient_location_required">共有していません：新しい位置情報が必要です</string>
+    <string name="batdok_patient_location_required">共有していません：位置情報が必要です</string>
     <string name="batdok_patient_callsign_required">共有していません：コールサインが必要です</string>
     <string name="batdok_patient_waiting_tak">有効な TAK サーバーを待機中</string>
     <string name="batdok_patient_sent">患者情報の更新を TAK に送信しました</string>

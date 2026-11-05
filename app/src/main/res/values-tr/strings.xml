@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK kapalı</string>
     <string name="batdok_patient_confirmation_required">Hasta paylaşımı etkin değil: bir kez kapatıp açın</string>
     <string name="batdok_patient_not_provisioned">Paylaşılmıyor: derlemede BATTAK yapılandırması eksik</string>
-    <string name="batdok_patient_location_required">Paylaşılmıyor: güncel konum gerekli</string>
+    <string name="batdok_patient_location_required">Paylaşılmıyor: konum gerekli</string>
     <string name="batdok_patient_callsign_required">Paylaşılmıyor: çağrı işareti gerekli</string>
     <string name="batdok_patient_waiting_tak">Etkin TAK sunucusu bekleniyor</string>
     <string name="batdok_patient_sent">Hasta güncellemesi TAK sunucusuna gönderildi</string>

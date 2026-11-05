@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK 已关闭</string>
     <string name="batdok_patient_confirmation_required">患者共享未启用：请关闭后再开启一次</string>
     <string name="batdok_patient_not_provisioned">未共享：此构建缺少 BATTAK 配置</string>
-    <string name="batdok_patient_location_required">未共享：需要最新位置</string>
+    <string name="batdok_patient_location_required">未共享：需要位置</string>
     <string name="batdok_patient_callsign_required">未共享：需要呼号</string>
     <string name="batdok_patient_waiting_tak">正在等待已启用的 TAK 服务器</string>
     <string name="batdok_patient_sent">患者更新已发送至 TAK</string>

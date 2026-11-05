@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK aus</string>
     <string name="batdok_patient_confirmation_required">Patientenfreigabe inaktiv: einmal AUS und wieder EIN schalten</string>
     <string name="batdok_patient_not_provisioned">Keine Freigabe: BATTAK-Konfiguration fehlt im Build</string>
-    <string name="batdok_patient_location_required">Keine Freigabe: aktueller Standort erforderlich</string>
+    <string name="batdok_patient_location_required">Keine Freigabe: Standort erforderlich</string>
     <string name="batdok_patient_callsign_required">Keine Freigabe: Rufzeichen erforderlich</string>
     <string name="batdok_patient_waiting_tak">Warten auf aktivierten TAK-Server</string>
     <string name="batdok_patient_sent">Patientenaktualisierung an TAK gesendet</string>
