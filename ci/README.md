@@ -159,6 +159,16 @@ write/review a concise behavior summary and explicitly approve it before anyone
 appends it to README. Raw commit messages, diffs, compatibility values and
 signing configuration are not copied into drafts.
 
+Draft entries use `(Posted DDHHMMZ MON YY)`, for example
+`(Posted 051548Z NOV 26)`. The timestamp is the verified APK asset's
+`created_at` from publication readback, in UTC, truncated to minute precision;
+the receipt also records asset ID/name and the original timestamp. It is not
+the rolling release container's original publication date, upload update time,
+pipeline completion time or a local clock estimate. Retries reuse the same
+asset creation timestamp. Missing/invalid asset timestamps fail only the draft
+job, never an otherwise valid APK publication. Historical entries stay undated
+unless their actual asset timestamps are verified and the edit is approved.
+
 The publisher records the prior source in its existing release provenance and
 a restricted same-pipeline receipt only after publication readback succeeds.
 Retries retain that baseline and overwrite the same per-build draft path,

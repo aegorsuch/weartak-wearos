@@ -89,6 +89,7 @@ class FakeGitHub:
             item = {
                 "id": 100, "name": query["name"][0], "label": query["label"][0],
                 "state": "uploaded", "size": len(data),
+                "created_at": "2026-11-05T15:48:59Z",
             }
             self.items.append(item)
             self.content[100] = data

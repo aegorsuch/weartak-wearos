@@ -269,23 +269,24 @@ feature-specific testing/acceptance instructions follow.
 
 Improves map and plugin workflows, TAK enrollment and connection reliability, Nearby server-package transfers, and Ditto recovery and peer diagnostics.
 
-- [p462](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820060) — Introduced 5.8.4 with newest-first chat ordering.
-- [p464](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820323) — Reordered unit choices and simplified goTenna/TAK CAD menu rows.
-- [p472](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822116) — Preserved whitespace in quoted enrollserver passwords.
-- [p475](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822370) — Fixed host lint findings and added full debug lint as CI gate.
-- [p481](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823030) — Added map-action/mTLS support and MOPP display/publishing updates.
-- [p500](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823642) — Preserved public-CA enrollment trust alongside approved private CAs.
-- [p538](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1824224) — Improved plugin activity launching, Bloodhound controls, collapsible map categories, connection status, and TAK CAD compatibility.
-- [p543](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825145) — Improved enrollment diagnostics and clarified SMS alert wording.
-- [p546](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825555) — Enabled manual Stay Awake on battery and improved Wi-Fi activation handling.
-- [p551](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825691) — Fixed compact Bloodhound picker back-arrow visibility and sizing.
-- [p554](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825746) — Added public-root trust for CoT streaming alongside approved private CAs.
-- [p567](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828140) — Preserved overlay category choices, fixed map-shape visibility, and standardized README structure.
-- [p573](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828546) — Removed map-shapes import button and improved accessibility and automation selectors.
-- [p578](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831099) — Added bounded Ditto BLE recovery, Retry, and shared service-off warnings.
-- [p581](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831805) — Added live Ditto transport and recovery diagnostics.
-- [p584](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1832185) — Simplified Ditto diagnostics to compact peer counts and separate BLE recovery status.
-- [p597](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1836625) — Added wearer-reviewed Nearby Drop server-package import/export.
+- [p462](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820060) (Posted 301236Z OCT 26) — Introduced 5.8.4 with newest-first chat ordering.
+- [p464](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820323) (Posted 301324Z OCT 26) — Reordered unit choices and simplified goTenna/TAK CAD menu rows.
+- [p472](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822116) (Posted 301822Z OCT 26) — Preserved whitespace in quoted enrollserver passwords.
+- [p475](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822370) (Posted 301907Z OCT 26) — Fixed host lint findings and added full debug lint as CI gate.
+- [p481](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823030) (Posted 302231Z OCT 26) — Added map-action/mTLS support and MOPP display/publishing updates.
+- [p500](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823642) (Posted 310153Z OCT 26) — Preserved public-CA enrollment trust alongside approved private CAs.
+- [p538](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1824224) (Posted 310513Z OCT 26) — Improved plugin activity launching, Bloodhound controls, collapsible map categories, connection status, and TAK CAD compatibility.
+- [p543](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825145) (Posted 311609Z OCT 26) — Improved enrollment diagnostics and clarified SMS alert wording.
+- [p546](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825555) (Posted 312025Z OCT 26) — Enabled manual Stay Awake on battery and improved Wi-Fi activation handling.
+- [p551](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825691) (Posted 010033Z NOV 26) — Fixed compact Bloodhound picker back-arrow visibility and sizing.
+- [p554](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825746) (Posted 010305Z NOV 26) — Added public-root trust for CoT streaming alongside approved private CAs.
+- [p567](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828140) (Posted 021429Z NOV 26) — Preserved overlay category choices, fixed map-shape visibility, and standardized README structure.
+- [p573](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828546) (Posted 021628Z NOV 26) — Removed map-shapes import button and improved accessibility and automation selectors.
+- [p578](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831099) (Posted 030423Z NOV 26) — Added bounded Ditto BLE recovery, Retry, and shared service-off warnings.
+- [p581](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831805) (Posted 031455Z NOV 26) — Added live Ditto transport and recovery diagnostics.
+- [p584](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1832185) (Posted 031653Z NOV 26) — Simplified Ditto diagnostics to compact peer counts and separate BLE recovery status.
+- [p597](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1836625) (Posted 042243Z NOV 26) — Added wearer-reviewed Nearby Drop server-package import/export.
+- [p612](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1838815) (Posted 051548Z NOV 26) — Added standalone BATTAK patient sharing and Unit profile choices, plus default-off Stay connected off-wrist for TAK and Ditto.
 
 ### Map sources and 3D overlays
 

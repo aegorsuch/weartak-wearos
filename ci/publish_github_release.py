@@ -1,6 +1,7 @@
 """Publish the verified canonical APK to the fixed personal GitHub mirror."""
 
 import base64
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -346,12 +347,31 @@ def update_body(previous_body, previous_state, generated):
     return previous_body[:marker.start()] + managed + previous_body[marker.end():]
 
 
+def posted_dtg(asset):
+    timestamp = asset.get("created_at")
+    if not isinstance(timestamp, str) or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", timestamp):
+        raise PublishError("Changelog requires verified APK asset created_at in UTC.")
+    try:
+        posted = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise PublishError("Changelog APK asset created_at is not a valid UTC date.") from None
+    months = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+              "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+    return f"{posted:%d%H%M}Z {months[posted.month - 1]} {posted:%y}"
+
+
 def changelog_draft(root, state, previous, version, code):
     base = previous.get("draft_base_sha") if (
         previous and previous["pipeline_iid"] == state["pipeline_iid"]
     ) else previous.get("source_sha") if previous else None
     if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base):
         raise PublishError("Changelog draft needs a previous published source SHA.")
+    asset = previous.get("posted_asset", {})
+    if (type(asset.get("id")) is not int or asset["id"] <= 0
+            or asset.get("name") != f"WearTAK-{display_version(version, state['pipeline_iid'])}.apk"):
+        raise PublishError("Changelog requires confirmed APK asset identity.")
+    dtg = posted_dtg(asset)
     source = state["source_sha"]
 
     def git(*args):
@@ -394,9 +414,11 @@ def changelog_draft(root, state, previous, version, code):
         f"# Changelog draft: {display_version(version, state['pipeline_iid'])}\n\n"
         "**REVIEW REQUIRED - not approved; README has not been changed.**\n\n"
         f"APK version: `{version}`; versionCode: `{code}`.\n"
+        f"Posted: `{dtg}`; APK asset `{asset['id']}` created_at: `{asset['created_at']}`.\n"
+        "Posted means asset upload-created time, not the rolling release container date.\n"
         f"Source: `{source}`; previous published source: `{base}`.\n"
         f"Range: [{base[:8]}...{source[:8]}]({project}/-/compare/{base}...{source}).\n\n"
-        f"- [p{state['pipeline_iid']}]({state['pipeline_url']}) - "
+        f"- [p{state['pipeline_iid']}]({state['pipeline_url']}) (Posted {dtg}) - "
         f"{candidate}\n\n"
         f"Evidence: {len(commits)} source commits since previous published build. "
         "Candidate describes changed file areas only, not inferred behavior; "
@@ -495,10 +517,11 @@ def publish(api, state, apk, digest, version, code, *, receipt_root=None):
     })
     confirmed = api.request("GET", f"releases/{release_id}")
     confirmed_state = state_from(confirmed, state["project_id"])
+    confirmed_assets = api.assets(release_id)
     if (confirmed.get("draft") or confirmed.get("name") != title or confirmed.get("body") != body
             or confirmed_state != state
             or not any(a["id"] == uploaded["id"] and a.get("state") == "uploaded"
-                       and a.get("size") == size for a in api.assets(release_id))):
+                       and a.get("size") == size for a in confirmed_assets)):
         raise PublishError("Release update could not be verified; previous assets retained.")
     # Delete only older assets explicitly owned by this publisher, after verification.
     for old in assets:
@@ -506,8 +529,12 @@ def publish(api, state, apk, digest, version, code, *, receipt_root=None):
         if owner is not None and owner < state["pipeline_iid"]:
             api.request("DELETE", f"releases/assets/{old['id']}")
     if receipt_root is not None:
+        confirmed_asset = next(a for a in confirmed_assets if a["id"] == uploaded["id"])
+        receipt = dict(state, posted_asset={
+            key: confirmed_asset.get(key) for key in ("id", "name", "created_at")
+        })
         (receipt_root / "changelog-receipt.json").write_text(
-            json.dumps(state, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8"
         )
     print(f"Published {title}: version {version} ({code}), SHA256 {digest}")
 
