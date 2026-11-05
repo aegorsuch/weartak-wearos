@@ -59,6 +59,33 @@ class ProfileUnitTest {
         }
     }
 
+    @Test fun unitAndPatientSharingStringsAreLocalizedWithoutChangingWireValues() {
+        val ids = ProfileUnit.entries.map { it.labelRes } + listOf(
+            R.string.unit_legacy_value, R.string.batdok_patient_disabled,
+            R.string.batdok_patient_confirmation_required, R.string.batdok_patient_not_provisioned,
+            R.string.batdok_patient_location_required, R.string.batdok_patient_callsign_required,
+            R.string.batdok_patient_waiting_tak, R.string.batdok_patient_sent,
+            R.string.batdok_patient_failed, R.string.batdok_patient_save_failed,
+            R.string.batdok_patient_sharing_explanation
+        )
+        val english = app.createConfigurationContext(Configuration(app.resources.configuration).apply {
+            setLocale(Locale.ENGLISH)
+        })
+        listOf("ar", "de", "es", "fr", "ja", "ko", "tr", "vi", "zh").forEach { language ->
+            val localized = app.createConfigurationContext(Configuration(app.resources.configuration).apply {
+                setLocale(Locale(language))
+            })
+            ids.forEach { id ->
+                assertNotEquals("Missing $language translation for resource $id",
+                    english.getString(id), localized.getString(id))
+            }
+            assertTrue(localized.getString(R.string.unit_legacy_value, "SYNTHETIC").contains("SYNTHETIC"))
+            assertEquals("BATTAK", localized.getString(R.string.batdok))
+        }
+        assertEquals("Air Force", ProfileUnit.AIR_FORCE.batdokValue)
+        assertNull(ProfileUnit.NONE.batdokValue)
+    }
+
     @Test fun legacyClassificationsAndUnknownValuesArePreservedWithoutGuessing() = runBlocking {
         val repo = DataRepository(app)
         val key = stringPreferencesKey("user_type")
