@@ -9,7 +9,8 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneOffset
 
-data class BatdokPatientProfile(val callsign: String, val unit: String, val confirmedBirthYear: Int?)
+// birthYear is the profile year (user-saved, or the default fallback); receivers cannot distinguish them.
+data class BatdokPatientProfile(val callsign: String, val unit: String, val birthYear: Int?)
 
 object BatdokPatient {
     const val STALE_SECONDS = 60
@@ -26,7 +27,7 @@ object BatdokPatient {
         require(profile.callsign.isNotBlank()) { "BATTAK patient callsign required" }
         require(EmergencyLocationPolicy.usable(location)) { "BATTAK patient location required" }
         val year = Instant.ofEpochMilli(nowMillis).atZone(ZoneOffset.UTC).year
-        val age = profile.confirmedBirthYear?.takeIf { it in 1900..year }?.let { year - it }
+        val age = profile.birthYear?.takeIf { it in 1900..year }?.let { year - it }
         val filtered = selfStatusSnapshot(physiology, nowMillis).physio
         return JSONObject().apply {
             put("id", id)
