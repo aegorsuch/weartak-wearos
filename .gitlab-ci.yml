@@ -272,6 +272,9 @@ batdok_signed_trial:
 
 main_release:
   extends: .release_build
+  environment:
+    name: battak-release
+    action: prepare
 
   artifacts:
     when: always

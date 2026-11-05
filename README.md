@@ -3233,6 +3233,8 @@ A new web pipeline on the exact protected `aegorsuch-batdok-patient-sharing`
 candidate branch runs ordinary Android, lint and publisher tests before the
 manual trial becomes available. Trial-only compatibility variables must use
 environment scope `battak-trial`; earlier unprotected pipelines are not candidates.
+Main releases use the separate `battak-release` preparation environment; their
+compatibility inputs must be scoped only to `battak-release`.
 Build validation checks presence/encoding, not receiver-compatible values.
 No plaintext fallback is used. Sharing still requires explicit user toggle ON,
 regardless of built-in configuration. Derived keys are closed on service shutdown;
