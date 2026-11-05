@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OffBodyTakPolicyTest {
+    @Test fun debugOverrideBypassesOnlyOffWristAndDisablingRestoresPowerAndWristPolicy() {
+        for (worn in listOf(false, true, null)) {
+            for (powered in listOf(false, true)) {
+                val policy = OffBodyTakPolicy()
+                policy.observe(worn, powered)
+                policy.open(0)
+                policy.observe(worn, powered, stayConnectedOffWrist = true)
+                assertFalse(policy.batching)
+                assertTrue(policy.allows(Long.MAX_VALUE))
+                assertFalse(policy.observe(worn, powered, stayConnectedOffWrist = true))
+                policy.observe(worn, powered, stayConnectedOffWrist = false)
+                assertEquals(worn == false && !powered, policy.batching)
+                assertEquals(!policy.batching, policy.allows(1))
+            }
+        }
+    }
+
     @Test fun chargingOffWristIsContinuousAndUnpluggingStartsClosedBatching() {
         val policy = OffBodyTakPolicy()
         policy.observe(false)

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="debug_stay_connected_off_wrist">البقاء متصلاً عند عدم الارتداء</string>
+    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto؛ استهلاك بطارية أكبر.</string>
+    <string name="debug_stay_connected_off_wrist_save_failed">تعذر حفظ إعداد الاتصال. حاول مجددًا.</string>
     <string name="ditto_direct_peers">أقران</string>
     <string name="ditto_ble_peers">BLE</string>
     <string name="ditto_lan_peers">LAN</string>
