@@ -65,8 +65,7 @@ class ProfileUnitTest {
             R.string.batdok_patient_confirmation_required, R.string.batdok_patient_not_provisioned,
             R.string.batdok_patient_location_required, R.string.batdok_patient_callsign_required,
             R.string.batdok_patient_waiting_tak, R.string.batdok_patient_sent,
-            R.string.batdok_patient_failed, R.string.batdok_patient_save_failed,
-            R.string.batdok_patient_sharing_explanation
+            R.string.batdok_patient_failed, R.string.batdok_patient_save_failed
         )
         val english = app.createConfigurationContext(Configuration(app.resources.configuration).apply {
             setLocale(Locale.ENGLISH)

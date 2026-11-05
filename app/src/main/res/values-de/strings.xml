@@ -233,7 +233,6 @@
     <string name="batdok_patient_sent">Patientenaktualisierung an TAK gesendet</string>
     <string name="batdok_patient_failed">Patientenfreigabe fehlgeschlagen. Konfiguration prüfen.</string>
     <string name="batdok_patient_save_failed">BATTAK-Einstellung konnte nicht gespeichert werden. Bisherige Einstellung unverändert. Erneut versuchen.</string>
-    <string name="batdok_patient_sharing_explanation">Das Einschalten von BATTAK teilt Patientenidentität, Rufzeichen, Einheit, Standort, angegebenes Alter und unterstützte Live-Vitalwerte mit ALLEN aktivierten TAK-Servern, einschließlich später hinzugefügter Server. Empfänger können Daten speichern oder weiterleiten. Bestehende Nutzer: zum Starten einmal AUS und wieder EIN schalten.</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

@@ -233,7 +233,6 @@
     <string name="batdok_patient_sent">تم إرسال تحديث المريض إلى TAK</string>
     <string name="batdok_patient_failed">فشلت مشاركة المريض. تحقق من الإعدادات.</string>
     <string name="batdok_patient_save_failed">تعذر حفظ إعداد BATTAK. لم يتغير الإعداد السابق. حاول مرة أخرى.</string>
-    <string name="batdok_patient_sharing_explanation">تشغيل BATTAK يشارك هوية المريض ورمز النداء والوحدة والموقع والعمر المُدخل والعلامات الحيوية المباشرة المدعومة مع جميع خوادم TAK المفعّلة، بما فيها الخوادم التي تُضاف لاحقًا. يمكن للمستلمين الاحتفاظ بالمعلومات أو إعادة إرسالها. المستخدمون الحاليون: أوقفوا التشغيل ثم أعيدوا تشغيله مرة واحدة لبدء مشاركة المريض.</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

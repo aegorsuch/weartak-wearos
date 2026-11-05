@@ -376,6 +376,7 @@ fun WearTAKSettingsNav(
     val enableBatdokCot by settingsVm.savedEnableBatdokCot.collectAsState()
     val batdokSharingConsent by settingsVm.savedBatdokSharingConsent.collectAsState()
     val batdokPatientStatus by settingsVm.batdokPatientStatus.collectAsState()
+    val batdokPatientFailureCode by settingsVm.batdokPatientFailureCode.collectAsState()
     val batdokSharingSaveFailed by settingsVm.batdokSharingSaveFailed.collectAsState()
     val takServerList by settingsVm.savedTakServerList.collectAsState()
 
@@ -3266,6 +3267,7 @@ fun WearTAKSettingsNav(
                                     BatdokPatientToggle(
                                         consent = batdokSharingConsent,
                                         status = batdokPatientStatus,
+                                        failureCode = batdokPatientFailureCode,
                                         onToggle = settingsVm::storeEnableBatdokCot,
                                         saveFailed = batdokSharingSaveFailed
                                     )

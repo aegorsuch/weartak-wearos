@@ -233,7 +233,6 @@
     <string name="batdok_patient_sent">Đã gửi cập nhật bệnh nhân đến TAK</string>
     <string name="batdok_patient_failed">Chia sẻ bệnh nhân thất bại. Kiểm tra cấu hình.</string>
     <string name="batdok_patient_save_failed">Không thể lưu cài đặt BATTAK. Cài đặt trước không thay đổi. Hãy thử lại.</string>
-    <string name="batdok_patient_sharing_explanation">Bật BATTAK sẽ chia sẻ danh tính bệnh nhân, hiệu danh, đơn vị, vị trí, tuổi đã cung cấp và các dấu hiệu sinh tồn trực tiếp được hỗ trợ với TẤT CẢ máy chủ TAK được bật, kể cả máy chủ thêm sau này. Người nhận có thể lưu hoặc chuyển tiếp thông tin. Người dùng hiện tại: tắt rồi bật một lần để bắt đầu chia sẻ bệnh nhân.</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

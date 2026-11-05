@@ -7,6 +7,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.BatdokSharingConsent
+import com.aitech.weartak_civ.data.BatdokSharingStore
 import com.aitech.weartak_civ.service.BatdokPatientStatus
 import org.junit.Assert.*
 import org.junit.Rule
@@ -37,13 +38,17 @@ class BatdokPatientSharingPageTest {
         assertTrue(interactions.isEmpty())
         compose.onNodeWithTag("settings_batdok").assertIsOn()
         compose.onNodeWithText("BATTAK").assertExists()
-        compose.onNodeWithText("ALL enabled TAK servers", substring = true).assertExists()
+        compose.onNodeWithText("ALL enabled TAK servers", substring = true).assertDoesNotExist()
         compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.batdok_patient_confirmation_required))
             .assertExists()
         compose.onNodeWithTag("settings_batdok").performClick().assertIsOff()
         assertFalse(consent.value.confirmed)
+        compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.batdok_patient_disabled))
+            .assertDoesNotExist()
         compose.onNodeWithTag("settings_batdok").performClick().assertIsOn()
         assertTrue(consent.value.confirmed)
+        compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.batdok_patient_waiting_tak))
+            .assertDoesNotExist()
         assertEquals(listOf(false, true), interactions)
         compose.onNodeWithText("Share with all enabled TAK servers").assertDoesNotExist()
     }
@@ -53,6 +58,16 @@ class BatdokPatientSharingPageTest {
             batdokPatientStatusLabel(BatdokSharingConsent(false, 1, 1), BatdokPatientStatus.SENT))
         assertEquals(R.string.batdok_patient_confirmation_required,
             batdokPatientStatusLabel(BatdokSharingConsent(true, 0, 1), BatdokPatientStatus.SENT))
+    }
+
+    @Test fun onlyActionableStatesShowOnChip() {
+        assertFalse(batdokPatientStatusNeedsAction(R.string.batdok_patient_disabled))
+        assertFalse(batdokPatientStatusNeedsAction(R.string.batdok_patient_sent))
+        assertFalse(batdokPatientStatusNeedsAction(R.string.batdok_patient_waiting_tak))
+        listOf(R.string.batdok_patient_confirmation_required, R.string.batdok_patient_not_provisioned,
+            R.string.batdok_patient_location_required, R.string.batdok_patient_callsign_required,
+            R.string.batdok_patient_failed, R.string.batdok_patient_save_failed
+        ).forEach { assertTrue(batdokPatientStatusNeedsAction(it)) }
     }
 
     @Test fun failedToggleSaveIsVisibleWithoutChangingStoredState() {
@@ -65,5 +80,16 @@ class BatdokPatientSharingPageTest {
         compose.onNodeWithTag("settings_batdok").assertIsOff()
         compose.onNodeWithText(RuntimeEnvironment.getApplication().getString(R.string.batdok_patient_save_failed))
             .assertExists()
+    }
+
+    @Test fun publishFailureShowsSanitizedCode() {
+        compose.setContent {
+            Column {
+                BatdokPatientToggle(BatdokSharingConsent(true, BatdokSharingStore.CONSENT_VERSION, 1),
+                    BatdokPatientStatus.FAILED, {}, failureCode = "E:BadPaddingException")
+            }
+        }
+        val failed = RuntimeEnvironment.getApplication().getString(R.string.batdok_patient_failed)
+        compose.onNodeWithText("$failed [E:BadPaddingException]").assertExists()
     }
 }
