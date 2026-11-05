@@ -1958,7 +1958,10 @@ class MainActivity : ComponentActivity() {
             dataRepository.storeBatteryAlertPercentage(battAlertPercentConfigUpdate)
             dataRepository.storeEnablePhysiologicalAlerts(enablePhysiologicalAlertsConfigUpdate)
             dataRepository.storeRestingHeartRate(physiologicalMetricsRestingHeartRateConfigUpdate)
-            dataRepository.storeYearOfBirth(physiologicalMetricsBirthYearServiceConfigUpdate)
+            dataRepository.storeYearOfBirth(
+                physiologicalMetricsBirthYearServiceConfigUpdate,
+                explicitlySupplied = appRestrictions.containsKey("physiological_metrics_birth_year")
+            )
             dataRepository.storePhysiologicalMetricHeightFeet(
                 physiologicalMetricsHeightFeetServiceConfigUpdate
             )

@@ -3684,7 +3684,7 @@ class TAKConnectService: Service() {
             socket: SSLSocket,
             xml: String,
             allowCompanionGraceForFinalExpiry: Boolean = false,
-            beforeWrite: () -> Boolean = { true },
+            beforeWrite: suspend () -> Boolean = { true },
         ): Boolean = attempt.outputMutex.withLock {
             currentCoroutineContext().ensureActive()
             synchronized(detail.runtime.lock) {
@@ -3697,6 +3697,11 @@ class TAKConnectService: Service() {
             }
             if (!beforeWrite()) return@withLock false
             currentCoroutineContext().ensureActive()
+            synchronized(detail.runtime.lock) {
+                if (!isCurrent(detail, attempt, allowCompanionGraceForFinalExpiry) || attempt.socket !== socket ||
+                    detail.secureSocket !== socket || detail.duplicateEndpointSuppressed ||
+                    socket.isClosed || !socket.isConnected) return@withLock false
+            }
             try {
                 socket.outputStream.apply {
                     write(xml.toByteArray(Charsets.UTF_8))
@@ -4030,7 +4035,8 @@ class TAKConnectService: Service() {
             }
 
         internal suspend fun writeCommandReply(
-            detail: TakServerDetail, xml: String, timeoutMs: Long = 5_000L
+            detail: TakServerDetail, xml: String, timeoutMs: Long = 5_000L,
+            beforeWrite: suspend () -> Boolean = { true }
         ): Boolean {
             val attempt: ConnectionAttempt
             val socket: SSLSocket
@@ -4050,8 +4056,11 @@ class TAKConnectService: Service() {
                     val worker = connectionScope.launch {
                         try {
                             val accepted = writeConnection(detail, attempt, socket, xml) {
-                                writing.set(true)
-                                continuation.isActive
+                                if (!continuation.isActive || !beforeWrite()) false
+                                else {
+                                    writing.set(true)
+                                    continuation.isActive
+                                }
                             }
                             continuation.resumeWith(Result.success(accepted))
                         } catch (error: CancellationException) {
@@ -4061,19 +4070,35 @@ class TAKConnectService: Service() {
                         }
                     }
                     continuation.invokeOnCancellation {
-                        Log.w(TAG, "Originating command acknowledgement cancelled or timed out")
+                        Log.w(TAG, "Direct CoT write cancelled or timed out")
                         worker.cancel()
                         if (writing.get()) {
                             connectionScope.launch {
                                 handleSocketFailure(detail, attempt, socket,
-                                    IOException("Originating command acknowledgement cancelled or timed out"))
+                                    IOException("Direct CoT write cancelled or timed out"))
                             }
                         }
                     }
                 }
             }
-            if (result == null) Log.w(TAG, "Originating command acknowledgement timed out")
+            if (result == null) Log.w(TAG, "Direct CoT write timed out")
             return result ?: false
+        }
+
+        internal suspend fun sendBatdokPatient(xml: String, stillAllowed: suspend () -> Boolean): Boolean {
+            if (!isLicenseValid() || !isNetworkConnected || !takEndpointEnabled ||
+                !offBodyAllowsConnection() || dataRepository.shouldSuppressWatchTransportNow()) return false
+            var written = false
+            // Deliberately bypass generic egress: only enabled direct TAK streams, no other destinations.
+            for (detail in takServerDetails.toList()) {
+                if (!detail.isEnabled || detail.duplicateEndpointSuppressed ||
+                    detail.connectionStatus.get() != TAK_SERVER_CONNECTED_COT_PORT) continue
+                val accepted = writeCommandReply(detail, xml, beforeWrite = {
+                    offBodyAllowsConnection() && isLicenseValid() && stillAllowed()
+                })
+                written = written || accepted
+            }
+            return written
         }
 
         fun sendFinalExpiredSelfPli(xml: String): Boolean {

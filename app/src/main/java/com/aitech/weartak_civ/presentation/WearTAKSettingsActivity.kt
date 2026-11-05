@@ -374,6 +374,9 @@ fun WearTAKSettingsNav(
 
     val enablePhysiologicalServices by settingsVm.savedEnablePhysiologicalServices.collectAsState()
     val enableBatdokCot by settingsVm.savedEnableBatdokCot.collectAsState()
+    val batdokSharingConsent by settingsVm.savedBatdokSharingConsent.collectAsState()
+    val batdokPatientStatus by settingsVm.batdokPatientStatus.collectAsState()
+    val batdokSharingSaveFailed by settingsVm.batdokSharingSaveFailed.collectAsState()
     val takServerList by settingsVm.savedTakServerList.collectAsState()
 
     val enableMulticast by settingsVm.savedEnableMulticast.collectAsState()
@@ -3260,20 +3263,11 @@ fun WearTAKSettingsNav(
                         when (entry) {
                             is PluginMenuEntry.BuiltIn -> when (entry.kind) {
                                 BuiltInPlugin.BATDOK -> {
-                                    WearTAKToggleChip(
-                                        testTag = "settings_batdok",
-                                        checkedLive = enableBatdokCot,
-                                        onCheckedChange = settingsVm::storeEnableBatdokCot,
-                                        appIcon = {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.batdok),
-                                                tint = Color.Unspecified,
-                                                contentDescription = "null",
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        },
-                                        title = entry.title,
-                                        description = stringResource(R.string.on_off),
+                                    BatdokPatientToggle(
+                                        consent = batdokSharingConsent,
+                                        status = batdokPatientStatus,
+                                        onToggle = settingsVm::storeEnableBatdokCot,
+                                        saveFailed = batdokSharingSaveFailed
                                     )
                                 }
                                 BuiltInPlugin.COMPANION -> {

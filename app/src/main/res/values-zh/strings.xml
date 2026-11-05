@@ -209,10 +209,10 @@
     <string name="uniform_pants_length_text">Uniform Pants Length</string>
     <string name="steps_per_100m_text">Steps Per 100m</string>
     <string name="loadout_weight_text">Loadout Weight</string>
-    <string name="medical_profile_batdok">Medical Profile (BATDOK)</string>
+    <string name="medical_profile_batdok">Medical Profile (BATTAK)</string>
     <string name="gait_tracking">Gait Tracking</string>
     <string name="please_enter_a_value">Please enter a value</string>
-    <string name="batdok">BATDOK</string>
+    <string name="batdok">BATTAK</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

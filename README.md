@@ -421,8 +421,8 @@ in Fahrenheit (`skt`) and exertion (`exert`). These readings require physiologic
 monitoring, worn state, enabled source sensors and valid samples no older than
 120 seconds or more than 30 seconds in the future, matching self-status policy.
 Unavailable readings are omitted; model/UID remain for reflected-watch identity
-detection. The BATDOK switch controls only the separate ATMIST additions, not
-physiology. Self-status remarks are unchanged. Battery remains in `<status>` and
+detection. The BATTAK switch controls legacy ATMIST additions and separately
+authorized patient sharing, not this physiology field. Self-status remarks are unchanged. Battery remains in `<status>` and
 the shared `<physiology><device><bat>` field, independent of monitoring.
 Physiology Dashboard consumers should listen for `<detail><physiology>`.
 Alert/cancel metadata also uses `<physiology alert...>`, preserving its attributes
@@ -3192,17 +3192,76 @@ The `user_type` storage key, `physiological_metrics_user_type` managed key, and
 other legacy classifications remain visible and unselected until explicitly
 replaced. Opening the selector never assigns Air Force or infers service/nationality.
 
-These profile changes do not publish BATTAK patients or broaden the existing
-BATDOK switch's behavior. Future patient sharing requires explicit reconfirmation,
-an approved destination scope, and an authorized codec/key provisioning approach.
-The proposed patient mapping uses effective callsign for name/alias and Unit for
-nullable `unit` (None omitted), never a legacy classification. Birth year must be
-explicitly supplied before estimating age; default/cached age is not evidence.
-An interoperable unknown-age strategy and sex/gender mapping remain unresolved;
-do not invent either value or add an unsupported patient field.
-Future updates must retain a separate, persisted 16-hex-digit patient identity.
-Vitals must come from fresh policy-filtered samples, with source timestamps;
-skin temperature must not be presented as core temperature.
+### Standalone BATTAK patient sharing
+
+The existing toggle is now labeled **BATTAK** and retains legacy PLI/ATMIST behavior.
+Deliberately switching it ON authorizes patient sharing; no separate confirmation
+page, dialog or action exists. Adjacent text explains that
+identity, callsign, Unit, location, supplied age and supported live vitals go to
+**all enabled TAK servers**, including servers enabled later. The old default-ON
+value and managed `batdok_enabled=true` do not authorize patient sharing. Existing
+users retain their legacy toggle state and must switch OFF then ON once to start
+patient sharing. A versioned explicit-user-toggle marker persists this choice.
+Turning OFF revokes it; a subsequent programmatic/managed ON cannot restore it.
+Legacy preference/API identifiers and `batdokpayload` wire naming remain unchanged.
+
+**Compatible private builds include the authorized BATTAK interoperability configuration.**
+No user parameter import, credential form, storage file or Companion is required.
+`BatdokBuiltInConfiguration` creates the independent codec from private build inputs
+`BATTAK_INTEROP_PASSPHRASE` and `BATTAK_INTEROP_SALT_BASE64` (standard Base64 salt
+bytes). Supply these only through the authorized build process environment, never
+Git, command-line literals, chat or logs. They are distinct from TAK credentials.
+The inputs are embedded in generated BuildConfig/APK and are recoverable from that
+artifact: this is compatibility configuration, **not secret storage or obfuscation**.
+Protect generated outputs according to the authorized distribution policy.
+
+An intended BATTAK acceptance build must use `-PbatdokAcceptance=true`; missing
+inputs then fail Gradle configuration explicitly. Partial inputs or invalid salt
+fail all builds. Unrelated ordinary builds with neither input remain buildable but
+show that BATTAK configuration is absent; they are not acceptance candidates.
+Private CI must set both inputs in the appropriate authorized scope and use the
+acceptance flag; no remote CI variables are created by this change.
+Build validation checks presence/encoding, not receiver-compatible values.
+No plaintext fallback is used. Sharing still requires explicit user toggle ON,
+regardless of built-in configuration. Derived keys are closed on service shutdown;
+BuildConfig strings necessarily remain recoverable in the process/artifact.
+The independent codec implements UTF-8 JSON -> gzip ->
+AES/ECB/PKCS5Padding -> standard unwrapped Base64, using PBKDF2-HMAC-SHA256
+(65,536 iterations, 256-bit result) from supplied passphrase/salt. Synthetic
+fixtures and independent actual-compiled-encoder comparison passed; actual
+Android receiver acceptance remains a separate required live check.
+ECB is a legacy receiver requirement, not authenticated encryption.
+
+The gated publisher uses a separate persisted random 16-hex-digit patient ID;
+heartbeats, reconnects and toggle changes retain it. Effective callsign becomes
+`name` and `alias`; Unit uses the exact nullable `unit` string (None/legacy values
+omitted). Birth year must be explicitly saved through settings/chat or supplied in
+managed configuration after this change; pre-existing years lack reliable
+provenance and must be saved again. Age is current UTC year minus birth year,
+not a precise birthday-based age or cached physiological age. Without a confirmed
+valid year, the entire optional ATMIST report is omitted, never replaced with
+newborn age zero. Identity-only receiver acceptance still needs live verification.
+
+With known age, ATMIST contains only policy-filtered, enabled, worn-state heart
+rate samples in 20..250 bpm, at most 120 seconds old or 30 seconds in the future.
+Vital timestamps use original Unix milliseconds. Skin temperature has no verified
+receiver field and is omitted rather than mislabeled core `Temp`; locally stored
+sex is retained without inventing a wire field. Injury/treatment arrays are empty;
+ATMIST incident time is report creation time, not an asserted clinical injury onset.
+Outer CoT and nested location agree; a location must be valid and within the same
+120-second/30-second freshness bounds.
+
+Patient heartbeats run every 25 seconds while dispatch is running, and refresh on
+TAK readiness/consent changes, with 60-second outer CoT expiry. This path writes
+only enabled, connected, nonduplicate direct TAK streams, obeying TAK endpoint,
+license, off-body and Companion transport-suppression policy. It never uses
+generic egress, multicast, Ditto, plugins, Companion, ESRI or TabletCommand.
+Consent, policy, identity, sample freshness and connection generation are checked
+again before each socket write. No offline patient payload is queued for replay.
+Off stops updates; receiver records age out on their own independent timers.
+No negative-stale patient deletion is sent because it can refresh downstream
+patient state before deletion. A successful write is not receiver acceptance,
+nor creation of a clinical encounter. No live interoperability is claimed.
 
 Allowed Callsigns uses the same full-screen text-entry page as other settings
 when adding or editing an entry, with the standard confirm/cancel controls instead of a

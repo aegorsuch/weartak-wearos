@@ -69,6 +69,8 @@ import com.aitech.weartak_civ.service.sitx.SitxServiceCommandBus
 import com.rain.hail.sdk.HailDetail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -215,6 +217,65 @@ class CotDispatchService : Service() {
 
         startAnyEndpointConnectedCollector()
         startOutboundPliAnnouncements()
+        startBatdokPatientSharing()
+    }
+
+    private fun startBatdokPatientSharing() {
+        var codec: com.aitech.weartak_civ.cot.BatdokPatientCodec? = null
+        val publisher = BatdokPatientPublisher(
+            input = {
+                BatdokPublishingInput(
+                    consent = dataRepository.batdokSharing.consent.first(),
+                    allowed = locationAnnouncementAllowed() && dataRepository.getEnableTakEndpoint.first() &&
+                        !dataRepository.shouldSuppressWatchTransportNow() &&
+                        TAKConnectService.isAnyTakConnected,
+                    profile = com.aitech.weartak_civ.cot.BatdokPatientProfile(
+                        dataRepository.getCallsign.first(), dataRepository.getPhysiologicalMetricUserType.first(),
+                        dataRepository.confirmedBirthYear.first()
+                    ),
+                    location = dataRepository.snapshotLocation(dataRepository.bestKnownLocation()),
+                    physiology = dataRepository.selfStatusInputs().first()
+                )
+            },
+            patientId = { dataRepository.batdokSharing.patientId() },
+            encoder = {
+                codec ?: com.aitech.weartak_civ.cot.BatdokBuiltInConfiguration.createCodecOrNull()
+                    ?.also { codec = it }
+            },
+            sendToTak = TAKConnectService::sendBatdokPatient,
+        )
+        serviceScope.launch {
+            try {
+                val heartbeat = kotlinx.coroutines.flow.flow {
+                    while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                        emit(Unit)
+                        kotlinx.coroutines.delay(25_000L)
+                    }
+                }
+                combine(dataRepository.batdokSharing.consent, dataRepository.outboundReadyRoutes, heartbeat) { _, _, _ -> Unit }
+                    .collectLatest {
+                        try {
+                            dataRepository.batdokPatientStatus.value = publisher.publish()
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: java.security.GeneralSecurityException) {
+                            Log.e(TAG, "BATTAK patient sharing blocked: codec failure")
+                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
+                        } catch (error: java.io.IOException) {
+                            Log.e(TAG, "BATTAK patient sharing blocked: storage or transport unavailable")
+                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
+                        } catch (error: IllegalStateException) {
+                            Log.e(TAG, "BATTAK patient sharing blocked: invalid persisted state")
+                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
+                        } catch (error: IllegalArgumentException) {
+                            Log.e(TAG, "BATTAK patient sharing blocked: invalid input")
+                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
+                        }
+                    }
+            } finally {
+                codec?.close()
+            }
+        }
     }
 
     private fun startAnyEndpointConnectedCollector() {

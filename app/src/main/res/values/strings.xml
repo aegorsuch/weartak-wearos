@@ -594,8 +594,8 @@
     <string name="hail_service_description" translatable="false">Enable or disable Hail service</string>
     <string name="hail_service_enabled_default" translatable="false">false</string>
 
-    <string name="batdok_title" translatable="false">Enable Batdok COT</string>
-    <string name="batdok_description" translatable="false">Enable or disable Batdok COT</string>
+    <string name="batdok_title" translatable="false">Enable BATTAK sharing</string>
+    <string name="batdok_description" translatable="false">Enable or disable BATTAK patient sharing</string>
     <string name="batdok_enabled_default" translatable="false">true</string>
 
     <string name="multicast_service_enabled_title" translatable="false">Enable Multicast</string>
@@ -819,6 +819,16 @@
     <string name="unit_navy">Navy</string>
     <string name="unit_none">None</string>
     <string name="unit_legacy_value">Legacy value: %1$s. Select a Unit.</string>
+    <string name="batdok_patient_disabled">BATTAK off</string>
+    <string name="batdok_patient_confirmation_required">Patient sharing inactive: switch OFF then ON once</string>
+    <string name="batdok_patient_not_provisioned">Not sharing: build lacks BATTAK configuration</string>
+    <string name="batdok_patient_location_required">Not sharing: fresh location required</string>
+    <string name="batdok_patient_callsign_required">Not sharing: callsign required</string>
+    <string name="batdok_patient_waiting_tak">Waiting for enabled TAK server</string>
+    <string name="batdok_patient_sent">Patient update sent to TAK</string>
+    <string name="batdok_patient_failed">Patient sharing failed. Check configuration.</string>
+    <string name="batdok_patient_save_failed">Could not save BATTAK setting. Previous setting is unchanged. Try again.</string>
+    <string name="batdok_patient_sharing_explanation">Turning BATTAK ON shares patient identity, callsign, Unit, location, supplied age and supported live vitals with ALL enabled TAK servers, including future additions. Recipients may retain or forward details. Existing users: switch OFF then ON once to start patient sharing.</string>
     <string name="height">Height</string>
     <string name="allergies">Allergies</string>
     <string name="value_exceeds_maximum_please_re_enter">Value exceeds maximum, please re-enter</string>
@@ -928,10 +938,10 @@
     <string name="uniform_pants_length_text">Uniform Pants Length</string>
     <string name="steps_per_100m_text">Steps Per 100m</string>
     <string name="loadout_weight_text">Loadout Weight</string>
-    <string name="medical_profile_batdok">Medical Profile (BATDOK)</string>
+    <string name="medical_profile_batdok">Medical Profile (BATTAK)</string>
     <string name="gait_tracking">Gait Tracking</string>
     <string name="please_enter_a_value">Please enter a value</string>
-    <string name="batdok">BATDOK</string>
+    <string name="batdok">BATTAK</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

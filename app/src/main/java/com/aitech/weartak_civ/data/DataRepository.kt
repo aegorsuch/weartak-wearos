@@ -1057,10 +1057,11 @@ class DataRepository(
     }
 
     suspend fun storeEnableBatdokCot(enable: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[ENABLE_BATDOK_COT] = enable
-        }
+        batdokSharing.setEnabled(enable)
     }
+
+    val batdokSharing = BatdokSharingStore(context.dataStore)
+    val batdokPatientStatus = MutableStateFlow(com.aitech.weartak_civ.service.BatdokPatientStatus.CONFIRMATION_REQUIRED)
 
     val getEnableBatdokCot: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[ENABLE_BATDOK_COT] ?: DEFAULT_ENABLE_BATDOK_COT
@@ -5933,8 +5934,14 @@ class DataRepository(
         prefs[YEAR_OF_BIRTH] ?: DEFAULT_BIRTH_YEAR
     }
 
-    suspend fun storeYearOfBirth(year: Int) {
+    val confirmedBirthYear: Flow<Int?> = context.dataStore.data.map { prefs ->
+        prefs[YEAR_OF_BIRTH].takeIf { prefs[BIRTH_YEAR_EXPLICITLY_SUPPLIED] == true }
+    }
+
+    suspend fun storeYearOfBirth(year: Int, explicitlySupplied: Boolean = true) {
         context.dataStore.edit { prefs ->
+            if (explicitlySupplied) prefs[BIRTH_YEAR_EXPLICITLY_SUPPLIED] = true
+            else if (prefs[YEAR_OF_BIRTH] != year) prefs.remove(BIRTH_YEAR_EXPLICITLY_SUPPLIED)
             prefs[YEAR_OF_BIRTH] = year
         }
         storePhysiologicalMetricAge((Year.now().value - year).coerceAtLeast(0))
@@ -6348,7 +6355,7 @@ class DataRepository(
         private val ENABLE_WIFI_BATTERY_OPTIMIZATION = booleanPreferencesKey("enable_wifi_battery_optimization")
         private val ENABLE_ALL_WIFI_BATTERY_OPTIMIZATION = booleanPreferencesKey("enable_all_wifi_battery_optimization")
         private val ENABLE_HAIL_SERVICE = booleanPreferencesKey("enable_hail_service")
-        private val ENABLE_BATDOK_COT = booleanPreferencesKey("enable_batdok_cot")
+        private val ENABLE_BATDOK_COT = BatdokSharingStore.ENABLED
         private val HAIL_LICENSE_INFO_JSON = stringPreferencesKey("hail_license_info_json_v1") // include suffix for forward-compat
         private val HAIL_LICENSE_STATE = stringPreferencesKey("hail_license_state")
         private val HAIL_COMBAT_ID = intPreferencesKey("hail_combat_id")
@@ -6465,5 +6472,6 @@ class DataRepository(
         private val TABLET_COMMAND_APIKEY = stringPreferencesKey("tablet_command_apikey")
         private val TABLET_COMMAND_REPORTING_UPDATE_INTERVAL = intPreferencesKey("tablet_command_reporting_update_interval")
         private val YEAR_OF_BIRTH = intPreferencesKey("year_of_birth")
+        private val BIRTH_YEAR_EXPLICITLY_SUPPLIED = booleanPreferencesKey("birth_year_explicitly_supplied")
     }
 }
