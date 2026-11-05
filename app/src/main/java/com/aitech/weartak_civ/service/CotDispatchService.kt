@@ -256,19 +256,13 @@ class CotDispatchService : Service() {
                     .collectLatest {
                         try {
                             dataRepository.batdokPatientStatus.value = publisher.publish()
+                            dataRepository.batdokPatientFailureCode.value = null
                         } catch (error: kotlinx.coroutines.CancellationException) {
                             throw error
-                        } catch (error: java.security.GeneralSecurityException) {
-                            Log.e(TAG, "BATTAK patient sharing blocked: codec failure")
-                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
-                        } catch (error: java.io.IOException) {
-                            Log.e(TAG, "BATTAK patient sharing blocked: storage or transport unavailable")
-                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
-                        } catch (error: IllegalStateException) {
-                            Log.e(TAG, "BATTAK patient sharing blocked: invalid persisted state")
-                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
-                        } catch (error: IllegalArgumentException) {
-                            Log.e(TAG, "BATTAK patient sharing blocked: invalid input")
+                        } catch (error: Exception) {
+                            val code = batdokFailureCode(error)
+                            Log.w(TAG, "BATTAK patient sharing blocked: $code")
+                            dataRepository.batdokPatientFailureCode.value = code
                             dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
                         }
                     }

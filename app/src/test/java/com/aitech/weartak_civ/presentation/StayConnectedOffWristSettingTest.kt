@@ -58,8 +58,9 @@ class StayConnectedOffWristSettingTest {
                 {}, {}, {}, stayConnectedOffWrist = enabled,
                 onStayConnectedOffWristChange = { scope.launch { repository.storeStayConnectedOffWrist(it) } })
         }
+        assertEquals("Stay Connected Off-Wrist", title)
         compose.onNode(hasScrollAction()).performScrollToNode(hasText(title))
-        compose.onNodeWithText(app.getString(R.string.debug_stay_connected_off_wrist_description)).assertExists()
+        compose.onNodeWithText("TAK + Ditto", substring = true).assertDoesNotExist()
         compose.onNodeWithText(title).assertIsOff().performClick()
         compose.waitUntil { runBlocking { repository.stayConnectedOffWrist.first() } }
         compose.onNodeWithText(title).assertIsOn().performClick()

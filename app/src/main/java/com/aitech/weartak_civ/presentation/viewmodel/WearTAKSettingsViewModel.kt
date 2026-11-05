@@ -629,6 +629,7 @@ class WearTAKSettingsViewModel : ViewModel() {
         initialValue = com.aitech.weartak_civ.data.BatdokSharingConsent(false, 0, 0)
     )
     val batdokPatientStatus = dataRepository.batdokPatientStatus
+    val batdokPatientFailureCode = dataRepository.batdokPatientFailureCode
     val batdokSharingSaveFailed = MutableStateFlow(false)
 
     fun storeEnableBatdokCot(enable: Boolean) {

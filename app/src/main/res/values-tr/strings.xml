@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">Bilekte değilken bağlı kal</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; daha çok pil tüketir.</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Bağlantı ayarı kaydedilemedi. Tekrar deneyin.</string>
     <string name="ditto_direct_peers">Eşler</string>
     <string name="ditto_ble_peers">BLE</string>
@@ -233,7 +232,6 @@
     <string name="batdok_patient_sent">Hasta güncellemesi TAK sunucusuna gönderildi</string>
     <string name="batdok_patient_failed">Hasta paylaşımı başarısız. Yapılandırmayı kontrol edin.</string>
     <string name="batdok_patient_save_failed">BATTAK ayarı kaydedilemedi. Önceki ayar değişmedi. Yeniden deneyin.</string>
-    <string name="batdok_patient_sharing_explanation">BATTAK açıldığında hasta kimliği, çağrı işareti, birlik, konum, girilen yaş ve desteklenen canlı yaşamsal bulgular, sonradan eklenenler dahil TÜM etkin TAK sunucularıyla paylaşılır. Alıcılar bilgileri saklayabilir veya iletebilir. Mevcut kullanıcılar: hasta paylaşımını başlatmak için bir kez kapatıp açın.</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

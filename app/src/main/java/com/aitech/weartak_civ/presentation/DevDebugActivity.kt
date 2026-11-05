@@ -403,7 +403,6 @@ internal fun DebugInformationPage(
                 DeveloperEntryId.STAY_AWAKE -> DebugStayAwakeSetting()
                 DeveloperEntryId.STAY_CONNECTED_OFF_WRIST -> WearTAKToggleChip(
                     title = entry.label,
-                    description = stringResource(R.string.debug_stay_connected_off_wrist_description),
                     checkedLive = stayConnectedOffWrist,
                     onCheckedChange = onStayConnectedOffWristChange
                 )

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">未佩戴时保持连接</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto；增加耗电。</string>
     <string name="debug_stay_connected_off_wrist_save_failed">无法保存连接设置。请重试。</string>
     <string name="ditto_direct_peers">设备</string>
     <string name="ditto_ble_peers">BLE</string>
@@ -233,7 +232,6 @@
     <string name="batdok_patient_sent">患者更新已发送至 TAK</string>
     <string name="batdok_patient_failed">患者共享失败。请检查配置。</string>
     <string name="batdok_patient_save_failed">无法保存 BATTAK 设置。原设置未更改。请重试。</string>
-    <string name="batdok_patient_sharing_explanation">开启 BATTAK 后，患者身份、呼号、单位、位置、已提供的年龄和受支持的实时生命体征将共享至所有已启用的 TAK 服务器，包括以后添加的服务器。接收者可以保留或转发信息。现有用户：请关闭后再开启一次以开始患者共享。</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

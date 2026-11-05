@@ -1062,6 +1062,8 @@ class DataRepository(
 
     val batdokSharing = BatdokSharingStore(context.dataStore)
     val batdokPatientStatus = MutableStateFlow(com.aitech.weartak_civ.service.BatdokPatientStatus.CONFIRMATION_REQUIRED)
+    /** Sanitized code for the last FAILED publish (stage + exception class), null otherwise. */
+    val batdokPatientFailureCode = MutableStateFlow<String?>(null)
 
     val getEnableBatdokCot: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[ENABLE_BATDOK_COT] ?: DEFAULT_ENABLE_BATDOK_COT

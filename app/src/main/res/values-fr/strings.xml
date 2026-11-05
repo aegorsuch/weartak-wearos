@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">Rester connecté hors poignet</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto ; consomme plus.</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Impossible de sauvegarder le réglage de connexion. Réessayez.</string>
     <string name="ditto_direct_peers">Pairs</string>
     <string name="ditto_ble_peers">BLE</string>
@@ -233,7 +232,6 @@
     <string name="batdok_patient_sent">Mise à jour du patient envoyée à TAK</string>
     <string name="batdok_patient_failed">Échec du partage patient. Vérifiez la configuration.</string>
     <string name="batdok_patient_save_failed">Impossible d’enregistrer le réglage BATTAK. Le réglage précédent reste inchangé. Réessayez.</string>
-    <string name="batdok_patient_sharing_explanation">Activer BATTAK partage l’identité du patient, son indicatif, son unité, sa position, son âge renseigné et les constantes vitales en direct prises en charge avec TOUS les serveurs TAK activés, y compris ceux ajoutés ultérieurement. Les destinataires peuvent conserver ou transmettre ces données. Utilisateurs existants : désactivez puis réactivez une fois pour commencer le partage.</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

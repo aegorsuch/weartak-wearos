@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">非装着時も接続を維持</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto。電池消費が増えます。</string>
     <string name="debug_stay_connected_off_wrist_save_failed">接続設定を保存できませんでした。もう一度お試しください。</string>
     <string name="ditto_direct_peers">ピア</string>
     <string name="ditto_ble_peers">BLE</string>
@@ -233,7 +232,6 @@
     <string name="batdok_patient_sent">患者情報の更新を TAK に送信しました</string>
     <string name="batdok_patient_failed">患者共有に失敗しました。設定を確認してください。</string>
     <string name="batdok_patient_save_failed">BATTAK 設定を保存できませんでした。以前の設定は変更されていません。再試行してください。</string>
-    <string name="batdok_patient_sharing_explanation">BATTAK をオンにすると、患者の識別情報、コールサイン、所属、位置、入力された年齢、対応するリアルタイムのバイタル情報が、後で追加されるサーバーも含め、すべての有効な TAK サーバーと共有されます。受信者は情報を保存または転送できます。既存のユーザーは、一度オフにしてからオンにすると患者共有を開始できます。</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

@@ -104,6 +104,42 @@ class BatdokPatientPublisherTest {
         assertTrue(sent.isEmpty())
     }
 
+    @Test fun failuresAreWrappedWithSanitizedStageCodes() = runBlocking {
+        codec = BatdokPatientEncoder { throw javax.crypto.BadPaddingException("SECRET-DETAIL") }
+        val encryption = runCatching { publisher.publish() }.exceptionOrNull()
+        assertEquals("E:BadPaddingException", batdokFailureCode(encryption!!))
+        assertFalse(batdokFailureCode(encryption).contains("SECRET"))
+        codec = BatdokPatientEncoder { "SYNTHETIC-CIPHERTEXT" }
+        val failingId = BatdokPatientPublisher(
+            input = { state }, patientId = { throw java.io.IOException("datastore") },
+            encoder = { codec }, sendToTak = { _, _ -> true }, nowMillis = { now }
+        )
+        assertEquals("I:IOException", batdokFailureCode(runCatching { failingId.publish() }.exceptionOrNull()!!))
+        val failingSend = BatdokPatientPublisher(
+            input = { state }, patientId = { "0123456789abcdef" },
+            encoder = { codec }, sendToTak = { _, _ -> throw org.json.JSONException("x") }, nowMillis = { now }
+        )
+        assertEquals("T:JSONException", batdokFailureCode(runCatching { failingSend.publish() }.exceptionOrNull()!!))
+        val failingConfig = BatdokPatientPublisher(
+            input = { state }, patientId = { "0123456789abcdef" },
+            encoder = { throw IllegalArgumentException("salt") }, sendToTak = { _, _ -> true }, nowMillis = { now }
+        )
+        assertEquals("C:IllegalArgumentException", batdokFailureCode(runCatching { failingConfig.publish() }.exceptionOrNull()!!))
+        assertEquals("U:IllegalStateException", batdokFailureCode(IllegalStateException("x")))
+        assertEquals("U:Exception", batdokFailureCode(object : Exception("anon") {}))
+        val cancelling = BatdokPatientPublisher(
+            input = { state }, patientId = { throw kotlinx.coroutines.CancellationException("stop") },
+            encoder = { codec }, sendToTak = { _, _ -> true }, nowMillis = { now }
+        )
+        assertTrue(runCatching { cancelling.publish() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        val fatal = BatdokPatientPublisher(
+            input = { state }, patientId = { throw OutOfMemoryError() },
+            encoder = { codec }, sendToTak = { _, _ -> true }, nowMillis = { now }
+        )
+        assertTrue(runCatching { fatal.publish() }.exceptionOrNull() is OutOfMemoryError)
+        assertTrue(sent.isEmpty())
+    }
+
     @Test fun staleInvalidOrFutureLocationAndEmptyIdentityDoNotSend() = runBlocking {
         val original = state
         for (location in listOf(null, original.location!!.copy(timeMillis = now - 120_001),

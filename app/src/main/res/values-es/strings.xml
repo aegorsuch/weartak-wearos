@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">Mantener conexión fuera de la muñeca</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; más consumo de batería.</string>
     <string name="debug_stay_connected_off_wrist_save_failed">No se pudo guardar el ajuste de conexión. Inténtalo de nuevo.</string>
     <string name="ditto_direct_peers">Pares</string>
     <string name="ditto_ble_peers">BLE</string>
@@ -233,7 +232,6 @@
     <string name="batdok_patient_sent">Actualización del paciente enviada a TAK</string>
     <string name="batdok_patient_failed">Error al compartir datos del paciente. Revise la configuración.</string>
     <string name="batdok_patient_save_failed">No se pudo guardar el ajuste de BATTAK. El ajuste anterior no cambió. Inténtelo de nuevo.</string>
-    <string name="batdok_patient_sharing_explanation">Activar BATTAK comparte la identidad del paciente, indicativo, unidad, ubicación, edad indicada y constantes vitales en directo compatibles con TODOS los servidores TAK habilitados, incluidos los añadidos posteriormente. Los destinatarios pueden conservar o reenviar los datos. Usuarios existentes: desactive y active una vez para empezar a compartir.</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

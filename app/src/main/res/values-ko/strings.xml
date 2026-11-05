@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">미착용 시에도 연결 유지</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; 배터리 사용 증가.</string>
     <string name="debug_stay_connected_off_wrist_save_failed">연결 설정을 저장하지 못했습니다. 다시 시도하세요.</string>
     <string name="ditto_direct_peers">피어</string>
     <string name="ditto_ble_peers">BLE</string>
@@ -233,7 +232,6 @@
     <string name="batdok_patient_sent">환자 업데이트를 TAK에 전송함</string>
     <string name="batdok_patient_failed">환자 공유 실패. 설정을 확인하세요.</string>
     <string name="batdok_patient_save_failed">BATTAK 설정을 저장하지 못했습니다. 이전 설정은 변경되지 않았습니다. 다시 시도하세요.</string>
-    <string name="batdok_patient_sharing_explanation">BATTAK을 켜면 환자 식별 정보, 호출 부호, 소속, 위치, 입력한 나이 및 지원되는 실시간 활력 징후가 나중에 추가되는 서버를 포함한 모든 활성 TAK 서버와 공유됩니다. 수신자는 정보를 보관하거나 전달할 수 있습니다. 기존 사용자는 한 번 껐다 켜서 환자 공유를 시작하세요.</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>

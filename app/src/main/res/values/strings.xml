@@ -828,7 +828,6 @@
     <string name="batdok_patient_sent">Patient update sent to TAK</string>
     <string name="batdok_patient_failed">Patient sharing failed. Check configuration.</string>
     <string name="batdok_patient_save_failed">Could not save BATTAK setting. Previous setting is unchanged. Try again.</string>
-    <string name="batdok_patient_sharing_explanation">Turning BATTAK ON shares patient identity, callsign, Unit, location, supplied age and supported live vitals with ALL enabled TAK servers, including future additions. Recipients may retain or forward details. Existing users: switch OFF then ON once to start patient sharing.</string>
     <string name="height">Height</string>
     <string name="allergies">Allergies</string>
     <string name="value_exceeds_maximum_please_re_enter">Value exceeds maximum, please re-enter</string>
@@ -1139,7 +1138,6 @@
         <item quantity="one">%1$d/%2$d Server</item>
         <item quantity="other">%1$d/%2$d Servers</item>
     </plurals>
-    <string name="debug_stay_connected_off_wrist">Stay connected off-wrist</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; more battery.</string>
+    <string name="debug_stay_connected_off_wrist">Stay Connected Off-Wrist</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Could not save off-wrist connection setting. Try again.</string>
 </resources>
