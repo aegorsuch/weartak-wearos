@@ -142,6 +142,41 @@ peak-memory/OOM metrics before choosing further limits or requesting more memory
 
 ## Rolling release behavior
 
+### Review-only changelog drafts
+
+After a protected canonical `main` push successfully builds, verifies and
+publishes its signed APK, `changelog_draft` produces a developer-restricted
+`changelog-drafts/p<IID>.md` job artifact, retained for 30 days like the APK.
+Find it through the pipeline's **changelog_draft** job artifacts. Download
+drafts before expiry if longer retention is needed. No notification or approval
+UI is created, and no new service, AI model or credential is required.
+
+The draft includes the exact APK version/code, pipeline link, source SHA,
+previous published release SHA, complete comparison link, and oldest-first
+commit links (first 100, with full range always linked). Its candidate sentence
+names changed file areas, not inferred behavior: a human must inspect evidence,
+write/review a concise behavior summary and explicitly approve it before anyone
+appends it to README. Raw commit messages, diffs, compatibility values and
+signing configuration are not copied into drafts.
+
+The publisher records the prior source in its existing release provenance and
+a restricted same-pipeline receipt only after publication readback succeeds.
+Retries retain that baseline and overwrite the same per-build draft path,
+rather than accumulating duplicate entries. An older/superseded pipeline gets
+no receipt or draft. Missing previous provenance, mismatched source/version,
+incomplete history or invalid artifacts fail the draft job explicitly; they do
+not undo or prevent an otherwise valid publication. Retry the draft job after
+restoring its required inputs; never invent a baseline.
+
+Main pushes changing only root `README.md` and/or `ci/README.md` (including
+merges of approved changelog entries) skip signing, assembly, publication,
+personal source-mirror synchronization and draft generation. Tests still run.
+All other paths, including other Markdown, license, CI and packaging changes,
+retain normal release behavior. Exact before/source ancestry and full history
+are required; an initial all-zero before SHA remains release-eligible. Official
+tag and manual signed-trial behavior is unchanged. No job rewrites README,
+creates a commit or automatically approves a draft.
+
 WearOS base version is `5.8.4`, base code `584`. CI retains the existing
 `584 * 10000 + CI_PIPELINE_IID` code and `5.8.4-p<IID>+<sha>` name convention;
 this increases codes above the previous `583` base without changing signing or

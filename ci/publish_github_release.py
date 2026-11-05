@@ -195,7 +195,7 @@ class GitHub:
         return "synced"
 
 
-def configuration(env):
+def configuration(env, *, require_token=True):
     token_variable = TOKEN_VARIABLE
     expected = {
         "CI_SERVER_HOST": "git.tak.gov",
@@ -207,8 +207,10 @@ def configuration(env):
     for name, value in expected.items():
         if env.get(name) != value:
             raise PublishError(f"Publishing requires {name}={value}.")
-    required = (token_variable, "CI_PROJECT_ID", "CI_PIPELINE_IID",
+    required = ("CI_PROJECT_ID", "CI_PIPELINE_IID",
                 "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_SHA")
+    if require_token:
+        required = (token_variable, *required)
     for name in required:
         if not env.get(name):
             raise PublishError(
@@ -344,7 +346,75 @@ def update_body(previous_body, previous_state, generated):
     return previous_body[:marker.start()] + managed + previous_body[marker.end():]
 
 
-def publish(api, state, apk, digest, version, code):
+def changelog_draft(root, state, previous, version, code):
+    base = previous.get("draft_base_sha") if (
+        previous and previous["pipeline_iid"] == state["pipeline_iid"]
+    ) else previous.get("source_sha") if previous else None
+    if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base):
+        raise PublishError("Changelog draft needs a previous published source SHA.")
+    source = state["source_sha"]
+
+    def git(*args):
+        result = subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, check=False,
+        )
+        if result.returncode:
+            raise PublishError("Cannot verify changelog source range; full canonical history required.")
+        return result.stdout.strip()
+
+    if git("rev-parse", "HEAD") != source:
+        raise PublishError("Changelog checkout differs from the release source.")
+    git("merge-base", "--is-ancestor", base, source)
+    build = (root / "app" / "build.gradle").read_text()
+    base_name = re.search(r'def baseVersionName = "([0-9.]+)"', build)
+    base_code = re.search(r"def baseVersionCode = ([0-9]+)", build)
+    if not base_name or not base_code:
+        raise PublishError("Cannot verify release version definitions at source SHA.")
+    if (version != f"{base_name[1]}-p{state['pipeline_iid']}+{source[:8]}"
+            or code != int(base_code[1]) * 10000 + state["pipeline_iid"]):
+        raise PublishError("Changelog version/code does not match the exact pipeline source.")
+    commits = git("rev-list", "--reverse", f"{base}..{source}").splitlines()
+    if not commits:
+        raise PublishError("Changelog release range contains no commits.")
+    areas = set()
+    for path in git("diff", "--name-only", base, source).splitlines():
+        if path.startswith("app/"):
+            areas.add("WearOS application")
+        elif path.startswith("weartak-plugin-host-services-sdk/"):
+            areas.add("plugin host SDK")
+        elif path.endswith(".md"):
+            areas.add("documentation")
+        elif path.startswith(("ci/", ".github/")) or path == ".gitlab-ci.yml":
+            areas.add("CI/release tooling")
+        else:
+            areas.add("repository/build files")
+    candidate = "Updates " + ", ".join(sorted(areas)) + "."
+    project = "https://git.tak.gov/core/weartak-core/wearos-tak-civ"
+    text = (
+        f"# Changelog draft: {display_version(version, state['pipeline_iid'])}\n\n"
+        "**REVIEW REQUIRED - not approved; README has not been changed.**\n\n"
+        f"APK version: `{version}`; versionCode: `{code}`.\n"
+        f"Source: `{source}`; previous published source: `{base}`.\n"
+        f"Range: [{base[:8]}...{source[:8]}]({project}/-/compare/{base}...{source}).\n\n"
+        f"- [p{state['pipeline_iid']}]({state['pipeline_url']}) - "
+        f"{candidate}\n\n"
+        f"Evidence: {len(commits)} source commits since previous published build. "
+        "Candidate describes changed file areas only, not inferred behavior; "
+        "replace with reviewed behavior summary before approval.\n\n"
+        "Commit evidence (oldest first; no raw diffs, configuration values or commit messages):\n\n"
+    )
+    text += "".join(f"- [{sha[:8]}]({project}/-/commit/{sha})\n" for sha in commits[:100])
+    if len(commits) > 100:
+        text += "\nAdditional commits available through the complete range link above.\n"
+    text += (
+        "\nHuman must write/review the release sentence and explicitly approve it before "
+        "appending to README Changelog. This artifact sends no notification and provides "
+        "no approval UI. It never writes README or commits changes.\n"
+    )
+    return base, text
+
+
+def publish(api, state, apk, digest, version, code, *, receipt_root=None):
     repository = api.request("GET", "")
     if (repository.get("full_name") != PERSONAL_REPO or
             repository.get("archived") is not False or
@@ -362,6 +432,7 @@ def publish(api, state, apk, digest, version, code):
             "The publisher never pushes source commits or creates/moves tags."
         )
     release = api.request("GET", f"releases/tags/{TAG}", missing_ok=True)
+    previous = None
     if release:
         previous = state_from(release, state["project_id"])
         if previous["pipeline_iid"] > state["pipeline_iid"]:
@@ -373,6 +444,11 @@ def publish(api, state, apk, digest, version, code):
             raise PublishError("Same pipeline has different source/artifact; refusing replacement.")
 
     state = dict(state, sha256=digest)
+    if receipt_root is not None:
+        state["draft_base_sha"] = (
+            previous.get("draft_base_sha") if previous["pipeline_iid"] == state["pipeline_iid"]
+            else previous.get("source_sha")
+        ) if previous else None
     short = display_version(version, state["pipeline_iid"])
     title = f"{TITLE} ({short})"
     body = update_body(
@@ -425,22 +501,46 @@ def publish(api, state, apk, digest, version, code):
         owner = asset_pipeline(old)
         if owner is not None and owner < state["pipeline_iid"]:
             api.request("DELETE", f"releases/assets/{old['id']}")
+    if receipt_root is not None:
+        (receipt_root / "changelog-receipt.json").write_text(
+            json.dumps(state, sort_keys=True) + "\n", encoding="utf-8"
+        )
     print(f"Published {title}: version {version} ({code}), SHA256 {digest}")
 
 
 def main(argv=()):
     try:
-        if list(argv):
+        draft_only = list(argv) == ["--changelog-draft"]
+        if list(argv) and not draft_only:
             raise PublishError("Publisher always targets the fixed personal repository.")
-        state = configuration(os.environ)
+        state = configuration(os.environ, require_token=not draft_only)
         apk, digest, version, code = artifact(Path.cwd())
-        publish(GitHub(os.environ[TOKEN_VARIABLE]), state, apk, digest, version, code)
+        root = Path.cwd()
+        if draft_only:
+            receipt_path = root / "changelog-receipt.json"
+            if not receipt_path.is_file():
+                raise PublishError(
+                    "No verified same-pipeline publication receipt; successful publication required."
+                )
+            receipt = json.loads(receipt_path.read_text())
+            if any(receipt.get(key) != value for key, value in dict(state, sha256=digest).items()):
+                raise PublishError("Changelog receipt differs from this verified release.")
+            _, draft = changelog_draft(root, state, receipt, version, code)
+            directory = root / "changelog-drafts"
+            directory.mkdir(exist_ok=True)
+            path = directory / f"p{state['pipeline_iid']}.md"
+            path.write_text(draft, encoding="utf-8")
+            print(f"Review-only changelog draft: {path.relative_to(root)}")
+        else:
+            (root / "changelog-receipt.json").unlink(missing_ok=True)
+            publish(GitHub(os.environ[TOKEN_VARIABLE]), state, apk, digest, version, code,
+                    receipt_root=root)
     except (PublishError, OSError, ValueError, KeyError, TypeError, urllib.error.URLError) as error:
         # urllib transport errors can contain signed URLs; do not echo their details.
         message = str(error) if isinstance(error, PublishError) else type(error).__name__
         print(
-            f"ERROR: {message} Publication incomplete; existing usable assets are retained "
-            "until verified replacement. See ci/README.md for setup/recovery.",
+            f"ERROR: {message} Release publication or draft generation incomplete. "
+            "Draft failures do not undo a published release. See ci/README.md for recovery.",
             file=sys.stderr,
         )
         return 1
