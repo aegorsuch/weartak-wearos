@@ -14,6 +14,7 @@ stages:
   - test
   - build
   - publish
+  - draft
 
 .artifactory_credentials:
   extends: .artifactory_service_create_token_no_depends_bash
@@ -99,10 +100,14 @@ android_mopp_check:
 release_publisher_tests:
   stage: test
   image:
-    name: python:3.12-slim
+    name: python:3.12-bookworm
     entrypoint: [""]
   script:
     - python -m unittest discover -s ci/tests -v
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
 
 host_lint_debug:
   extends: .artifactory_credentials
@@ -155,6 +160,14 @@ agp_resolution_diagnostic:
     entrypoint: [""]
 
   before_script:
+    - |
+      if [ "${CI_COMMIT_BRANCH:-}" = "main" ] && [ "$CI_PIPELINE_SOURCE" = "push" ]; then
+        ELIGIBILITY="$(sh ci/release_eligibility.sh)" || exit $?
+        if [ "$ELIGIBILITY" = "docs-only" ]; then
+          echo "Documentation-only push: no signed release or changelog draft."
+          exit 0
+        fi
+      fi
     - !reference [.artifactory_credentials, before_script]
     - chmod +x gradlew
     - sh ci/build_plugin_sdk.sh
@@ -270,12 +283,14 @@ batdok_signed_trial:
 # ---------------------------------------------------------------------------
 # Main build
 #
-# Runs automatically whenever code is pushed/merged into main.
+# Runs automatically for release-eligible pushes/merges into main.
 # Produces a signed release APK for internal testing.
 # ---------------------------------------------------------------------------
 
 main_release:
   extends: .release_build
+  variables:
+    GIT_DEPTH: "0"
   environment:
     name: battak-release
     action: prepare
@@ -333,6 +348,47 @@ publish_personal_github_main:
   resource_group: wearos-github-development
   interruptible: false
   script:
+    - |
+      ELIGIBILITY="$(sh ci/release_eligibility.sh)" || exit $?
+      if [ "$ELIGIBILITY" = "docs-only" ]; then
+        echo "Documentation-only push: synchronize source only; no APK publication or draft."
+        python ci/publish_github_release.py --mirror-only || exit $?
+        exit 0
+      fi
     - python ci/publish_github_release.py
+  artifacts:
+    when: on_success
+    expire_in: 30 days
+    access: developer
+    paths:
+      - changelog-receipt.json
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+
+changelog_draft:
+  stage: draft
+  image:
+    name: python:3.12-bookworm
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  dependencies:
+    - main_release
+    - publish_personal_github_main
+  script:
+    - |
+      ELIGIBILITY="$(sh ci/release_eligibility.sh)" || exit $?
+      if [ "$ELIGIBILITY" = "docs-only" ]; then
+        echo "Documentation-only push: no changelog draft."
+        exit 0
+      fi
+    - python ci/publish_github_release.py --changelog-draft
+  artifacts:
+    when: on_success
+    expire_in: 30 days
+    access: developer
+    expose_as: "Changelog draft - review required"
+    paths:
+      - changelog-drafts/
   rules:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
