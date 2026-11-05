@@ -63,22 +63,22 @@
 
     <!-- User Type-->
     <string-array name="user_type_entries">
-        <item>@string/user_type_entry_na</item>
-        <item>@string/user_type_entry_coalition_military</item>
-        <item>@string/user_type_entry_coalition_civilian</item>
-        <item>@string/user_type_entry_nonCoalition_force</item>
-        <item>@string/user_type_entry_nonCoalition_citizen</item>
-        <item>@string/user_type_entry_opposing_force_detainee</item>
-        <item>@string/user_type_entry_child</item>
+        <item>@string/unit_air_force</item>
+        <item>@string/unit_army</item>
+        <item>@string/unit_civilian</item>
+        <item>@string/unit_foreign_national</item>
+        <item>@string/unit_marine_corps</item>
+        <item>@string/unit_navy</item>
+        <item>@string/unit_none</item>
     </string-array>
-    <string-array name="user_type_entry_values">
-        <item>@string/user_type_entry_na</item>
-        <item>@string/user_type_entry_coalition_military</item>
-        <item>@string/user_type_entry_coalition_civilian</item>
-        <item>@string/user_type_entry_nonCoalition_force</item>
-        <item>@string/user_type_entry_nonCoalition_citizen</item>
-        <item>@string/user_type_entry_opposing_force_detainee</item>
-        <item>@string/user_type_entry_child</item>
+    <string-array name="user_type_entry_values" translatable="false">
+        <item>air_force</item>
+        <item>army</item>
+        <item>civilian</item>
+        <item>foreign_national</item>
+        <item>marine_corps</item>
+        <item>navy</item>
+        <item>none</item>
     </string-array>
     <string-array name="bloodhound_proximity_intensity_entries">
         <item>@string/bloodhound_proximity_intensity_basic</item>

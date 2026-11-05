@@ -14,7 +14,7 @@ class PluginMenuEntryTest {
     fun sortsBuiltInsAndInstalledPluginsTogetherIgnoringCase() {
         val entries = listOf(
             PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, "Somewear Labs"),
-            PluginMenuEntry.BuiltIn(BuiltInPlugin.BATDOK, "BATDOK"),
+            PluginMenuEntry.BuiltIn(BuiltInPlugin.BATDOK, "BATTAK"),
             installed("zulu", "zulu"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, "Ditto"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, "Everywhere Comms"),
@@ -30,7 +30,7 @@ class PluginMenuEntryTest {
         )
 
         assertEquals(
-            listOf("alpha", "BATDOK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "zulu"),
+            listOf("alpha", "BATTAK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "zulu"),
             entries.alphabetizedPluginEntries().map { it.title },
         )
         assertEquals("Somewear Labs", entries.first().title)

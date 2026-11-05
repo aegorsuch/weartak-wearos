@@ -202,7 +202,7 @@ import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.blo
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.outputProtocolList
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.reportingStrategyOptions
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.sexOptionsList
-import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.userTypeOptionsList
+import com.aitech.weartak_civ.data.ProfileUnit
 import com.aitech.weartak_civ.presentation.theme.WearTAKCIVTheme
 import com.aitech.weartak_civ.presentation.viewmodel.SitxViewModel
 import com.aitech.weartak_civ.presentation.viewmodel.WearTAKSettingsViewModel
@@ -259,14 +259,6 @@ class WearTAKSettingsActivity : ComponentActivity() {
             (R.string.insulin),
             (R.string.muscle_relaxers),
             (R.string.sulfa_drugs))
-        val userTypeOptionsList : List<Int> = listOf(
-            (R.string.n_a),
-            (R.string.child),
-            (R.string.coalition_civilian),
-            (R.string.coalition_military),
-            (R.string.non_coalition_civilian),
-            (R.string.non_coalition_military),
-            (R.string.opposing_force_detainee))
         val bloodhoundIntensityOptions: List<Int> = listOf(
             (R.string.bloodhound_proximity_intensity_basic),
             (R.string.bloodhound_proximity_intensity_escalated),
@@ -382,6 +374,9 @@ fun WearTAKSettingsNav(
 
     val enablePhysiologicalServices by settingsVm.savedEnablePhysiologicalServices.collectAsState()
     val enableBatdokCot by settingsVm.savedEnableBatdokCot.collectAsState()
+    val batdokSharingConsent by settingsVm.savedBatdokSharingConsent.collectAsState()
+    val batdokPatientStatus by settingsVm.batdokPatientStatus.collectAsState()
+    val batdokSharingSaveFailed by settingsVm.batdokSharingSaveFailed.collectAsState()
     val takServerList by settingsVm.savedTakServerList.collectAsState()
 
     val enableMulticast by settingsVm.savedEnableMulticast.collectAsState()
@@ -927,7 +922,8 @@ fun WearTAKSettingsNav(
                         WearTAKTitleChipWithState(
                             route = "user_type",
                             title = stringResource(R.string.user_type),
-                            state = savedUserType,
+                            state = ProfileUnit.fromStored(savedUserType)?.let { stringResource(it.labelRes) }
+                                ?: stringResource(R.string.unit_legacy_value, savedUserType),
                             navController = navController
                         )
                     }
@@ -1012,15 +1008,9 @@ fun WearTAKSettingsNav(
             )
         }
         composable("user_type") {
-            val userTypeList = userTypeOptionsList.map { stringResource(id = it) }
-
-            WearTAKSelectionPage(
-                settingsVm.findRadioIndex(savedUserType, userTypeList),
-                stringResource(R.string.user_type),
-                navController,
-                userTypeList,
-                { settingsVm.storeUserType(it) }
-            )
+            WearTAKUnitSelectionPage(savedUserType, navController) {
+                settingsVm.storeUserType(it.storageValue)
+            }
         }
         composable("gait_tracking") {
             WearTAKPageWithBackArrow(
@@ -3273,20 +3263,11 @@ fun WearTAKSettingsNav(
                         when (entry) {
                             is PluginMenuEntry.BuiltIn -> when (entry.kind) {
                                 BuiltInPlugin.BATDOK -> {
-                                    WearTAKToggleChip(
-                                        testTag = "settings_batdok",
-                                        checkedLive = enableBatdokCot,
-                                        onCheckedChange = settingsVm::storeEnableBatdokCot,
-                                        appIcon = {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.batdok),
-                                                tint = Color.Unspecified,
-                                                contentDescription = "null",
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        },
-                                        title = entry.title,
-                                        description = stringResource(R.string.on_off),
+                                    BatdokPatientToggle(
+                                        consent = batdokSharingConsent,
+                                        status = batdokPatientStatus,
+                                        onToggle = settingsVm::storeEnableBatdokCot,
+                                        saveFailed = batdokSharingSaveFailed
                                     )
                                 }
                                 BuiltInPlugin.COMPANION -> {
@@ -4997,18 +4978,45 @@ fun WearTAKPageWithConfirmCancel(
 
 //Used for (single) selection screens
 @Composable
+fun WearTAKUnitSelectionPage(
+    storedValue: String,
+    navController: NavController,
+    onSelected: (ProfileUnit) -> Unit
+) {
+    val units = ProfileUnit.entries
+    val labels = units.map { stringResource(it.labelRes) }
+    val selectedUnit = ProfileUnit.fromStored(storedValue)
+    // Re-key when DataStore loads or managed configuration changes the selection.
+    androidx.compose.runtime.key(storedValue) {
+        WearTAKSelectionPage(
+            units.indexOf(selectedUnit),
+            stringResource(R.string.user_type),
+            navController,
+            labels,
+            { onSelected(units[labels.indexOf(it)]) },
+            supportingText = if (selectedUnit == null)
+                stringResource(R.string.unit_legacy_value, storedValue) else null
+        )
+    }
+}
+
+@Composable
 fun <T> WearTAKSelectionPage(
     index: Int, //Which chip should be selected
     title: String, //Title of screen
     navController: NavController, //Navcontroller passed from navhost
     list: List<T>, //List used for populating selection chips
     confirmFunction: (T) -> Unit, //What happens when a chip is selected
+    supportingText: String? = null,
 ){
     var selectedRadioIndex by remember { mutableStateOf(index) }
 
     WearTAKPageWithBackArrow(
         title,
         {
+            if (supportingText != null) {
+                item { Text(supportingText) }
+            }
             itemsIndexed(list){ index, ltItem ->
                 run {
                     WearTAKSelectableChip(

@@ -623,10 +623,24 @@ class WearTAKSettingsViewModel : ViewModel() {
             initialValue = DEFAULT_ENABLE_BATDOK_COT
         )
 
+    val savedBatdokSharingConsent = dataRepository.batdokSharing.consent.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = com.aitech.weartak_civ.data.BatdokSharingConsent(false, 0, 0)
+    )
+    val batdokPatientStatus = dataRepository.batdokPatientStatus
+    val batdokSharingSaveFailed = MutableStateFlow(false)
+
     fun storeEnableBatdokCot(enable: Boolean) {
         viewModelScope.launch {
-            dataRepository.storeEnableBatdokCot(enable)
-            enableBatdokCot = enable
+            try {
+                dataRepository.batdokSharing.setEnabledByUser(enable)
+                enableBatdokCot = enable
+                batdokSharingSaveFailed.value = false
+            } catch (error: java.io.IOException) {
+                android.util.Log.e("WearTAK-BATTAK", "Could not save BATTAK sharing setting")
+                batdokSharingSaveFailed.value = true
+            }
         }
     }
 

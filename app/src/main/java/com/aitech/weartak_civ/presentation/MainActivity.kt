@@ -1068,7 +1068,7 @@ class MainActivity : ComponentActivity() {
                     ${String.format("%-25s %-30s", "Weight:", weightValue)}
                     ${String.format("%-25s %-30s", "Sex:", sexValue)}
                     ${String.format("%-25s %-30s", "BloodType:", bloodTypeValue)}
-                    ${String.format("%-25s %-30s", "UserType:", userTypeValue)}
+                    ${String.format("%-25s %-30s", "Unit:", userTypeValue)}
                     ${String.format("%-25s %-30s", "UniformWaistSize:", uniformWaistSize)}
                     ${String.format("%-25s %-30s", "StrideLength:", strideLength)}
                     ${String.format("%-25s %-30s", "UniformPantsLength:", uniformPantsLength)}
@@ -1958,7 +1958,10 @@ class MainActivity : ComponentActivity() {
             dataRepository.storeBatteryAlertPercentage(battAlertPercentConfigUpdate)
             dataRepository.storeEnablePhysiologicalAlerts(enablePhysiologicalAlertsConfigUpdate)
             dataRepository.storeRestingHeartRate(physiologicalMetricsRestingHeartRateConfigUpdate)
-            dataRepository.storeYearOfBirth(physiologicalMetricsBirthYearServiceConfigUpdate)
+            dataRepository.storeYearOfBirth(
+                physiologicalMetricsBirthYearServiceConfigUpdate,
+                explicitlySupplied = appRestrictions.containsKey("physiological_metrics_birth_year")
+            )
             dataRepository.storePhysiologicalMetricHeightFeet(
                 physiologicalMetricsHeightFeetServiceConfigUpdate
             )

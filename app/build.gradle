@@ -88,6 +88,27 @@ android {
             throw new GradleException("enableSamsungHrv must be true or false")
         }
         buildConfigField "boolean", "SAMSUNG_HRV_ENABLED", samsungHrvEnabled
+        def batdokAcceptance = providers.gradleProperty("batdokAcceptance").orElse("false").get()
+        if (!(batdokAcceptance in ["true", "false"])) {
+            throw new GradleException("batdokAcceptance must be true or false")
+        }
+        def batdokPassphrase = System.getenv("BATTAK_INTEROP_PASSPHRASE") ?: ""
+        def batdokSalt = System.getenv("BATTAK_INTEROP_SALT_BASE64") ?: ""
+        if (batdokPassphrase.isEmpty() != batdokSalt.isEmpty() ||
+                (batdokAcceptance == "true" && batdokPassphrase.isEmpty())) {
+            throw new GradleException("BATTAK build requires BATTAK_INTEROP_PASSPHRASE and BATTAK_INTEROP_SALT_BASE64")
+        }
+        if (!batdokSalt.isEmpty()) {
+            try {
+                if (java.util.Base64.decoder.decode(batdokSalt).length == 0) {
+                    throw new IllegalArgumentException()
+                }
+            } catch (IllegalArgumentException ignored) {
+                throw new GradleException("BATTAK_INTEROP_SALT_BASE64 must encode nonempty salt bytes")
+            }
+        }
+        buildConfigField "String", "BATTAK_INTEROP_PASSPHRASE", groovy.json.JsonOutput.toJson(batdokPassphrase)
+        buildConfigField "String", "BATTAK_INTEROP_SALT_BASE64", groovy.json.JsonOutput.toJson(batdokSalt)
 
 //        manifestPlaceholders["repo"] = gitUrl()
 //        manifestPlaceholders["branch"] = gitBranch()

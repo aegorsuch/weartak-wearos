@@ -90,6 +90,7 @@ android_mopp_check:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
 release_publisher_tests:
   stage: test
@@ -138,7 +139,7 @@ agp_resolution_diagnostic:
 # Common WearTAK release build
 #
 # This is a hidden job and does not run by itself.
-# main_release and official_release both reuse this build configuration.
+# Main, official and manual BATTAK trial builds reuse this configuration.
 # ---------------------------------------------------------------------------
 
 .release_build:
@@ -161,6 +162,8 @@ agp_resolution_diagnostic:
       [ -n "$RELEASE_KEY_ALIAS" ] || { echo "ERROR: RELEASE_KEY_ALIAS missing"; exit 1; }
       [ -n "$RELEASE_KEY_PASSWORD" ] || { echo "ERROR: RELEASE_KEY_PASSWORD missing"; exit 1; }
       [ -n "$DITTO_COMMUNITY_IDENTITY" ] || { echo "ERROR: DITTO_COMMUNITY_IDENTITY missing"; exit 1; }
+      [ -n "$BATTAK_INTEROP_PASSPHRASE" ] || { echo "ERROR: BATTAK_INTEROP_PASSPHRASE missing"; exit 1; }
+      [ -n "$BATTAK_INTEROP_SALT_BASE64" ] || { echo "ERROR: BATTAK_INTEROP_SALT_BASE64 missing"; exit 1; }
 
     # Recreate the exact release keystore used locally.
     - printf '%s' "$WEARTAK_RELEASE_KEYSTORE_B64" | base64 -d > "$CI_PROJECT_DIR/app/weartak.keystore"
@@ -191,7 +194,7 @@ agp_resolution_diagnostic:
   script:
     # Build the same release APK that we previously built manually.
     # Share the 4Gi Gradle heap with Kotlin and bound workers within the 8Gi container.
-    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process clean assembleRelease
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true clean assembleRelease
 
     # Verify that the resulting APK is signed with the established
     # WearTAK Android production certificate.
@@ -235,6 +238,30 @@ agp_resolution_diagnostic:
     # Bind publication to the exact APK whose production signature was checked.
     - sha256sum "$APK" > app/build/outputs/apk/release/verified-apk.sha256
     - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+
+batdok_signed_trial:
+  extends: .release_build
+  environment:
+    name: battak-trial
+    action: prepare
+  artifacts:
+    when: on_success
+    expire_in: 7 days
+    access: developer
+    paths:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/release/verified-apk.sha256
+      - app/build/outputs/apk/release/output-metadata.json
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: manual
+      allow_failure: true
 
 # ---------------------------------------------------------------------------
 # Main build
