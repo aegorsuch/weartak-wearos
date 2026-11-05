@@ -286,7 +286,7 @@ Improves map and plugin workflows, TAK enrollment and connection reliability, Ne
 - [p581](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831805) — Added live Ditto transport and recovery diagnostics.
 - [p584](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1832185) — Simplified Ditto diagnostics to compact peer counts and separate BLE recovery status.
 - [p597](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1836625) — Added wearer-reviewed Nearby Drop server-package import/export.
-- [p612](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1838815) — Added standalone BATTAK patient sharing and Unit profile choices, plus default-off Stay connected off-wrist for TAK and Ditto.
+- [p612](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1838815) (Posted 051548Z NOV 26) — Added standalone BATTAK patient sharing and Unit profile choices, plus default-off Stay connected off-wrist for TAK and Ditto.
 
 ### Map sources and 3D overlays
 

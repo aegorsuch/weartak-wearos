@@ -40,6 +40,10 @@ class ChangelogTests(unittest.TestCase):
         self.state = p.configuration(self.env)
         self.previous = self.state | {"pipeline_iid": 11, "source_sha": self.base}
         self.version = f"5.8.4-p12+{self.source[:8]}"
+        self.previous["posted_asset"] = {
+            "id": 100, "name": "WearTAK-5.8.4-p12.apk",
+            "created_at": "2026-11-05T15:48:59Z",
+        }
         self.code = 5840012
         output = self.root / p.OUTPUT
         output.mkdir(parents=True)
@@ -82,6 +86,7 @@ class ChangelogTests(unittest.TestCase):
         text = (self.root / "changelog-drafts/p12.md").read_text(encoding="utf-8")
         for value in (self.version, str(self.code), self.base, self.source,
                       "REVIEW REQUIRED", "Updates WearOS application.",
+                      "(Posted 051548Z NOV 26)", "2026-11-05T15:48:59Z",
                       "1 source commits", self.state["pipeline_url"]):
             self.assertIn(value, text)
         self.assertEqual((self.root / "README.md").read_bytes(), before)
@@ -93,10 +98,53 @@ class ChangelogTests(unittest.TestCase):
         self.publish(api)
         self.assertEqual(self.generate(), 0)
         first = (self.root / "changelog-drafts/p12.md").read_bytes()
+        api.release["published_at"] = "2020-01-01T00:00:00Z"
+        api.items[0]["updated_at"] = "2026-12-01T00:00:00Z"
         self.publish(api)
         self.assertEqual(self.generate(), 0)
         self.assertEqual((self.root / "changelog-drafts/p12.md").read_bytes(), first)
         self.assertEqual(len(list((self.root / "changelog-drafts").iterdir())), 1)
+
+    def test_posted_utc_format_and_invalid_missing_timestamps(self):
+        self.assertEqual(p.posted_dtg({"created_at": "2026-01-02T03:04:59Z"}),
+                         "020304Z JAN 26")
+        for value in (None, "", "2026-02-30T00:00:00Z",
+                      "2026-11-05T15:48:59-06:00", "not-a-date"):
+            with self.subTest(value=value), self.assertRaises(p.PublishError):
+                p.posted_dtg({"created_at": value})
+
+    def test_missing_asset_timestamp_fails_only_draft_after_valid_publication(self):
+        api = FakeGitHub(self.previous)
+        original_assets = api.assets
+
+        def assets_without_timestamp(release_id):
+            items = original_assets(release_id)
+            for item in items:
+                item.pop("created_at", None)
+            return items
+
+        with patch.object(api, "assets", side_effect=assets_without_timestamp):
+            self.publish(api)
+        self.assertFalse(api.release["draft"])
+        self.assertEqual(self.generate(), 1)
+        self.assertFalse((self.root / "changelog-drafts").exists())
+
+    def test_receipt_uses_confirmed_asset_timestamp_not_upload_response(self):
+        api = FakeGitHub(self.previous)
+        original_assets = api.assets
+
+        def confirmed_assets(release_id):
+            items = original_assets(release_id)
+            for item in items:
+                item["created_at"] = "2026-11-06T00:01:02Z"
+            return items
+
+        with patch.object(api, "assets", side_effect=confirmed_assets):
+            self.publish(api)
+        self.assertEqual(self.generate(), 0)
+        text = (self.root / "changelog-drafts/p12.md").read_text()
+        self.assertIn("(Posted 060001Z NOV 26)", text)
+        self.assertNotIn("051548Z NOV 26", text)
 
     def test_failed_or_unpublished_release_never_gets_draft(self):
         self.assertEqual(self.generate(), 1)
