@@ -131,6 +131,27 @@ class ChangelogTests(unittest.TestCase):
         self.assertEqual(self.generate(), 1)
         self.assertFalse((self.root / "changelog-drafts").exists())
 
+    def test_docs_only_mirrors_exact_source_without_apk_release_or_draft(self):
+        api = FakeGitHub(self.previous)
+        with patch.dict(p.os.environ, self.env), patch.object(p, "GitHub", return_value=api), \
+                patch.object(p, "artifact") as artifact, patch.object(p, "publish") as publish:
+            self.assertEqual(p.main(["--mirror-only"]), 0)
+        self.assertEqual(api.synced_sources, [self.source])
+        artifact.assert_not_called()
+        publish.assert_not_called()
+        self.assertEqual(api.calls, [("GET", "", None), ("SYNC", self.source, None)])
+        self.assertFalse((self.root / "changelog-drafts").exists())
+
+    def test_source_only_rejects_wrong_destination_and_reports_sync_failure(self):
+        for wrong_destination in (True, False):
+            api = FakeGitHub(self.previous)
+            if wrong_destination:
+                api.repository["private"] = True
+            with patch.dict(p.os.environ, self.env), patch.object(p, "GitHub", return_value=api), \
+                    patch.object(api, "sync_main", side_effect=p.PublishError("sync failed")):
+                self.assertEqual(p.main(["--mirror-only"]), 1)
+            self.assertFalse(any(call[0] in ("POST", "PATCH", "DELETE") for call in api.calls))
+
     def test_wrong_version_code_sha_range_or_checksum_rejected(self):
         for version, code, previous in (
             ("5.8.4-p99+" + self.source[:8], self.code, self.previous),
@@ -192,6 +213,11 @@ class ChangelogTests(unittest.TestCase):
         self.assertNotIn("allow_failure", job)
         self.assertNotIn("needs:", job)
         self.assertEqual(ci.count("sh ci/release_eligibility.sh"), 3)
+        publisher = ci.split("\npublish_personal_github_main:", 1)[1].split(
+            "\nchangelog_draft:", 1
+        )[0]
+        self.assertIn("python ci/publish_github_release.py --mirror-only || exit $?", publisher)
+        self.assertIn("resource_group: wearos-github-development", publisher)
 
 
 if __name__ == "__main__":

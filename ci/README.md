@@ -169,8 +169,12 @@ not undo or prevent an otherwise valid publication. Retry the draft job after
 restoring its required inputs; never invent a baseline.
 
 Main pushes changing only root `README.md` and/or `ci/README.md` (including
-merges of approved changelog entries) skip signing, assembly, publication,
-personal source-mirror synchronization and draft generation. Tests still run.
+merges of approved changelog entries) skip signing, assembly, APK publication
+and draft generation. After tests succeed, the serialized publisher still
+synchronizes personal GitHub `main` to the exact canonical source SHA using
+the existing non-force ancestry/readback safeguards. README changes therefore
+reach the GitHub source mirror without replacing the rolling APK release.
+No release body, assets or tags are modified by this source-only path.
 All other paths, including other Markdown, license, CI and packaging changes,
 retain normal release behavior. Exact before/source ancestry and full history
 are required; an initial all-zero before SHA remains release-eligible. Official

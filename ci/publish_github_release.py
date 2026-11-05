@@ -414,7 +414,7 @@ def changelog_draft(root, state, previous, version, code):
     return base, text
 
 
-def publish(api, state, apk, digest, version, code, *, receipt_root=None):
+def verify_destination(api):
     repository = api.request("GET", "")
     if (repository.get("full_name") != PERSONAL_REPO or
             repository.get("archived") is not False or
@@ -425,6 +425,10 @@ def publish(api, state, apk, digest, version, code, *, receipt_root=None):
             f"{PERSONAL_REPO}; archived, disabled, different or nonpublic "
             "repositories are not allowed."
         )
+
+
+def publish(api, state, apk, digest, version, code, *, receipt_root=None):
+    verify_destination(api)
     # Require an administrator-provisioned fixed tag. Never create/move a ref.
     if not api.request("GET", f"git/ref/tags/{TAG}", missing_ok=True):
         raise PublishError(
@@ -511,9 +515,15 @@ def publish(api, state, apk, digest, version, code, *, receipt_root=None):
 def main(argv=()):
     try:
         draft_only = list(argv) == ["--changelog-draft"]
-        if list(argv) and not draft_only:
+        mirror_only = list(argv) == ["--mirror-only"]
+        if list(argv) and not (draft_only or mirror_only):
             raise PublishError("Publisher always targets the fixed personal repository.")
         state = configuration(os.environ, require_token=not draft_only)
+        if mirror_only:
+            api = GitHub(os.environ[TOKEN_VARIABLE])
+            verify_destination(api)
+            api.sync_main(state["source_sha"])
+            return 0
         apk, digest, version, code = artifact(Path.cwd())
         root = Path.cwd()
         if draft_only:

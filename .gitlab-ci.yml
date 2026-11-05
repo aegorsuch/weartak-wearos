@@ -104,6 +104,10 @@ release_publisher_tests:
     entrypoint: [""]
   script:
     - python -m unittest discover -s ci/tests -v
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
 
 host_lint_debug:
   extends: .artifactory_credentials
@@ -347,7 +351,8 @@ publish_personal_github_main:
     - |
       ELIGIBILITY="$(sh ci/release_eligibility.sh)" || exit $?
       if [ "$ELIGIBILITY" = "docs-only" ]; then
-        echo "Documentation-only push: no publication or changelog draft."
+        echo "Documentation-only push: synchronize source only; no APK publication or draft."
+        python ci/publish_github_release.py --mirror-only || exit $?
         exit 0
       fi
     - python ci/publish_github_release.py
