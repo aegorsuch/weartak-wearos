@@ -3288,14 +3288,19 @@ ECB is a legacy receiver requirement, not authenticated encryption.
 The gated publisher uses a separate persisted random 16-hex-digit patient ID;
 heartbeats, reconnects and toggle changes retain it. Effective callsign becomes
 `name` and `alias`; Unit uses the exact nullable `unit` string (None/legacy values
-omitted). Birth year must be explicitly saved through settings/chat or supplied in
-managed configuration after this change; pre-existing years lack reliable
-provenance and must be saved again. Age is current UTC year minus birth year,
-not a precise birthday-based age or cached physiological age. Without a confirmed
-valid year, the entire optional ATMIST report is omitted, never replaced with
-newborn age zero. Identity-only receiver acceptance still needs live verification.
+omitted). ATMIST age comes from the profile birth year: the year saved through
+settings/chat/managed configuration, or the default 1998 when none was saved.
+The default follows BATDOK team guidance as reported by the user; it is a
+placeholder, not a verified demographic. The receiver's required numeric `age`
+has no estimated/unknown marker, so a default-derived age displays like a real
+one. Because the default is a fixed year, the derived age increases each UTC
+year. Saving a real year replaces it on the next heartbeat under the same
+patient ID. The internal explicit-provenance flag is unchanged and is never set
+by the default. Age is current UTC year minus birth year, not a precise
+birthday-based age or cached physiological age. A year outside 1900..current
+year omits the entire ATMIST report rather than sending age zero or a fake age.
 
-With known age, ATMIST contains only policy-filtered, enabled, worn-state heart
+ATMIST contains only policy-filtered, enabled, worn-state heart
 rate samples in 20..250 bpm, at most 120 seconds old or 30 seconds in the future.
 Vital timestamps use original Unix milliseconds. Skin temperature has no verified
 receiver field and is omitted rather than mislabeled core `Temp`; locally stored

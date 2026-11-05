@@ -1,5 +1,6 @@
 package com.aitech.weartak_civ.cot
 
+import com.aitech.weartak_civ.DEFAULT_BIRTH_YEAR
 import com.aitech.weartak_civ.data.*
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -77,17 +78,35 @@ class BatdokPatientTest {
             profile, location, physio, nextYear)).getJSONObject("atmistReport").getInt("age"))
     }
 
-    @Test fun unknownAgeOmitsWholeOptionalReportNotNewbornOrDefaultAge() {
+    @Test fun invalidOrMissingYearOmitsWholeReportNotNewbornOrFakeAge() {
         for (birthYear in listOf(null, 1899, 2027)) {
             val patient = JSONObject(BatdokPatient.json("0123456789abcdef",
-                profile.copy(confirmedBirthYear = birthYear), location, physio, now))
+                profile.copy(birthYear = birthYear), location, physio, now))
             assertFalse(patient.has("atmistReport"))
             assertTrue(patient.has("id"))
             assertTrue(patient.has("location"))
         }
         val newborn = JSONObject(BatdokPatient.json("0123456789abcdef",
-            profile.copy(confirmedBirthYear = 2026), location, physio, now))
+            profile.copy(birthYear = 2026), location, physio, now))
         assertEquals(0, newborn.getJSONObject("atmistReport").getInt("age"))
+    }
+
+    @Test fun defaultProfileYearCarriesEligibleHrAndSavedYearOverridesUnderSameId() {
+        val id = "0123456789abcdef"
+        val default = JSONObject(BatdokPatient.json(id, profile.copy(birthYear = DEFAULT_BIRTH_YEAR), location, physio, now))
+        val atmist = default.getJSONObject("atmistReport")
+        assertEquals(2026 - DEFAULT_BIRTH_YEAR, atmist.getInt("age"))
+        assertEquals("72", atmist.getJSONArray("vitalSigns").getJSONObject(0).getString("value"))
+        val nextYear = Instant.parse("2027-01-01T00:00:00Z").toEpochMilli()
+        assertEquals(2027 - DEFAULT_BIRTH_YEAR, JSONObject(BatdokPatient.json(id,
+            profile.copy(birthYear = DEFAULT_BIRTH_YEAR), location, physio, nextYear))
+            .getJSONObject("atmistReport").getInt("age"))
+        val saved = JSONObject(BatdokPatient.json(id, profile.copy(birthYear = 1985), location, physio, now))
+        assertEquals(id, saved.getString("id"))
+        assertEquals(41, saved.getJSONObject("atmistReport").getInt("age"))
+        val noHr = JSONObject(BatdokPatient.json(id, profile.copy(birthYear = DEFAULT_BIRTH_YEAR),
+            location, physio.copy(heartRate = null), now))
+        assertEquals(0, noHr.getJSONObject("atmistReport").getJSONArray("vitalSigns").length())
     }
 
     @Test fun noneAndLegacyTypesNeverBecomeLiteralUnitOrBranchInference() {

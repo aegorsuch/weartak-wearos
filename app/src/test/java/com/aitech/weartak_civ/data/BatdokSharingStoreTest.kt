@@ -81,4 +81,16 @@ class BatdokSharingStoreTest {
         repo.storeYearOfBirth(DEFAULT_BIRTH_YEAR)
         assertEquals(DEFAULT_BIRTH_YEAR, DataRepository(RuntimeEnvironment.getApplication()).confirmedBirthYear.first())
     }
+
+    @Test fun batdokProfileYearFallsBackToDefaultWithoutGrantingProvenanceAndKeepsSavedYears() = runBlocking {
+        assertEquals(1998, DEFAULT_BIRTH_YEAR)
+        assertEquals(DEFAULT_BIRTH_YEAR, repo.getYearOfBirth.first())
+        assertNull(repo.confirmedBirthYear.first())
+        repo.legacyDataStore().edit { it[intPreferencesKey("year_of_birth")] = 1980 }
+        assertEquals(1980, repo.getYearOfBirth.first())
+        assertNull(repo.confirmedBirthYear.first())
+        repo.storeYearOfBirth(1985)
+        assertEquals(1985, repo.getYearOfBirth.first())
+        assertEquals(1985, repo.confirmedBirthYear.first())
+    }
 }

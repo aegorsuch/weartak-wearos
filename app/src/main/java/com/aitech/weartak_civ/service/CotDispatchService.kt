@@ -239,7 +239,7 @@ class CotDispatchService : Service() {
                     waitReason = waitReason,
                     profile = com.aitech.weartak_civ.cot.BatdokPatientProfile(
                         dataRepository.getCallsign.first(), dataRepository.getPhysiologicalMetricUserType.first(),
-                        dataRepository.confirmedBirthYear.first()
+                        dataRepository.getYearOfBirth.first()
                     ),
                     location = dataRepository.snapshotLocation(dataRepository.bestKnownLocation()),
                     physiology = dataRepository.selfStatusInputs().first()
