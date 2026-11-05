@@ -2116,6 +2116,20 @@ display. Connection windows retain normal connected/connecting status; charging,
 docking, disabled servers and inactive transport gates never show the gap label.
 Connection failures take precedence and remain visible when a batch window closes.
 
+Developer Preferences includes **Stay connected off-wrist** in both debug and
+release builds, default **OFF**. It covers **TAK servers and native Ditto Edge
+Sync**. Turning it on while already off-wrist immediately restores eligible TAK
+connections and Ditto sync, BLE discovery and publication, cancelling pending TAK
+off-body reconnect alarms and window closes. Turning it off while off-wrist
+restores normal TAK connection windows (unless charging or docked) and Ditto's
+off-wrist pause. The choice survives app restarts. Only off-wrist gating is
+bypassed: manual enable switches, network availability, Companion routing,
+authentication and TLS checks still apply. Ditto's low-battery, deep-idle,
+bedtime and battery-saver gates, charging and alert exceptions, and BLE recovery
+limits remain unchanged. It does not keep the display or radios awake or change
+other plugin/multicast connections, sensors or location power-saving policies.
+Continuous connectivity can increase battery use.
+
 CEP simulation is disabled in release and ordinary debug builds: it is excluded
 from managed service registration/startup, its Android component is disabled, and
 direct entry points cannot create notification 8123. Explicit debug test builds

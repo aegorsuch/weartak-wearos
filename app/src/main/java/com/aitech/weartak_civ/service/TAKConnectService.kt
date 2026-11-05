@@ -167,6 +167,7 @@ class TAKConnectService: Service() {
     private var multicastWifiRequest: MulticastWifiRequest? = null
     private var offBodyScheduler: OffBodyTakScheduler? = null
     private var takNetworkPreference: TakNetworkPreference? = null
+    @Volatile private var stayConnectedOffWrist = false
 
     private fun updateOffBodyPolicy() {
         offBodyScheduler?.update(dataRepository.latestDeviceWornObservation.value,
@@ -174,7 +175,8 @@ class TAKConnectService: Service() {
                 takNetworkPreference?.network?.value != null &&
                 takServerDetails.any { it.isEnabled && !it.duplicateEndpointSuppressed },
             chargingOrDocked = dataRepository.chargingState.value ||
-                dataRepository.dockType.value != BatteryPowerObserver.DockType.NONE)
+                dataRepository.dockType.value != BatteryPowerObserver.DockType.NONE,
+            stayConnectedOffWrist = stayConnectedOffWrist)
     }
 
     class ConnectionAttempt(val generation: Long) {
@@ -266,6 +268,7 @@ class TAKConnectService: Service() {
         )
 
         takNetworkPreference = TakNetworkPreference(this).also { it.start() }
+        stayConnectedOffWrist = runBlocking { dataRepository.stayConnectedOffWrist.first() }
         offBodyScheduler = OffBodyTakScheduler(this,
             connect = { connectToTakServers() },
             disconnect = { resetTakServerConnectionDetails(preserveFailures = true) },
@@ -277,12 +280,14 @@ class TAKConnectService: Service() {
             var previousNetwork: android.net.Network? = null
             var routeInitialized = false
             combine(combine(dataRepository.latestDeviceWornObservation,
-                    dataRepository.chargingState, dataRepository.dockType) { _, _, _ -> Unit },
+                    dataRepository.chargingState, dataRepository.dockType,
+                    dataRepository.stayConnectedOffWrist) { _, _, _, stay -> stay },
                 dataRepository.getEnableTakEndpoint,
                 dataRepository.watchTransportSuppressed,
-                requireNotNull(takNetworkPreference).network) { _, enabled, _, network ->
-                enabled to network
-            }.collect { (enabled, network) ->
+                requireNotNull(takNetworkPreference).network) { stay, enabled, _, network ->
+                Triple(stay, enabled, network)
+            }.collect { (stay, enabled, network) ->
+                stayConnectedOffWrist = stay
                 takEndpointEnabled = enabled
                 if (!routeInitialized || network != previousNetwork) {
                     val routeChanged = if (routeInitialized) network != previousNetwork else

@@ -166,7 +166,7 @@ class DittoService : Service() {
             DittoDiagnostics(ioScope, application.diagnostics.enabled, ditto, AppDiagnostics::record)
             configureDitto()
             powerMonitor = DittoPowerMonitor(this, dataRepository, ioScope, ::onPowerStateChanged)
-            powerState = powerMonitor!!.initial(runBlocking { dataRepository.getBatteryWarnPercentage.first() })
+            powerState = runBlocking { powerMonitor!!.initial(dataRepository.getBatteryWarnPercentage.first()) }
             setPowerSuppression(powerPolicy.suppressionReason(powerState, android.os.SystemClock.elapsedRealtime()))
             subscribeToCollections()
             storeObservers = DittoStoreObservers(

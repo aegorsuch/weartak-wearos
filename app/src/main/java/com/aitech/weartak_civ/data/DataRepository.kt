@@ -5343,6 +5343,15 @@ class DataRepository(
         context.dataStore.edit { it[NETWORK_PREFERENCES_CHECKLIST_ENABLED] = enabled }
     }
 
+    val stayConnectedOffWrist: Flow<Boolean> =
+        context.dataStore.data
+            .map { prefs -> prefs[STAY_CONNECTED_OFF_WRIST] ?: false }
+            .distinctUntilChanged()
+
+    suspend fun storeStayConnectedOffWrist(enabled: Boolean) {
+        context.dataStore.edit { it[STAY_CONNECTED_OFF_WRIST] = enabled }
+    }
+
     val getBondedLocationDiagnosticsEnabled: Flow<Boolean> =
         context.dataStore.data
             .map { prefs -> prefs[BONDED_LOCATION_DIAGNOSTICS_ENABLED] ?: false }
@@ -6410,6 +6419,7 @@ class DataRepository(
         private val BONDED_LOCATION_DIAGNOSTICS_ENABLED =
             booleanPreferencesKey("bonded_location_diagnostics_enabled")
         private val NETWORK_PREFERENCES_CHECKLIST_ENABLED = booleanPreferencesKey("network_preferences_checklist_enabled")
+        private val STAY_CONNECTED_OFF_WRIST = booleanPreferencesKey("stay_connected_off_wrist")
         private val NETWORK_PREFERENCES_LOCKED = booleanPreferencesKey("network_preferences_locked")
         private val SMS_NUMBERS_LIST = stringPreferencesKey("sms_numbers_list")
         private val RESTING_HR_HIGH_ALERT_BPM_THRESHOLD = intPreferencesKey("resting_hr_high_alert_bpm_threshold")

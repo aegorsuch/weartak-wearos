@@ -7,6 +7,24 @@ class DittoPowerPolicyTest {
     private val policy = DittoPowerPolicy()
     private val healthy = DittoPowerState(worn = true, battery = 80)
 
+    @Test fun debugOverrideBypassesOnlyWristGateAndClearingItRestoresOffWristReason() {
+        val off = healthy.copy(worn = false)
+        val overridden = off.copy(stayConnectedOffWrist = true)
+        assertEquals(DittoPowerSuppression.OFF_WRIST, policy.suppressionReason(off, 0))
+        assertNull(policy.suppressionReason(overridden, 0))
+        assertEquals(DittoPowerSuppression.OFF_WRIST,
+            policy.suppressionReason(overridden.copy(stayConnectedOffWrist = false), 0))
+        for (blocked in listOf(overridden.copy(battery = 20), overridden.copy(sleeping = true),
+                overridden.copy(powerSave = true))) {
+            assertEquals(DittoPowerSuppression.POWER, policy.suppressionReason(blocked, 0))
+            assertNull(policy.suppressionReason(blocked.copy(charging = true), 0))
+            assertNull(policy.suppressionReason(blocked.copy(alerting = true), 0))
+        }
+        for (worn in listOf(true, null)) {
+            assertNull(policy.suppressionReason(overridden.copy(worn = worn), Long.MAX_VALUE))
+        }
+    }
+
     @Test fun unknownWristAndBatteryAreNotEvidenceToSuppressBluetooth() {
         assertFalse(policy.suppressed(DittoPowerState(), 0))
         assertFalse(policy.suppressed(healthy, 0))

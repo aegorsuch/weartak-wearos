@@ -57,6 +57,49 @@ class OffBodyTakSchedulerTest {
         }
     }
 
+    @Test fun debugOverrideReconnectsOffWristAndCancelsStaleAlarmsAndWindowCloses() {
+        scheduler.update(false, true)
+        val stale = alarms.nextScheduledAlarm
+        stale.onAlarmListener.onAlarm()
+        assertTrue(scheduler.allows())
+        scheduler.update(false, true, stayConnectedOffWrist = true)
+        assertFalse(waiting.last())
+        assertTrue(alarms.scheduledAlarms.isEmpty())
+        val beforeCloses = closes
+        val beforeConnects = connects
+        stale.onAlarmListener.onAlarm()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(4))
+        assertTrue(scheduler.allows())
+        assertEquals(beforeCloses, closes)
+        assertEquals(beforeConnects, connects)
+        scheduler.update(false, true, stayConnectedOffWrist = true)
+        assertEquals(beforeConnects, connects)
+
+        val disabledAt = SystemClock.elapsedRealtime()
+        scheduler.update(false, true, stayConnectedOffWrist = false)
+        assertFalse(scheduler.allows())
+        assertTrue(waiting.last())
+        assertEquals(beforeCloses + 1, closes)
+        assertEquals(disabledAt + 180_000L, alarms.nextScheduledAlarm.triggerAtTime)
+    }
+
+    @Test fun debugOverrideWhileWaitingReconnectsImmediatelyAndRestoresAfterEligibilityChanges() {
+        scheduler.update(false, true)
+        assertFalse(scheduler.allows())
+        scheduler.update(false, true, stayConnectedOffWrist = true)
+        assertTrue(scheduler.allows())
+        assertEquals(1, connects)
+        assertFalse(waiting.last())
+        assertTrue(alarms.scheduledAlarms.isEmpty())
+        scheduler.update(false, false, stayConnectedOffWrist = true)
+        scheduler.update(false, true, stayConnectedOffWrist = true)
+        assertEquals(2, connects)
+        scheduler.stop()
+        scheduler.update(false, true, stayConnectedOffWrist = true)
+        assertFalse(scheduler.allows())
+        assertEquals(2, connects)
+    }
+
     @Test fun waitingStateTracksOnlyEligibleGapsAndClearsDuringWindowsPowerAndShutdown() {
         scheduler.update(false, true)
         assertEquals(true, waiting.last())

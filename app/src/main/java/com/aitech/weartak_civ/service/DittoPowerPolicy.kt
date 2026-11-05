@@ -8,6 +8,7 @@ internal data class DittoPowerState(
     val sleeping: Boolean = false,
     val powerSave: Boolean = false,
     val alerting: Boolean = false,
+    val stayConnectedOffWrist: Boolean = false,
 )
 
 internal enum class DittoPowerSuppression { OFF_WRIST, POWER }
@@ -24,7 +25,7 @@ internal class DittoPowerPolicy {
         state.charging || state.alerting || now < urgentUntil -> null
         state.sleeping || state.powerSave ||
             state.battery?.let { it <= state.lowBatteryThreshold } == true -> DittoPowerSuppression.POWER
-        state.worn == false -> DittoPowerSuppression.OFF_WRIST
+        state.worn == false && !state.stayConnectedOffWrist -> DittoPowerSuppression.OFF_WRIST
         else -> null
     }
 

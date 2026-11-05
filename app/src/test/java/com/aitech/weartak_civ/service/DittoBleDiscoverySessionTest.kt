@@ -40,6 +40,7 @@ class DittoBleDiscoverySessionTest {
         val master = MutableStateFlow(initiallyEnabled)
         val companion = MutableStateFlow(false)
         val reconfiguring = MutableStateFlow(false)
+        val syncing = MutableStateFlow(true)
         val wrist = MutableStateFlow<Boolean?>(null)
         val appId = MutableSharedFlow<String>(replay = 1).apply { tryEmit("") }
         val token = MutableStateFlow("")
@@ -81,8 +82,8 @@ class DittoBleDiscoverySessionTest {
                 changes += config.peerToPeer.bluetoothLe.enabled
             }
             session = DittoBleDiscoverySession(application, repo, ditto, scope,
-                combine(master, companion, reconfiguring) { enabled, connected, changing ->
-                    enabled && !connected && !changing
+                combine(master, companion, reconfiguring, syncing) { enabled, connected, changing, active ->
+                    enabled && !connected && !changing && active
                 }, elapsedClock = { scope.testScheduler.currentTime },
                 radioProbe = { radio }, jitter = { 0.5 }, persistedRecovery = persisted, bootCount = { boot },
                 peersChanged = { livePeers += it }, statusChanged = { liveRecovery += it })
@@ -132,6 +133,41 @@ class DittoBleDiscoverySessionTest {
         }
 
         override fun close() = session.close()
+    }
+
+    @Test fun syncPowerGateResumesOffWristDiscoveryWithoutOverridingMasterCompanionOrIdentity() = runTest {
+        Fixture(this).use { f ->
+            runCurrent()
+            f.wrist.value = false
+            f.syncing.value = false
+            runCurrent()
+            assertFalse(f.config.peerToPeer.bluetoothLe.enabled)
+            f.syncing.value = true
+            runCurrent()
+            assertTrue(f.config.peerToPeer.bluetoothLe.enabled)
+            f.master.value = false
+            runCurrent()
+            assertFalse(f.config.peerToPeer.bluetoothLe.enabled)
+            f.syncing.value = false
+            runCurrent()
+            f.syncing.value = true
+            runCurrent()
+            assertFalse(f.config.peerToPeer.bluetoothLe.enabled)
+            f.master.value = true
+            f.companion.value = true
+            runCurrent()
+            assertFalse(f.config.peerToPeer.bluetoothLe.enabled)
+            f.companion.value = false
+            f.reconfiguring.value = true
+            runCurrent()
+            assertFalse(f.config.peerToPeer.bluetoothLe.enabled)
+            f.reconfiguring.value = false
+            runCurrent()
+            assertTrue(f.config.peerToPeer.bluetoothLe.enabled)
+            assertEquals(f.original.peerToPeer.lan, f.config.peerToPeer.lan)
+            assertEquals(f.original.connect, f.config.connect)
+            verify(exactly = 0) { f.ditto.startSync(); f.ditto.stopSync() }
+        }
     }
 
     @Test fun idleDisablesOnlyBleAndNeverRestartsSyncOrChangesOtherTransports() = runTest {

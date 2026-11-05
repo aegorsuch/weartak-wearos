@@ -10,6 +10,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import live.ditto.Ditto
 import live.ditto.DittoSyncSubscription
 import live.ditto.DittoStore
@@ -75,6 +78,66 @@ class DittoServicePowerTest {
         assertFalse(DittoService.powerSuppressed.value)
         assertNull(DittoService.powerSuppressionReason.value)
         verify(exactly = 0) { repo.setEndpointDisconnected(any()) }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun preferenceMonitorResumesSyncLiveWithoutBypassingPowerCompanionOrStoppedPeer() = runTest {
+        val stay = MutableStateFlow(true)
+        val battery = MutableStateFlow<Int?>(80)
+        every { repo.latestDeviceWornObservation } returns MutableStateFlow(false)
+        every { repo.chargingState } returns MutableStateFlow(false)
+        every { repo.latestBatteryPercentage } returns battery
+        every { repo.getBatteryWarnPercentage } returns MutableStateFlow(20)
+        every { repo.isAlerting } returns MutableStateFlow(false)
+        every { repo.stayConnectedOffWrist } returns stay
+        val monitor = DittoPowerMonitor(service, repo, this, service::onPowerStateChanged)
+        try {
+            field("powerState").set(service, monitor.initial(20))
+            assertTrue(service.startPeerSync())
+            assertTrue(DittoService.syncActive.value)
+            monitor.start()
+            runCurrent()
+            verify(exactly = 1) { native.startSync() }
+            stay.value = false
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            assertEquals(DittoPowerSuppression.OFF_WRIST, DittoService.powerSuppressionReason.value)
+            service.retryPointPublications()
+            verify(exactly = 0) { repo.dittoPointLedger.retry(any(), any()) }
+            stay.value = true
+            runCurrent()
+            assertTrue(DittoService.syncActive.value)
+            assertFalse(DittoService.powerSuppressed.value)
+            verify(exactly = 2) { native.startSync() }
+            service.retryPointPublications()
+            verify(exactly = 1) { repo.dittoPointLedger.retry(any(), any()) }
+            battery.value = 10
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            assertEquals(DittoPowerSuppression.POWER, DittoService.powerSuppressionReason.value)
+            service.retryPointPublications()
+            verify(exactly = 1) { repo.dittoPointLedger.retry(any(), any()) }
+            stay.value = false
+            runCurrent()
+            stay.value = true
+            runCurrent()
+            verify(exactly = 2) { native.startSync() }
+            every { repo.shouldSuppressWatchTransportNow() } returns true
+            battery.value = 80
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            verify(exactly = 2) { native.startSync() }
+            every { repo.shouldSuppressWatchTransportNow() } returns false
+            service.onDestroy()
+            stay.value = false
+            runCurrent()
+            stay.value = true
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            verify(exactly = 2) { native.startSync() }
+        } finally {
+            monitor.close()
+        }
     }
 
     @Test fun reasonChangesWhileSuppressedWithoutRestartingSyncAndClearsOnStop() {

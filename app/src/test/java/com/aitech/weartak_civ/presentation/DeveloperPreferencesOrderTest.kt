@@ -5,6 +5,19 @@ import org.junit.Test
 import java.util.Locale
 
 class DeveloperPreferencesOrderTest {
+    @Test fun offWristToggleUsesLocalizedTopGroupWithoutSplittingChargingPair() {
+        val entries = listOf(
+            DeveloperEntry(DeveloperEntryId.BUILD, "Build"),
+            DeveloperEntry(DeveloperEntryId.STAY_CONNECTED_OFF_WRIST, "Stay connected off-wrist"),
+            DeveloperEntry(DeveloperEntryId.WHILE_CHARGING, "While charging"),
+            DeveloperEntry(DeveloperEntryId.STAY_AWAKE, "Stay awake"),
+            DeveloperEntry(DeveloperEntryId.DIAGNOSTICS, "Logging")
+        )
+        assertEquals(listOf(DeveloperEntryId.DIAGNOSTICS, DeveloperEntryId.STAY_AWAKE,
+            DeveloperEntryId.WHILE_CHARGING, DeveloperEntryId.STAY_CONNECTED_OFF_WRIST,
+            DeveloperEntryId.BUILD), sortedDeveloperEntries(entries, Locale.ENGLISH).map { it.id })
+    }
+
     @Test fun checklistSortsBetweenLoggingAndStayAwakeInTopToggleGroup() {
         val entries = listOf(
             DeveloperEntry(DeveloperEntryId.STAY_AWAKE, "Stay awake"),

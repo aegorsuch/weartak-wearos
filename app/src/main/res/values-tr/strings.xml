@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="debug_stay_connected_off_wrist">Bilekte değilken bağlı kal</string>
+    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; daha çok pil tüketir.</string>
+    <string name="debug_stay_connected_off_wrist_save_failed">Bağlantı ayarı kaydedilemedi. Tekrar deneyin.</string>
     <string name="ditto_direct_peers">Eşler</string>
     <string name="ditto_ble_peers">BLE</string>
     <string name="ditto_lan_peers">LAN</string>

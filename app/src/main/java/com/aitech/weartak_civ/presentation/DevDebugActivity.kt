@@ -106,7 +106,7 @@ private data class DebugRow(
 
 internal enum class DeveloperEntryId {
     BUILD, DIAGNOSTICS, DIAGNOSTICS_LOGS, GIT, IP, LOCATION, PORT, QR, SSID, STAY_AWAKE, TRANSPORT, VERSION, VERSION_CODE,
-    WHILE_CHARGING, NETWORK_CHECKLIST, CONNECTION_PRIORITY
+    WHILE_CHARGING, NETWORK_CHECKLIST, CONNECTION_PRIORITY, STAY_CONNECTED_OFF_WRIST
 }
 
 internal data class DeveloperEntry(val id: DeveloperEntryId, val label: String, val value: String = "")
@@ -115,7 +115,7 @@ internal fun sortedDeveloperEntries(entries: List<DeveloperEntry>, locale: Local
     val collator = Collator.getInstance(locale)
     fun group(entry: DeveloperEntry) =
         if (entry.id in setOf(DeveloperEntryId.DIAGNOSTICS, DeveloperEntryId.NETWORK_CHECKLIST,
-                DeveloperEntryId.STAY_AWAKE)) 0 else 1
+                DeveloperEntryId.STAY_AWAKE, DeveloperEntryId.STAY_CONNECTED_OFF_WRIST)) 0 else 1
     val charging = entries.filter { it.id == DeveloperEntryId.WHILE_CHARGING }
     val sorted = entries.filterNot { it.id == DeveloperEntryId.WHILE_CHARGING }.sortedWith { left, right ->
         group(left).compareTo(group(right)).takeIf { it != 0 }
@@ -167,6 +167,7 @@ private fun DebugScreen(
     val appDiagnosticsEnabled by appDiagnostics.enabled.collectAsStateWithLifecycle()
     val appDiagnosticsFailed by appDiagnostics.storageFailed.collectAsStateWithLifecycle()
     val checklistEnabled by dataRepository.networkPreferencesChecklistEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val stayConnectedOffWrist by dataRepository.stayConnectedOffWrist.collectAsStateWithLifecycle(initialValue = false)
     val connectionPriority by dataRepository.connectionStatusPreferences.priority
         .collectAsStateWithLifecycle(initialValue = com.aitech.weartak_civ.data.defaultConnectionPriority)
     val app = context.applicationContext as WearTakApplication
@@ -302,6 +303,17 @@ private fun DebugScreen(
                     onShowConnectionPriority = { showConnectionPriority = true },
                     diagnosticsEnabled = appDiagnosticsEnabled,
                     networkChecklistEnabled = checklistEnabled,
+                    stayConnectedOffWrist = stayConnectedOffWrist,
+                    onStayConnectedOffWristChange = { enabled ->
+                        scope.launch {
+                            try {
+                                dataRepository.storeStayConnectedOffWrist(enabled)
+                            } catch (error: IOException) {
+                                android.util.Log.e("DevDebugActivity", "Could not save off-wrist connection preference", error)
+                                Toast.makeText(context, R.string.debug_stay_connected_off_wrist_save_failed, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
                     onNetworkChecklistEnabledChange = { enabled ->
                         scope.launch {
                             try {
@@ -340,7 +352,9 @@ internal fun DebugInformationPage(
     onDiagnosticsEnabledChange: (Boolean) -> Unit = {},
     networkChecklistEnabled: Boolean = false,
     onNetworkChecklistEnabledChange: (Boolean) -> Unit = {},
-    onShowConnectionPriority: () -> Unit = {}
+    onShowConnectionPriority: () -> Unit = {},
+    stayConnectedOffWrist: Boolean = false,
+    onStayConnectedOffWristChange: (Boolean) -> Unit = {}
 ) {
     val entries = sortedDeveloperEntries(listOf(
         DeveloperEntry(DeveloperEntryId.BUILD, stringResource(R.string.debug_build), debugInfo.buildType),
@@ -356,6 +370,7 @@ internal fun DebugInformationPage(
             if (debugInfo.canShowQrCode) R.string.debug_show_qr else R.string.debug_no_ip)),
         DeveloperEntry(DeveloperEntryId.SSID, stringResource(R.string.debug_ssid), debugInfo.ssid),
         DeveloperEntry(DeveloperEntryId.STAY_AWAKE, stringResource(R.string.debug_stay_awake)),
+        DeveloperEntry(DeveloperEntryId.STAY_CONNECTED_OFF_WRIST, stringResource(R.string.debug_stay_connected_off_wrist)),
         DeveloperEntry(DeveloperEntryId.WHILE_CHARGING, stringResource(R.string.debug_while_charging)),
         DeveloperEntry(DeveloperEntryId.TRANSPORT, stringResource(R.string.debug_transport), debugInfo.transport),
         DeveloperEntry(DeveloperEntryId.VERSION, stringResource(R.string.debug_version), debugInfo.versionName),
@@ -386,6 +401,12 @@ internal fun DebugInformationPage(
         items(entries, key = { it.id }) { entry ->
             when (entry.id) {
                 DeveloperEntryId.STAY_AWAKE -> DebugStayAwakeSetting()
+                DeveloperEntryId.STAY_CONNECTED_OFF_WRIST -> WearTAKToggleChip(
+                    title = entry.label,
+                    description = stringResource(R.string.debug_stay_connected_off_wrist_description),
+                    checkedLive = stayConnectedOffWrist,
+                    onCheckedChange = onStayConnectedOffWristChange
+                )
                 DeveloperEntryId.NETWORK_CHECKLIST -> WearTAKToggleChip(
                     title = entry.label,
                     checkedLive = networkChecklistEnabled,

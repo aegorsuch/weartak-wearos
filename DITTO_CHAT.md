@@ -310,6 +310,14 @@ or physical-radio acceptance evidence. The flag is rejected for release tasks.
   report bedtime through this path (deep idle and other gates still apply).
   Ordinary screen-off/ambient display is not treated as sleep. Local storage,
   chat history and subscriptions remain intact while paused.
+- Developer Preferences' **Stay connected off-wrist** switch (debug and release,
+  default **OFF**) bypasses only the wrist gate for both native Ditto Edge Sync
+  and TAK servers. A saved choice applies before initial sync and changes apply
+  live while already off-wrist. Ditto sync, dependent BLE discovery and outbound
+  publication resume only when all other gates allow; disabling restores the
+  off-wrist pause. Low battery, sleep/bedtime, battery saver, manual disablement,
+  Companion ownership, identity/security checks and BLE recovery limits remain
+  unchanged. Sensors and location reporting keep their normal power policies.
 - Outbound emergencies/alerts resume sync immediately for a renewable 60-second
   grace period, even at low battery/off-wrist; active manual alerting keeps it
   resumed beyond that period. This never bypasses Companion ownership, identity
