@@ -3221,6 +3221,13 @@ fail all builds. Unrelated ordinary builds with neither input remain buildable b
 show that BATTAK configuration is absent; they are not acceptance candidates.
 Private CI must set both inputs in the appropriate authorized scope and use the
 acceptance flag; no remote CI variables are created by this change.
+The shared CI release job enforces this flag for main, official and manual
+`batdok_signed_trial` builds. The trial is opt-in on canonical branch/MR pipelines,
+reuses existing production signing checks, and does not publish. Successful trial
+APK artifacts expire after seven days and require Developer access. Existing
+protected-variable permissions are unchanged: an authorized maintainer must
+ensure interoperability and signing inputs are available to the selected job;
+otherwise it fails visibly. Do not weaken variable protection to run a trial.
 Build validation checks presence/encoding, not receiver-compatible values.
 No plaintext fallback is used. Sharing still requires explicit user toggle ON,
 regardless of built-in configuration. Derived keys are closed on service shutdown;
