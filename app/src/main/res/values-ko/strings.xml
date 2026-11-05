@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK 꺼짐</string>
     <string name="batdok_patient_confirmation_required">환자 공유 비활성: 한 번 껐다 켜세요</string>
     <string name="batdok_patient_not_provisioned">공유 안 함: 빌드에 BATTAK 설정이 없음</string>
-    <string name="batdok_patient_location_required">공유 안 함: 최신 위치 필요</string>
+    <string name="batdok_patient_location_required">공유 안 함: 위치 필요</string>
     <string name="batdok_patient_callsign_required">공유 안 함: 호출 부호 필요</string>
     <string name="batdok_patient_waiting_tak">활성화된 TAK 서버 대기 중</string>
     <string name="batdok_patient_sent">환자 업데이트를 TAK에 전송함</string>

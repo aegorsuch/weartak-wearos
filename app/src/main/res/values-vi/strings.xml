@@ -226,7 +226,7 @@
     <string name="batdok_patient_disabled">BATTAK đã tắt</string>
     <string name="batdok_patient_confirmation_required">Chia sẻ bệnh nhân chưa hoạt động: tắt rồi bật một lần</string>
     <string name="batdok_patient_not_provisioned">Không chia sẻ: bản dựng thiếu cấu hình BATTAK</string>
-    <string name="batdok_patient_location_required">Không chia sẻ: cần vị trí mới</string>
+    <string name="batdok_patient_location_required">Không chia sẻ: cần vị trí</string>
     <string name="batdok_patient_callsign_required">Không chia sẻ: cần hiệu danh</string>
     <string name="batdok_patient_waiting_tak">Đang chờ máy chủ TAK được bật</string>
     <string name="batdok_patient_sent">Đã gửi cập nhật bệnh nhân đến TAK</string>
