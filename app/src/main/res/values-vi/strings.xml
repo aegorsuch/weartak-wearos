@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">Giữ kết nối khi không đeo</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; tốn pin hơn.</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Không thể lưu cài đặt kết nối. Hãy thử lại.</string>
     <string name="ditto_direct_peers">Thiết bị</string>
     <string name="ditto_ble_peers">BLE</string>

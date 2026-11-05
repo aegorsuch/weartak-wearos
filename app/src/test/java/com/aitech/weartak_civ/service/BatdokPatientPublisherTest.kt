@@ -126,6 +126,17 @@ class BatdokPatientPublisherTest {
         )
         assertEquals("C:IllegalArgumentException", batdokFailureCode(runCatching { failingConfig.publish() }.exceptionOrNull()!!))
         assertEquals("U:IllegalStateException", batdokFailureCode(IllegalStateException("x")))
+        assertEquals("U:Exception", batdokFailureCode(object : Exception("anon") {}))
+        val cancelling = BatdokPatientPublisher(
+            input = { state }, patientId = { throw kotlinx.coroutines.CancellationException("stop") },
+            encoder = { codec }, sendToTak = { _, _ -> true }, nowMillis = { now }
+        )
+        assertTrue(runCatching { cancelling.publish() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        val fatal = BatdokPatientPublisher(
+            input = { state }, patientId = { throw OutOfMemoryError() },
+            encoder = { codec }, sendToTak = { _, _ -> true }, nowMillis = { now }
+        )
+        assertTrue(runCatching { fatal.publish() }.exceptionOrNull() is OutOfMemoryError)
         assertTrue(sent.isEmpty())
     }
 

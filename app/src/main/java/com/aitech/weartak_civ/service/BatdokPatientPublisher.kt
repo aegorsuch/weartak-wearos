@@ -25,7 +25,7 @@ fun batdokFailureCode(error: Throwable): String {
     var root: Throwable = error
     while (root.cause != null && root.cause !== root) root = root.cause!!
     val stage = (error as? BatdokPublishException)?.stage?.code ?: "U"
-    return "$stage:${root.javaClass.simpleName.ifBlank { "Exception" }}"
+    return "$stage:${root.javaClass.simpleName.filter(Char::isLetterOrDigit).take(40).ifBlank { "Exception" }}"
 }
 
 data class BatdokPublishingInput(

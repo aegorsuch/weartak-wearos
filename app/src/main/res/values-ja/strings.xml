@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">非装着時も接続を維持</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto。電池消費が増えます。</string>
     <string name="debug_stay_connected_off_wrist_save_failed">接続設定を保存できませんでした。もう一度お試しください。</string>
     <string name="ditto_direct_peers">ピア</string>
     <string name="ditto_ble_peers">BLE</string>

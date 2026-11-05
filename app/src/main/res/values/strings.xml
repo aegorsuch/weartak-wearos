@@ -1138,7 +1138,6 @@
         <item quantity="one">%1$d/%2$d Server</item>
         <item quantity="other">%1$d/%2$d Servers</item>
     </plurals>
-    <string name="debug_stay_connected_off_wrist">Stay connected off-wrist</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; more battery.</string>
+    <string name="debug_stay_connected_off_wrist">Stay Connected Off-Wrist</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Could not save off-wrist connection setting. Try again.</string>
 </resources>

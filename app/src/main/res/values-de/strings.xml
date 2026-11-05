@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">Ohne Tragen verbunden bleiben</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; mehr Akkuverbrauch.</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Verbindungseinstellung konnte nicht gespeichert werden. Erneut versuchen.</string>
     <string name="ditto_direct_peers">Peers</string>
     <string name="ditto_ble_peers">BLE</string>

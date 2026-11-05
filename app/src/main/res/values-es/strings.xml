@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="debug_stay_connected_off_wrist">Mantener conexión fuera de la muñeca</string>
-    <string name="debug_stay_connected_off_wrist_description">TAK + Ditto; más consumo de batería.</string>
     <string name="debug_stay_connected_off_wrist_save_failed">No se pudo guardar el ajuste de conexión. Inténtalo de nuevo.</string>
     <string name="ditto_direct_peers">Pares</string>
     <string name="ditto_ble_peers">BLE</string>
