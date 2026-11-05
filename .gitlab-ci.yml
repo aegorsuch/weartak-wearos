@@ -90,6 +90,7 @@ android_mopp_check:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
 release_publisher_tests:
   stage: test
@@ -240,6 +241,9 @@ agp_resolution_diagnostic:
 
 batdok_signed_trial:
   extends: .release_build
+  environment:
+    name: battak-trial
+    action: prepare
   artifacts:
     when: on_success
     expire_in: 7 days
@@ -249,6 +253,9 @@ batdok_signed_trial:
       - app/build/outputs/apk/release/verified-apk.sha256
       - app/build/outputs/apk/release/output-metadata.json
   rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_PIPELINE_SOURCE == "merge_request_event"'
       when: manual
       allow_failure: true
