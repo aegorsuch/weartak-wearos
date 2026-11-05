@@ -263,6 +263,30 @@ optional hosted-plugin emulator test are described under
 Detailed behavior, configuration, architecture, security limitations, and
 feature-specific testing/acceptance instructions follow.
 
+### Changelog
+
+#### 5.8.4
+
+Improves map and plugin workflows, TAK enrollment and connection reliability, Nearby server-package transfers, and Ditto recovery and peer diagnostics.
+
+- [p462](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820060) — Introduced 5.8.4 with newest-first chat ordering.
+- [p464](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820323) — Reordered unit choices and simplified goTenna/TAK CAD menu rows.
+- [p472](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822116) — Preserved whitespace in quoted enrollserver passwords.
+- [p475](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822370) — Fixed host lint findings and added full debug lint as CI gate.
+- [p481](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823030) — Added map-action/mTLS support and MOPP display/publishing updates.
+- [p500](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823642) — Preserved public-CA enrollment trust alongside approved private CAs.
+- [p538](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1824224) — Improved plugin activity launching, Bloodhound controls, collapsible map categories, connection status, and TAK CAD compatibility.
+- [p543](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825145) — Improved enrollment diagnostics and clarified SMS alert wording.
+- [p546](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825555) — Enabled manual Stay Awake on battery and improved Wi-Fi activation handling.
+- [p551](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825691) — Fixed compact Bloodhound picker back-arrow visibility and sizing.
+- [p554](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825746) — Added public-root trust for CoT streaming alongside approved private CAs.
+- [p567](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828140) — Preserved overlay category choices, fixed map-shape visibility, and standardized README structure.
+- [p573](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828546) — Removed map-shapes import button and improved accessibility and automation selectors.
+- [p578](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831099) — Added bounded Ditto BLE recovery, Retry, and shared service-off warnings.
+- [p581](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831805) — Added live Ditto transport and recovery diagnostics.
+- [p584](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1832185) — Simplified Ditto diagnostics to compact peer counts and separate BLE recovery status.
+- [p597](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1836625) — Added wearer-reviewed Nearby Drop server-package import/export.
+
 ### Map sources and 3D overlays
 
 Open the map's top **Overlay Manager** button, then **Maps** to select
