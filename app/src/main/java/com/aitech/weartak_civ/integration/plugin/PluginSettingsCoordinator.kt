@@ -4,13 +4,14 @@ import android.os.Bundle
 import android.os.RemoteException
 import android.util.Log
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.cot.TakServerCotEnvelope
 import com.aitech.weartak_civ.data.DataRepository
 import com.weartak.plugin.sdk.aidl.IWearTakPlugin
 import com.weartak.plugin.sdk.model.PluginCapabilitiesParcel
+import com.weartak.plugin.sdk.model.SettingsFieldTypes
 import com.weartak.plugin.sdk.model.SettingsApplyMode
 import com.weartak.plugin.sdk.model.SettingsApplyResultParcel
 import com.weartak.plugin.sdk.model.SettingsSchemaParcel
-import com.weartak.plugin.sdk.model.SettingsFieldTypes
 import com.weartak.plugin.sdk.validation.ContractValidationResult
 import com.weartak.plugin.sdk.validation.SettingsApplyValidator
 import com.weartak.plugin.sdk.validation.SettingsSchemaContractValidator
@@ -39,6 +40,7 @@ class PluginSettingsCoordinator(
 ) {
     private val cache = ConcurrentHashMap<String, PluginSettingsState>()
     private val pluginRefs = ConcurrentHashMap<String, IWearTakPlugin>()
+    private val transportHosts = ConcurrentHashMap<String, PluginTransportHostV1Impl>()
     private val syncMutex = Mutex()
     private var hostWatcherStarted = false
     private val outboundCotAvailableState = MutableStateFlow(false)
@@ -77,9 +79,18 @@ class PluginSettingsCoordinator(
 
     fun unregisterPlugin(pluginId: String) = synchronized(pluginRefs) {
         pluginRefs.remove(pluginId)
+        transportHosts.remove(pluginId)
         cache.remove(pluginId)
         mainUiChangeRevisionsState.update { it - pluginId }
         updateOutboundCotAvailability()
+    }
+
+    internal fun registerTransportHost(pluginId: String, host: PluginTransportHostV1Impl) {
+        transportHosts[pluginId] = host
+    }
+
+    internal fun unregisterTransportHost(pluginId: String, host: PluginTransportHostV1Impl) {
+        transportHosts.remove(pluginId, host)
     }
 
     fun notifyMainUiChanged(pluginId: String) {
@@ -177,6 +188,52 @@ class PluginSettingsCoordinator(
                         cache[pluginId]?.values?.getBoolean(fieldId, false) != true)) continue
                 runCatching { plugin.invokeMainUiAction(actionId, args) }
                     .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+            }
+        }
+    }
+
+    fun invokeCotOnPluginsWithSetting(
+        fieldId: String,
+        actionId: String,
+        args: Bundle,
+        sourceEnvelope: TakServerCotEnvelope? = null,
+        senderUid: String? = null,
+        senderCallsign: String? = null,
+    ) {
+        val targets = cache.entries
+            .filter { (_, state) ->
+                state.schema.fields.any {
+                    it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE
+                } && state.values.getBoolean(fieldId, false)
+            }
+            .mapNotNull { (pluginId, _) -> pluginRefs[pluginId]?.let { pluginId to it } }
+        if (targets.isEmpty()) return
+
+        scope.launch {
+            for ((pluginId, plugin) in targets) {
+                val state = cache[pluginId]
+                if (pluginRefs[pluginId] !== plugin ||
+                    state?.schema?.fields?.none {
+                        it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE
+                    } != false ||
+                    state?.values?.getBoolean(fieldId, false) != true
+                ) continue
+
+                val transport = transportHosts[pluginId]
+                if (transport?.shouldUseTransport() == true) {
+                    if (!transport.isTransportRegistered()) continue
+                    val xml = args.getString(PluginCotEgress.KEY_COT_XML) ?: continue
+                    if (fieldId == PluginCotIngress.SETTING_RECEIVE_INBOUND_COT) {
+                        val envelope = sourceEnvelope ?: continue
+                        transport.offerInboundCoT(envelope)
+                    } else {
+                        val uid = senderUid?.takeIf(String::isNotBlank) ?: continue
+                        transport.offerCoT(xml, uid, senderCallsign)
+                    }
+                } else {
+                    runCatching { plugin.invokeMainUiAction(actionId, args) }
+                        .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+                }
             }
         }
     }

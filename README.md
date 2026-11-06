@@ -2716,8 +2716,26 @@ Plugins can opt in through their settings schema and enabled boolean values:
 `receiveInboundCot` receives incoming CoT as `cot.inbound`. Both actions carry `xml`;
 incoming actions also carry `source` and `receivedAt`. Incoming delivery covers direct
 TAK, multicast, SITX, and companion CoT IPC without changing their existing processing.
-Plugin-injected CoT is processed locally but is not sent back into plugin bearers,
-preventing reinjection loops. Unsupported CoT types can still be observed by opted-in plugins.
+Plugins that register optional SDK transport-v1 receive the same opted-in traffic through
+its typed chat or bounded raw-CoT callback instead of the legacy action; plugins that never
+negotiate transport keep the action path. Unregistering or losing a negotiated callback
+does not silently fall back to legacy delivery. Payloads stay within negotiated limits (at most
+48 KiB); host selects the plugin's first advertised channel. Transport acceptance means host
+admission only; channel/recipient delivery requires separate monotonic receipts.
+Nonterminal receipts reserve the final sequence number for a terminal outcome. Callback
+rejection/crash records failure unless already delivered; pending sends expire after 60 seconds
+and trigger adapter cancellation. Typed chat's negotiated byte limit applies to its UTF-8 body;
+host-generated XML is separately capped at 48 KiB after escaping.
+Host registration requires at least one mutually supported payload kind and a channel;
+`runtimeAvailable=false` does not bypass host negotiation. An unprovisioned
+provider with no established payload mapping is rejected rather than advertised as
+an active transport.
+The host builds canonical SDK source plus the pinned additive transport overlay; see
+[`ci/README.md`](ci/README.md#immutable-plugin-sdk-source) for composite identity and platform gates.
+Plugin-originated payloads pass through existing host CoT parsers with plugin,
+session, channel, sender, workspace, and external-message metadata preserved separately from
+host event IDs. Transport-reported sender IDs do not authorize host chat commands, and
+plugin-originated payloads are never automatically echoed or retransmitted to plugin bearers.
 
 These subscriptions do not start or enable any network transport, and observing inbound
 CoT does not retransmit it. A BLE-only configuration remains BLE-only. The companion BLE

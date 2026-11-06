@@ -17,6 +17,8 @@ import com.weartak.plugin.sdk.model.PluginInitParcel
 import com.weartak.plugin.sdk.model.PluginInfoParcel
 import com.weartak.plugin.sdk.mopp.MoppPpeContract
 import com.weartak.plugin.sdk.routestatus.RouteStatusContract
+import com.weartak.plugin.sdk.transport.TransportCloseReason
+import com.weartak.plugin.sdk.transport.TransportContract
 import com.weartak.plugin.sdk.v2.WearTakPluginV2Contract
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +54,7 @@ class PluginConnection(
     private var hostControl: HostControlImpl? = null
     private var hostCallback: HostCallbackImpl? = null
     private var hostPcmControlV3: HostPcmControlV3Impl? = null
+    @Volatile private var hostTransportV1: PluginTransportHostV1Impl? = null
     @Volatile private var hostMoppControl: HostMoppPpeControl? = null
     @Volatile private var hostRouteStatusControl: HostRouteStatusControl? = null
     private var hostServicesV1: HostServicesV1Impl? = null
@@ -84,6 +87,7 @@ class PluginConnection(
     }
 
     private val deathRecipient = IBinder.DeathRecipient {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
         sessionActive = false
@@ -95,6 +99,7 @@ class PluginConnection(
     }
 
     private fun onBinderDiedInternal() {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
@@ -301,6 +306,12 @@ class PluginConnection(
             manager.settingsCoordinator.routeStatuses, pluginPackage, pluginUid,
             isBindingActive = { !closed && pluginBinder?.isBinderAlive == true }
         )
+        val transportV1 = PluginTransportHostV1Impl(
+            app = app,
+            ingress = ingress,
+            pluginId = pluginPackage,
+            expectedPluginUid = pluginUid,
+        )
         synchronized(stateLock) {
             if (closed) {
                 revokeCertificateSessions()
@@ -308,6 +319,7 @@ class PluginConnection(
                 moppControl?.close()
                 controlV3?.close()
                 services.close()
+                transportV1.closeBinding(TransportCloseReason.STOPPED)
                 return
             }
             hostControl = control
@@ -316,6 +328,8 @@ class PluginConnection(
             hostServicesV1 = services
             hostMoppControl = moppControl
             hostRouteStatusControl = routeStatusControl
+            hostTransportV1 = transportV1
+            manager.settingsCoordinator.registerTransportHost(pluginPackage, transportV1)
         }
 
         val init = PluginInitParcel(
@@ -331,6 +345,8 @@ class PluginConnection(
                 putBoolean(HostControlImpl.HOST_EXTRA_CHAT_DISPATCH_V1, true)
                 putBoolean(RouteStatusContract.EXTRA_CAPABILITY, true)
                 putBinder(RouteStatusContract.EXTRA_CONTROL, routeStatusControl)
+                putInt(TransportContract.EXTRA_VERSION, TransportContract.VERSION)
+                putBinder(TransportContract.EXTRA_CONTROL, transportV1.asBinderForInit())
                 if (moppControl != null) {
                     putBoolean(MoppPpeContract.EXTRA_CAPABILITY, true)
                     putBinder(MoppPpeContract.EXTRA_CONTROL, moppControl)
@@ -348,6 +364,7 @@ class PluginConnection(
             if (closed) return
             iface.startPlugin()
             if (closed) return
+            transportV1.activateBinding()
             manager.settingsCoordinator.onPluginConnected(pluginPackage, iface) { !closed }
         } catch (e: RemoteException) {
             Log.e(TAG, "plugin lifecycle failed pkg=$pluginPackage", e)
@@ -366,6 +383,7 @@ class PluginConnection(
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
@@ -374,6 +392,7 @@ class PluginConnection(
     }
 
     override fun onBindingDied(name: ComponentName?) {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
@@ -409,6 +428,18 @@ class PluginConnection(
             mainHandler.removeCallbacks(handshakeTimeout)
             hostServicesV1?.close()
             hostPcmControlV3?.close()
+            hostTransportV1?.closeBinding(
+                if (reason.contains("disconnect", ignoreCase = true) ||
+                    reason.contains("death", ignoreCase = true)
+                ) {
+                    TransportCloseReason.DISCONNECTED
+                } else {
+                    TransportCloseReason.STOPPED
+                },
+            )
+            hostTransportV1?.let {
+                manager.settingsCoordinator.unregisterTransportHost(pluginPackage, it)
+            }
             val iface = plugin
             val cb = hostCallback
             val binder = pluginBinder
@@ -422,6 +453,7 @@ class PluginConnection(
             hostCallback = null
             hostPcmControlV3 = null
             hostServicesV1 = null
+            hostTransportV1 = null
             pluginBinder = null
             val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) null else ({
                 fun attempt(method: String, block: () -> Unit) {

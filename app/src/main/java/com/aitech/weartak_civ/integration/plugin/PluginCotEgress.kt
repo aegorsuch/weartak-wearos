@@ -3,6 +3,7 @@ package com.aitech.weartak_civ.integration.plugin
 import android.os.Bundle
 import android.util.Log
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.presentation.MainActivity
 
 /**
  * Offers CoT this watch is sending to plugins that asked for it.
@@ -53,10 +54,12 @@ object PluginCotEgress {
         if (cotXml.isNullOrBlank()) return
         runCatching {
             val args = Bundle().apply { putString(KEY_COT_XML, cotXml) }
-            app.pluginManager.settingsCoordinator.invokeActionOnPluginsWithSetting(
+            app.pluginManager.settingsCoordinator.invokeCotOnPluginsWithSetting(
                 fieldId = SETTING_FORWARD_OUTBOUND_COT,
                 actionId = ACTION_COT_OUTBOUND,
                 args = args,
+                senderUid = MainActivity.device_uid,
+                senderCallsign = MainActivity.callsign,
             )
         }.onFailure { Log.w(TAG, "offer failed", it) }
     }

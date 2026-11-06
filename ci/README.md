@@ -3,30 +3,41 @@
 ## Immutable plugin SDK source
 
 Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
-pins the upstream source commit, tree and neutral-source release AAR SHA-256.
-Exact hashes are platform-specific: Windows `f90a36a6...` and Linux
-`beae3192...`. Independent Linux jobs 7817240 and 7817241 produced byte-identical
-AARs. Exhaustive entry comparison with Windows found only generated
-`AndroidManifest.xml` CRLF versus LF; all other entries, including `classes.jar`,
-match byte-for-byte. The helpers and host select only the exact hash for their
+pins upstream source commit/tree, the additive transport-v1 overlay, and the
+combined release AAR SHA-256. This unpublished composite is **not** unchanged
+SDK `86bdc8b`: all canonical APIs and notices remain intact, with 17 frozen
+transport source/AIDL/test files added. The repository includes the overlay-only
+ZIP and per-file inventory under `ci/plugin-sdk-transport/`; both are independently
+SHA-256 pinned. The helpers verify the ZIP inventory and every added source,
+reject canonical-file replacement and unexpected untracked sources, then build.
+Exact artifact hashes are platform-specific. Windows neutral-checkout release:
+`6ec84b18e1c8ac6b4be727083c4ea7a572150b521384270212434c239e5a1e0b`.
+Linux neutral-source release (Temurin 17, Android API/build-tools 34, Gradle 8.10.2):
+`8f911b81ac85e691ad182097fe0ef0f00ffa0d2da3442d3d2f03c5ec2529184f`.
+Both platforms passed 210 SDK tests per debug/release variant, both assemblies,
+and debug/release lint without errors. Independent AAR comparison found only
+generated `AndroidManifest.xml` newline differences; `classes.jar` is byte-identical.
+Neither old canonical-only nor old
+transport-only AAR hashes are accepted. The helpers and host select the exact hash for their
 verified platform, not an unrestricted allowlist. Other platforms fail closed
 until independently verified.
-The helper checks out source without Windows newline conversion, builds using
+The helpers restore tracked files directly from Git blobs (including paths with
+explicit newline attributes), build using
 JDK 17/Android SDK 34 and fails on a hash mismatch. Android CI jobs run the same
 pin through `sh ci/build_plugin_sdk.sh` before testing, lint or signing; the
 Android launcher has Git/jq but no Python. Both helpers enforce remote, exact
 commit/tree, neutral checkout and final AAR hash. Source and outputs stay under ignored
-`.gradle/sdk/<12-character-source-prefix>`, outside host `clean`; the complete
-commit and tree are still checked. The short directory avoids Windows AIDL
+`.gradle/sdk/<12-character-source-prefix>-<12-character-overlay-prefix>`, outside host `clean`; the complete
+commit, tree and overlay identities are still checked. The short directory avoids Windows AIDL
 path limits. No SDK publisher is required.
 Host defaults to that verified source-build location, never the legacy bundled
 AAR. An explicit local `-PweartakPluginSdkAar=<absolute-path>` override remains
 available for integration validation. Neither SDK build nor override grants
 signing, distribution or third-party license rights.
 Host APKs include the pinned SDK GPL license and additional permission unchanged
-under `assets/licenses/weartak-plugin-sdk/`. The public source commit in the pin
-identifies the corresponding SDK source; these notices do not relicense host or
-third-party material.
+under `assets/licenses/weartak-plugin-sdk/`. The public source commit plus pinned
+overlay identify the corresponding combined SDK source. These notices do not
+relicense host or third-party material, or authorize distribution of this snapshot.
 
 ## Host full-lint quality gate
 

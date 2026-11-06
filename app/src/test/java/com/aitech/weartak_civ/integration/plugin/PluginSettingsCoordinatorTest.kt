@@ -1,7 +1,9 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import android.os.Bundle
+import android.os.Process
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.cot.TakServerCotIngestResult
 import com.aitech.weartak_civ.data.DataRepository
 import com.weartak.plugin.sdk.HostSettingsContract
 import com.weartak.plugin.sdk.model.MainUiCardParcel
@@ -10,6 +12,13 @@ import com.weartak.plugin.sdk.model.PluginCapabilitiesParcel
 import com.weartak.plugin.sdk.model.SettingsFieldParcel
 import com.weartak.plugin.sdk.model.SettingsFieldTypes
 import com.weartak.plugin.sdk.model.SettingsSchemaParcel
+import com.weartak.plugin.sdk.transport.TransportContract
+import com.weartak.plugin.sdk.transport.TransportPayloadKind
+import com.weartak.plugin.sdk.transport.TransportResultCode
+import com.weartak.plugin.sdk.transport.aidl.IPluginTransportCallbackV1
+import com.weartak.plugin.sdk.transport.model.TransportCapabilitiesParcel
+import com.weartak.plugin.sdk.transport.model.TransportResultParcel
+import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
 import com.weartak.plugin.sdk.validation.SettingsSchemaContractValidator
 import io.mockk.every
 import io.mockk.mockk
@@ -19,6 +28,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -374,6 +385,109 @@ class PluginSettingsCoordinatorTest {
         assertTrue(coordinator.outboundCotReadyRoutes.value.getValue("com.plugin.settings") >
             first.getValue("com.plugin.settings"))
     }
+
+    @Test
+    fun transportUsesExistingOptInAndNeverFallsBackToLegacyAction() {
+        val pluginId = "com.plugin.settings"
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        fakePlugin.setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+            SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+        )))
+        coordinator.onPluginConnected(pluginId, fakePlugin)
+
+        val transportIngress = mockk<PluginIngressPort>()
+        every { transportIngress.packagesForUid(app, any()) } returns setOf(pluginId)
+        val host = PluginTransportHostV1Impl(
+            app = app,
+            ingress = transportIngress,
+            pluginId = pluginId,
+            expectedPluginUid = Process.myUid(),
+            cotIngest = { TakServerCotIngestResult.UNSUPPORTED },
+        )
+        val callback = RecordingTransportCallback()
+        coordinator.registerTransportHost(pluginId, host)
+        val registration = host.registerTransport(
+            TransportCapabilitiesParcel(
+                version = TransportContract.VERSION,
+                outboundPayloadKinds = listOf(
+                    TransportPayloadKind.CHAT_UTF8,
+                    TransportPayloadKind.COT_XML_UTF8,
+                ),
+                inboundPayloadKinds = listOf(TransportPayloadKind.CHAT_UTF8),
+                channelIds = listOf("satellite"),
+                maxPayloadBytes = TransportContract.MAX_PAYLOAD_BYTES,
+                maxPendingMessages = TransportContract.MAX_PENDING_MESSAGES,
+                runtimeAvailable = true,
+                deviceReceipts = true,
+                recipientReceipts = true,
+            ),
+            callback,
+        )
+        assertEquals(TransportResultCode.ACCEPTED, registration.code)
+        host.activateBinding()
+
+        val args = Bundle().apply { putString("xml", outboundChatXml()) }
+        coordinator.invokeCotOnPluginsWithSetting(
+            field, PluginCotEgress.ACTION_COT_OUTBOUND, args,
+            senderUid = "watch-1", senderCallsign = "WATCH",
+        )
+        assertTrue(fakePlugin.mainUiActions.isEmpty())
+        assertEquals(1L, callback.sendLatch.count)
+
+        assertTrue(coordinator.applyPluginSettings(
+            pluginId, Bundle().apply { putBoolean(field, true) }
+        ).success)
+        coordinator.invokeCotOnPluginsWithSetting(
+            field, PluginCotEgress.ACTION_COT_OUTBOUND, args,
+            senderUid = "watch-1", senderCallsign = "WATCH",
+        )
+
+        assertTrue(callback.sendLatch.await(3, TimeUnit.SECONDS))
+        assertEquals("satellite", callback.request?.channelId)
+        assertEquals(TransportPayloadKind.CHAT_UTF8, callback.request?.message?.payloadKind)
+        assertTrue(fakePlugin.mainUiActions.isEmpty())
+        val firstRequest = callback.request
+        assertEquals(TransportResultCode.ACCEPTED, host.unregisterTransport(registration.sessionId).code)
+        coordinator.invokeCotOnPluginsWithSetting(
+            field, PluginCotEgress.ACTION_COT_OUTBOUND, args,
+            senderUid = "watch-1", senderCallsign = "WATCH",
+        )
+        assertEquals(firstRequest, callback.request)
+        assertTrue(fakePlugin.mainUiActions.isEmpty())
+        host.closeBinding()
+        coordinator.unregisterTransportHost(pluginId, host)
+    }
+
+    private class RecordingTransportCallback : IPluginTransportCallbackV1.Stub() {
+        @Volatile
+        var request: TransportSendRequestParcel? = null
+        val sendLatch = CountDownLatch(1)
+
+        override fun sendMessage(request: TransportSendRequestParcel?): TransportResultParcel {
+            this.request = request
+            sendLatch.countDown()
+            return TransportResultParcel(TransportResultCode.ACCEPTED, request?.sessionId)
+        }
+
+        override fun cancelMessage(sessionId: String?, messageId: String?) =
+            TransportResultParcel(TransportResultCode.ACCEPTED, sessionId)
+
+        override fun onSessionClosed(sessionId: String?, reason: Int) = Unit
+    }
+
+    private fun outboundChatXml() = """
+        <event version="2.0" uid="host-event-1" type="b-t-f"
+            time="2100-03-01T00:00:00.000Z" start="2100-03-01T00:00:00.000Z"
+            stale="2100-03-02T00:00:00.000Z" how="h-g-i-g-o">
+            <point lat="0" lon="0" hae="0" ce="1" le="1"/>
+            <detail>
+                <__chat id="remote-1" senderCallsign="WATCH" messageId="outbound-1">
+                    <chatgrp uid0="watch-1" uid1="remote-1" id="remote-1"/>
+                </__chat>
+                <remarks to="remote-1">Hello plugin</remarks>
+            </detail>
+        </event>
+    """.trimIndent()
 
     @Test
     fun onPluginConnected_cachesSchemaAndPushesHostSettings() = runBlocking {
