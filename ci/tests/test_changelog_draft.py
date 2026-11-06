@@ -92,6 +92,49 @@ class ChangelogTests(unittest.TestCase):
         self.assertEqual((self.root / "README.md").read_bytes(), before)
         self.assertNotIn("mock-personal-token", text)
         self.assertNotIn("signed fixture", text)
+        self.assertIn(
+            "[Download APK](https://github.com/aegorsuch/weartak-wearos/releases/download/"
+            "TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p12.apk)", text
+        )
+        self.assertIn(f"[p12]({self.state['pipeline_url']})", text)
+        self.assertIn(f"/-/compare/{self.base}...{self.source}", text)
+        self.assertIn(f"/-/commit/{self.source}", text)
+        self.assertNotIn("/releases/latest/download/", text)
+        self.assertIn("it stops working when a newer APK replaces it", text)
+        self.assertIn("does not download that historical build", text)
+
+    def test_p644_download_uses_confirmed_asset_without_p638_or_archive_urls(self):
+        self.env["CI_PIPELINE_IID"] = "644"
+        self.state = p.configuration(self.env)
+        self.version = f"5.8.4-p644+{self.source[:8]}"
+        self.code = 5840644
+        metadata = self.root / p.OUTPUT / "output-metadata.json"
+        value = json.loads(metadata.read_text())
+        value["elements"][0].update(versionCode=self.code, versionName=self.version)
+        metadata.write_text(json.dumps(value))
+        api = FakeGitHub(self.previous)
+        self.publish(api)
+        self.assertEqual(self.generate(), 0)
+        text = (self.root / "changelog-drafts/p644.md").read_text()
+        self.assertIn(
+            "[Download APK](https://github.com/aegorsuch/weartak-wearos/releases/download/"
+            "TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk)", text
+        )
+        self.assertNotIn("p638.apk", text)
+        self.assertNotIn("/releases/download/v", text)
+        self.assertIn(f"[p644]({self.state['pipeline_url']})", text)
+
+    def test_unconfirmed_or_different_build_asset_cannot_supply_download_link(self):
+        for asset in (
+            {},
+            self.previous["posted_asset"] | {"name": "WearTAK-5.8.4-p13.apk"},
+            self.previous["posted_asset"] | {"name": "../WearTAK-5.8.4-p12.apk"},
+        ):
+            with self.subTest(asset=asset), self.assertRaises(p.PublishError):
+                p.changelog_draft(
+                    self.root, self.state, self.previous | {"posted_asset": asset},
+                    self.version, self.code,
+                )
 
     def test_retry_uses_original_base_and_one_draft_per_build(self):
         api = FakeGitHub(self.previous)
