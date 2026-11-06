@@ -159,6 +159,14 @@ write/review a concise behavior summary and explicitly approve it before anyone
 appends it to README. Raw commit messages, diffs, compatibility values and
 signing configuration are not copied into drafts.
 
+Each candidate entry includes a **Download APK** link to the exact versioned
+public GitHub release asset, using the confirmed asset name from publication.
+TAK.gov pipeline, comparison and commit links remain separate provenance.
+No mutable latest-build URL or authenticated, expiring GitLab artifact URL is
+used for the download. The single rolling release retains only the current APK;
+older entries' download links stop working when their assets are replaced.
+This does not change artifact retention or create additional releases.
+
 Draft entries use `(Posted DDHHMMZ MON YY)`, for example
 `(Posted 051548Z NOV 26)`. The timestamp is the verified APK asset's
 `created_at` from publication readback, in UTC, truncated to minute precision;

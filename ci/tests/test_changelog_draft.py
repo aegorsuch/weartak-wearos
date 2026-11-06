@@ -92,6 +92,26 @@ class ChangelogTests(unittest.TestCase):
         self.assertEqual((self.root / "README.md").read_bytes(), before)
         self.assertNotIn("mock-personal-token", text)
         self.assertNotIn("signed fixture", text)
+        self.assertIn(
+            "[Download APK](https://github.com/aegorsuch/weartak-wearos/releases/download/"
+            "TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p12.apk)", text
+        )
+        self.assertIn(f"[p12]({self.state['pipeline_url']})", text)
+        self.assertIn(f"/-/compare/{self.base}...{self.source}", text)
+        self.assertIn(f"/-/commit/{self.source}", text)
+        self.assertNotIn("/releases/latest/download/", text)
+
+    def test_unconfirmed_or_different_build_asset_cannot_supply_download_link(self):
+        for asset in (
+            {},
+            self.previous["posted_asset"] | {"name": "WearTAK-5.8.4-p13.apk"},
+            self.previous["posted_asset"] | {"name": "../WearTAK-5.8.4-p12.apk"},
+        ):
+            with self.subTest(asset=asset), self.assertRaises(p.PublishError):
+                p.changelog_draft(
+                    self.root, self.state, self.previous | {"posted_asset": asset},
+                    self.version, self.code,
+                )
 
     def test_retry_uses_original_base_and_one_draft_per_build(self):
         api = FakeGitHub(self.previous)

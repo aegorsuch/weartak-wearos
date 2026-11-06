@@ -410,6 +410,7 @@ def changelog_draft(root, state, previous, version, code):
             areas.add("repository/build files")
     candidate = "Updates " + ", ".join(sorted(areas)) + "."
     project = "https://git.tak.gov/core/weartak-core/wearos-tak-civ"
+    download = f"https://github.com/{PERSONAL_REPO}/releases/download/{TAG}/{asset['name']}"
     text = (
         f"# Changelog draft: {display_version(version, state['pipeline_iid'])}\n\n"
         "**REVIEW REQUIRED - not approved; README has not been changed.**\n\n"
@@ -419,7 +420,7 @@ def changelog_draft(root, state, previous, version, code):
         f"Source: `{source}`; previous published source: `{base}`.\n"
         f"Range: [{base[:8]}...{source[:8]}]({project}/-/compare/{base}...{source}).\n\n"
         f"- [p{state['pipeline_iid']}]({state['pipeline_url']}) (Posted {dtg}) - "
-        f"{candidate}\n\n"
+        f"{candidate} [Download APK]({download}).\n\n"
         f"Evidence: {len(commits)} source commits since previous published build. "
         "Candidate describes changed file areas only, not inferred behavior; "
         "replace with reviewed behavior summary before approval.\n\n"
