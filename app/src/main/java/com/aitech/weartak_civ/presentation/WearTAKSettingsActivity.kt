@@ -1902,7 +1902,15 @@ fun WearTAKSettingsNav(
             val runtimeDetails by settingsVm.takServerRuntimeDetails.collectAsStateWithLifecycle()
             val offBodyWaiting by TAKConnectService.offBodyTakWaiting.collectAsStateWithLifecycle()
             val disconnectedStatus = remember { androidx.lifecycle.MutableLiveData(TAK_SERVER_DISCONNECTED_STRING) }
-            val savedServer = takServerList.getOrNull(index)
+            val savedServer = remember(index) { takServerList.getOrNull(index)?.copy() }
+            val endpointChanged = savedServer != null && port.toIntOrNull()?.let {
+                com.aitech.weartak_civ.data.takserver.TakServerEndpointMigration.changed(savedServer, address, it)
+            } == true
+            var migrateIdentity by remember(savedServer?.serverId, address, port) { mutableStateOf(false) }
+            val savedMigrationError by settingsVm.endpointMigrationError.collectAsStateWithLifecycle()
+            val migrationError = savedMigrationError?.takeIf {
+                it.serverId == savedServer?.serverId && it.address == address.trim() && it.port == port.toIntOrNull()
+            }?.message
             val runtimeDetail = runtimeDetails.firstOrNull { it.serverId == savedServer?.serverId }
             val noFailure = remember {
                 androidx.lifecycle.MutableLiveData<com.aitech.weartak_civ.data.takserver.TakConnectionFailure?>(null)
@@ -1913,7 +1921,7 @@ fun WearTAKSettingsNav(
                 ?.connectionStatusLiveData ?: disconnectedStatus)
                 .observeAsState(TAK_SERVER_DISCONNECTED_STRING)
             val certStatus = rememberSideloadedCertStatus(address)
-            val credentialsOptional = certStatus is SideloadedClientCert.Status.Found
+            val credentialsOptional = migrateIdentity || certStatus is SideloadedClientCert.Status.Found
             var caCertificate by remember(address, port) { mutableStateOf<String?>(null) }
             var originalCa by remember(address, port) { mutableStateOf<String?>(null) }
             var caLoaded by remember(address, port) { mutableStateOf(false) }
@@ -1971,6 +1979,23 @@ fun WearTAKSettingsNav(
                             keyboardType = KeyboardType.Text
                         ).text
                     }
+                    if (endpointChanged) {
+                        item {
+                            WearTAKToggleChip(
+                                checkedLive = migrateIdentity,
+                                onCheckedChange = { migrateIdentity = it },
+                                title = stringResource(R.string.endpoint_migration_title),
+                                enabled = !phoneManagedSettings && !networkPreferencesLocked,
+                            )
+                        }
+                        item { Text(stringResource(R.string.endpoint_migration_hint)) }
+                        if (migrateIdentity && validationAttempted && caCertificate == null) {
+                            item { Text(stringResource(R.string.endpoint_migration_ca_required)) }
+                        }
+                        if (migrateIdentity) {
+                            migrationError?.let { error -> item { Text(stringResource(error)) } }
+                        }
+                    }
                     if (isP12Cert) {
                         item {
                             address = WearTAKOutlinedTextField(
@@ -2012,7 +2037,7 @@ fun WearTAKSettingsNav(
                         if (certStatus != SideloadedClientCert.Status.None) {
                             item { SideloadedCertNotice(certStatus) }
                         }
-                        item {
+                        if (!migrateIdentity) item {
                             username = WearTAKOutlinedTextField(
                                 string = username,
                                 fieldId = R.id.tak_server_username,
@@ -2023,7 +2048,7 @@ fun WearTAKSettingsNav(
                                 keyboardType = KeyboardType.Text
                             ).text
                         }
-                        item {
+                        if (!migrateIdentity) item {
                             password = WearTAKOutlinedTextField(
                                 string = password,
                                 fieldId = R.id.tak_server_password,
@@ -2051,9 +2076,27 @@ fun WearTAKSettingsNav(
                 navController = navController,
                 onClickCancel = { Log.d(TAG, "EditServerPage Settings NOT saved")
                    },
-                onClickConfirm = {
+                onClickConfirm = confirm@{
+                    if (migrateIdentity && serverConnSettingsChanged.value) return@confirm
                     validationAttempted = true
+                    if (requiresExplicitEndpointMigration(endpointChanged, migrateIdentity, isP12Cert,
+                            username, password)) {
+                        Toast.makeText(mainActivity, mainActivity.getString(R.string.endpoint_migration_required),
+                            Toast.LENGTH_LONG).show()
+                        return@confirm
+                    }
                     if (caLoaded && serverFormIsValid(name, address, port, username, password, isP12Cert || credentialsOptional)) {
+                        if (migrateIdentity && endpointChanged) {
+                            if (caCertificate == null) {
+                                Toast.makeText(mainActivity, mainActivity.getString(R.string.endpoint_migration_ca_required),
+                                    Toast.LENGTH_LONG).show()
+                            } else {
+                                settingsVm.migrateTakServerEndpoint(requireNotNull(savedServer),
+                                    name, address.trim(), port.toInt(), caCertificate)
+                                serverConnSettingsChanged.value = true
+                            }
+                            return@confirm
+                        }
                         val takServerDetails = takServerList.get(index)
                         Log.d(TAG, "EditServerPage: onClickConfirm all settings good")
                         Log.d(
@@ -2111,9 +2154,13 @@ fun WearTAKSettingsNav(
                 },
                 loadingDialogBehavior = {
                     if (serverConnSettingsChanged.value) {
-                        val registration by settingsVm.serverRegistrationState.collectAsStateWithLifecycle()
-                        WearTAKRegistrationDialogs(registration, serverConnSettingsChanged, navController,
-                            takServerList, !phoneManagedSettings && !networkPreferencesLocked)
+                        if (migrateIdentity && migrationError != null) {
+                            LaunchedEffect(migrationError) { serverConnSettingsChanged.value = false }
+                        } else {
+                            val registration by settingsVm.serverRegistrationState.collectAsStateWithLifecycle()
+                            WearTAKRegistrationDialogs(registration, serverConnSettingsChanged, navController,
+                                takServerList, !phoneManagedSettings && !networkPreferencesLocked)
+                        }
                     }
                 }
             )
