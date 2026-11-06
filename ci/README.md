@@ -166,6 +166,11 @@ No mutable latest-build URL or authenticated, expiring GitLab artifact URL is
 used for the download. The single rolling release retains only the current APK;
 older entries' download links stop working when their assets are replaced.
 This does not change artifact retention or create additional releases.
+Before approving a draft, check that its exact asset still exists in the rolling
+release. Refresh README links labeled current APK to the verified current asset
+and identify its build explicitly; those links do not deliver historical builds.
+The draft generator does not rewrite existing README entries or query live release
+state, so an old receipt alone cannot establish that its download remains available.
 
 Draft entries use `(Posted DDHHMMZ MON YY)`, for example
 `(Posted 051548Z NOV 26)`. The timestamp is the verified APK asset's

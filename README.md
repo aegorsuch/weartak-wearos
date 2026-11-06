@@ -287,9 +287,13 @@ Improves map and plugin workflows, TAK enrollment and connection reliability, Ne
 - [p584](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1832185) (Posted 031653Z NOV 26) — Simplified Ditto diagnostics to compact peer counts and separate BLE recovery status.
 - [p597](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1836625) (Posted 042243Z NOV 26) — Added wearer-reviewed Nearby Drop server-package import/export.
 - [p612](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1838815) (Posted 051548Z NOV 26) — Added standalone BATTAK patient sharing and Unit profile choices, plus default-off Stay connected off-wrist for TAK and Ditto.
-- [p632](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839276) (Posted 051747Z NOV 26) — Simplified BATTAK and Stay Connected Off-Wrist controls, added sanitized BATTAK failure codes, and introduced review-only release changelog drafts. [Download current APK](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p638.apk).
-- [p635](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839827) (Posted 052053Z NOV 26) — Allowed BATTAK sharing with last valid known location while preserving its timestamp and accuracy, and added sanitized send/wait diagnostics. [Download current APK](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p638.apk).
-- [p638](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1840501) (Posted 060016Z NOV 26) — Removed birth-year confirmation requirement for BATTAK ATMIST and heart rate, using saved profile birth year or default 1998. [Download current APK](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p638.apk).
+- [p632](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839276) (Posted 051747Z NOV 26) — Simplified BATTAK and Stay Connected Off-Wrist controls, added sanitized BATTAK failure codes, and introduced review-only release changelog drafts. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
+- [p635](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839827) (Posted 052053Z NOV 26) — Allowed BATTAK sharing with last valid known location while preserving its timestamp and accuracy, and added sanitized send/wait diagnostics. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
+- [p638](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1840501) (Posted 060016Z NOV 26) — Removed birth-year confirmation requirement for BATTAK ATMIST and heart rate, using saved profile birth year or default 1998. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
+
+Current APK links above download p644, not each historical entry's build. The
+single rolling release replaces older APKs; recheck these links when approving
+the next changelog update.
 
 ### Map sources and 3D overlays
 

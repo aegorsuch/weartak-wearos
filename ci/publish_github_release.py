@@ -433,6 +433,10 @@ def changelog_draft(root, state, previous, version, code):
         "\nHuman must write/review the release sentence and explicitly approve it before "
         "appending to README Changelog. This artifact sends no notification and provides "
         "no approval UI. It never writes README or commits changes.\n"
+        "\nThe Download APK link identifies this build in the single rolling release; "
+        "it stops working when a newer APK replaces it. Before approval, verify this "
+        "asset is still published and refresh any README links labeled current APK. "
+        "A current APK link on a historical row does not download that historical build.\n"
     )
     return base, text
 
