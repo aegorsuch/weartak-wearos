@@ -1,8 +1,8 @@
 <resources>
-    <string name="endpoint_migration_title">Same server, new endpoint</string>
-    <string name="endpoint_migration_hint">Same server only. Keeps existing client identity and credentials. Review the new endpoint CA under Advanced; old trust is not reused.</string>
-    <string name="endpoint_migration_ca_required">Review and approve the CA for this new endpoint under Advanced before saving.</string>
-    <string name="endpoint_migration_required">To keep this client identity, enable Same server, new endpoint, then review the new endpoint CA.</string>
-    <string name="endpoint_migration_error">Endpoint migration failed. Previous settings were kept or restored. Verify the existing client certificate is readable and valid, settings are unlocked, and no server already uses the new endpoint. Review again and retry.</string>
-    <string name="endpoint_migration_recovery_error">Endpoint migration recovery failed. Configuration needs administrator review before retrying.</string>
+    <string name="endpoint_migration_title" translatable="false">Same server, new endpoint</string>
+    <string name="endpoint_migration_hint" translatable="false">Same server only. Keeps existing client identity and credentials. Review the new endpoint CA under Advanced; old trust is not reused.</string>
+    <string name="endpoint_migration_ca_required" translatable="false">Review and approve the CA for this new endpoint under Advanced before saving.</string>
+    <string name="endpoint_migration_required" translatable="false">To keep this client identity, enable Same server, new endpoint, then review the new endpoint CA.</string>
+    <string name="endpoint_migration_error" translatable="false">Endpoint migration failed. Previous settings were kept or restored. Verify the existing client certificate is readable and valid, settings are unlocked, and no server already uses the new endpoint. Review again and retry.</string>
+    <string name="endpoint_migration_recovery_error" translatable="false">Endpoint migration recovery failed. Configuration needs administrator review before retrying.</string>
 </resources>
