@@ -3011,13 +3011,8 @@ class TAKConnectService: Service() {
         }
 
         private fun certificateCacheFileName(address: String, port: Int, identityEpoch: String? = null): String {
-            val endpoint = TakServerEndpointIdentity.key(address, port) + (identityEpoch?.let { ":$it" } ?: "")
-            val digest = MessageDigest.getInstance(SHA256_ALGORITHM).digest(endpoint.toByteArray())
-            val encoded = android.util.Base64.encodeToString(
-                digest,
-                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
-            ).trimEnd('=')
-            return "tak_${encoded}.jks"
+            return com.aitech.weartak_civ.data.takserver.TakServerEndpointMigration
+                .cacheFileName(address, port, identityEpoch)
         }
 
         fun loadKeyStore(keyStore : KeyStore, fileName: String, password: String): Boolean {

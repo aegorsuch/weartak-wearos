@@ -8,6 +8,15 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.wear.compose.material.PickerState
+import com.aitech.weartak_civ.R
+import com.aitech.weartak_civ.data.takserver.Pkcs12CertificateImport
+import com.aitech.weartak_civ.data.takserver.TakServerEndpointMigration
+import com.aitech.weartak_civ.presentation.CertificateDestination
+import com.aitech.weartak_civ.presentation.RepositoryCertificateReview
+import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.aitech.weartak_civ.DEFAULT_BLOODHOUND_PROXIMITY_INTENSITY
 import com.aitech.weartak_civ.DEFAULT_BLOODHOUND_PROXIMITY_RADIUS_METERS
 import com.aitech.weartak_civ.DEFAULT_CONSTANT_REPORTING_INTERVAL
@@ -694,6 +703,58 @@ class WearTAKSettingsViewModel : ViewModel() {
     val takServerRuntimeDetails = TAKConnectService.takServerRuntimeDetails
 
     data class CaTrustChange(val certificate: String?)
+    data class EndpointMigrationError(val serverId: String, val address: String, val port: Int, val message: Int)
+
+    private val mutableEndpointMigrationError = MutableStateFlow<EndpointMigrationError?>(null)
+    val endpointMigrationError = mutableEndpointMigrationError.asStateFlow()
+
+    fun migrateTakServerEndpoint(
+        expected: TakServerItem, name: String, address: String, port: Int, reviewedCa: String?
+    ) {
+        val serverId = requireNotNull(expected.serverId)
+        val ticket = TAKConnectService.serverRegistration.prepare(serverId)
+        mutableEndpointMigrationError.value = null
+        val job = viewModelScope.launch {
+            TAKConnectService.serverRegistration.saveAndConnect(serverId, ticket = ticket,
+                save = {
+                    try {
+                        check(!dataRepository.chatEnrollmentBlocked())
+                        val oldCa = dataRepository.getApprovedServerCa(serverId, expected.address, expected.port)
+                        val proposed = withContext(Dispatchers.IO) {
+                            val context = WearTakApplication.AppCtx.app.applicationContext
+                            TakServerEndpointMigration.prepare(
+                                expected, name, address, port, reviewedCa,
+                                context.getExternalFilesDir(null)?.let { File(it, "certs") },
+                            ) { file ->
+                                context.openFileInput(file).use {
+                                    it.readNBytes(Pkcs12CertificateImport.MAX_BYTES + 1)
+                                }
+                            }
+                        }
+                        val backend = RepositoryCertificateReview(dataRepository, afterCommit = {})
+                        check(backend.apply(
+                            CertificateDestination(expected, oldCa),
+                            proposed, reviewedCa, authorized = { true }, complete = { true }))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Log.e(TAG, "Endpoint migration refused: ${error.javaClass.simpleName}")
+                        mutableEndpointMigrationError.value = EndpointMigrationError(
+                            serverId, address.trim(), port,
+                            if (error is DataRepository.CertificateRecoveryException)
+                                R.string.endpoint_migration_recovery_error else R.string.endpoint_migration_error
+                        )
+                        throw error
+                    }
+                    takServerList = dataRepository.awaitTakServerList()
+                    TakServerRegistration.SaveResult.SAVED
+                },
+                connect = { TAKConnectService.getInstance().registerServer(serverId) })
+        }
+        job.invokeOnCompletion { error ->
+            if (error != null) TAKConnectService.serverRegistration.failPending(ticket)
+        }
+    }
 
     fun saveAndRegisterTakServer(item: TakServerItem, index: Int? = null, caTrust: CaTrustChange? = null) {
         val serverId = TakServerId.ensure(item.serverId)

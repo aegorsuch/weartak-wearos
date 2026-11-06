@@ -148,6 +148,30 @@ resolvable DNS name present in the certificate. Importing a CA does not fix a
 wrong hostname, firewall, disabled direct transport, phone handoff or managed
 configuration lock. Existing non-imported server behavior is unchanged.
 
-For ODIN-TAKX-SERVER, use `10.0.0.120`, streaming `8089`, enrollment `8446`,
-provided its server certificate has an IP SAN for `10.0.0.120`; otherwise use
-its matching, resolvable DNS SAN. Never bypass verification to connect.
+## Same-server endpoint migration
+
+When an existing server moves to a new address or streaming port, edit that
+profile and enable **Same server, new endpoint**. Use this only for the same
+server, not to give another server your client identity. No enrollment
+username/password is required for this action.
+
+Under **Advanced**, review and approve the staged CA for the **new** endpoint
+before saving, even if its CA has not changed. Old endpoint approval and client
+certificate chains are never silently trusted at the new endpoint. This scoped
+flow requires explicit CA review; ordinary public-CA enrollment remains unchanged.
+Hostname/IP SAN and certificate validity checks still apply.
+
+Migration validates and preserves the existing client identity from the saved
+P12, old-address `certs/<address>.p12` (or `.p12.b64`, with optional `.pwd`), or
+old-endpoint enrollment cache, in runtime precedence order. Sideloaded identities
+are not used for strict-trust profiles. The identity is saved in encrypted profile
+storage, independent of old file names/cache keys. No source file is renamed,
+deleted or modified. Server ID, enable setting, credentials and other profile
+settings remain intact; migrated profiles enforce strict server trust.
+
+Missing, unreadable, invalid, expired or ambiguous client identities refuse
+migration visibly without changing the saved profile. Managed/locked settings,
+stale profiles and duplicate endpoints also refuse it. Persistence/runtime
+preparation failures restore the prior profile and endpoint-bound CA; recovery
+failure is reported separately. A later network/TLS failure does not undo a
+successfully saved migration.

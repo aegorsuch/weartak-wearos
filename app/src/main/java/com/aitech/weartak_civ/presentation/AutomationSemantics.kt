@@ -17,3 +17,12 @@ internal fun serverFormIsValid(
     credentialsOptional: Boolean,
 ): Boolean = name.isNotBlank() && address.isNotBlank() && port.toIntOrNull() in 1..65535 &&
     (credentialsOptional || (username.isNotBlank() && password.isNotBlank()))
+
+internal fun requiresExplicitEndpointMigration(
+    endpointChanged: Boolean,
+    migrationSelected: Boolean,
+    isP12Cert: Boolean,
+    username: String,
+    password: String,
+): Boolean = endpointChanged && !migrationSelected &&
+    (isP12Cert || username.isBlank() || password.isBlank())
