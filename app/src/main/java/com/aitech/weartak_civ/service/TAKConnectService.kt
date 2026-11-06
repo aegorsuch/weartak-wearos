@@ -2467,16 +2467,40 @@ class TAKConnectService: Service() {
         }
 
         suspend fun handleInboundCot(rawXml: String, source: String) {
+            handleInboundCotWithResult(rawXml, source)
+        }
+
+        suspend fun handleInboundCotWithResult(
+            rawXml: String,
+            source: String,
+            sourceSessionId: String? = null,
+            sourceChannelId: String? = null,
+            sourceWorkspaceId: String? = null,
+            sourceExternalId: String? = null,
+            sourceTransportMessageId: String? = null,
+            sourceSentAtEpochMillis: Long? = null,
+            sourceSenderUid: String? = null,
+            sourceSenderCallsign: String? = null,
+        ): TakServerCotIngestResult {
             val envelope = TakServerCotEnvelope(
                 sourceServerId = source,
                 sourceServerAddress = source,
                 receivedAt = System.currentTimeMillis(),
-                rawXml = rawXml
+                rawXml = rawXml,
+                sourceSessionId = sourceSessionId,
+                sourceChannelId = sourceChannelId,
+                sourceWorkspaceId = sourceWorkspaceId,
+                sourceExternalId = sourceExternalId,
+                sourceTransportMessageId = sourceTransportMessageId,
+                sourceSentAtEpochMillis = sourceSentAtEpochMillis,
+                sourceSenderUid = sourceSenderUid,
+                sourceSenderCallsign = sourceSenderCallsign,
             )
 
             val result = cotIngestor.ingest(envelope)
 
             Log.d(TAG, "Plugin CoT ingested source=$source result=$result")
+            return result
         }
 
         private val TAK_CONNECT_SERVICE = TAKConnectService()

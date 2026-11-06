@@ -26,7 +26,14 @@ data class TakServerCotEnvelope(
     val receivedAt: Long,
     val rawXml: String,
     val sourceSessionId: String? = null,
-    val sourcePeerAddress: String? = null
+    val sourcePeerAddress: String? = null,
+    val sourceChannelId: String? = null,
+    val sourceWorkspaceId: String? = null,
+    val sourceExternalId: String? = null,
+    val sourceTransportMessageId: String? = null,
+    val sourceSentAtEpochMillis: Long? = null,
+    val sourceSenderUid: String? = null,
+    val sourceSenderCallsign: String? = null,
 )
 
 interface TakServerCotSink {
@@ -124,7 +131,7 @@ class TakServerCotIngestor(
             return TakServerCotIngestResult.DATA_PACKAGE
         }
 
-        if (chatCommandHandler != null && isChat) {
+        if (chatCommandHandler != null && isChat && envelope.sourceTransportMessageId == null) {
             val candidate = CotMessageParser.parseChatRooms(rawXml, deviceUid(), deviceCallsign(), envelope.sourceServerId, envelope.receivedAt)
                 .asSequence()
                 .flatMap { room -> room.messageList.asSequence().map { room to it } }
@@ -171,7 +178,20 @@ class TakServerCotIngestor(
                 myCallsign = deviceCallsign(),
                 sourceServerId = envelope.sourceServerId,
                 receivedAt = envelope.receivedAt
-            )
+            ).map { room ->
+                room.copy(messageList = room.messageList.map { message ->
+                    message.copy(
+                        sourceSessionId = envelope.sourceSessionId,
+                        sourceChannelId = envelope.sourceChannelId,
+                        workspaceId = envelope.sourceWorkspaceId,
+                        externalId = envelope.sourceExternalId,
+                        transportMessageId = envelope.sourceTransportMessageId,
+                        sentAtEpochMillis = envelope.sourceSentAtEpochMillis,
+                        transportSenderUid = envelope.sourceSenderUid,
+                        transportSenderCallsign = envelope.sourceSenderCallsign,
+                    )
+                })
+            }
 
             // Skip the chat if no valid room information was found
             if (parsedRooms.isEmpty()) {

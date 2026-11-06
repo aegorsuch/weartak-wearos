@@ -56,6 +56,63 @@ class TakServerCotIngestorTest {
         assertEquals(TakServerCotIngestResult.USER, ingestor.ingest(envelope(USER_XML, 103L)))
     }
 
+    @Test
+    fun pluginTransportChatKeepsTransportAndWorkspaceMetadataSeparateFromEventUid() = runTest {
+        val sink = RecordingSink()
+        val source = envelope(CHAT_XML, 104L).copy(
+            sourceServerId = "plugin:com.example.transport",
+            sourceSessionId = "session-1",
+            sourceChannelId = "satellite",
+            sourceWorkspaceId = "workspace-9",
+            sourceExternalId = "18446744073709551615",
+            sourceTransportMessageId = "transport-message-1",
+            sourceSentAtEpochMillis = 4_105_152_000_000L,
+        )
+
+        assertEquals(TakServerCotIngestResult.CHAT, ingestor(sink).ingest(source))
+
+        val message = sink.chats.single().parsedRooms!!.single().messageList.single()
+        assertEquals("plugin:com.example.transport", message.sourceServerId)
+        assertEquals("session-1", message.sourceSessionId)
+        assertEquals("satellite", message.sourceChannelId)
+        assertEquals("workspace-9", message.workspaceId)
+        assertEquals("18446744073709551615", message.externalId)
+        assertEquals("transport-message-1", message.transportMessageId)
+        assertEquals(4_105_152_000_000L, message.sentAtEpochMillis)
+        assertEquals("chat-1", CotMessageParser.parseDocumentOrNull(source.rawXml)!!
+            .documentElement.getAttribute("uid"))
+    }
+
+    @Test
+    fun pluginTransportChatDoesNotAuthorizeCommandsFromClaimedSenderIdentity() = runTest {
+        val sink = RecordingSink()
+        var commands = 0
+        val ingestor = TakServerCotIngestor(
+            sink = sink,
+            isChatEnabled = { true },
+            isGeofenceEnabled = { false },
+            deviceUid = { "watch-1" },
+            deviceCallsign = { "EAGLE" },
+            chatCommandHandler = { commands++; false },
+        )
+        val commandChat = CHAT_XML.replace("Hello", "#weartakcommand toggleditto state=on")
+
+        assertEquals(
+            TakServerCotIngestResult.CHAT,
+            ingestor.ingest(
+                envelope(commandChat, 105L).copy(
+                    sourceServerId = "plugin:com.example.transport",
+                    sourceTransportMessageId = "transport-1",
+                ),
+            ),
+        )
+        assertEquals(0, commands)
+        assertEquals(1, sink.chats.size)
+
+        assertEquals(TakServerCotIngestResult.CHAT, ingestor.ingest(envelope(commandChat, 106L)))
+        assertEquals(1, commands)
+    }
+
     @Test fun deletionKeepsSourceAndDoesNotNeedAPoint() = runTest {
         val sink = RecordingSink()
         val message = envelope(MARKER_XML.replace("type='a-h-G'", "type='t-x-d-d'"), 102L)

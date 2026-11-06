@@ -7,16 +7,30 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
+import android.os.Process
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.engine.config.ParserException
 import com.aitech.weartak_civ.cep.engine.config.ReasonCodes
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
+import com.weartak.plugin.sdk.transport.TransportContract
+import com.weartak.plugin.sdk.transport.TransportPayloadKind
+import com.weartak.plugin.sdk.transport.TransportResultCode
+import com.weartak.plugin.sdk.transport.aidl.IPluginTransportCallbackV1
+import com.weartak.plugin.sdk.transport.aidl.IPluginTransportHostV1
+import com.weartak.plugin.sdk.transport.model.TransportCapabilitiesParcel
+import com.weartak.plugin.sdk.transport.model.TransportMessageParcel
+import com.weartak.plugin.sdk.transport.model.TransportResultParcel
+import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
+import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicInteger
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -55,16 +69,17 @@ class PluginConnectionBindTrustTest {
     private fun mockHostApp(
         resolveList: List<ResolveInfo>,
         onAllowActivityStarts: () -> Unit = {},
+        resolvedUid: Int = pluginUid,
         onBind: (Intent, ServiceConnection) -> Unit,
     ): WearTakApplication {
         val pm = mockk<PackageManager>(relaxed = true)
         @Suppress("DEPRECATION")
         every { pm.queryIntentServices(any<Intent>(), any<Int>()) } returns resolveList
         every { pm.queryIntentServices(any<Intent>(), any<PackageManager.ResolveInfoFlags>()) } returns resolveList
-        every { pm.getPackageUid(any<String>(), any<PackageManager.PackageInfoFlags>()) } returns pluginUid
+        every { pm.getPackageUid(any<String>(), any<PackageManager.PackageInfoFlags>()) } returns resolvedUid
         @Suppress("DEPRECATION")
         every { pm.getApplicationInfo(any<String>(), any<Int>()) } returns ApplicationInfo().apply {
-            uid = pluginUid
+            uid = resolvedUid
         }
         val app = mockk<WearTakApplication>(relaxed = true)
         every { app.packageName } returns hostPkg
@@ -262,6 +277,17 @@ class PluginConnectionBindTrustTest {
                 com.weartak.plugin.sdk.routestatus.RouteStatusContract.EXTRA_CONTROL))
         assertEquals(1, routeControl.contractVersion)
         assertTrue(mgr.settingsCoordinator.connectionStatuses.value.isEmpty())
+        assertEquals(
+            com.weartak.plugin.sdk.transport.TransportContract.VERSION,
+            plugin.lastInit!!.hostExtras.getInt(
+                com.weartak.plugin.sdk.transport.TransportContract.EXTRA_VERSION,
+            ),
+        )
+        org.junit.Assert.assertNotNull(
+            plugin.lastInit!!.hostExtras.getBinder(
+                com.weartak.plugin.sdk.transport.TransportContract.EXTRA_CONTROL,
+            ),
+        )
     }
 
     @Test
@@ -290,6 +316,98 @@ class PluginConnectionBindTrustTest {
     }
 
     @Test
+    fun verifiedBindingRegistersUnavailableTransportAndFencesRestartedSession() {
+        val provider1 = FakeUnavailableTransportPlugin(pluginPkg)
+        val provider2 = FakeUnavailableTransportPlugin(pluginPkg)
+        val providers = ArrayDeque(listOf(provider1, provider2))
+        val app = mockHostApp(
+            listOf(resolveInfoFor(pluginPkg)),
+            resolvedUid = Process.myUid(),
+        ) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, providers.removeFirst().asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), Process.myUid()) } returns setOf(pluginPkg)
+        val mgr = PluginManager(app, ingress, mockk(relaxed = true))
+
+        mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
+
+        assertTrue(mgr.hasConnectionForTest(pluginPkg))
+        assertEquals(TransportResultCode.ACCEPTED, provider1.registrationResult?.code)
+        assertNotNull(provider1.registrationResult?.sessionId)
+        assertEquals(TransportResultCode.UNAVAILABLE, provider1.sendUnavailableMessage().code)
+        provider1.offerHostMessage()
+        assertEquals(0, provider1.callback.sentMessages.get())
+
+        val oldSessionId = provider1.registrationResult!!.sessionId!!
+        mgr.unbindPackage(pluginPkg)
+        awaitPluginLifecycle(pluginPkg)
+        assertTrue(provider1.callback.sessionClosed)
+        assertEquals(
+            TransportResultCode.INACTIVE_SESSION,
+            provider1.sendUnavailableMessage(oldSessionId).code,
+        )
+
+        assertTrue(mgr.bindPackage(pluginPkg))
+        awaitPluginLifecycle(pluginPkg)
+        assertEquals(TransportResultCode.ACCEPTED, provider2.registrationResult?.code)
+        assertNotEquals(oldSessionId, provider2.registrationResult?.sessionId)
+        assertEquals(
+            TransportResultCode.INACTIVE_SESSION,
+            provider1.sendUnavailableMessage(oldSessionId).code,
+        )
+        assertEquals(TransportResultCode.UNAVAILABLE, provider2.sendUnavailableMessage().code)
+
+        mgr.shutdownAll()
+        awaitPluginLifecycle(pluginPkg)
+    }
+
+    @Test
+    fun transportRegistrationFencesUnexpectedBinderPeerUid() {
+        val provider = FakeUnavailableTransportPlugin(pluginPkg)
+        val peerUid = Process.myUid() + 1
+        val app = mockHostApp(
+            listOf(resolveInfoFor(pluginPkg)),
+            resolvedUid = peerUid,
+        ) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, provider.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), peerUid) } returns setOf(pluginPkg)
+        val mgr = PluginManager(app, ingress, mockk(relaxed = true))
+
+        mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
+
+        assertEquals(TransportResultCode.UNAUTHORIZED, provider.registrationResult?.code)
+        assertFalse(provider.hostCapabilitiesAvailable)
+        mgr.shutdownAll()
+        awaitPluginLifecycle(pluginPkg)
+    }
+
+    @Test
+    fun transportRegistrationRejectsEmptyPayloadKindsEvenWhenUnavailable() {
+        val provider = FakeUnavailableTransportPlugin(pluginPkg, payloadKinds = emptyList())
+        val app = mockHostApp(
+            listOf(resolveInfoFor(pluginPkg)),
+            resolvedUid = Process.myUid(),
+        ) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, provider.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), Process.myUid()) } returns setOf(pluginPkg)
+        val mgr = PluginManager(app, ingress, mockk(relaxed = true))
+
+        mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
+
+        assertEquals(TransportResultCode.UNSUPPORTED, provider.registrationResult?.code)
+        mgr.shutdownAll()
+        awaitPluginLifecycle(pluginPkg)
+    }
+
+    @Test
     fun unbind_callsStopBeforeShutdown() {
         val ri = resolveInfoFor(pluginPkg)
         lateinit var plugin: FakeWearTakPlugin
@@ -308,5 +426,89 @@ class PluginConnectionBindTrustTest {
         assertTrue(plugin.lifecycleCalls.indexOf("stopPlugin") >= 0)
         assertTrue(plugin.lifecycleCalls.indexOf("shutdownPlugin") >= 0)
         assertTrue(plugin.lifecycleCalls.indexOf("stopPlugin") < plugin.lifecycleCalls.indexOf("shutdownPlugin"))
+    }
+
+    private class FakeUnavailableTransportPlugin(
+        packageName: String,
+        private val payloadKinds: List<Int> = listOf(TransportPayloadKind.CHAT_UTF8),
+    ) : FakeWearTakPlugin(packageName, apiVersion = 2) {
+        private lateinit var hostControl: IPluginTransportHostV1
+        private var hostImplementation: PluginTransportHostV1Impl? = null
+        var hostCapabilitiesAvailable = false
+            private set
+        var registrationResult: TransportResultParcel? = null
+            private set
+        val callback = FakeTransportCallback()
+
+        override fun initializePluginV2(
+            init: com.weartak.plugin.sdk.model.PluginInitParcel?,
+            control: com.weartak.plugin.sdk.aidl.IWearTakPluginControl?,
+            controlV2: com.weartak.plugin.sdk.v2.aidl.IWearTakPluginHostControlV2?,
+        ) {
+            super.initializePluginV2(init, control, controlV2)
+            val extras = requireNotNull(init).hostExtras
+            hostControl = requireNotNull(
+                IPluginTransportHostV1.Stub.asInterface(
+                    requireNotNull(extras.getBinder(TransportContract.EXTRA_CONTROL)),
+                ),
+            )
+            hostImplementation = hostControl as? PluginTransportHostV1Impl
+            hostCapabilitiesAvailable = hostControl.getHostCapabilities().runtimeAvailable
+            registrationResult = hostControl.registerTransport(unavailableCapabilities(), callback)
+        }
+
+        fun offerHostMessage() {
+            requireNotNull(hostImplementation).offerCoT(
+                "<event/>",
+                senderUid = "watch-1",
+                senderCallsign = "WATCH",
+            )
+        }
+
+        fun sendUnavailableMessage(
+            sessionId: String? = registrationResult?.sessionId,
+        ): TransportResultParcel = hostControl.receiveMessage(
+            sessionId,
+            "somewear-satellite",
+            TransportMessageParcel(
+                messageId = "fake-provider-message",
+                payloadKind = TransportPayloadKind.CHAT_UTF8,
+                payload = "offline".toByteArray(),
+                senderUid = "remote-user",
+                recipientUid = "watch-1",
+                senderCallsign = "REMOTE",
+            ),
+        )
+
+        private fun unavailableCapabilities() = TransportCapabilitiesParcel(
+            version = TransportContract.VERSION,
+            outboundPayloadKinds = payloadKinds,
+            inboundPayloadKinds = payloadKinds,
+            channelIds = listOf("somewear-satellite"),
+            maxPayloadBytes = 500,
+            maxPendingMessages = 1,
+            runtimeAvailable = false,
+            deviceReceipts = false,
+            recipientReceipts = false,
+        )
+    }
+
+    private class FakeTransportCallback : IPluginTransportCallbackV1.Stub() {
+        val sentMessages = AtomicInteger()
+        @Volatile
+        var sessionClosed = false
+            private set
+
+        override fun sendMessage(request: TransportSendRequestParcel?): TransportResultParcel {
+            sentMessages.incrementAndGet()
+            return TransportResultParcel(TransportResultCode.UNAVAILABLE, request?.sessionId)
+        }
+
+        override fun cancelMessage(sessionId: String?, messageId: String?) =
+            TransportResultParcel(TransportResultCode.ACCEPTED, sessionId)
+
+        override fun onSessionClosed(sessionId: String?, reason: Int) {
+            sessionClosed = true
+        }
     }
 }

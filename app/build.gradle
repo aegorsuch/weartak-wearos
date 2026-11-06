@@ -324,10 +324,14 @@ if (pluginSdkPlatform == null) {
     throw new GradleException('Plugin SDK has verified source-build hashes only for Windows and Linux')
 }
 def pluginSdkExpectedHash = pluginSdkPin.release_sha256[pluginSdkPlatform]
+if (!pluginSdkExpectedHash) {
+    throw new GradleException("No verified combined plugin SDK artifact hash for ${pluginSdkPlatform}")
+}
+def pluginSdkIdentity = "${pluginSdkPin.commit.take(12)}-${pluginSdkPin.overlay.source_sha256.take(12)}"
 def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
-        .orElse(rootProject.file(".gradle/sdk/${pluginSdkPin.commit.take(12)}/build/outputs/aar/weartak-plugin-sdk-release.aar").absolutePath)
+        .orElse(rootProject.file(".gradle/sdk/${pluginSdkIdentity}/build/outputs/aar/weartak-plugin-sdk-release.aar").absolutePath)
 def sdkNoticeAssets = layout.buildDirectory.dir('generated/pluginSdkNotices')
-def sdkNoticeSource = rootProject.file(".gradle/sdk/${pluginSdkPin.commit.take(12)}")
+def sdkNoticeSource = rootProject.file(".gradle/sdk/${pluginSdkIdentity}")
 def sdkNotices = tasks.register('generatePluginSdkNotices', Copy) {
     from(sdkNoticeSource) {
         include 'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'

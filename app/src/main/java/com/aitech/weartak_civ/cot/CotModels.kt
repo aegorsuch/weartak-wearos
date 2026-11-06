@@ -8,6 +8,14 @@ data class ChatMessage(
     val sourceServerId: String? = null,
     val messageId: String? = null,
     val messageTime: Long = timeReceived,
+    val sourceSessionId: String? = null,
+    val sourceChannelId: String? = null,
+    val workspaceId: String? = null,
+    val externalId: String? = null,
+    val transportMessageId: String? = null,
+    val sentAtEpochMillis: Long? = null,
+    val transportSenderUid: String? = null,
+    val transportSenderCallsign: String? = null,
 )
 
 data class ChatRoom(
