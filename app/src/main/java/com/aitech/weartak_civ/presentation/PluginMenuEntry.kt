@@ -69,6 +69,9 @@ internal sealed interface PluginMenuEntry {
 internal fun List<PluginMenuEntry>.alphabetizedPluginEntries(): List<PluginMenuEntry> =
     sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
 
+internal fun List<PluginMenuEntry>.withoutSomewearPlaceholder(): List<PluginMenuEntry> =
+    filterNot { it is PluginMenuEntry.BuiltIn && it.kind == BuiltInPlugin.SOMEWEAR_LABS }
+
 internal fun List<PluginUI>.installedPluginMenuEntries(): List<PluginMenuEntry> =
     map { PluginMenuEntry.Installed(it) }
 

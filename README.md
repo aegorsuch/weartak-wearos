@@ -693,8 +693,10 @@ CoT transports by sender/message ID. Expired mesh messages are ignored and
 locally evicted without deleting inbox history. See [the chat wire schema](DITTO_CHAT.md)
 for the shared WearOS/iOS document contract and addressing rules.
 
-Plugins are listed alphabetically, including installed plugins. Everywhere and Somewear Labs remain
-unfunded placeholders. Installed plugins use split chips: use the switch to load or unload the plugin.
+Plugins are listed alphabetically, including installed plugins. Everywhere remains
+an unfunded placeholder. Somewear has no built-in placeholder; only a discovered
+installed Somewear plugin appears, even if unloaded.
+Installed plugins use split chips: use the switch to load or unload the plugin.
 If a loaded plugin advertises the SDK `hostedMainUi` capability, tapping its row opens a generic host-rendered
 page from its main UI schema; otherwise, tapping opens the plugin's launcher activity. Hosted pages render
 SDK `STATUS`, `KEY_VALUE_LIST`, and `ACTION` cards. Actions run only after a wearer tap. Host does not
