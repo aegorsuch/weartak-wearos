@@ -55,6 +55,47 @@ class PluginMenuEntryTest {
     }
 
     @Test
+    fun removesSomewearPlaceholderWhenPackageAbsent() {
+        val entries = listOf(
+            PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, "Somewear Labs"),
+            installed("org.example.telemetry", "Telemetry"),
+        )
+
+        assertEquals(entries.drop(1), entries.withoutSomewearPlaceholder())
+    }
+
+    @Test
+    fun unloadedSomewearPackageReplacesOnlyItsPlaceholder() {
+        val somewear = pluginUi("other-declared-id", "Somewear").copy(
+            packageName = "com.weartak.plugin.somewearlabs",
+            isLoaded = false,
+            isEnabled = false,
+        )
+        val entries = listOf(
+            PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, "Somewear Labs"),
+            PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, "Everywhere Comms"),
+            PluginMenuEntry.Installed(somewear),
+            installed("org.example.telemetry", "Telemetry"),
+        )
+
+        assertEquals(entries.drop(1), entries.withoutSomewearPlaceholder())
+    }
+
+    @Test
+    fun removesOnlyPlaceholderAndPreservesUnrelatedSomewearNameOrDeclaredId() {
+        val entries = listOf(
+            PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, "Somewear Labs"),
+            PluginMenuEntry.Installed(
+                pluginUi("com.weartak.plugin.somewearlabs", "Somewear").copy(
+                    packageName = "com.weartak.plugin.somewearlabs.other",
+                ),
+            ),
+        )
+
+        assertEquals(entries.drop(1), entries.withoutSomewearPlaceholder())
+    }
+
+    @Test
     fun installedPluginsKeepPluginProvidedIdentityAndDisplayName() {
         val entries = listOf(
             pluginUi("org.example.telemetry", "Telemetry"),
