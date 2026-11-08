@@ -429,13 +429,15 @@ class TAKConnectService: Service() {
             WifiMulticastReceiver.open(
                 applicationContext, requireNotNull(cfg.net), requireNotNull(cfg.address), requireNotNull(cfg.port)
             )
-        }
+        },
+        ingestCot: suspend (TakServerCotEnvelope) -> Unit = { cotIngestor.ingest(it) }
     ) {
         configurations.distinctUntilChanged().collectLatest { cfg ->
             val shouldRun = cfg.net != null && multicastEndpointEnabled(cfg)
             Log.i(TAG, "Multicast collector called: $cfg with shouldRun=$shouldRun")
             updatePublisher(cfg, shouldRun)
-            if (shouldRun) {
+            if (!shouldRun) return@collectLatest
+            while (currentCoroutineContext().isActive) {
                 try {
                     withContext(Dispatchers.IO) {
                         openReceiver(cfg).use { receiver ->
@@ -446,17 +448,19 @@ class TAKConnectService: Service() {
                                 receiver.receive(onPeerPacket = {
                                     multicastWifiRequest?.onPeerPacketReceived()
                                 }) { envelope ->
-                                    cotIngestor.ingest(envelope.copy(sourceSessionId = session))
+                                    ingestCot(envelope.copy(sourceSessionId = session))
                                 }
                             } finally {
                                 if (activeMulticastSource?.second == session) activeMulticastSource = null
                             }
                         }
                     }
+                    return@collectLatest
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: IOException) {
-                    Log.e(TAG, "Multicast receive failed", error)
+                    currentCoroutineContext().ensureActive()
+                    Log.e(TAG, "Multicast receive failed; retrying in 5 seconds", error)
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.multicast_receive_failed, Toast.LENGTH_LONG).show()
                     }
@@ -465,7 +469,9 @@ class TAKConnectService: Service() {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.multicast_receive_failed, Toast.LENGTH_LONG).show()
                     }
+                    return@collectLatest
                 }
+                delay(5000)
             }
         }
     }

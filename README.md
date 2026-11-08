@@ -2216,6 +2216,15 @@ separate multicast filtering lock is retained; the removed high-performance powe
 lock is not needed for packet reception. No normal-connected battery saving is
 claimed without a controlled measurement.
 
+While multicast remains eligible on connected Wi-Fi, receiver I/O failures are
+logged and shown to the user, then retried after five seconds without requiring
+a settings change. Each attempt closes failed sockets, releases its filtering
+lock and clears its ingress session before retrying with a fresh session.
+Disabling multicast, invalidating its endpoint, losing Wi-Fi, companion
+suppression or service shutdown cancels pending retries; an eligible replacement
+configuration starts immediately. Permission failures remain visible and are not
+retried. Receiver retries do not re-arm Wi-Fi demand or restart the publisher.
+
 ### Optional Samsung HRV acquisition
 
 Samsung `HEART_RATE_CONTINUOUS` acquisition in `SkinTempService` is now **off by
