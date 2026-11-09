@@ -23,7 +23,7 @@ interface PluginRepository {
     fun refresh()
     /** Rescan and bind discovered plugin services so install-time changes can load. */
     fun refreshBindings()
-    /** Restore a host-hidden plugin back into the visible list. */
+    /** Re-enable an installed plugin and keep it visible in the plugin list. */
     fun addPlugin(pluginId: String)
     /** Update the current selected plugin row using a plugin identifier. */
     fun select(pluginId: String?)
@@ -31,7 +31,7 @@ interface PluginRepository {
     fun loadPlugin(pluginId: String)
     /** Request that a plugin be unbound and unloaded by the host manager. */
     fun unloadPlugin(pluginId: String)
-    /** Hide a plugin from the host list and unbind it from the host manager. */
+    /** Unload an installed plugin while keeping it visible in the host list. */
     fun removePlugin(pluginId: String)
     /**
      * Resolve and authorize a plugin identifier into a package target for OS uninstall launch.

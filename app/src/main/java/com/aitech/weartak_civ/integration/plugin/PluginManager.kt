@@ -28,6 +28,7 @@ open class PluginManager(
     private val ingress: PluginIngressPort,
     private val pluginTrust: PluginTrust = CepProvider.pluginTrust(),
     val settingsCoordinator: PluginSettingsCoordinator = PluginSettingsCoordinator(app),
+    private val pluginStateStore: PluginStateStore? = null,
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connections = ConcurrentHashMap<String, PluginConnection>()
@@ -38,9 +39,11 @@ open class PluginManager(
     private val disabled = preferences.getStringSet("disabled_packages", emptySet()).orEmpty().toMutableSet()
     private var stopped = false
 
-    fun isEnabled(packageName: String): Boolean = packageName !in disabled
+    fun isEnabled(packageName: String): Boolean =
+        pluginStateStore?.isEnabled(packageName) ?: (packageName !in disabled)
 
     private fun setEnabled(packageName: String, enabled: Boolean) {
+        pluginStateStore?.setEnabled(packageName, enabled)
         if (enabled) disabled.remove(packageName) else disabled.add(packageName)
         preferences.edit().putStringSet("disabled_packages", disabled.toSet()).apply()
     }
@@ -55,7 +58,7 @@ open class PluginManager(
         PluginDiagnostics.markDiscovered(targets.map { it.packageName })
         val targetPkgs = targets.map { it.packageName }.toSet()
         for (existing in connections.keys.toList()) {
-            if (existing !in targetPkgs) {
+            if (existing !in targetPkgs || !isEnabled(existing)) {
                 detachPackage(existing)
             }
         }
@@ -81,7 +84,7 @@ open class PluginManager(
         detachPackage(packageName)
     }
 
-    private fun detachPackage(packageName: String) {
+    internal fun detachPackage(packageName: String) {
         cancelReconnect(packageName)
         val c = connections.remove(packageName)
         c?.tearDownBinder(reason = "unbindPackage")
@@ -91,6 +94,13 @@ open class PluginManager(
             runCatching { app.unbindService(c) }
                 .onFailure { Log.w(TAG, "Local unbind failed pkg=$packageName", it) }
         }
+    }
+
+    internal fun onPackageRemoved(packageName: String) {
+        detachPackage(packageName)
+        disabled.remove(packageName)
+        preferences.edit().putStringSet("disabled_packages", disabled.toSet()).apply()
+        pluginStateStore?.remove(packageName)
     }
 
     fun shutdownAll() {

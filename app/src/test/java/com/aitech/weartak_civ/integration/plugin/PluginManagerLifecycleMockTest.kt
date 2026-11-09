@@ -20,6 +20,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 import java.time.Duration
@@ -114,6 +115,146 @@ class PluginManagerLifecycleMockTest {
         assertTrue(snap.discovered.contains(pluginPkg))
         assertTrue(snap.bound.contains(pluginPkg))
         assertTrue(snap.connected.contains(pluginPkg))
+    }
+
+    @Test
+    fun refreshBindings_skipsPersistedDisabledPlugin() {
+        val ri = resolveInfoFor(pluginPkg, ".FakeSvc")
+        val app = mockHostApp(listOf(ri))
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        stubIngressSenderPackages(ingress, setOf(pluginPkg))
+        val stateStore = mockk<PluginStateStore>()
+        every { stateStore.isEnabled(pluginPkg) } returns false
+        val mgr = PluginManager(
+            app,
+            ingress,
+            noopPluginTrust(),
+            pluginStateStore = stateStore,
+        )
+
+        mgr.refreshBindings()
+
+        assertFalse(mgr.hasConnectionForTest(pluginPkg))
+        verify(exactly = 0) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
+    }
+
+    @Test
+    fun packageReplacement_preservesDisabledStateAcrossDiscoveryRetry() {
+        val store = PluginStateStore(RuntimeEnvironment.getApplication())
+        store.setEnabled(pluginPkg, false)
+        store.setHidden(pluginPkg, true)
+        val app = mockHostApp(listOf(resolveInfoFor(pluginPkg, ".FakeSvc")))
+        val mgr = PluginManager(app, mockk(relaxed = true), noopPluginTrust(), pluginStateStore = store)
+        val repository = HostPluginRepository(app, mgr, store)
+        try {
+            repeat(2) { repository.onPackageChanged(pluginPkg) }
+
+            assertFalse(PluginStateStore(RuntimeEnvironment.getApplication()).isEnabled(pluginPkg))
+            assertFalse(store.isHidden(pluginPkg))
+            assertEquals(pluginPkg, repository.plugins.value.single().packageName)
+            assertFalse(mgr.hasConnectionForTest(pluginPkg))
+            verify(exactly = 0) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
+        } finally {
+            repository.close()
+            mgr.shutdownAll()
+            store.remove(pluginPkg)
+        }
+    }
+
+    @Test
+    fun packageReplacement_preservesEnabledStateAndRebinds() {
+        val store = PluginStateStore(RuntimeEnvironment.getApplication())
+        store.setEnabled(pluginPkg, true)
+        val captured = mutableListOf<ServiceConnection>()
+        val app = mockHostApp(listOf(resolveInfoFor(pluginPkg, ".FakeSvc"))) { _, conn ->
+            captured.add(conn)
+        }
+        val mgr = PluginManager(app, mockk(relaxed = true), noopPluginTrust(), pluginStateStore = store)
+        val repository = HostPluginRepository(app, mgr, store)
+        try {
+            mgr.refreshBindings()
+            repository.onPackageChanged(pluginPkg)
+            repository.onPackageChanged(pluginPkg)
+
+            assertTrue(PluginStateStore(RuntimeEnvironment.getApplication()).isEnabled(pluginPkg))
+            assertTrue(mgr.hasConnectionForTest(pluginPkg))
+            assertEquals(3, captured.size)
+            verify(exactly = 1) { app.unbindService(captured[0]) }
+            verify(exactly = 1) { app.unbindService(captured[1]) }
+        } finally {
+            repository.close()
+            mgr.shutdownAll()
+            store.remove(pluginPkg)
+        }
+    }
+
+    @Test
+    fun actualRemoval_clearsDisabledStateAndReinstallBindsByDefault() {
+        val store = PluginStateStore(RuntimeEnvironment.getApplication())
+        store.setEnabled(pluginPkg, false)
+        val app = mockHostApp(listOf(resolveInfoFor(pluginPkg, ".FakeSvc")))
+        val mgr = PluginManager(app, mockk(relaxed = true), noopPluginTrust(), pluginStateStore = store)
+        val repository = HostPluginRepository(app, mgr, store)
+        try {
+            mgr.unbindPackage(pluginPkg)
+            repository.onPackageRemoved(pluginPkg)
+            repository.onPackageChanged(pluginPkg)
+
+            assertTrue(store.isEnabled(pluginPkg))
+            assertTrue(mgr.hasConnectionForTest(pluginPkg))
+            verify(exactly = 1) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
+        } finally {
+            repository.close()
+            mgr.shutdownAll()
+            store.remove(pluginPkg)
+        }
+    }
+
+    @Test
+    fun packageDiscoveryRetry_bindsPublishedServiceWithoutChangingEnabledChoice() {
+        for (enabled in listOf(false, true)) {
+            val store = PluginStateStore(RuntimeEnvironment.getApplication())
+            store.setEnabled(pluginPkg, enabled)
+            val app = mockHostApp(emptyList())
+            val mgr = PluginManager(app, mockk(relaxed = true), noopPluginTrust(), pluginStateStore = store)
+            val repository = HostPluginRepository(app, mgr, store)
+            try {
+                repository.onPackageChanged(pluginPkg)
+                assertFalse(mgr.hasConnectionForTest(pluginPkg))
+                every {
+                    app.packageManager.queryIntentServices(any<Intent>(), any<PackageManager.ResolveInfoFlags>())
+                } returns listOf(resolveInfoFor(pluginPkg, ".FakeSvc"))
+                repository.onPackageChanged(pluginPkg)
+
+                assertEquals(enabled, mgr.hasConnectionForTest(pluginPkg))
+                assertEquals(enabled, PluginStateStore(RuntimeEnvironment.getApplication()).isEnabled(pluginPkg))
+                assertEquals(pluginPkg, repository.plugins.value.single().packageName)
+            } finally {
+                repository.close()
+                mgr.shutdownAll()
+                store.remove(pluginPkg)
+            }
+        }
+    }
+
+    @Test
+    fun pendingRecovery_respectsPersistedDisableWithoutDiscoveryRefresh() {
+        val store = PluginStateStore(RuntimeEnvironment.getApplication())
+        store.setEnabled(pluginPkg, true)
+        val app = mockHostApp(listOf(resolveInfoFor(pluginPkg, ".FakeSvc")))
+        val mgr = PluginManager(app, mockk(relaxed = true), noopPluginTrust(), pluginStateStore = store)
+        try {
+            mgr.refreshBindings()
+            mgr.connectionForTest(pluginPkg)!!.onBindingDied(null)
+            store.setEnabled(pluginPkg, false)
+            ShadowLooper.shadowMainLooper().idleFor(Duration.ofSeconds(1))
+
+            assertFalse(mgr.hasConnectionForTest(pluginPkg))
+            verify(exactly = 1) { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) }
+        } finally {
+            mgr.shutdownAll()
+            store.remove(pluginPkg)
+        }
     }
 
     @Test

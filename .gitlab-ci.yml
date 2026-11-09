@@ -38,6 +38,7 @@ android_mopp_check:
       --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
       --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest'
       --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
+      --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
       --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
       --tests '*CotDispatchTransportResumeTest'
