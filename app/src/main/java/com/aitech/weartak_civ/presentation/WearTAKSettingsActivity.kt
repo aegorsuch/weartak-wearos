@@ -1606,43 +1606,6 @@ fun WearTAKSettingsNav(
                             )
                         }
                     }
-                    item {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                            thickness = 1.dp,
-                            color = Color.White
-                        )
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "tablet_command",
-                            title = stringResource(R.string.tablet_command),
-                            state = enableTabletCommandEndpoint,
-                            navController = navController,
-                            formatState = {
-                                if (enableTabletCommandEndpoint) {
-                                    stringResource(R.string.enabled)
-                                } else {
-                                    stringResource(R.string.disabled)
-                                }
-                            }
-                        )
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "esri",
-                            title = stringResource(R.string.esri),
-                            state = enableEsriEndpoint,
-                            navController = navController,
-                            formatState = {
-                                if (enableEsriEndpoint) {
-                                    stringResource(R.string.enabled)
-                                } else {
-                                    stringResource(R.string.disabled)
-                                }
-                            }
-                        )
-                    }
                 },
                 navController,
             )
@@ -2576,17 +2539,12 @@ fun WearTAKSettingsNav(
             WearTAKPageWithBackArrow(
                 title =  stringResource(R.string.tablet_command),
                 columnContent = {
-                    //TODO: BUG!! Value doesn't persist on boot (also a develop issue)
                     item {
-                        WearTAKToggleChip(
-                            testTag = "settings_tablet_command",
-                            checkedLive = enableTabletCommandEndpoint,
-                            onCheckedChange = {
-                                settingsVm.storeEnableTabletCommandEndpoint(it)
-                                Log.d(TAG, "Storing enable tablet command endpoint: $it")
-                            },
-                            title =  stringResource(R.string.tablet_command),
-                            description = stringResource(R.string.on_off)
+                        WearTAKTitleChipWithState(
+                            route = "tablet_command_api_key",
+                            title =  stringResource(R.string.api_key),
+                            state = tabletCommandAPIKey,
+                            navController = navController
                         )
                     }
                     item {
@@ -2594,14 +2552,6 @@ fun WearTAKSettingsNav(
                             route = "tablet_command_endpoint",
                             title =  stringResource(R.string.endpoint),
                             state = tabletCommandEndpoint,
-                            navController = navController
-                        )
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "tablet_command_api_key",
-                            title =  stringResource(R.string.api_key),
-                            state = tabletCommandAPIKey,
                             navController = navController
                         )
                     }
@@ -2629,19 +2579,6 @@ fun WearTAKSettingsNav(
             WearTAKPageWithBackArrow(
                 title =  stringResource(R.string.esri),
                 columnContent = {
-                    //TODO: BUG!! Value doesn't persist on boot (also a develop issue)
-                    item {
-                        WearTAKToggleChip(
-                            testTag = "settings_esri",
-                            checkedLive = enableEsriEndpoint,
-                            onCheckedChange = {
-                                settingsVm.storeEnableEsriEndpoint(it)
-                                Log.d(TAG, "Storing enable esri endpoint: $it")
-                            },
-                            title = "ESRI",
-                            description = stringResource(R.string.on_off)
-                        )
-                    }
                     item {
                         WearTAKTitleChipWithState(
                             route = "esri_endpoint",
@@ -3273,10 +3210,12 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, stringResource(R.string.gunshot_detection)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, stringResource(R.string.data_sync)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, stringResource(R.string.ditto)),
+                    PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, stringResource(R.string.esri)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, stringResource(R.string.everywhere_comms)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, stringResource(R.string.uas_detection)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SENSOR_MANAGER, stringResource(R.string.sensor_manager)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, stringResource(R.string.somewear_labs)),
+                    PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, stringResource(R.string.tablet_command)),
                 ) + pluginList.installedPluginMenuEntries()
             ).withoutSomewearPlaceholder().alphabetizedPluginEntries()
             val lifecycleOwner = LocalLifecycleOwner.current
@@ -3404,6 +3343,28 @@ fun WearTAKSettingsNav(
                                         checked = enableCrm,
                                         onCheckedChange = { settingsVm.storeEnableCrmService(it) },
                                         onClick = { navController.navigate("crm_thresholds") }
+                                    )
+                                }
+                                BuiltInPlugin.ESRI -> {
+                                    BuiltInPluginToggleChip(
+                                        kind = entry.kind,
+                                        phoneManagedSettings = phoneManagedSettings,
+                                        title = entry.title,
+                                        label = stringResource(if (enableEsriEndpoint) R.string.enabled else R.string.disabled),
+                                        checked = enableEsriEndpoint,
+                                        onCheckedChange = { settingsVm.storeEnableEsriEndpoint(it) },
+                                        onClick = { navController.navigate("esri") }
+                                    )
+                                }
+                                BuiltInPlugin.TABLET_COMMAND -> {
+                                    BuiltInPluginToggleChip(
+                                        kind = entry.kind,
+                                        phoneManagedSettings = phoneManagedSettings,
+                                        title = entry.title,
+                                        label = stringResource(if (enableTabletCommandEndpoint) R.string.enabled else R.string.disabled),
+                                        checked = enableTabletCommandEndpoint,
+                                        onCheckedChange = { settingsVm.storeEnableTabletCommandEndpoint(it) },
+                                        onClick = { navController.navigate("tablet_command") }
                                     )
                                 }
                                 BuiltInPlugin.EVERYWHERE_COMMS, BuiltInPlugin.SOMEWEAR_LABS -> {
