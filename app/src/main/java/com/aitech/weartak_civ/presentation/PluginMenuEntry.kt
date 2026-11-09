@@ -17,10 +17,12 @@ internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
     DART(R.drawable.ic_integration_certus),
     DATA_SYNC(R.drawable.ic_data_sync),
     DITTO(R.drawable.ic_integration_ditto),
+    ESRI(R.drawable.plugin_esri_logo),
     EVERYWHERE_COMMS(R.drawable.ic_integration_everywhere),
     FALCON(R.drawable.ic_integration_certus),
     SENSOR_MANAGER(R.drawable.ic_sensor_manager),
-    SOMEWEAR_LABS(R.drawable.ic_integration_somewear);
+    SOMEWEAR_LABS(R.drawable.ic_integration_somewear),
+    TABLET_COMMAND(R.drawable.plugin_tablet_command_logo);
 
     val locksDuringPhoneManagement: Boolean
         get() = when (this) {

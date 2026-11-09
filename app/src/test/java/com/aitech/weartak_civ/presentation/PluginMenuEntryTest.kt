@@ -26,11 +26,13 @@ class PluginMenuEntryTest {
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, "DART"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, "Data Sync"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
+            PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, "Tablet Command"),
+            PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, "ESRI"),
             installed("com.weartak.plugin.mopp", "MOPP"),
         )
 
         assertEquals(
-            listOf("alpha", "BATTAK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "zulu"),
+            listOf("alpha", "BATTAK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "ESRI", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "Tablet Command", "zulu"),
             entries.alphabetizedPluginEntries().map { it.title },
         )
         assertEquals("Somewear Labs", entries.first().title)
