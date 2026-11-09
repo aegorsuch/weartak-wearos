@@ -8,6 +8,15 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.wear.compose.material.PickerState
+import com.aitech.weartak_civ.R
+import com.aitech.weartak_civ.data.takserver.Pkcs12CertificateImport
+import com.aitech.weartak_civ.data.takserver.TakServerEndpointMigration
+import com.aitech.weartak_civ.presentation.CertificateDestination
+import com.aitech.weartak_civ.presentation.RepositoryCertificateReview
+import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.aitech.weartak_civ.DEFAULT_BLOODHOUND_PROXIMITY_INTENSITY
 import com.aitech.weartak_civ.DEFAULT_BLOODHOUND_PROXIMITY_RADIUS_METERS
 import com.aitech.weartak_civ.DEFAULT_CONSTANT_REPORTING_INTERVAL
@@ -623,10 +632,25 @@ class WearTAKSettingsViewModel : ViewModel() {
             initialValue = DEFAULT_ENABLE_BATDOK_COT
         )
 
+    val savedBatdokSharingConsent = dataRepository.batdokSharing.consent.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = com.aitech.weartak_civ.data.BatdokSharingConsent(false, 0, 0)
+    )
+    val batdokPatientStatus = dataRepository.batdokPatientStatus
+    val batdokPatientFailureCode = dataRepository.batdokPatientFailureCode
+    val batdokSharingSaveFailed = MutableStateFlow(false)
+
     fun storeEnableBatdokCot(enable: Boolean) {
         viewModelScope.launch {
-            dataRepository.storeEnableBatdokCot(enable)
-            enableBatdokCot = enable
+            try {
+                dataRepository.batdokSharing.setEnabledByUser(enable)
+                enableBatdokCot = enable
+                batdokSharingSaveFailed.value = false
+            } catch (error: java.io.IOException) {
+                android.util.Log.e("WearTAK-BATTAK", "Could not save BATTAK sharing setting")
+                batdokSharingSaveFailed.value = true
+            }
         }
     }
 
@@ -678,7 +702,61 @@ class WearTAKSettingsViewModel : ViewModel() {
         TAKConnectService.serverRegistration.state
     val takServerRuntimeDetails = TAKConnectService.takServerRuntimeDetails
 
-    fun saveAndRegisterTakServer(item: TakServerItem, index: Int? = null) {
+    data class CaTrustChange(val certificate: String?)
+    data class EndpointMigrationError(val serverId: String, val address: String, val port: Int, val message: Int)
+
+    private val mutableEndpointMigrationError = MutableStateFlow<EndpointMigrationError?>(null)
+    val endpointMigrationError = mutableEndpointMigrationError.asStateFlow()
+
+    fun migrateTakServerEndpoint(
+        expected: TakServerItem, name: String, address: String, port: Int, reviewedCa: String?
+    ) {
+        val serverId = requireNotNull(expected.serverId)
+        val ticket = TAKConnectService.serverRegistration.prepare(serverId)
+        mutableEndpointMigrationError.value = null
+        val job = viewModelScope.launch {
+            TAKConnectService.serverRegistration.saveAndConnect(serverId, ticket = ticket,
+                save = {
+                    try {
+                        check(!dataRepository.chatEnrollmentBlocked())
+                        val oldCa = dataRepository.getApprovedServerCa(serverId, expected.address, expected.port)
+                        val proposed = withContext(Dispatchers.IO) {
+                            val context = WearTakApplication.AppCtx.app.applicationContext
+                            TakServerEndpointMigration.prepare(
+                                expected, name, address, port, reviewedCa,
+                                context.getExternalFilesDir(null)?.let { File(it, "certs") },
+                            ) { file ->
+                                context.openFileInput(file).use {
+                                    it.readNBytes(Pkcs12CertificateImport.MAX_BYTES + 1)
+                                }
+                            }
+                        }
+                        val backend = RepositoryCertificateReview(dataRepository, afterCommit = {})
+                        check(backend.apply(
+                            CertificateDestination(expected, oldCa),
+                            proposed, reviewedCa, authorized = { true }, complete = { true }))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Log.e(TAG, "Endpoint migration refused: ${error.javaClass.simpleName}")
+                        mutableEndpointMigrationError.value = EndpointMigrationError(
+                            serverId, address.trim(), port,
+                            if (error is DataRepository.CertificateRecoveryException)
+                                R.string.endpoint_migration_recovery_error else R.string.endpoint_migration_error
+                        )
+                        throw error
+                    }
+                    takServerList = dataRepository.awaitTakServerList()
+                    TakServerRegistration.SaveResult.SAVED
+                },
+                connect = { TAKConnectService.getInstance().registerServer(serverId) })
+        }
+        job.invokeOnCompletion { error ->
+            if (error != null) TAKConnectService.serverRegistration.failPending(ticket)
+        }
+    }
+
+    fun saveAndRegisterTakServer(item: TakServerItem, index: Int? = null, caTrust: CaTrustChange? = null) {
         val serverId = TakServerId.ensure(item.serverId)
         val savedItem = item.copy(serverId = serverId)
         val ticket = TAKConnectService.serverRegistration.prepare(serverId)
@@ -686,6 +764,7 @@ class WearTAKSettingsViewModel : ViewModel() {
             TAKConnectService.serverRegistration.saveAndConnect(
                 serverId,
                 save = {
+                    check(!dataRepository.chatEnrollmentBlocked()) { "Server settings are managed or locked" }
                     val result = if (index == null) {
                         when (dataRepository.addTakServerItem(savedItem)) {
                             DataRepository.TakServerAddResult.ADDED ->
@@ -704,11 +783,19 @@ class WearTAKSettingsViewModel : ViewModel() {
                         }
                     }
                     if (result == TakServerRegistration.SaveResult.SAVED) {
+                        if (caTrust != null) {
+                            dataRepository.setApprovedServerCa(serverId, savedItem.address, savedItem.port,
+                                caTrust.certificate)
+                        }
                         takServerList = dataRepository.awaitTakServerList()
                     }
                     result
                 },
-                connect = { TAKConnectService.getInstance().registerServer(serverId) },
+                connect = {
+                    TAKConnectService.serverRegistration.atStep(TakServerRegistration.Step.SERVICE_INSTANCE) {
+                        TAKConnectService.getInstance()
+                    }.registerServer(serverId)
+                },
                 ticket = ticket,
             )
         }
@@ -1495,13 +1582,6 @@ fun displaySitxGroupDialog(
             dataRepository.storeOnnxUasTriggerThresholdPercent(thresholdPercent)
             onnxUasTriggerThresholdPercent = thresholdPercent
         }
-    }
-
-    val savedEnableMopp: StateFlow<Boolean> = dataRepository.getEnableMopp.stateIn(
-        viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    fun storeEnableMopp(enabled: Boolean) {
-        viewModelScope.launch { dataRepository.storeEnableMopp(enabled) }
     }
 
     val savedEnableDataSync: StateFlow<Boolean> = dataRepository.getEnableDataSync.stateIn(

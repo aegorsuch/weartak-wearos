@@ -35,8 +35,8 @@ android {
         applicationId "com.aitech.weartak_civ"
         minSdk 34
         targetSdk 34
-        def baseVersionCode = 583
-        def baseVersionName = "5.8.0.3"
+        def baseVersionCode = 584
+        def baseVersionName = "5.8.4"
 
         def buildGitUrl = gitUrl() ?: "unknown"
         def buildGitBranch = gitBranch() ?: "unknown"
@@ -61,7 +61,17 @@ android {
 
         def buildTimestampUtc = System.getenv("WEARTAK_BUILD_TIMESTAMP_UTC") ?: Instant.now().toString()
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        def warningUiDemo = providers.gradleProperty("weartakWarningUiDemo").orElse("false").get()
+        if (!(warningUiDemo in ["true", "false"])) {
+            throw new GradleException("weartakWarningUiDemo must be true or false")
+        }
+        def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get()
+        if (!(dittoUiDemo in ["true", "false"])) {
+            throw new GradleException("weartakDittoUiDemo must be true or false")
+        }
+        testInstrumentationRunner warningUiDemo == "true" || dittoUiDemo == "true"
+                ? "com.aitech.weartak_civ.presentation.WarningUiTestRunner"
+                : "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary true
         }
@@ -78,6 +88,27 @@ android {
             throw new GradleException("enableSamsungHrv must be true or false")
         }
         buildConfigField "boolean", "SAMSUNG_HRV_ENABLED", samsungHrvEnabled
+        def batdokAcceptance = providers.gradleProperty("batdokAcceptance").orElse("false").get()
+        if (!(batdokAcceptance in ["true", "false"])) {
+            throw new GradleException("batdokAcceptance must be true or false")
+        }
+        def batdokPassphrase = System.getenv("BATTAK_INTEROP_PASSPHRASE") ?: ""
+        def batdokSalt = System.getenv("BATTAK_INTEROP_SALT_BASE64") ?: ""
+        if (batdokPassphrase.isEmpty() != batdokSalt.isEmpty() ||
+                (batdokAcceptance == "true" && batdokPassphrase.isEmpty())) {
+            throw new GradleException("BATTAK build requires BATTAK_INTEROP_PASSPHRASE and BATTAK_INTEROP_SALT_BASE64")
+        }
+        if (!batdokSalt.isEmpty()) {
+            try {
+                if (java.util.Base64.decoder.decode(batdokSalt).length == 0) {
+                    throw new IllegalArgumentException()
+                }
+            } catch (IllegalArgumentException ignored) {
+                throw new GradleException("BATTAK_INTEROP_SALT_BASE64 must encode nonempty salt bytes")
+            }
+        }
+        buildConfigField "String", "BATTAK_INTEROP_PASSPHRASE", groovy.json.JsonOutput.toJson(batdokPassphrase)
+        buildConfigField "String", "BATTAK_INTEROP_SALT_BASE64", groovy.json.JsonOutput.toJson(batdokSalt)
 
 //        manifestPlaceholders["repo"] = gitUrl()
 //        manifestPlaceholders["branch"] = gitBranch()
@@ -153,19 +184,57 @@ android {
     }
 
     def isBuildingBundle = gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }
+    def emulatorAbi = providers.gradleProperty("weartakEmulatorAbi").orNull
+    def debugAbi = providers.gradleProperty("weartakDebugAbi").orNull
+    def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last().toLowerCase() }
+    if (providers.gradleProperty("weartakWarningUiDemo").orElse("false").get() == "true" &&
+            (!requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakWarningUiDemo=true is supported only for explicit debug tasks.")
+    }
+    if (providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true" &&
+            (!requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakDittoUiDemo=true is supported only for explicit debug tasks.")
+    }
+    if (emulatorAbi != null && (emulatorAbi != "x86_64" ||
+            !requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakEmulatorAbi=x86_64 is supported only for explicit debug tasks.")
+    }
+    if (debugAbi != null && (emulatorAbi != null || !(debugAbi in ["x86_64", "arm64-v8a"]) ||
+            !requestedTasks.any { it.contains("debug") } ||
+            requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
+        throw new GradleException("weartakDebugAbi requires an explicit debug task and x86_64 or arm64-v8a; do not combine ABI properties.")
+    }
 
     splits {
         abi {
-            enable !isBuildingBundle
+            enable !isBuildingBundle && !gradle.startParameter.taskNames.any { it.toLowerCase().contains("nearbyfixture") }
             reset()
-            include "armeabi-v7a"
+            include debugAbi ?: emulatorAbi ?: "armeabi-v7a"
             universalApk false
         }
     }
 
     buildTypes {
+        nearbyFixture {
+            initWith debug
+            applicationIdSuffix ".nearbyfixture"
+            matchingFallbacks = ['debug']
+            signingConfig signingConfigs.debug
+            buildConfigField "Boolean", "CEP_SIMULATION", "false"
+            buildConfigField "Boolean", "CEP_TEST_ALERTS", "false"
+            manifestPlaceholders.cepSimulationEnabled = "false"
+        }
         debug {
-            applicationIdSuffix ".dev"
+            def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true"
+            applicationIdSuffix dittoUiDemo ? ".ditto.diagnostics.fixture" : ".dev"
+            manifestPlaceholders.debugApplication = dittoUiDemo
+                    ? "com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureApplication"
+                    : "com.aitech.weartak_civ.WearTakApplication"
+            manifestPlaceholders.dittoUiDemo = dittoUiDemo.toString()
+            buildConfigField "boolean", "DITTO_UI_DEMO", dittoUiDemo.toString()
             minifyEnabled false
             shrinkResources false
             signingConfig signingConfigs.debug
@@ -221,21 +290,84 @@ android {
     testOptions {
         unitTests.includeAndroidResources = true
         unitTests.all { test ->
-            // Robolectric writes a download-lock file under user.home; override to a
-            // writable build dir so tests work under sandboxed/CI environments where the
-            // default home is read-only.
-            def roboHome = file("${buildDir}/test-home")
+            if (gradle.ext.has('takArtifactoryUrl')) {
+                test.systemProperty 'robolectric.dependency.repo.id', 'takArtifactory'
+                test.systemProperty 'robolectric.dependency.repo.url', gradle.ext.takArtifactoryUrl
+                test.systemProperty 'robolectric.dependency.repo.username', gradle.ext.takArtifactoryUser
+                test.systemProperty 'robolectric.dependency.repo.password', gradle.ext.takArtifactoryPassword
+            }
+            // Keep the shared Maven cache AND download lock across local worktrees.
+            // Sandboxed/CI homes may be read-only; retain the build-local fallback.
+            def realHome = new File(System.getProperty('user.home'))
+            def mavenDirs = [realHome, new File(realHome, '.m2'),
+                             new File(realHome, '.m2/repository')]
+            def downloadLock = new File(realHome, '.robolectric-download-lock')
+            def sharedHomeUsable = realHome.isDirectory() && mavenDirs.every {
+                !it.exists() || (it.isDirectory() && it.canRead() && it.canWrite())
+            } && (!downloadLock.exists() || (downloadLock.isFile() && downloadLock.canWrite()))
+            def roboHome = sharedHomeUsable ? realHome : file("${buildDir}/test-home")
             test.systemProperty 'user.home', roboHome.absolutePath
             test.environment 'HOME', roboHome.absolutePath
             test.doFirst {
-                roboHome.mkdirs()
+                if (!roboHome.isDirectory() && !roboHome.mkdirs()) {
+                    throw new GradleException("Cannot create Robolectric home: ${roboHome}")
+                }
             }
         }
     }
 }
 
+def pluginSdkPin = new groovy.json.JsonSlurper().parse(rootProject.file('ci/plugin-sdk.json'))
+def pluginSdkOs = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
+def pluginSdkPlatform = pluginSdkOs.contains('windows') ? 'windows' : pluginSdkOs.contains('linux') ? 'linux' : null
+if (pluginSdkPlatform == null) {
+    throw new GradleException('Plugin SDK has verified source-build hashes only for Windows and Linux')
+}
+def pluginSdkExpectedHash = pluginSdkPin.release_sha256[pluginSdkPlatform]
+if (!pluginSdkExpectedHash) {
+    throw new GradleException("No verified combined plugin SDK artifact hash for ${pluginSdkPlatform}")
+}
+def pluginSdkIdentity = "${pluginSdkPin.commit.take(12)}-${pluginSdkPin.overlay.source_sha256.take(12)}"
+def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
+        .orElse(rootProject.file(".gradle/sdk/${pluginSdkIdentity}/build/outputs/aar/weartak-plugin-sdk-release.aar").absolutePath)
+def sdkNoticeAssets = layout.buildDirectory.dir('generated/pluginSdkNotices')
+def sdkNoticeSource = rootProject.file(".gradle/sdk/${pluginSdkIdentity}")
+def sdkNotices = tasks.register('generatePluginSdkNotices', Copy) {
+    from(sdkNoticeSource) {
+        include 'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'
+        into 'licenses/weartak-plugin-sdk'
+    }
+    into sdkNoticeAssets
+    doFirst {
+        ['LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'].each { name ->
+            if (!new File(sdkNoticeSource, name).isFile()) {
+                throw new GradleException('Missing plugin SDK notices; run python ci/build_plugin_sdk.py')
+            }
+        }
+    }
+}
+android.sourceSets.main.assets.srcDir(sdkNoticeAssets)
+tasks.register('verifyPluginSdk') {
+    inputs.file(pluginSdkAarPath)
+    inputs.property('expectedSha256', pluginSdkExpectedHash)
+    doLast {
+        def aar = file(pluginSdkAarPath.get())
+        if (!aar.isFile()) {
+            throw new GradleException('Missing pinned plugin SDK; run python ci/build_plugin_sdk.py')
+        }
+        def digest = java.security.MessageDigest.getInstance('SHA-256').digest(aar.bytes).encodeHex().toString()
+        if (digest != pluginSdkExpectedHash) {
+            throw new GradleException("Plugin SDK SHA-256 mismatch: ${digest}")
+        }
+    }
+}
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('verifyPluginSdk'), sdkNotices
+}
+
 dependencies {
-    implementation files(rootProject.file('weartak-plugin-sdk-release.aar'))
+    implementation project(':weartak-plugin-host-services-sdk')
+    implementation files(pluginSdkAarPath.get())
     implementation files('libs/samsung-health-sensor-api-1.4.1.aar')
     implementation files('libs/hail-sdk.aar')
 
@@ -377,4 +509,6 @@ dependencies {
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1'
     testImplementation 'org.robolectric:robolectric:4.12.1'
     testImplementation 'io.mockk:mockk:1.13.11'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+    testImplementation 'com.squareup.okhttp3:okhttp-tls:4.12.0'
 }

@@ -15,13 +15,17 @@ import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.*
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.model.TakRoute
+import com.aitech.weartak_civ.data.RouteFollow
+import com.aitech.weartak_civ.presentation.MapTargetActionRow
 
 @Composable
 fun RouteDetailsView(
     route: TakRoute,
     onPoint: (Int) -> Unit,
     onRemove: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onBloodhound: () -> Unit = {},
+    onTarget: () -> Unit = {}
 ) {
     val namedPoints = route.points.withIndex().filter { !it.value.name.isNullOrBlank() }
     var confirmingRemoval by remember(route.serverId, route.uid) { mutableStateOf(false) }
@@ -66,15 +70,13 @@ fun RouteDetailsView(
                 }
             } else {
                 item {
-                    Text(stringResource(R.string.route_named_point_count, namedPoints.size, route.points.size),
-                        textAlign = TextAlign.Center)
+                    MapTargetActionRow(onBloodhound, onTarget,
+                        enabled = route.points.isNotEmpty() && route.points.all(RouteFollow::validLocation),
+                        onDelete = { confirmingRemoval = true })
                 }
                 item {
-                    Chip(
-                        onClick = { confirmingRemoval = true },
-                        label = { Text(stringResource(R.string.route_remove)) },
-                        modifier = Modifier.fillMaxWidth().testTag("route-remove")
-                    )
+                    Text(stringResource(R.string.route_named_point_count, namedPoints.size, route.points.size),
+                        textAlign = TextAlign.Center)
                 }
                 if (namedPoints.isEmpty()) {
                     item {

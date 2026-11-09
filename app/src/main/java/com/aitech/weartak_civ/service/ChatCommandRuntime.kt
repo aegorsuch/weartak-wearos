@@ -41,7 +41,7 @@ import com.aitech.weartak_civ.data.takserver.TakServerRegistration
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.sexOptionsList
-import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.userTypeOptionsList
+import com.aitech.weartak_civ.data.ProfileUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -68,7 +68,7 @@ object ChatCommandRuntime {
             teams = { MainActivity.teamEntriesValuesList.ltEntries },
             roles = { MainActivity.categoryRolesEntryLists.flatMap { c -> c.roles.map { c.category to it } } },
             sexes = { sexOptionsList.map(appContext::getString) },
-            userTypes = { userTypeOptionsList.map(appContext::getString) }
+            userTypes = { ProfileUnit.entries.map { appContext.getString(it.labelRes) } }
         )
         val store = object : ProfileStore {
             override suspend fun setCallsign(value: String) = repo.storeCallsign(value)
@@ -84,7 +84,9 @@ object ChatCommandRuntime {
             override suspend fun setWeight(pounds: Int) = repo.storePhysiologicalMetricWeight(pounds)
             override suspend fun setBirthYear(year: Int) = repo.storeYearOfBirth(year)
             override suspend fun setSex(value: String) = repo.storePhysiologicalMetricSex(value)
-            override suspend fun setUserType(value: String) = repo.storePhysiologicalMetricUserType(value)
+            override suspend fun setUserType(value: String) = repo.storePhysiologicalMetricUserType(
+                ProfileUnit.entries.first { appContext.getString(it.labelRes) == value }.storageValue
+            )
             override suspend fun setPantsLength(value: Int) = repo.storePhysiologicalMetricUniformPantsLength(value)
             override suspend fun setWaistSize(value: Int) = repo.storePhysiologicalMetricUniformWaistSize(value)
         }

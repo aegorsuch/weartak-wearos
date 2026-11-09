@@ -20,6 +20,16 @@ watch; supplying only one is rejected. The existing
 syntax remains supported with its original quoted-value escaping. Commands are
 bounded to 768 characters; legacy individual values are bounded to 128 characters.
 
+For key/value arguments, use double quotes around values containing spaces.
+Inside quotes, `\\` represents one literal backslash and `\"` one literal quote;
+`!` and `_` need no escaping. Unquoted backslashes are literal. Quoted passwords
+retain leading and trailing spaces; CSV fields still trim surrounding whitespace.
+For example (synthetic credentials only):
+
+```
+#weartakcommandenrollserver name="TAK Ops" url=tak.example.invalid port=8089 username=operator-wt password="example_\\only!"
+```
+
 A normalized name (trimmed, case-insensitive) **or** normalized address/port match
 updates that server in place, preserving its server ID and enable setting and
 replacing its enrollment credentials. If the name and endpoint identify different
@@ -42,6 +52,18 @@ Replies are `Server <name> added` or `Server <name> updated`, confirming durable
 storage, **not** successful certificate enrollment or connection. Failures use
 credential-free reasons. The credential-free path posts the existing on-watch
 prompt instead. Credentials are never placed in that prompt or its intent.
+
+Registration failure logs distinguish the save and connect phases and retain a bounded
+exception-type cause chain. Connect setup also records an allowlisted `registrationStep`:
+`SERVICE_INSTANCE`, `PERSISTED_LIST_RELOAD`, `ID_NORMALIZATION`, `RUNTIME_RECONCILIATION`,
+`DETAIL_LOOKUP`, or `CONNECTION_DISPATCH`. Nested setup failures retain the innermost step;
+these markers distinguish local setup from asynchronous enrollment/transport failures.
+Registration uses the strict persisted-list reader so a decrypt/read failure keeps its original
+cause instead of becoming a generic unavailable-list exception.
+Structured enrollment failures preserve their stage, category,
+and HTTP status even when wrapped by a setup exception. These logs do not include exception
+messages, throwable stack traces, server identifiers/addresses, credentials, or certificate/key
+contents. Registration still terminates explicitly on failure; TLS and certificate checks are unchanged.
 
 ## Secret handling and limits
 
@@ -69,3 +91,87 @@ server settings and Companion view/edit/settings-sync protocol. That protocol is
 unchanged; its phone-side copies are outside command-message purge. Credentials
 are not included in diagnostic exports. Enrollment retains normal HTTPS trust
 and hostname validation; only use a server address you trust.
+
+## Private CA trust import (watch, no file picker)
+
+CA import is optional, under the collapsed **Advanced** section in the normal
+**New Server / Edit Server** form. Public CAs (such as Let's Encrypt) use normal
+system trust without importing anything. An untrusted-issuer TLS failure offers
+**Import CA...**, opening the same staged-certificate review flow for that saved
+server. Other TLS errors (such as an expired certificate or hostname mismatch),
+authentication failures and network errors do not offer CA import.
+It does not create a special server type: the same server list, status,
+enable/disable, edit, registration and delete flows apply. Each watch enrolls
+its own client certificate using its enrollment credentials. Importing a CA
+does not import a client identity or private key.
+
+1. Obtain one public X.509 CA certificate in PEM or DER format from your
+   administrator, and its SHA-256 fingerprint over a separate trusted channel.
+   Bundles, PKCS#12 truststores, private keys, expired certificates and non-CA
+   certificates are not supported. Maximum size: 64 KiB.
+2. With authorized ADB access to the watch, stage the public certificate in the
+   app's external files directory. For regular WearTAK:
+
+   ```powershell
+   adb -s WATCH_SERIAL shell mkdir -p /sdcard/Android/data/com.aitech.weartak_civ/files/trust
+   adb -s WATCH_SERIAL push .\server-ca.pem /sdcard/Android/data/com.aitech.weartak_civ/files/trust/ca.crt
+   ```
+
+   WearTAK Dev uses `com.aitech.weartak_civ.dev` instead. ADB must already be
+   authorized; Knox policy may prohibit ADB or external app-file access. Such
+   devices need an administrator-approved staging mechanism. No file-picker,
+   Companion protocol change or automatic download/trust is required.
+3. Open **New Server** or **Edit Server**, enter the actual server address and
+   streaming port, then open **Advanced > Review staged CA**. Read the subject, expiration,
+   endpoint and full SHA-256 fingerprint. Compare every fingerprint byte with
+   your administrator, then tap **Approve this CA** and confirm/save the form.
+   Review/approval alone does not save anything; canceling the form discards it.
+4. The approved certificate is copied into Android-Keystore-backed encrypted
+   app storage, bound to that server ID, normalized host and streaming port.
+   It is not included in Companion settings exports or phone snapshots.
+   Enrollment on 8446 accepts either normal Android platform trust or this
+   approved CA for this server. Approval does not replace public CA trust.
+   Streaming on the configured port (normally 8089) and REST APIs on 8443 keep
+   their existing approved-CA behavior; no global CA or trust-all fallback is added.
+   Redirects are disabled for enrollment and APIs using an approved CA.
+5. **Edit Server > Advanced > Remove approved CA on save**, then save, revokes the approval
+   and reconnects using existing defaults. Deleting the server or changing its
+   endpoint removes its approval; changing the endpoint back requires review
+   again. Replacing/removing trust invalidates that connection and its cached
+   enrollment certificate. The staged file is never automatically trusted or
+   reread; remove it with authorized ADB after import if desired.
+
+Hostname and IP verification stay strict for imported trust on enrollment,
+streaming and APIs. If connecting to an IP address, the server certificate must
+contain that exact IP in a Subject Alternative Name (SAN). Otherwise use a
+resolvable DNS name present in the certificate. Importing a CA does not fix a
+wrong hostname, firewall, disabled direct transport, phone handoff or managed
+configuration lock. Existing non-imported server behavior is unchanged.
+
+## Same-server endpoint migration
+
+When an existing server moves to a new address or streaming port, edit that
+profile and enable **Same server, new endpoint**. Use this only for the same
+server, not to give another server your client identity. No enrollment
+username/password is required for this action.
+
+Under **Advanced**, review and approve the staged CA for the **new** endpoint
+before saving, even if its CA has not changed. Old endpoint approval and client
+certificate chains are never silently trusted at the new endpoint. This scoped
+flow requires explicit CA review; ordinary public-CA enrollment remains unchanged.
+Hostname/IP SAN and certificate validity checks still apply.
+
+Migration validates and preserves the existing client identity from the saved
+P12, old-address `certs/<address>.p12` (or `.p12.b64`, with optional `.pwd`), or
+old-endpoint enrollment cache, in runtime precedence order. Sideloaded identities
+are not used for strict-trust profiles. The identity is saved in encrypted profile
+storage, independent of old file names/cache keys. No source file is renamed,
+deleted or modified. Server ID, enable setting, credentials and other profile
+settings remain intact; migrated profiles enforce strict server trust.
+
+Missing, unreadable, invalid, expired or ambiguous client identities refuse
+migration visibly without changing the saved profile. Managed/locked settings,
+stale profiles and duplicate endpoints also refuse it. Persistence/runtime
+preparation failures restore the prior profile and endpoint-bound CA; recovery
+failure is reported separately. A later network/TLS failure does not undo a
+successfully saved migration.

@@ -4,6 +4,7 @@ import android.graphics.drawable.Drawable
 
 enum class PluginLoadingStatus {
     NOT_LOADED,
+    BINDING,
     LOADED,
     NOT_INSTALLED,
     ERROR,
@@ -27,7 +28,11 @@ data class PluginUI(
     val compatibility: PluginCompatibilityStatus = PluginCompatibilityStatus.UNKNOWN,
     val isLoaded: Boolean = false,
     val menuSubtitle: String? = null,
+    val isEnabled: Boolean = isLoaded || loadingStatus == PluginLoadingStatus.BINDING,
 ) {
-    val menuLabel: String
-        get() = menuSubtitle?.takeIf { it.isNotBlank() } ?: loadingStatus.toString()
+    val menuLabel: String?
+        get() = when (pluginId) {
+            "com.weartak.plugin.gotenna", "com.weartak.plugin.takcad" -> null
+            else -> menuSubtitle?.takeIf { it.isNotBlank() } ?: loadingStatus.toString()
+        }
 }

@@ -327,14 +327,21 @@ class ActivityRecognitionService : Service() {
         clearPassiveMonitoring()
         if (!::activityRecognitionClient.isInitialized || !::callbackIntent.isInitialized) return
         DiagnosticResources.note(DiagnosticResource.ACTIVITY, callbackIntent, ResourceAction.LOCAL_DISABLED)
-        DiagnosticResources.request(DiagnosticResource.ACTIVITY, callbackIntent, removal = true) {
-            activityRecognitionClient.removeActivityUpdates(callbackIntent)
-        }.addOnSuccessListener {
-            DiagnosticResources.end(DiagnosticResource.ACTIVITY, callbackIntent)
-            callbackIntent.cancel()
-        }.addOnFailureListener {
+        try {
+            DiagnosticResources.request(DiagnosticResource.ACTIVITY, callbackIntent, removal = true) {
+                activityRecognitionClient.removeActivityUpdates(callbackIntent)
+            }.addOnSuccessListener {
+                DiagnosticResources.end(DiagnosticResource.ACTIVITY, callbackIntent)
+                callbackIntent.cancel()
+            }.addOnFailureListener {
+                DiagnosticResources.note(DiagnosticResource.ACTIVITY, callbackIntent, ResourceAction.UNCERTAIN)
+                callbackIntent.cancel()
+                Log.e(TAG, "Failed to remove activity updates; callback intent cancelled", it)
+            }
+        } catch (denied: SecurityException) {
             DiagnosticResources.note(DiagnosticResource.ACTIVITY, callbackIntent, ResourceAction.UNCERTAIN)
-            Log.e(TAG, "Failed to remove activity updates", it)
+            callbackIntent.cancel()
+            Log.w(TAG, "Activity permission revoked during removal; callback intent cancelled", denied)
         }
     }
 

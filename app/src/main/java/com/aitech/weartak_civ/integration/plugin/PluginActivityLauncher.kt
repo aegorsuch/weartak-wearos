@@ -13,7 +13,13 @@ internal object PluginActivityLauncher {
                 Log.d(TAG, "No launchable activity for plugin package=$packageName")
                 false
             } else {
+                if (context is android.app.Activity) {
+                    // Keep host in the foreground task so explicit plugin review can return to it.
+                    intent.flags = intent.flags and android.content.Intent.FLAG_ACTIVITY_NEW_TASK.inv()
+                }
                 context.startActivity(intent)
+                (context.applicationContext as? com.aitech.weartak_civ.WearTakApplication)
+                    ?.pluginManager?.connectionFor(packageName)?.allowCertificateReviewFromWearerLaunch()
                 true
             }
         } catch (e: ActivityNotFoundException) {

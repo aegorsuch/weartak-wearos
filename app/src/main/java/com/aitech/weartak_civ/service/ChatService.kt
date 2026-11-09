@@ -273,10 +273,10 @@ class ChatService : Service() {
     }
 
     /**
-     * Returns all chat rooms sorted by most recently received remote message.
+     * Returns all chat rooms sorted by latest message activity, including local sends.
      */
     fun getInbox(): List<ChatRoom> = synchronized(chatRoomMap) {
-        ChatRoomOrdering.byLatestReceived(chatRoomMap.values, MainActivity.device_uid)
+        ChatRoomOrdering.byLatestActivity(chatRoomMap.values)
     }
 
     /**

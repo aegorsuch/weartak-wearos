@@ -57,21 +57,24 @@ class MoppSettingsTest {
     @Test fun noneIsDefaultAndDistinctFromZeroAndInvalidPersistedValues() = runBlocking {
         val repo = DataRepository(RuntimeEnvironment.getApplication())
         assertEquals(MoppStatus.NONE, repo.getMoppStatus.first())
-        assertFalse(repo.getEnableMopp.first())
+        assertTrue(repo.getEnableMopp.first())
         assertEquals(listOf("none", "0", "1", "2", "3", "4"), MoppStatus.entries.map { it.key })
         repo.legacyDataStore().edit { it[stringPreferencesKey("mopp_status")] = "invalid" }
         assertEquals(MoppStatus.NONE, repo.getMoppStatus.first())
         assertNotEquals(MoppStatus.NONE, MoppStatus.LEVEL_0)
     }
 
-    @Test fun everyLevelPersistsAndDisablingDoesNotClearStatus() = runBlocking {
+    @Test fun everyLevelPersistsAndLegacyDisableCannotDisablePublishingOrChangeSavedTime() = runBlocking {
         val app = RuntimeEnvironment.getApplication()
         val repo = DataRepository(app)
         MoppStatus.entries.forEach {
             repo.storeEnableMopp(true)
             repo.storeMoppStatus(it)
+            val saved = repo.selfStatusInputs().first().policy.savedMopp
             repo.storeEnableMopp(false)
             assertEquals(it, DataRepository(app).getMoppStatus.first())
+            assertTrue(repo.getEnableMopp.first())
+            assertEquals(saved, repo.selfStatusInputs().first().policy.savedMopp)
         }
     }
 

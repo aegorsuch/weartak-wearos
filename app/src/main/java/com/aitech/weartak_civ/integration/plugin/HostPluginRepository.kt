@@ -177,7 +177,7 @@ class HostPluginRepository(
         synchronized(stateLock) {
             identityStore.setHidden(packageName, false)
         }
-        manager.unbindPackage(packageName)
+        manager.detachPackage(packageName)
         manager.refreshBindings()
         refresh()
     }
@@ -187,7 +187,7 @@ class HostPluginRepository(
     }
 
     internal fun onPackageRemoved(packageName: String) {
-        manager.unbindPackage(packageName)
+        manager.onPackageRemoved(packageName)
         pluginStateStore.remove(packageName)
         synchronized(stateLock) {
             identityStore.removePackage(packageName)
@@ -237,6 +237,7 @@ class HostPluginRepository(
             packageName = packageName,
             compatibility = compatibility,
             isLoaded = PluginStatusMapper.isLoaded(status),
+            isEnabled = manager.isEnabled(packageName),
             menuSubtitle = component?.let { PluginServiceQuery.menuSubtitle(app.packageManager, it) },
         )
     }

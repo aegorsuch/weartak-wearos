@@ -17,8 +17,11 @@ internal object PluginCotIngress {
         // Plugin-injected messages are already received by that plugin. Do not feed them back
         // into plugin bearers, where reinjection could create a forwarding loop.
         if (!envelope.sourceServerId.startsWith("plugin:")) {
-            coordinator.invokeActionOnPluginsWithSetting(
-                SETTING_RECEIVE_INBOUND_COT, ACTION_COT_INBOUND, args
+            coordinator.invokeCotOnPluginsWithSetting(
+                fieldId = SETTING_RECEIVE_INBOUND_COT,
+                actionId = ACTION_COT_INBOUND,
+                args = args,
+                sourceEnvelope = envelope,
             )
         }
         return PluginConfigCotBridge.isConfigCot(envelope.rawXml) &&

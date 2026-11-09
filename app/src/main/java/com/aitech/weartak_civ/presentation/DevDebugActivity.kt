@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -105,7 +106,7 @@ private data class DebugRow(
 
 internal enum class DeveloperEntryId {
     BUILD, DIAGNOSTICS, DIAGNOSTICS_LOGS, GIT, IP, LOCATION, PORT, QR, SSID, STAY_AWAKE, TRANSPORT, VERSION, VERSION_CODE,
-    WHILE_CHARGING, NETWORK_CHECKLIST
+    WHILE_CHARGING, NETWORK_CHECKLIST, CONNECTION_PRIORITY, STAY_CONNECTED_OFF_WRIST
 }
 
 internal data class DeveloperEntry(val id: DeveloperEntryId, val label: String, val value: String = "")
@@ -114,7 +115,7 @@ internal fun sortedDeveloperEntries(entries: List<DeveloperEntry>, locale: Local
     val collator = Collator.getInstance(locale)
     fun group(entry: DeveloperEntry) =
         if (entry.id in setOf(DeveloperEntryId.DIAGNOSTICS, DeveloperEntryId.NETWORK_CHECKLIST,
-                DeveloperEntryId.STAY_AWAKE)) 0 else 1
+                DeveloperEntryId.STAY_AWAKE, DeveloperEntryId.STAY_CONNECTED_OFF_WRIST)) 0 else 1
     val charging = entries.filter { it.id == DeveloperEntryId.WHILE_CHARGING }
     val sorted = entries.filterNot { it.id == DeveloperEntryId.WHILE_CHARGING }.sortedWith { left, right ->
         group(left).compareTo(group(right)).takeIf { it != 0 }
@@ -158,6 +159,7 @@ private fun DebugScreen(
     }
     var showLocationDiagnostics by remember { mutableStateOf(false) }
     var showAppDiagnostics by remember { mutableStateOf(false) }
+    var showConnectionPriority by remember { mutableStateOf(false) }
     var exportStatus by remember { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -165,6 +167,22 @@ private fun DebugScreen(
     val appDiagnosticsEnabled by appDiagnostics.enabled.collectAsStateWithLifecycle()
     val appDiagnosticsFailed by appDiagnostics.storageFailed.collectAsStateWithLifecycle()
     val checklistEnabled by dataRepository.networkPreferencesChecklistEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val stayConnectedOffWrist by dataRepository.stayConnectedOffWrist.collectAsStateWithLifecycle(initialValue = false)
+    val connectionPriority by dataRepository.connectionStatusPreferences.priority
+        .collectAsStateWithLifecycle(initialValue = com.aitech.weartak_civ.data.defaultConnectionPriority)
+    val app = context.applicationContext as WearTakApplication
+    val plugins by app.pluginRepository.plugins.collectAsStateWithLifecycle()
+    val pluginRouteStatuses by app.pluginManager.settingsCoordinator.connectionStatuses.collectAsStateWithLifecycle()
+    fun saveConnectionPriority(block: suspend () -> Unit) {
+        scope.launch {
+            try {
+                block()
+            } catch (error: IOException) {
+                android.util.Log.e("DevDebugActivity", "Could not save icon priority", error)
+                Toast.makeText(context, R.string.connection_status_save_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     LaunchedEffect(appDiagnosticsFailed) {
         if (appDiagnosticsFailed)
             Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
@@ -211,7 +229,9 @@ private fun DebugScreen(
     )
 
     fun navigateBack() {
-        if (showAppDiagnostics) {
+        if (showConnectionPriority) {
+            showConnectionPriority = false
+        } else if (showAppDiagnostics) {
             showAppDiagnostics = false
         } else if (showLocationDiagnostics) {
             showLocationDiagnostics = false
@@ -230,7 +250,21 @@ private fun DebugScreen(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            if (showAppDiagnostics) {
+            if (showConnectionPriority) {
+                ConnectionStatusPriorityPage(
+                    priority = connectionPriority,
+                    pluginRoutes = plugins.filter { it.isLoaded }.flatMap { plugin ->
+                        pluginRouteStatuses[plugin.packageName].orEmpty().values.map { route ->
+                            pluginRoutePriorityKey(plugin.packageName, route.routeId) to "${plugin.title}: ${route.label}"
+                        }
+                    }.toMap(),
+                    onMove = { available, key, offset ->
+                        saveConnectionPriority { dataRepository.connectionStatusPreferences.move(available, key, offset) }
+                    },
+                    onReset = { saveConnectionPriority { dataRepository.connectionStatusPreferences.reset() } },
+                    onBack = { showConnectionPriority = false }
+                )
+            } else if (showAppDiagnostics) {
                 AppDiagnosticsPage(
                     diagnostics = appDiagnostics,
                     onBack = { showAppDiagnostics = false }
@@ -266,8 +300,20 @@ private fun DebugScreen(
                     },
                     onShowLocationDiagnostics = { showLocationDiagnostics = true },
                     onShowDiagnostics = { showAppDiagnostics = true },
+                    onShowConnectionPriority = { showConnectionPriority = true },
                     diagnosticsEnabled = appDiagnosticsEnabled,
                     networkChecklistEnabled = checklistEnabled,
+                    stayConnectedOffWrist = stayConnectedOffWrist,
+                    onStayConnectedOffWristChange = { enabled ->
+                        scope.launch {
+                            try {
+                                dataRepository.storeStayConnectedOffWrist(enabled)
+                            } catch (error: IOException) {
+                                android.util.Log.e("DevDebugActivity", "Could not save off-wrist connection preference", error)
+                                Toast.makeText(context, R.string.debug_stay_connected_off_wrist_save_failed, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
                     onNetworkChecklistEnabledChange = { enabled ->
                         scope.launch {
                             try {
@@ -305,13 +351,16 @@ internal fun DebugInformationPage(
     diagnosticsEnabled: Boolean = false,
     onDiagnosticsEnabledChange: (Boolean) -> Unit = {},
     networkChecklistEnabled: Boolean = false,
-    onNetworkChecklistEnabledChange: (Boolean) -> Unit = {}
+    onNetworkChecklistEnabledChange: (Boolean) -> Unit = {},
+    onShowConnectionPriority: () -> Unit = {},
+    stayConnectedOffWrist: Boolean = false,
+    onStayConnectedOffWristChange: (Boolean) -> Unit = {}
 ) {
-    val context = LocalContext.current
     val entries = sortedDeveloperEntries(listOf(
         DeveloperEntry(DeveloperEntryId.BUILD, stringResource(R.string.debug_build), debugInfo.buildType),
         DeveloperEntry(DeveloperEntryId.DIAGNOSTICS, stringResource(R.string.app_diagnostics)),
         DeveloperEntry(DeveloperEntryId.NETWORK_CHECKLIST, stringResource(R.string.network_preferences_checklist)),
+        DeveloperEntry(DeveloperEntryId.CONNECTION_PRIORITY, stringResource(R.string.connection_status_priority)),
         DeveloperEntry(DeveloperEntryId.DIAGNOSTICS_LOGS, stringResource(R.string.app_diagnostics_logs)),
         DeveloperEntry(DeveloperEntryId.GIT, stringResource(R.string.debug_git), "${debugInfo.gitBranch}@${debugInfo.gitCommit}"),
         DeveloperEntry(DeveloperEntryId.IP, stringResource(R.string.debug_ip), debugInfo.ipAddress),
@@ -321,11 +370,12 @@ internal fun DebugInformationPage(
             if (debugInfo.canShowQrCode) R.string.debug_show_qr else R.string.debug_no_ip)),
         DeveloperEntry(DeveloperEntryId.SSID, stringResource(R.string.debug_ssid), debugInfo.ssid),
         DeveloperEntry(DeveloperEntryId.STAY_AWAKE, stringResource(R.string.debug_stay_awake)),
+        DeveloperEntry(DeveloperEntryId.STAY_CONNECTED_OFF_WRIST, stringResource(R.string.debug_stay_connected_off_wrist)),
         DeveloperEntry(DeveloperEntryId.WHILE_CHARGING, stringResource(R.string.debug_while_charging)),
         DeveloperEntry(DeveloperEntryId.TRANSPORT, stringResource(R.string.debug_transport), debugInfo.transport),
         DeveloperEntry(DeveloperEntryId.VERSION, stringResource(R.string.debug_version), debugInfo.versionName),
         DeveloperEntry(DeveloperEntryId.VERSION_CODE, stringResource(R.string.debug_version_code), debugInfo.versionCode.toString())
-    ), context.resources.configuration.locales[0])
+    ), LocalConfiguration.current.locales[0])
 
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -351,6 +401,11 @@ internal fun DebugInformationPage(
         items(entries, key = { it.id }) { entry ->
             when (entry.id) {
                 DeveloperEntryId.STAY_AWAKE -> DebugStayAwakeSetting()
+                DeveloperEntryId.STAY_CONNECTED_OFF_WRIST -> WearTAKToggleChip(
+                    title = entry.label,
+                    checkedLive = stayConnectedOffWrist,
+                    onCheckedChange = onStayConnectedOffWristChange
+                )
                 DeveloperEntryId.NETWORK_CHECKLIST -> WearTAKToggleChip(
                     title = entry.label,
                     checkedLive = networkChecklistEnabled,
@@ -362,11 +417,13 @@ internal fun DebugInformationPage(
                     checkedLive = diagnosticsEnabled,
                     onCheckedChange = onDiagnosticsEnabledChange
                 )
-                DeveloperEntryId.DIAGNOSTICS_LOGS, DeveloperEntryId.LOCATION, DeveloperEntryId.QR ->
+                DeveloperEntryId.DIAGNOSTICS_LOGS, DeveloperEntryId.LOCATION, DeveloperEntryId.QR,
+                DeveloperEntryId.CONNECTION_PRIORITY ->
                     Button(
                         onClick = when (entry.id) {
                             DeveloperEntryId.DIAGNOSTICS_LOGS -> onShowDiagnostics
                             DeveloperEntryId.LOCATION -> onShowLocationDiagnostics
+                            DeveloperEntryId.CONNECTION_PRIORITY -> onShowConnectionPriority
                             else -> onShowQrCode
                         },
                         enabled = entry.id != DeveloperEntryId.QR || debugInfo.canShowQrCode,
@@ -386,7 +443,10 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val failed by diagnostics.storageFailed.collectAsState()
-    var status by remember { mutableStateOf("") }
+    var statusResource by remember { mutableStateOf<Int?>(null) }
+    val status = statusResource?.let { stringResource(it) }.orEmpty()
+    val failedMessage = stringResource(R.string.app_diagnostics_failed)
+    val noPickerMessage = stringResource(R.string.app_diagnostics_no_picker)
     var busy by remember { mutableStateOf(false) }
     fun action(success: Int, exclusive: Boolean = true, block: suspend () -> Unit) {
         if (exclusive && busy) return
@@ -394,13 +454,13 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { block() }
-                status = context.getString(success)
+                statusResource = success
             } catch (error: IOException) {
-                status = context.getString(R.string.app_diagnostics_failed)
-                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                statusResource = R.string.app_diagnostics_failed
+                Toast.makeText(context, failedMessage, Toast.LENGTH_LONG).show()
             } catch (error: SecurityException) {
-                status = context.getString(R.string.app_diagnostics_failed)
-                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                statusResource = R.string.app_diagnostics_failed
+                Toast.makeText(context, failedMessage, Toast.LENGTH_LONG).show()
             } finally {
                 if (exclusive) busy = false
             }
@@ -433,11 +493,11 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
                 try {
                     export.launch("wear-tak-diagnostics.json")
                 } catch (error: android.content.ActivityNotFoundException) {
-                    status = context.getString(R.string.app_diagnostics_no_picker)
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                    statusResource = R.string.app_diagnostics_no_picker
+                    Toast.makeText(context, noPickerMessage, Toast.LENGTH_LONG).show()
                 } catch (error: SecurityException) {
-                    status = context.getString(R.string.app_diagnostics_failed)
-                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                    statusResource = R.string.app_diagnostics_failed
+                    Toast.makeText(context, failedMessage, Toast.LENGTH_LONG).show()
                 }
             }, enabled = !busy, modifier = Modifier.size(width = 148.dp, height = 48.dp)) {
                 Text(stringResource(R.string.app_diagnostics_export), textAlign = TextAlign.Center, fontSize = 11.sp)

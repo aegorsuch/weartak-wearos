@@ -26,7 +26,7 @@ def environment():
         "CI_COMMIT_BRANCH": "main",
         "CI_COMMIT_REF_PROTECTED": "true",
         "CI_PIPELINE_SOURCE": "push",
-        "WEARTAK_GITHUB_TOKEN": "mock-token",
+        "WEARTAK_PERSONAL_GITHUB_TOKEN": "mock-personal-token",
         "CI_PROJECT_ID": "42",
         "CI_PIPELINE_ID": "456",
         "CI_PIPELINE_IID": "12",
@@ -54,15 +54,17 @@ class FakeGitHub:
     def __init__(self, state=None):
         self.calls = []
         self.tag = True
-        self.repository = {"full_name": p.REPO, "private": True, "archived": False, "disabled": False}
+        self.repository = {
+            "full_name": p.PERSONAL_REPO, "private": False, "archived": False, "disabled": False,
+        }
         self.release = None
         self.items = []
         self.content = {}
         self.bad_download = False
         self.fail = None
-        self.dispatches = []
         self.synced_sources = []
         self.sync_failure = False
+        self.sync_result = "synced"
         if state:
             self.release = {
                 "id": 1, "tag_name": p.TAG, "draft": False, "prerelease": False,
@@ -87,6 +89,7 @@ class FakeGitHub:
             item = {
                 "id": 100, "name": query["name"][0], "label": query["label"][0],
                 "state": "uploaded", "size": len(data),
+                "created_at": "2026-11-05T15:48:59Z",
             }
             self.items.append(item)
             self.content[100] = data
@@ -96,9 +99,6 @@ class FakeGitHub:
             return copy.deepcopy(self.release)
         if method == "GET" and path == "releases/1":
             return copy.deepcopy(self.release)
-        if method == "POST" and path == "dispatches":
-            self.dispatches.append(data)
-            return None
         if method == "DELETE" and path.startswith("releases/assets/"):
             self.items = [a for a in self.items if a["id"] != int(path.rsplit("/", 1)[1])]
             return None
@@ -118,6 +118,7 @@ class FakeGitHub:
         if self.sync_failure:
             raise p.PublishError("Injected non-fast-forward source failure")
         self.synced_sources.append(source_sha)
+        return self.sync_result
 
 
 class PublisherTests(unittest.TestCase):
@@ -151,6 +152,21 @@ class PublisherTests(unittest.TestCase):
     def assert_no_writes(self, api):
         self.assertFalse([c for c in api.calls if c[0] != "GET"])
 
+    def test_ahead_mirror_skips_before_any_release_or_asset_writes(self):
+        for previous in (None, dict(self.state, pipeline_iid=11)):
+            with self.subTest(previous=previous):
+                api = FakeGitHub(previous)
+                api.sync_result = "superseded"
+                api.items = [asset(2, 11)]
+                release_before = copy.deepcopy(api.release)
+                assets_before = copy.deepcopy(api.items)
+                result = p.publish(api, self.state, *p.artifact(self.root))
+                self.assertEqual(result, "superseded")
+                self.assertEqual(api.release, release_before)
+                self.assertEqual(api.items, assets_before)
+                self.assertFalse(any(c[0] in ("POST", "PATCH", "DELETE", "DOWNLOAD")
+                                     for c in api.calls))
+
     def test_initial_release_is_draft_until_verified_then_stable(self):
         api = FakeGitHub()
         self.publish(api)
@@ -169,7 +185,7 @@ class PublisherTests(unittest.TestCase):
             self.assertIn(value, body)
         methods = [c[0] for c in api.calls]
         self.assertLess(methods.index("DOWNLOAD"), methods.index("PATCH"))
-        self.assertEqual(api.synced_sources, [])
+        self.assertEqual(api.synced_sources, [self.state["source_sha"]])
 
     def personal_api(self, state=None):
         api = FakeGitHub(state)
@@ -178,27 +194,26 @@ class PublisherTests(unittest.TestCase):
 
     def test_personal_uses_same_verified_artifact_after_exact_source_sync_without_dispatch(self):
         api = self.personal_api()
-        p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+        p.publish(api, self.state, *p.artifact(self.root))
         self.assertEqual(api.synced_sources, [self.state["source_sha"]])
         self.assertEqual(api.download_digest(100), (self.apk.stat().st_size, self.digest))
         self.assertEqual(api.items[0]["name"], "WearTAK-5.8.0.3-p12.apk")
         self.assertEqual(p.state_from(api.release, self.state["project_id"])["sha256"], self.digest)
-        self.assertEqual(api.dispatches, [])
         methods = [call[0] for call in api.calls]
         self.assertLess(methods.index("SYNC"), methods.index("POST"))
 
     def test_personal_requires_public_exact_destination_before_source_or_asset_writes(self):
-        for change in ({"private": True}, {"private": None}, {"full_name": p.REPO},
+        for change in ({"private": True}, {"private": None}, {"full_name": "other/repository"},
                        {"archived": True}, {"disabled": True}):
             api = self.personal_api()
             api.repository.update(change)
             with self.assertRaises(p.PublishError):
-                p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+                p.publish(api, self.state, *p.artifact(self.root))
             self.assert_no_writes(api)
 
     def test_personal_older_pipeline_never_rewinds_source_or_release(self):
         api = self.personal_api(dict(self.state, pipeline_iid=13))
-        p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+        p.publish(api, self.state, *p.artifact(self.root))
         self.assert_no_writes(api)
         self.assertEqual(api.synced_sources, [])
 
@@ -208,40 +223,35 @@ class PublisherTests(unittest.TestCase):
         api.sync_failure = True
         previous = copy.deepcopy(api.release)
         with self.assertRaises(p.PublishError):
-            p.publish(api, self.state, *p.artifact(self.root), destination=p.PERSONAL_REPO)
+            p.publish(api, self.state, *p.artifact(self.root))
         self.assertEqual(api.release, previous)
         self.assertEqual(api.items, [asset(9, 11)])
         self.assertFalse(any(call[0] in ("POST", "PATCH", "DELETE") for call in api.calls))
 
-    def test_personal_has_no_company_token_fallback_or_arbitrary_destination(self):
+    def test_fixed_personal_destination_requires_its_own_token(self):
         env = environment()
+        self.assertEqual(p.configuration(env), self.state)
+        company_only = dict(env)
+        company_only.pop("WEARTAK_PERSONAL_GITHUB_TOKEN")
+        company_only["WEARTAK_GITHUB_TOKEN"] = "company-only"
         with self.assertRaisesRegex(p.PublishError, "WEARTAK_PERSONAL_GITHUB_TOKEN"):
-            p.configuration(env, p.PERSONAL_REPO)
-        env.pop("WEARTAK_GITHUB_TOKEN")
-        env["WEARTAK_PERSONAL_GITHUB_TOKEN"] = "mock-personal-token"
-        self.assertEqual(p.configuration(env, p.PERSONAL_REPO), self.state)
-        for destination in ("other/repository", "https://github.com/" + p.PERSONAL_REPO):
-            with self.assertRaises(p.PublishError):
-                p.configuration(env, destination)
-            with self.assertRaises(p.PublishError):
-                p.GitHub("mock-personal-token", destination)
+            p.configuration(company_only)
+        with self.assertRaises(TypeError):
+            p.GitHub("mock-personal-token", "Ascent-Integrated-Tech/wearos-tak-civ")
         with patch.dict(p.os.environ, env, clear=True), patch.object(p.Path, "cwd", return_value=self.root), \
                 patch.object(p, "GitHub") as github, patch.object(p, "publish") as publish:
-            self.assertEqual(p.main(["--personal"]), 0)
-            github.assert_called_once_with("mock-personal-token", p.PERSONAL_REPO)
-            self.assertEqual(publish.call_args.kwargs["destination"], p.PERSONAL_REPO)
+            self.assertEqual(p.main(), 0)
+            github.assert_called_once_with("mock-personal-token")
+            publish.assert_called_once()
 
-    def test_verified_release_notifies_testers_after_cleanup(self):
-        api = FakeGitHub(self.state | {"pipeline_iid": 11, "pipeline_id": "455"})
-        api.items = [asset(9, 11)]
+    def test_cli_rejects_all_destination_overrides(self):
+        self.assertEqual(p.main(["--personal"]), 1)
+        self.assertEqual(p.main(["--repository", "owner/repo"]), 1)
+
+    def test_publish_never_dispatches_to_another_repository(self):
+        api = self.personal_api()
         self.publish(api)
-        self.assertEqual(api.dispatches, [{
-            "event_type": p.DISPATCH_EVENT,
-            "client_payload": {"pipeline_id": "456", "release_id": 1},
-        }])
-        writes = [c for c in api.calls if c[0] != "GET"]
-        self.assertEqual(writes[-1][:2], ("POST", "dispatches"))
-        self.assertIn(("DELETE", "releases/assets/9"), [c[:2] for c in writes])
+        self.assertFalse(any(call[1] == "dispatches" for call in api.calls))
 
     def test_manual_prose_survives_legacy_migration_and_repeated_updates(self):
         api = FakeGitHub()
@@ -320,25 +330,15 @@ class PublisherTests(unittest.TestCase):
                 self.publish(api)
             self.assert_no_writes(api)
 
-    def test_unverified_or_skipped_release_does_not_notify_testers(self):
+    def test_unverified_or_skipped_release_does_not_publish(self):
         api = FakeGitHub()
         api.bad_download = True
         with self.assertRaises(p.PublishError):
             self.publish(api)
-        self.assertEqual(api.dispatches, [])
+        self.assertEqual(api.items[0]["state"], "uploaded")
         newer = FakeGitHub(self.state | {"pipeline_iid": 13, "pipeline_id": "457"})
         self.publish(newer)
-        self.assertEqual(newer.dispatches, [])
-
-    def test_notification_failure_is_reported_and_retry_notifies_once(self):
-        api = FakeGitHub()
-        api.fail = lambda method, path: path == "dispatches"
-        with self.assertRaisesRegex(p.PublishError, "release-testing notification failed"):
-            self.publish(api)
-        self.assertFalse(api.release["draft"])
-        api.fail = None
-        self.publish(api)
-        self.assertEqual(len(api.dispatches), 1)
+        self.assert_no_writes(newer)
 
     def test_only_older_owned_assets_deleted_after_verification(self):
         api = FakeGitHub(dict(self.state, pipeline_iid=11))
@@ -382,21 +382,20 @@ class PublisherTests(unittest.TestCase):
             self.publish(api)
         self.assert_no_writes(api)
 
-    def test_explicitly_approved_public_destination_can_publish(self):
-        api = FakeGitHub()
-        api.repository["private"] = False
+    def test_fixed_public_personal_destination_can_publish(self):
+        api = self.personal_api()
         self.publish(api)
         self.assertFalse(api.release["draft"])
         self.assertEqual(api.release["name"], f"{p.TITLE} (5.8.0.3-p12)")
 
     def test_stamped_version_name_is_shortened_for_title_and_asset(self):
-        self.metadata["elements"][0].update(versionName="5.8.0.3-p12+de139f69", versionCode=5830012)
+        self.metadata["elements"][0].update(versionName="5.8.4-p12+de139f69", versionCode=5840012)
         self.write_metadata()
         api = FakeGitHub()
         self.publish(api)
-        self.assertEqual(api.release["name"], "TAK.gov Forge CI/CD Pipeline Release (5.8.0.3-p12)")
-        self.assertEqual(api.items[0]["name"], "WearTAK-5.8.0.3-p12.apk")
-        self.assertIn("5.8.0.3-p12+de139f69", api.release["body"])
+        self.assertEqual(api.release["name"], "TAK.gov Forge CI/CD Pipeline Release (5.8.4-p12)")
+        self.assertEqual(api.items[0]["name"], "WearTAK-5.8.4-p12.apk")
+        self.assertIn("5.8.4-p12+de139f69", api.release["body"])
 
     def test_legacy_named_assets_are_cleaned_up(self):
         api = FakeGitHub(dict(self.state, pipeline_iid=11))
@@ -410,7 +409,7 @@ class PublisherTests(unittest.TestCase):
                        {"archived": None}, {"disabled": None}):
             api = FakeGitHub()
             api.repository.update(change)
-            with self.assertRaisesRegex(p.PublishError, "explicitly approved, active"):
+            with self.assertRaisesRegex(p.PublishError, "active public repository"):
                 self.publish(api)
             self.assert_no_writes(api)
 
@@ -614,7 +613,7 @@ class SourceSyncTests(unittest.TestCase):
     previous = "a" * 40
 
     def api(self, readback=None):
-        api = p.GitHub("mock-personal-token", p.PERSONAL_REPO)
+        api = p.GitHub("mock-personal-token")
         references = [
             {"object": {"type": "commit", "sha": self.previous}},
             {"object": {"type": "commit", "sha": readback or self.source}},
@@ -669,17 +668,65 @@ class SourceSyncTests(unittest.TestCase):
                     api.sync_main(self.source)
             self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
 
-    def test_divergent_history_and_push_race_fail_without_force_retry_or_secret_output(self):
-        for failing_step in (3, 4):
+    def test_git_failures_report_step_and_exit_without_secrets_or_retry(self):
+        for failing_step, name in enumerate((
+                "checkout inspection", "main fetch", "fetched ref inspection",
+                "forward ancestry", "main push")):
             api = self.api()
             results = self.results()
-            results[failing_step] = self.result(returncode=1)
+            results[failing_step] = self.result(returncode=128)
             with patch.object(p.subprocess, "run", side_effect=results) as run:
                 with self.assertRaises(p.PublishError) as caught:
                     api.sync_main(self.source)
+            self.assertIn(name, str(caught.exception))
+            self.assertIn("Git exit code 128", str(caught.exception))
             self.assertNotIn("sensitive transport detail", str(caught.exception))
+            self.assertNotIn("mock-personal-token", str(caught.exception))
             self.assertEqual(run.call_count, failing_step + 1)
             self.assertFalse(any("--force" in call.args[0] for call in run.call_args_list))
+
+    def test_ahead_mirror_returns_superseded_without_push(self):
+        api = self.api(readback=self.previous)
+        results = self.results()[:3] + [self.result(returncode=1), self.result()]
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            self.assertEqual(api.sync_main(self.source), "superseded")
+        self.assertEqual(api.request.call_count, 2)
+        self.assertEqual(run.call_args.args[0],
+                         ["git", "merge-base", "--is-ancestor", self.source, self.previous])
+        self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
+
+    def test_divergent_history_fails_without_push(self):
+        api = self.api()
+        results = self.results()[:3] + [self.result(returncode=1), self.result(returncode=1)]
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            with self.assertRaisesRegex(p.PublishError, "divergent history"):
+                api.sync_main(self.source)
+        self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
+
+    def test_reverse_ancestry_error_is_not_treated_as_superseded(self):
+        api = self.api()
+        results = self.results()[:3] + [self.result(returncode=1), self.result(returncode=128)]
+        with patch.object(p.subprocess, "run", side_effect=results):
+            with self.assertRaisesRegex(p.PublishError, "reverse ancestry.*Git exit code 128") as caught:
+                api.sync_main(self.source)
+        self.assertNotIn("sensitive transport detail", str(caught.exception))
+
+    def test_ahead_mirror_ref_race_fails_instead_of_skipping_or_pushing(self):
+        api = self.api(readback="b" * 40)
+        results = self.results()[:3] + [self.result(returncode=1), self.result()]
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            with self.assertRaisesRegex(p.PublishError, "superseded readback"):
+                api.sync_main(self.source)
+        self.assertFalse(any(call.args[0][1] == "push" for call in run.call_args_list))
+
+    def test_non_fast_forward_push_race_fails_without_retry(self):
+        api = self.api()
+        results = self.results()
+        results[-1] = self.result(returncode=1)
+        with patch.object(p.subprocess, "run", side_effect=results) as run:
+            with self.assertRaisesRegex(p.PublishError, "main push.*Git exit code 1"):
+                api.sync_main(self.source)
+        self.assertEqual(run.call_count, 5)
 
     def test_unexpected_readback_is_reported_not_rolled_back(self):
         api = self.api(readback="b" * 40)
@@ -688,10 +735,9 @@ class SourceSyncTests(unittest.TestCase):
                 api.sync_main(self.source)
         self.assertEqual(run.call_count, 5)
 
-    def test_company_source_sync_is_never_enabled(self):
-        with self.assertRaises(p.PublishError), patch.object(p.subprocess, "run") as run:
-            p.GitHub("mock-company-token").sync_main(self.source)
-        run.assert_not_called()
+    def test_publisher_has_no_company_repository_configuration(self):
+        self.assertFalse(hasattr(p, "REPO"))
+        self.assertEqual(p.GitHub("mock-personal-token").repository_name, p.PERSONAL_REPO)
 
 
 if __name__ == "__main__":

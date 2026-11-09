@@ -22,6 +22,8 @@ class PluginStateStoreTest {
             .edit()
             .clear()
             .commit()
+        context.getSharedPreferences("plugin_loading", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
         store = PluginStateStore(context)
     }
 
@@ -51,6 +53,17 @@ class PluginStateStoreTest {
 
         assertTrue(store.isEnabled(PACKAGE_NAME))
         assertFalse(store.isHidden(PACKAGE_NAME))
+    }
+
+    @Test
+    fun mainDisabledChoiceIsPreservedUntilExplicitlyEnabled() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("plugin_loading", android.content.Context.MODE_PRIVATE)
+            .edit().putStringSet("disabled_packages", setOf(PACKAGE_NAME)).commit()
+
+        assertFalse(store.isEnabled(PACKAGE_NAME))
+        store.setEnabled(PACKAGE_NAME, true)
+        assertTrue(PluginStateStore(context).isEnabled(PACKAGE_NAME))
     }
 
     private companion object {

@@ -62,7 +62,7 @@ const val DEFAULT_WEIGHT : Int = 180
 const val DEFAULT_SEX : String = "N/A"
 const val DEFAULT_BLOOD_TYPE : String = "N/A"
 const val DEFAULT_ALLERGY_LIST : String = "N/A"
-const val DEFAULT_USER_TYPE : String = "N/A"
+const val DEFAULT_USER_TYPE : String = "none"
 
 const val DEFAULT_UNIFORM_WAIST_SIZE: Int = 33
 const val DEFAULT_STRIDE_LENGTH: Int = 30

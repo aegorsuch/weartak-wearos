@@ -68,7 +68,7 @@ class EnrollServerHandler(
         }
         if (isLocked()) return ChatCommandResult(false, "Network settings are managed or locked; server not changed")
         val username = command.args["username"]?.trim().orEmpty()
-        val password = command.args["password"]?.trim().orEmpty()
+        val password = command.args["password"].orEmpty()
         if (username.isBlank() != password.isBlank()) {
             return ChatCommandResult(false, "Provide both username and password")
         }

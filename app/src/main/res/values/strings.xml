@@ -1,4 +1,97 @@
 <resources>
+    <string name="ditto_direct_peers">Peers</string>
+    <string name="ditto_ble_peers">BLE</string>
+    <string name="ditto_lan_peers">LAN</string>
+    <string name="ditto_p2p_peers">Wi-Fi Aware</string>
+    <string name="ditto_websocket_peers">WebSocket</string>
+    <string name="ditto_ble_recovery">BLE Recovery</string>
+    <string name="ditto_status_unavailable">Unavailable</string>
+    <string name="ditto_recovery_active">Active</string>
+    <string name="ditto_recovery_timed_out">Timed out</string>
+    <string name="ditto_recovery_user_paused">User paused</string>
+    <string name="ditto_recovery_ineligible">Ineligible</string>
+    <string name="ditto_recovery_stopped">Stopped</string>
+    <string name="home_warning_review">Review warnings</string>
+    <string name="crm_warning_title">CRM status</string>
+    <string name="crm_warning_status_format">CRM %2$s: %1$d</string>
+    <string name="crm_warning_summary">%1$d / 100\n%2$s</string>
+    <string name="crm_warning_poor">POOR</string>
+    <string name="crm_warning_moderate">MODERATE</string>
+    <string name="crm_warning_details">CRM details</string>
+    <string name="audio_detection_gunshot_question">Gunshot detected?</string>
+    <string name="audio_detection_uas_question">UAS detected?</string>
+    <string name="audio_detection_pending">Review detections (%1$d)</string>
+    <string name="audio_detection_score">Score: %1$d%%</string>
+    <string name="audio_detection_yes">Yes</string>
+    <string name="audio_detection_no">No</string>
+    <string name="audio_detection_feedback_failed">Response not recorded. Try again.</string>
+    <string name="accessibility_edit">Edit</string>
+    <string name="manual_alert_validation_error">Alert must be unique, 1–60 characters, and the list can hold up to 20.</string>
+    <string name="ca_trust_advanced">Advanced</string>
+    <string name="ca_trust_advanced_hide">Hide advanced</string>
+    <string name="ca_trust_import">Import CA...</string>
+    <string name="ca_trust_untrusted">Server certificate issuer is not trusted. If your server uses a private CA, import its public CA certificate after verifying the fingerprint with your administrator.</string>
+    <string name="ca_trust_default">CA trust: existing defaults</string>
+    <string name="ca_trust_selected">CA trust: approved for this server</string>
+    <string name="ca_trust_stage_hint">Optional, private CA only: files/trust/ca.crt (ADB)</string>
+    <string name="ca_trust_review">Review staged CA</string>
+    <string name="ca_trust_loading">Reading CA...</string>
+    <string name="ca_trust_endpoint">Trust only %1$s:%2$s (enrollment 8446 and APIs 8443)</string>
+    <string name="ca_trust_expires">Expires: %1$s</string>
+    <string name="ca_trust_fingerprint">SHA-256 fingerprint</string>
+    <string name="ca_trust_warning">Compare with your administrator through a trusted channel. Approve only if fingerprints match. Hostname/IP must still match. Save this server to apply.</string>
+    <string name="ca_trust_approve">Approve this CA</string>
+    <string name="ca_trust_remove">Remove approved CA on save</string>
+    <string name="ca_trust_import_error">Cannot import CA. Stage exactly one valid, unexpired PEM or DER CA (64 KiB maximum), then retry.</string>
+    <string name="ca_trust_not_staged">No CA file staged. Import is optional; public CAs are already trusted. Only stage a private CA your administrator provides.</string>
+    <string name="ca_trust_load_error">Cannot load saved CA trust. Reopen this server and retry; changes were not saved.</string>
+    <string name="import_title">Review certificate</string>
+    <string name="export_title">Send server package</string>
+    <string name="package_review_title">Review server package</string>
+    <string name="package_fresh_identity">Enroll fresh client identity</string>
+    <string name="package_separate_identity">Server saved disabled. Import administrator client certificate separately.</string>
+    <string name="package_shared_identity">Shared client identity included</string>
+    <string name="package_public_ca">Use public certificate authorities</string>
+    <string name="package_use_shared_login">Use shared login</string>
+    <string name="package_replace">Replace server and credentials</string>
+    <string name="import_login_password">Enrollment password</string>
+    <string name="import_connection_error">Configuration saved. Connection could not start.</string>
+    <string name="export_identity">Shared client identity</string>
+    <string name="export_credentials">Shared login</string>
+    <string name="export_sensitive_warning">Recipients can impersonate this identity. Revocation affects all shared watches.</string>
+    <string name="export_confirm_sensitive">Share credentials</string>
+    <string name="export_prepare">Prepare package</string>
+    <string name="export_ready">Ready for one transfer</string>
+    <string name="export_rejected">Export cancelled or unavailable</string>
+    <string name="export_no_servers">No eligible servers</string>
+    <string name="export_too_large">Package exceeds transfer limit</string>
+    <string name="export_unsupported">No exportable identity or credentials. Settings unchanged.</string>
+    <string name="export_cancel">Cancel</string>
+    <string name="import_password">PKCS12 password</string>
+    <string name="import_open">Open certificate</string>
+    <string name="import_destination">Choose destination</string>
+    <string name="import_choose">Use destination</string>
+    <string name="import_change_destination">Change destination</string>
+    <string name="import_endpoint">%1$s:%2$s</string>
+    <string name="import_client_identity">Administrator client identity</string>
+    <string name="import_replace_identity">Replace client identity</string>
+    <string name="import_select_ca">Choose CA certificate</string>
+    <string name="import_ca_approved">CA approved for this destination</string>
+    <string name="import_ca_warning">Trust this CA only for this server?</string>
+    <string name="import_trust_ca">Approve CA</string>
+    <string name="import_apply">Apply</string>
+    <string name="import_done">Done</string>
+    <string name="import_reject">Discard</string>
+    <string name="import_applied">Saved on this watch</string>
+    <string name="import_cancelled">Cancelled. Settings unchanged.</string>
+    <string name="import_expired">Expired. Settings unchanged.</string>
+    <string name="import_rejected">Rejected. Settings unchanged.</string>
+    <string name="import_invalid">Invalid certificate or password. Receive again.</string>
+    <string name="import_policy_error">Server settings unavailable or managed.</string>
+    <string name="import_stale">Destination changed. Receive and review again.</string>
+    <string name="import_apply_error">Could not apply. Previous settings restored.</string>
+    <string name="import_recovery_error">Recovery failed. Check server settings before reconnecting.</string>
+    <string name="import_working">Working...</string>
     <string name="network_control_bonded">Bonded</string>
     <string name="connection_route_suppressed">Suppressed</string>
     <string name="network_preferences_checklist">Network Preferences Checklist</string>
@@ -203,6 +296,7 @@
     <string name="owned_pin_delete_help">Removes here now. Requests removal on connected TAK clients; peers may ignore it.</string>
     <string name="map_select_target">Select Target</string>
     <string name="map_no_targets">No Targets Available</string>
+    <string name="map_shape_geometry">Geometry: %1$s</string>
     <string name="map_target_contact">Contact</string>
     <string name="map_target_dropped">Dropped Marker</string>
     <string name="map_target_received">Received Marker</string>
@@ -500,8 +594,8 @@
     <string name="hail_service_description" translatable="false">Enable or disable Hail service</string>
     <string name="hail_service_enabled_default" translatable="false">false</string>
 
-    <string name="batdok_title" translatable="false">Enable Batdok COT</string>
-    <string name="batdok_description" translatable="false">Enable or disable Batdok COT</string>
+    <string name="batdok_title" translatable="false">Enable BATTAK sharing</string>
+    <string name="batdok_description" translatable="false">Enable or disable BATTAK patient sharing</string>
     <string name="batdok_enabled_default" translatable="false">true</string>
 
     <string name="multicast_service_enabled_title" translatable="false">Enable Multicast</string>
@@ -618,7 +712,7 @@
     <string name="allergy_entry_muscle_relaxers" translatable="false">Muscle Relaxers</string>
 
     <!-- User Type entries -->
-    <string name="physiological_metrics_user_type_default" translatable="false">N/A</string>
+    <string name="physiological_metrics_user_type_default" translatable="false">none</string>
     <string name="user_type_entry_na" translatable="false">N/A</string>
     <string name="user_type_entry_coalition_military" translatable="false">Coalition Military</string>
     <string name="user_type_entry_coalition_civilian" translatable="false">Coalition Civilian</string>
@@ -628,8 +722,8 @@
     <string name="user_type_entry_child" translatable="false">Child</string>
 
     <!--  -->
-    <string name="physiological_metrics_user_type_title" translatable="false">Physiological Metrics: User Type</string>
-    <string name="physiological_metrics_user_type_description" translatable="false">Enter User Type</string>
+    <string name="physiological_metrics_user_type_title" translatable="false">Physiological Metrics: Unit</string>
+    <string name="physiological_metrics_user_type_description" translatable="false">Select Unit</string>
 
 
     <string name="resting_hr_high_alert_bpm_threshold_title" translatable="false">High Resting Heart Rate Threshold (bpm)</string>
@@ -716,7 +810,24 @@
     <string name="weight">Weight</string>
     <string name="sex">Sex</string>
     <string name="blood_type">Blood Type</string>
-    <string name="user_type">User Type</string>
+    <string name="user_type">Unit</string>
+    <string name="unit_air_force">Air Force</string>
+    <string name="unit_army">Army</string>
+    <string name="unit_civilian">Civilian</string>
+    <string name="unit_foreign_national">Foreign National</string>
+    <string name="unit_marine_corps">Marine Corps</string>
+    <string name="unit_navy">Navy</string>
+    <string name="unit_none">None</string>
+    <string name="unit_legacy_value">Legacy value: %1$s. Select a Unit.</string>
+    <string name="batdok_patient_disabled">BATTAK off</string>
+    <string name="batdok_patient_confirmation_required">Patient sharing inactive: switch OFF then ON once</string>
+    <string name="batdok_patient_not_provisioned">Not sharing: build lacks BATTAK configuration</string>
+    <string name="batdok_patient_location_required">Not sharing: location required</string>
+    <string name="batdok_patient_callsign_required">Not sharing: callsign required</string>
+    <string name="batdok_patient_waiting_tak">Waiting for enabled TAK server</string>
+    <string name="batdok_patient_sent">Patient update sent to TAK</string>
+    <string name="batdok_patient_failed">Patient sharing failed. Check configuration.</string>
+    <string name="batdok_patient_save_failed">Could not save BATTAK setting. Previous setting is unchanged. Try again.</string>
     <string name="height">Height</string>
     <string name="allergies">Allergies</string>
     <string name="value_exceeds_maximum_please_re_enter">Value exceeds maximum, please re-enter</string>
@@ -741,6 +852,8 @@
     <string name="metric_mgrs">MGRS</string>
     <string name="metric_no_fix">No fix</string>
     <string name="top_display_metric">Metric Shown</string>
+    <string name="ditto_edge_sync_offline">Ditto Edge Sync Offline</string>
+    <string name="ditto_edge_sync_retry">Retry</string>
     <string name="crm_reserve">CRM Reserve</string>
     <string name="metric_alerts">Alerts</string>
     <string name="metric_alert_thresholds">Change alert thresholds</string>
@@ -824,10 +937,10 @@
     <string name="uniform_pants_length_text">Uniform Pants Length</string>
     <string name="steps_per_100m_text">Steps Per 100m</string>
     <string name="loadout_weight_text">Loadout Weight</string>
-    <string name="medical_profile_batdok">Medical Profile (BATDOK)</string>
+    <string name="medical_profile_batdok">Medical Profile (BATTAK)</string>
     <string name="gait_tracking">Gait Tracking</string>
     <string name="please_enter_a_value">Please enter a value</string>
-    <string name="batdok">BATDOK</string>
+    <string name="batdok">BATTAK</string>
     <string name="tak_sa_multicast">TAK SA Multicast</string>
     <string name="tablet_command">Tablet Command</string>
     <string name="esri">ESRI</string>
@@ -895,7 +1008,7 @@
     <string name="vehicle_reporting_interval">Vehicle Reporting Interval</string>
     <string name="while_alerting_reporting_interval">While Alerting Reporting Interval</string>
     <string name="constant_reporting_interval">Constant Reporting Interval</string>
-    <string name="send_sms_over_alerts">Send SMS Over Alerts</string>
+    <string name="send_sms_over_alerts">Send Alerts Over SMS</string>
     <string name="using_client_certificate">Using client certificate</string>
     <string name="environmental_alerts">Environmental Alerts</string>
     <string name="heart_rate_alerts">Heart Rate Alerts</string>
@@ -955,7 +1068,12 @@
     <string name="no_custom_pdl_saved">No custom PDL saved</string>
     <string name="ditto_community_subtitle">Community</string>
     <string name="everywhere_comms" translatable="false">Everywhere</string>
-    <string name="gotenna" translatable="false">GoTenna</string>
+    <string name="plugin_not_installed">Plugin is not installed</string>
+    <string name="plugin_not_connected">Plugin is not connected</string>
+    <string name="plugin_hosted_ui_unsupported">Plugin does not provide a hosted page</string>
+    <string name="plugin_page_load">Load plugin</string>
+    <string name="plugin_page_loading">Loading plugin page...</string>
+    <string name="plugin_page_empty">No plugin controls available</string>
     <string name="sensor_manager">Sensor Manager</string>
     <string name="scan_sensor">Scan</string>
     <string name="sensor_manager_preview">Button is Placeholder</string>
@@ -1020,4 +1138,6 @@
         <item quantity="one">%1$d/%2$d Server</item>
         <item quantity="other">%1$d/%2$d Servers</item>
     </plurals>
+    <string name="debug_stay_connected_off_wrist">Stay Connected Off-Wrist</string>
+    <string name="debug_stay_connected_off_wrist_save_failed">Could not save off-wrist connection setting. Try again.</string>
 </resources>

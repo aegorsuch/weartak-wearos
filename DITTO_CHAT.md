@@ -148,6 +148,57 @@ Example JSON (the native `_c` CRDT is created by the SDK, so is omitted here):
 
 ## Watch power and sync policy
 
+### Live settings diagnostics
+
+**Plugins > Ditto > Ditto Identity**, below PDL Help, shows read-only direct-peer
+counts and current BLE recovery state. Counts come from SDK 4.14.6 presence
+snapshots: inspect local and remote connection lists, retain only connections
+with this watch as an endpoint, then count distinct opposite peer keys per
+transport. Repeated edges, reversed directions and multiple sockets do not
+inflate counts. One peer linked over both BLE and LAN counts in both transport counts;
+the leading **Peers** count is their unique union, not the sum or `remotePeers.size`.
+No peer identifiers are displayed or logged.
+
+The [SDK connection types](https://software.ditto.live/android/Ditto/4.14.6/api-reference/ditto/live.ditto/-ditto-connection-type/index.html)
+map Bluetooth to BLE, AccessPoint to Wi-Fi LAN, P2PWiFi to Wi-Fi Aware/Direct
+(the SDK does not distinguish them), and WebSocket to a remote server link.
+These are established SDK-reported links, not configured enable flags,
+reachable mesh peers, expected-peer health, radio activity or proof of delivery.
+Peer counts share one wrapping summary, e.g. `3 Peers (2 BLE, 3 LAN)`, with no
+diagnostics heading. BLE Recovery remains a separate read-only status row.
+BLE and LAN rows require their public Android hardware features; temporary
+radio/discovery windows or Wi-Fi disconnection do not make supported hardware
+disappear. The Wi-Fi Aware row additionally requires public `FEATURE_WIFI_AWARE`
+and the existing policy's enabled Aware config; Samsung's private Wi-Fi Direct
+feature is not sufficient. A WebSocket row requires an actually configured
+endpoint, retained across temporary internet gating. Unsupported/unconfigured
+rows are hidden, never shown as misleading zeroes. This display filtering does
+not change transports or networking policy.
+Unavailable counts are not reported as zero. Sync suppression, stop and service
+replacement clear previous counts; resumption waits for an SDK graph read.
+
+Recovery is emitted by the existing controller: Active, Timed out, User paused,
+Ineligible (service/power/Companion/radio/permission gates), or Stopped.
+Unavailable is shown before a live recovery state exists. Active does not mean
+continuously scanning or connected. No countdown is displayed. Observation uses
+the existing presence registration and lifecycle-aware UI collection, adds no
+scanning or polling, and never invokes Retry. Opening the identity page no
+longer explicitly requests a discovery window; existing activity-resume,
+wrist/settings and explicit Retry policy remain unchanged.
+
+An emulator-only offline UI fixture uses the same production settings page:
+`gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PweartakDittoUiDemo=true -PweartakDebugAbi=x86_64`.
+This opt-in debug package is `com.aitech.weartak_civ.ditto.diagnostics.fixture`,
+separate from `.dev`, with a **Ditto diagnostics - SYNTHETIC** launcher entry.
+It uses a non-operational Application, no SDK instance, DataStore writes or
+authentication, and a persistent **SYNTHETIC / OFFLINE** label outside production
+content. Run `DittoDiagnosticsEmulatorTest` with its configured instrumentation
+runner on a round emulator for count, recovery, unavailable, large-font,
+read-only and back-navigation evidence. Fixture screenshots are not live peer
+or physical-radio acceptance evidence. The flag is rejected for release tasks.
+
+### Transport and recovery policy
+
 - Wi-Fi Aware requires Android's public `FEATURE_WIFI_AWARE`. Ditto Android
   4.14.6 exposes BLE, LAN and Aware, not a separate Wi-Fi Direct switch; no
   Wi-Fi Direct transport is enabled, regardless of Samsung's private
@@ -156,9 +207,74 @@ Example JSON (the native `_c` CRDT is created by the SDK, so is omitted here):
   without polling. Existing configured WebSocket URLs, if any, are enabled only
   with validated internet; this app's offline SharedKey setup configures none.
   Transport-set changes are logged without URLs or credentials.
-- BLE still uses MR526's event-driven discovery windows, direct-BLE connection
-  preservation, and five-minute topology cooldown. Network changes never
-  overwrite BLE state. Companion ownership/identity gates still take precedence.
+- BLE discovery opens bounded 30-second windows and, while no direct BLE link
+  exists, retries automatically after idle gaps of nominally 30, 60, 90, then
+  120 seconds repeating. Each gap has +/-10% jitter so co-located watches do not
+  synchronise, clamped so no gap exceeds 120 seconds (actual 27-33, 54-66, 81-99,
+  then 108-120 seconds). After a reset the second window opens within about 63
+  seconds; while disconnected the steady state is one 30-second window per ~150
+  seconds (~20% nominal window duty, not a measured battery drain figure)
+  instead of the former single window with no retry. Service/power-gate start,
+  Bluetooth adapter ON, UI/wrist-on/Ditto settings, a new direct BLE link, and
+  loss of the last direct BLE link reset the ladder; loss of the last link and
+  adapter ON open a window immediately, bypassing the five-minute topology
+  cooldown that still limits LAN/topology-only reopens (in practice the 120 s
+  retry cap now dominates while disconnected). Adapter OFF, missing
+  Bluetooth scan/connect permission, Companion ownership, identity changes and
+  power suppression cancel all windows and retries. Any direct BLE link keeps
+  the transport (and V4 SDK discovery) on and cancels pending retries, so other
+  peers can still return; one connected peer is not treated as full recovery and
+  there is no expected-peer tracking. Rejected transport writes are
+  retried on the same ladder, never reported as applied. Logs and diagnostics
+  record only action, reason, radio state, link count, delay and backoff level.
+  Recovery of all six peers within 120 seconds is not guaranteed, and BLE-only
+  six-peer recovery and battery impact still need physical acceptance testing.
+  Network changes never overwrite BLE state.
+- Automatic BLE recovery has a hard 30-minute budget of continuous zero direct
+  BLE links (14 windows, 420 s of window time, ~23% of the budget). At exactly
+  30 minutes any in-flight window or retry is cancelled, BLE discovery stops (a
+  rejected SDK stop is retried, never reported as applied) and there are no
+  further automatic retries. A jittered retry that would start at or past the
+  budget end is not scheduled. The budget only counts while eligible (Ditto on,
+  no Companion/identity change/power gate, adapter ON, Bluetooth permissions);
+  ineligible time freezes it without refund, so gate, radio or LAN churn can
+  neither extend nor restart it. A real direct BLE link ends the budget; losing
+  the last one starts a fresh budget with an immediate window.
+- After the timeout the home top metric shows a yellow **Ditto Edge Sync Offline**
+  warning (user-chosen display copy; existing warning chip treatment;
+  actual emergencies, CRM POOR status, physiological warnings, pending detections,
+  and CRM MODERATE status take priority; no SOS, physiological or remote
+  alert is created). Despite the wording, it is triggered only by this watch's
+  direct (local) BLE links reaching the recovery timeout; it is not a global or
+  mesh offline state, Wi-Fi/LAN sync may still be working, and diagnostics stay
+  BLE-specific. Tapping it opens a compact dialog (never shown automatically)
+  with the same title, no body text, and one row of actions: **Retry** (new
+  30-minute budget, shortest gap, immediate window when eligible) and a back
+  arrow (localized "Back" description, 48dp target) that only closes the dialog
+  without changing timeout, pause or retry state. A persisted user pause (from
+  an earlier build or a fail-closed unreadable record) shows the same warning.
+  Neither action toggles Bluetooth, other Ditto transports, sync, trust, pairing
+  or data. The warning is
+  hidden while ineligible and reappears on eligibility return. Network
+  Preferences shows the same warning chip so Retry stays reachable when a
+  higher-priority warning covers the top metric. The shared home warning selector
+  also keeps Ditto reachable without answering another domain. An open review
+  remains bound to Ditto even if home priority changes, and closes when its
+  warning disappears; a later warning requires another tap.
+- Timeout/pause persist across service, process and reboot (DataStore) and are
+  cleared only by Retry, a real direct BLE link, or explicitly disabling
+  Ditto. UI, wrist-on, settings, presence, gate and adapter events never
+  override them. An active budget in use is checkpointed (used time,
+  elapsedRealtime, boot count) on each state and window change; a same-boot
+  service/process restart charges the downtime since the checkpoint, so it
+  continues rather than restarts the budget. After a reboot the used budget
+  carries over without refund (reboot downtime is not charged); a spent budget
+  restores as timed out without opening a window. Without boot identity a
+  reboot is only detected when elapsedRealtime went backwards; otherwise the gap
+  is charged as same-boot downtime (may time out early, never refunds), so
+  reboot accounting is conservative, not exact. Only an absent record starts a
+  fresh budget: an unreadable, malformed or unknown-version record fails closed
+  as paused (safe log, no record contents) until Retry.
 - Owned-point retry runs only with persistent pending ledger entries and active
   sync. Backoff is 10, 20, 40, 80, 160, then 300 seconds maximum. New publication
   intent or a successful flush resets it; no pending work means no retry timer.
@@ -194,6 +310,14 @@ Example JSON (the native `_c` CRDT is created by the SDK, so is omitted here):
   report bedtime through this path (deep idle and other gates still apply).
   Ordinary screen-off/ambient display is not treated as sleep. Local storage,
   chat history and subscriptions remain intact while paused.
+- Developer Preferences' **Stay connected off-wrist** switch (debug and release,
+  default **OFF**) bypasses only the wrist gate for both native Ditto Edge Sync
+  and TAK servers. A saved choice applies before initial sync and changes apply
+  live while already off-wrist. Ditto sync, dependent BLE discovery and outbound
+  publication resume only when all other gates allow; disabling restores the
+  off-wrist pause. Low battery, sleep/bedtime, battery saver, manual disablement,
+  Companion ownership, identity/security checks and BLE recovery limits remain
+  unchanged. Sensors and location reporting keep their normal power policies.
 - Outbound emergencies/alerts resume sync immediately for a renewable 60-second
   grace period, even at low battery/off-wrist; active manual alerting keeps it
   resumed beyond that period. This never bypasses Companion ownership, identity

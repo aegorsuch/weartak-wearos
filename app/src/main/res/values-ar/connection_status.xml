@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">أولوية رمز الاتصال</string>
+    <string name="connection_status_priority_help">يحدد أول عنصر نشط رمز الشاشة الرئيسية. يمكن نقل عناصر الاتصال والمتصل بشكل منفصل. عند عدم وجود اتصال نشط، تظهر حالة غير متصل.</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s متصل</string>
+    <string name="connection_status_priority_connecting">%1$s جارٍ الاتصال</string>
+    <string name="connection_status_move_up">لأعلى</string>
+    <string name="connection_status_move_down">لأسفل</string>
+    <string name="connection_status_move_up_description">نقل %1$s لأعلى</string>
+    <string name="connection_status_move_down_description">نقل %1$s لأسفل</string>
+    <string name="connection_status_reset">إعادة تعيين الأولوية</string>
+    <string name="connection_status_save_failed">تعذر حفظ أولوية الرمز. حاول مرة أخرى.</string>
+    <string name="connection_status_description">%1$s، %2$s. فتح تفضيلات الشبكة</string>
+    <string name="plugin_route_connected">متصل</string>
+    <string name="plugin_route_connecting">جارٍ الاتصال</string>
+    <string name="plugin_route_disconnected">غير متصل</string>
+    <string name="plugin_route_error">خطأ</string>
+    <string name="plugin_route_unknown">غير معروف</string>
+    <string name="ditto_sync_active">المزامنة نشطة</string>
+</resources>

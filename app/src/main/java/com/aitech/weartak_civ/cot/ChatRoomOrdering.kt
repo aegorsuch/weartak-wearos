@@ -1,12 +1,16 @@
 package com.aitech.weartak_civ.cot
 
 object ChatRoomOrdering {
-    fun latestReceivedTime(room: ChatRoom, selfUid: String): Long =
-        room.messageList.filter { it.uid != selfUid }.maxOfOrNull { it.timeReceived } ?: 0L
+    fun newestMessages(messages: List<ChatMessage>): List<ChatMessage> =
+        messages.sortedWith(compareByDescending<ChatMessage> { it.messageTime }
+            .thenBy { it.uid }.thenBy { it.messageId.orEmpty() }.thenBy { it.message })
 
-    fun byLatestReceived(rooms: Collection<ChatRoom>, selfUid: String): List<ChatRoom> =
-        rooms.sortedByDescending { latestReceivedTime(it, selfUid) }
+    fun latestActivityTime(room: ChatRoom): Long =
+        room.messageList.maxOfOrNull { it.messageTime } ?: 0L
 
-    fun pickerRooms(rooms: Collection<ChatRoom>, selfUid: String): List<ChatRoom> =
-        byLatestReceived(rooms.filter { it.uid != ChatDestinations.ALL_CHAT_ROOMS }, selfUid)
+    fun byLatestActivity(rooms: Collection<ChatRoom>): List<ChatRoom> =
+        rooms.sortedWith(compareByDescending<ChatRoom> { latestActivityTime(it) }.thenBy { it.uid })
+
+    fun pickerRooms(rooms: Collection<ChatRoom>): List<ChatRoom> =
+        byLatestActivity(rooms.filter { it.uid != ChatDestinations.ALL_CHAT_ROOMS })
 }

@@ -1,3 +1,10 @@
+include:
+  - project: devsecops/gitlab-ci-common
+    ref: master
+    file: /template/artifactory_token_service.yml
+
+before_script: []
+
 variables:
   GRADLE_BUILD_LAUNCHER_TAG: "2.6.2"
   KUBERNETES_MEMORY_LIMIT: "8Gi"
@@ -7,24 +14,146 @@ stages:
   - test
   - build
   - publish
+  - draft
+
+.artifactory_credentials:
+  extends: .artifactory_service_create_token_no_depends_bash
+  before_script:
+    - !reference [.artifactory_service_create_token_no_depends_bash, before_script]
+    - export ARTIFACTORY_USER="$GITLAB_USER_EMAIL" ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"
+
+android_mopp_check:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - chmod +x gradlew
+    - sh ci/build_plugin_sdk.sh
+    - >-
+      ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process
+      :app:assembleDebug :app:testDebugUnitTest
+      --tests '*HostMoppPpeControlTest' --tests '*CompanionSelfStatusTest'
+      --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
+      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest'
+      --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
+      --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
+      --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
+      --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
+      --tests '*CotDispatchTransportResumeTest'
+      --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
+      --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
+      --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
+      --tests '*PluginSettingsCoordinatorTest'
+      --tests '*MapSourceTest' --tests '*MapCameraTest' --tests '*MapLayerLifecycleTest'
+      --tests '*MapUserActionsTest' --tests '*MarkerReadabilityTest' --tests '*MapTargetSelectionTest'
+      --tests '*MarkerBloodhoundActionsTest' --tests '*BloodhoundPickerActionsTest'
+      --tests '*LollipopGeometryTest' --tests '*LollipopOverlayTest'
+      --tests '*ElevationTest' --tests '*AwsTerrainProviderTest'
+      --tests '*RouteDetailsViewTest' --tests '*RoutePointDetailsViewTest'
+      --tests '*TakServerCaTrustTest' --tests '*TakServerCaStorageTest'
+      --tests '*ServerCaTrustEditorTest' --tests '*TakEnrollmentTest'
+      --tests '*TakTransientRecoveryTest' --tests '*TakServerRegistrationServiceTest'
+      --tests '*TakServerRegistrationTest' --tests '*ChatEnrollmentSaveTest'
+      --tests '*HostRouteStatusControlTest' --tests '*ConnectionStatusPreferencesTest'
+      --tests '*HomeConnectionStatusTest' --tests '*ConnectionStatusPriorityUiTest'
+      --tests '*DeveloperPreferencesOrderTest' --tests '*NetworkConnectivityIconsTest'
+      --tests '*HomeBloodhoundLayoutTest'
+      --tests '*AccessibilitySemanticsTest' --tests '*ServerFormValidationTest'
+      --tests '*ManualAlertListScreenTest' --tests '*CommandCallsignEntryUiTest'
+      --tests '*HostedPluginMainUiPageTest' --tests '*MapBezelZoomTest'
+      --tests '*NetworkConnectivityChipTest' --tests '*NetworkToggleChipSubtitleTest'
+      --tests '*PluginBondLockTest' --tests '*CompanionPluginUiTest'
+      --tests '*AudioDetectionPendingTest' --tests '*AudioDetectionWarningTest'
+      --tests '*CrmHomeWarningTest' --tests '*CrmWarningLifecycleTest'
+      --tests '*TopMetricDisplayTest' --tests '*TopMetricRecoveryTest'
+      --tests '*DittoBleRecoveryUiTest' --tests '*TopMetricSettingsUiTest'
+      --tests '*PhysioControlsLayoutTest' --tests '*DittoBleDiscoveryTest'
+      --tests '*DittoBleDiscoverySessionTest' --tests '*DittoCompanionLifecycleTest'
+      --tests '*DittoLiveStatusTest' --tests '*DittoDiagnosticsUiTest'
+      --tests '*DittoTransportPolicyTest' --tests '*DittoServicePowerTest'
+      --tests '*DittoPowerPolicyTest' --tests '*DittoPowerMonitorTest'
+      --tests '*OffBodyTakPolicyTest' --tests '*OffBodyTakSchedulerTest'
+      --tests '*TAKConnectServiceLifecycleTest' --tests '*StayConnectedOffWristSettingTest'
+      --tests '*TakConnectionStatusTest' --tests '*MulticastServiceLifecycleTest'
+      --tests '*ServerPackageFlowTest' --tests '*HostServerPackageControlTest'
+      --tests '*HostPkcs12ImportControlTest' --tests '*ReviewedCertificateApplyTest'
+      --tests '*SettingsImeInputConnectionTest' --tests '*ChatP12*Test'
+      --tests '*CompanionWatchInfoTest' --tests '*CompanionSettingsChangedTest'
+      :app:compileDebugAndroidTestKotlin
+      :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
+  artifacts:
+    when: always
+    expire_in: 14 days
+    reports:
+      junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
+    paths:
+      - app/build/reports/tests/
+      - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/reports/lint-results-release.*
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
 release_publisher_tests:
   stage: test
   image:
-    name: python:3.12-slim
+    name: python:3.12-bookworm
     entrypoint: [""]
   script:
     - python -m unittest discover -s ci/tests -v
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+host_lint_debug:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - chmod +x gradlew
+    - sh ci/build_plugin_sdk.sh
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :app:lintDebug
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - app/build/reports/lint-results-debug.*
+      - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+agp_resolution_diagnostic:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  needs: []
+  dependencies: []
+  allow_failure: true
+  when: manual
+  script:
+    - sh ci/diagnose_agp_resolution.sh
 
 
 # ---------------------------------------------------------------------------
 # Common WearTAK release build
 #
 # This is a hidden job and does not run by itself.
-# main_release and official_release both reuse this build configuration.
+# Main, official and manual BATTAK trial builds reuse this configuration.
 # ---------------------------------------------------------------------------
 
 .release_build:
+  extends: .artifactory_credentials
   stage: build
 
   image:
@@ -32,7 +161,17 @@ release_publisher_tests:
     entrypoint: [""]
 
   before_script:
+    - |
+      if [ "${CI_COMMIT_BRANCH:-}" = "main" ] && [ "$CI_PIPELINE_SOURCE" = "push" ]; then
+        ELIGIBILITY="$(sh ci/release_eligibility.sh)" || exit $?
+        if [ "$ELIGIBILITY" = "docs-only" ]; then
+          echo "Documentation-only push: no signed release or changelog draft."
+          exit 0
+        fi
+      fi
+    - !reference [.artifactory_credentials, before_script]
     - chmod +x gradlew
+    - sh ci/build_plugin_sdk.sh
 
     # Verify required CI variables exist.
     - |
@@ -41,6 +180,8 @@ release_publisher_tests:
       [ -n "$RELEASE_KEY_ALIAS" ] || { echo "ERROR: RELEASE_KEY_ALIAS missing"; exit 1; }
       [ -n "$RELEASE_KEY_PASSWORD" ] || { echo "ERROR: RELEASE_KEY_PASSWORD missing"; exit 1; }
       [ -n "$DITTO_COMMUNITY_IDENTITY" ] || { echo "ERROR: DITTO_COMMUNITY_IDENTITY missing"; exit 1; }
+      [ -n "$BATTAK_INTEROP_PASSPHRASE" ] || { echo "ERROR: BATTAK_INTEROP_PASSPHRASE missing"; exit 1; }
+      [ -n "$BATTAK_INTEROP_SALT_BASE64" ] || { echo "ERROR: BATTAK_INTEROP_SALT_BASE64 missing"; exit 1; }
 
     # Recreate the exact release keystore used locally.
     - printf '%s' "$WEARTAK_RELEASE_KEYSTORE_B64" | base64 -d > "$CI_PROJECT_DIR/app/weartak.keystore"
@@ -70,7 +211,8 @@ release_publisher_tests:
 
   script:
     # Build the same release APK that we previously built manually.
-    - ./gradlew --no-daemon clean assembleRelease
+    # Share the 4Gi Gradle heap with Kotlin and bound workers within the 8Gi container.
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true clean assembleRelease
 
     # Verify that the resulting APK is signed with the established
     # WearTAK Android production certificate.
@@ -113,16 +255,46 @@ release_publisher_tests:
 
     # Bind publication to the exact APK whose production signature was checked.
     - sha256sum "$APK" > app/build/outputs/apk/release/verified-apk.sha256
+    - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+
+batdok_signed_trial:
+  extends: .release_build
+  environment:
+    name: battak-trial
+    action: prepare
+  artifacts:
+    when: on_success
+    expire_in: 7 days
+    access: developer
+    paths:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/release/verified-apk.sha256
+      - app/build/outputs/apk/release/output-metadata.json
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: manual
+      allow_failure: true
 
 # ---------------------------------------------------------------------------
 # Main build
 #
-# Runs automatically whenever code is pushed/merged into main.
+# Runs automatically for release-eligible pushes/merges into main.
 # Produces a signed release APK for internal testing.
 # ---------------------------------------------------------------------------
 
 main_release:
   extends: .release_build
+  variables:
+    GIT_DEPTH: "0"
+  environment:
+    name: battak-release
+    action: prepare
 
   artifacts:
     when: always
@@ -131,6 +303,8 @@ main_release:
       - app/build/outputs/apk/release/*.apk
       - app/build/outputs/apk/release/verified-apk.sha256
       - app/build/outputs/apk/release/output-metadata.json
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
 
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
@@ -162,29 +336,60 @@ official_release:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/'
 
 # No needs: wait for all earlier stages to succeed, not only the build job.
-publish_github_main:
-  stage: publish
-  image:
-    name: python:3.12-slim
-    entrypoint: [""]
-  dependencies:
-    - main_release
-  # Keep the existing group so any in-flight develop publisher remains serialized.
-  resource_group: wearos-github-development
-  interruptible: false
-  script:
-    - python ci/publish_github_release.py
-  rules:
-    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
-
-# Same signed artifact and serialized writer, with a separate personal-only token.
-# The full Python image includes Git; no second Android build/signing job runs.
 publish_personal_github_main:
-  extends: publish_github_main
+  stage: publish
   image:
     name: python:3.12-bookworm
     entrypoint: [""]
   variables:
     GIT_DEPTH: "0"
+  dependencies:
+    - main_release
+  # Keep the existing group so in-flight publishers stay serialized during cutover.
+  resource_group: wearos-github-development
+  interruptible: false
   script:
-    - python ci/publish_github_release.py --personal
+    - |
+      ELIGIBILITY="$(sh ci/release_eligibility.sh)" || exit $?
+      if [ "$ELIGIBILITY" = "docs-only" ]; then
+        echo "Documentation-only push: synchronize source only; no APK publication or draft."
+        python ci/publish_github_release.py --mirror-only || exit $?
+        exit 0
+      fi
+    - python ci/publish_github_release.py
+  artifacts:
+    when: on_success
+    expire_in: 30 days
+    access: developer
+    paths:
+      - changelog-receipt.json
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+
+changelog_draft:
+  stage: draft
+  image:
+    name: python:3.12-bookworm
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  dependencies:
+    - main_release
+    - publish_personal_github_main
+  script:
+    - |
+      ELIGIBILITY="$(sh ci/release_eligibility.sh)" || exit $?
+      if [ "$ELIGIBILITY" = "docs-only" ]; then
+        echo "Documentation-only push: no changelog draft."
+        exit 0
+      fi
+    - python ci/publish_github_release.py --changelog-draft
+  artifacts:
+    when: on_success
+    expire_in: 30 days
+    access: developer
+    expose_as: "Changelog draft - review required"
+    paths:
+      - changelog-drafts/
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'

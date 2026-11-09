@@ -15,6 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 internal class DittoPowerMonitor(
@@ -41,7 +42,7 @@ internal class DittoPowerMonitor(
 
     private fun refresh() { system.value = systemState() }
 
-    fun initial(threshold: Int) = DittoPowerState(
+    suspend fun initial(threshold: Int) = DittoPowerState(
         worn = repo.latestDeviceWornObservation.value,
         charging = repo.chargingState.value,
         battery = repo.latestBatteryPercentage.value,
@@ -49,6 +50,7 @@ internal class DittoPowerMonitor(
         sleeping = system.value.first,
         powerSave = system.value.second,
         alerting = repo.isAlerting.value,
+        stayConnectedOffWrist = repo.stayConnectedOffWrist.first(),
     )
 
     fun start() {
@@ -66,8 +68,9 @@ internal class DittoPowerMonitor(
                 combine(repo.latestDeviceWornObservation, repo.chargingState, repo.latestBatteryPercentage,
                     repo.getBatteryWarnPercentage, repo.isAlerting) { worn, charging, battery, threshold, alerting ->
                     DittoPowerState(worn, charging, battery, threshold, alerting = alerting)
-                }, system
-            ) { state, os -> state.copy(sleeping = os.first, powerSave = os.second) }
+                }, system, repo.stayConnectedOffWrist
+            ) { state, os, stay -> state.copy(sleeping = os.first, powerSave = os.second,
+                stayConnectedOffWrist = stay) }
                 .distinctUntilChanged().collect(changed)
         }
     }

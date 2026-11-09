@@ -52,6 +52,7 @@ class GunshotOnnxRepository(private val context: Context) {
 
     val gunshotEvents = store.events
     val recentGunshotsFlow = store.recentEventsFlow
+    val pendingGunshot = store.pendingEvent
 
     fun upsertRecentGunshot(event: AudioDetectionEvent) = store.upsertRecent(event)
     fun getEventFromUid(uid: String): AudioDetectionEvent? = store.getEventFromUid(uid)

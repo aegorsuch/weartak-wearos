@@ -54,6 +54,10 @@ class TakTransientRecoveryTest {
         MainActivity.dataRepository = mockk<DataRepository>(relaxed = true) {
             every { isCompanionConnected } returns companion
             every { shouldSuppressWatchTransportNow() } answers { companion.value }
+            coEvery { getApprovedServerCa(any(), any(), any()) } returns null
+        }
+        coEvery { MainActivity.dataRepository.awaitTakServerList() } coAnswers {
+            checkNotNull(MainActivity.dataRepository.tryAwaitTakServerList()) { "Fixture store unavailable" }
         }
         oldScope = scopeField.get(null)
         oldStopping = TAKConnectService.serviceStopping
@@ -273,6 +277,7 @@ class TakTransientRecoveryTest {
         mockkObject(TAKConnectService.Companion, recordPrivateCalls = true)
         every { TAKConnectService.Companion["postCsrAndGetResponse"](
             any<String>(), any<String>(), any<String>(), any<String>(),
+            isNull<String>(),
             isNull<com.aitech.weartak_civ.data.takserver.TakHttpSession>()) } throws ConnectException()
         assertThrows(ConnectException::class.java) {
             TAKConnectService.postCsrAndParse(detail(), "test-csr")
@@ -308,13 +313,17 @@ class TakTransientRecoveryTest {
         scopeField.set(null, this)
         val detail = detail().copy(isP12Cert = false, p12Cert = null)
         val socket = mockTlsSocket()
-        every { socket.startHandshake() } throws SSLHandshakeException("test trust rejection")
+        every { socket.startHandshake() } throws SSLHandshakeException("test trust rejection").apply {
+            initCause(java.security.cert.CertPathValidatorException("Trust anchor for certification path not found."))
+        }
         TAKConnectService.getClientCertificateAndConnect(detail)
         advanceUntilIdle()
         assertEquals(TAKConnectService.TAK_SERVER_CONNECTION_FAILED, detail.connectionStatus.get())
         assertNull(detail.runtime.retryJob)
         verify(exactly = 1) { socket.startHandshake() }
         verify(exactly = 0) { TAKConnectService.deleteFile(any()) }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertTrue(detail.connectionFailureLiveData.value!!.untrustedServerCa)
     }
 
     @Test fun stalledHandshakeHasReadDeadlineAndRetriesWithoutDeletingCertificate() = runTest {
@@ -505,6 +514,20 @@ class TakTransientRecoveryTest {
         detail.runtime.currentAttempt = attempt
         detail.connectionStatus.set(TAKConnectService.TAK_SERVER_CONNECTION_FAILED)
         return attempt
+    }
+
+    @Test fun provisionalReviewedEndpointCannotBeginConnectionAttempt() {
+        val target = detail()
+        val begin = TAKConnectService.Companion::class.java.getDeclaredMethod(
+            "beginConnectionAttempt", TAKConnectService.TakServerDetail::class.java
+        ).apply { isAccessible = true }
+        val gate = com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate
+        gate.hold(target.address, target.port)
+        try {
+            assertNull(begin.invoke(TAKConnectService.Companion, target))
+            assertNull(target.runtime.currentAttempt)
+        } finally { gate.release(target.address, target.port) }
+        assertNotNull(begin.invoke(TAKConnectService.Companion, target))
     }
 
     private fun detail() = TAKConnectService.TakServerDetail(

@@ -1,9 +1,229 @@
 # Rolling GitHub pipeline release
 
+## Immutable plugin SDK source
+
+Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
+pins upstream source commit/tree, the additive transport-v1 overlay, and the
+combined release AAR SHA-256. This unpublished composite is **not** unchanged
+SDK `86bdc8b`: all canonical APIs and notices remain intact, with 17 frozen
+transport source/AIDL/test files added. The repository includes the overlay-only
+ZIP and per-file inventory under `ci/plugin-sdk-transport/`; both are independently
+SHA-256 pinned. The helpers verify the ZIP inventory and every added source,
+reject canonical-file replacement and unexpected untracked sources, then build.
+Exact artifact hashes are platform-specific. Windows neutral-checkout release:
+`6ec84b18e1c8ac6b4be727083c4ea7a572150b521384270212434c239e5a1e0b`.
+Linux neutral-source release (Temurin 17, Android API/build-tools 34, Gradle 8.10.2):
+`8f911b81ac85e691ad182097fe0ef0f00ffa0d2da3442d3d2f03c5ec2529184f`.
+Both platforms passed 210 SDK tests per debug/release variant, both assemblies,
+and debug/release lint without errors. Independent AAR comparison found only
+generated `AndroidManifest.xml` newline differences; `classes.jar` is byte-identical.
+Neither old canonical-only nor old
+transport-only AAR hashes are accepted. The helpers and host select the exact hash for their
+verified platform, not an unrestricted allowlist. Other platforms fail closed
+until independently verified.
+The helpers restore tracked files directly from Git blobs (including paths with
+explicit newline attributes), build using
+JDK 17/Android SDK 34 and fails on a hash mismatch. Android CI jobs run the same
+pin through `sh ci/build_plugin_sdk.sh` before testing, lint or signing; the
+Android launcher has Git/jq but no Python. Both helpers enforce remote, exact
+commit/tree, neutral checkout and final AAR hash. Source and outputs stay under ignored
+`.gradle/sdk/<12-character-source-prefix>-<12-character-overlay-prefix>`, outside host `clean`; the complete
+commit, tree and overlay identities are still checked. The short directory avoids Windows AIDL
+path limits. No SDK publisher is required.
+Host defaults to that verified source-build location, never the legacy bundled
+AAR. An explicit local `-PweartakPluginSdkAar=<absolute-path>` override remains
+available for integration validation. Neither SDK build nor override grants
+signing, distribution or third-party license rights.
+Host APKs include the pinned SDK GPL license and additional permission unchanged
+under `assets/licenses/weartak-plugin-sdk/`. The public source commit plus pinned
+overlay identify the corresponding combined SDK source. These notices do not
+relicense host or third-party material, or authorize distribution of this snapshot.
+
+## Host full-lint quality gate
+
+`host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.
+It uses the shared ephemeral Artifactory credential bootstrap, like other Android jobs.
+Lint errors fail the job; warnings remain visible but are not promoted to errors.
+No baseline or check-ID filter is used. Lint reports are
+retained for 14 days, including on failure. The job uses the existing Android
+launcher image and bounded workers/in-process Kotlin compilation, without release
+signing, device installation or publication. Existing release/publication jobs
+still wait for the test stage on their authorized main/tag pipelines. Run
+`:app:testDebugUnitTest :app:assembleDebug` separately when validating code changes;
+this new gate does not change the project's existing unit-test policy.
+
+## Manual AGP resolution diagnostic
+
+`agp_resolution_diagnostic` is an optional, nonblocking manual job using the
+same Gradle launcher image tag as release builds. It has no artifact dependencies,
+does not recreate signing files, and runs only bounded Google Maven POM requests
+and Gradle `help --info --stacktrace`, not assembly, signing, or publication.
+It does not print routing tables, DNS configuration, proxy environment variables,
+HTTP headers, or response bodies. Review diagnostic logs before sharing them.
+
+Run this job only in an already-authorized pipeline; do not create or retry a
+release pipeline for diagnostics, since normal pipeline publication rules still
+apply. The job reports its source SHA. Compare runner/image/network context with
+the failing job; a matching image tag alone does not establish a matching digest.
+No automatic retry or dependency downgrade is configured. Repository routing now
+uses the credential-gated TAK Artifactory configuration described below.
+
+AGP `8.13.2` and all build configuration files were identical between successful
+`c48ba2544d25c7419c2832d4089efa20a35e2700` (job `7666745`) and failed
+`dd55f2197d6353fdc1091ba95440139faf310542` (job `7670484`). Both public POMs
+were reachable from the investigation workstation, which does not establish
+runner reachability. Curl reports HTTP status and connection errors; Gradle
+output distinguishes Java-side resolution failures. Successful POM requests
+alone do not prove all transitive artifacts are reachable.
+
+## AGP resolution fix
+
+The diagnostic added in GitLab MR !558 showed Google POM probes returning HTTP
+200 while Gradle reported Maven Central HTTP 429. An unmerged Google-exclusive
+routing experiment resolved the Android plugin marker but then encountered a
+KSP marker HTTP 429; that experiment is not the production fix. Shared NAT or
+Gradle's general fallback behavior was not established by this evidence.
+
+Platform MR !559, merged as `517190128091a1bd89629d9d88602a93faac4881`,
+changed only `settings.gradle`. It puts the approved repository
+`https://artifacts.tak.gov/artifactory/maven-release` first for both plugin and
+dependency resolution when both a username and password are available:
+
+- Username: `ARTIFACTORY_CONSUME_USER`, then `ARTIFACTORY_USER`, then `TAK_USERNAME`.
+- Password: `ARTIFACTORY_CONSUME_PASSWORD`, then `ARTIFACTORY_PASSWORD`, then `TAK_PASSWORD`.
+
+Username and password fallbacks are evaluated independently. Never log their
+values. Blank aliases are skipped. Gradle CI jobs now extend
+`.artifactory_credentials`, using the approved
+`devsecops/gitlab-ci-common` `/template/artifactory_token_service.yml`
+token exchange. The template's global `before_script` is explicitly cleared;
+only Gradle jobs request a token. Release signing setup preserves the credential
+bootstrap through `!reference` before its existing keystore checks.
+Launcher-image jobs use `.artifactory_service_create_token_no_depends_bash`,
+matching canonical LACE `1772e1bd`: the launcher already contains the required
+tools, so they must not invoke the generic template's apt package installation.
+Robolectric's separate Android runtime resolver receives the same approved
+repository and credentials when both are available; no static credentials
+or token values are committed or printed.
+
+`android_mopp_check` runs debug assembly and focused host/plugin regression
+tests on merge requests and main pushes without production signing setup.
+Main release jobs still wait for successful test-stage jobs. Existing release
+lint checks remain enabled. Full `lintDebug` is not a new blocking gate: the
+current host has an existing backlog (221 errors at this migration), including
+untouched permission checks and missing translations; do not suppress those
+findings or generate a mass baseline to ship an unrelated change.
+
+Settings print `takArtifactory for plugins: enabled` or
+`takArtifactory for plugins: disabled (no credentials in environment)`.
+Without both credentials, the Artifactory repository is omitted.
+Remaining plugin repositories are filtered Google (`com.android.*`,
+`com.google.*`, `androidx.*`), Plugin Portal, then Maven Central; dependencies
+retain Google, Maven Central and the existing local `libs` repository.
+
+AGP `8.13.2`, Gradle `8.14.5`, CI JDK `17.0.2`, launcher image tag
+`17-2.6.2` and production signing configuration were not changed by this fix.
+[Main pipeline 1817472](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1817472)
+on the merge commit succeeded:
+[release job 7673187](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/jobs/7673187)
+verified the production signature for `WearTAK-5.8.0.3-p454.apk`, and
+[publisher job 7673188](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/jobs/7673188)
+updated the existing personal GitHub rolling release. Matching image tags alone
+do not prove matching image digests or runner network/cache conditions.
+
+## Release container memory
+
+Release job `7675487` on naming-fix merge `e7585a2a` failed with Kubernetes
+`OOMKilled` / exit `137` after compilation and release optimization tasks.
+The runner reported an `8Gi` container limit; the repository specified a
+`4096m` Gradle heap, as in successful p454. Those limits are not equivalent:
+the container also holds JVM native memory, Kotlin compilation and build workers.
+The trace provides no peak-memory measurement or proof of which process caused
+the kill. This was not an AGP resolution failure or a Java heap exception.
+
+The shared release command now caps Gradle workers at two and uses
+`-Pkotlin.compiler.execution.strategy=in-process`, so Kotlin shares the existing
+Gradle heap instead of starting a separate compiler daemon. The `4Gi` heap and
+`8Gi` container limit remain unchanged, as do release minification, resource
+shrinking, signing and publication gates. These are CI-only execution controls;
+local build defaults are unchanged. A successful production pipeline is still
+required to validate this memory mitigation; configuration checks cannot prove
+peak RSS fits the runner limit. If another kill occurs, obtain container
+peak-memory/OOM metrics before choosing further limits or requesting more memory.
+
+## Rolling release behavior
+
+### Review-only changelog drafts
+
+After a protected canonical `main` push successfully builds, verifies and
+publishes its signed APK, `changelog_draft` produces a developer-restricted
+`changelog-drafts/p<IID>.md` job artifact, retained for 30 days like the APK.
+Find it through the pipeline's **changelog_draft** job artifacts. Download
+drafts before expiry if longer retention is needed. No notification or approval
+UI is created, and no new service, AI model or credential is required.
+
+The draft includes the exact APK version/code, pipeline link, source SHA,
+previous published release SHA, complete comparison link, and oldest-first
+commit links (first 100, with full range always linked). Its candidate sentence
+names changed file areas, not inferred behavior: a human must inspect evidence,
+write/review a concise behavior summary and explicitly approve it before anyone
+appends it to README. Raw commit messages, diffs, compatibility values and
+signing configuration are not copied into drafts.
+
+Each candidate entry includes a **Download APK** link to the exact versioned
+public GitHub release asset, using the confirmed asset name from publication.
+TAK.gov pipeline, comparison and commit links remain separate provenance.
+No mutable latest-build URL or authenticated, expiring GitLab artifact URL is
+used for the download. The single rolling release retains only the current APK;
+older entries' download links stop working when their assets are replaced.
+This does not change artifact retention or create additional releases.
+Before approving a draft, check that its exact asset still exists in the rolling
+release. Refresh README links labeled current APK to the verified current asset
+and identify its build explicitly; those links do not deliver historical builds.
+The draft generator does not rewrite existing README entries or query live release
+state, so an old receipt alone cannot establish that its download remains available.
+
+Draft entries use `(Posted DDHHMMZ MON YY)`, for example
+`(Posted 051548Z NOV 26)`. The timestamp is the verified APK asset's
+`created_at` from publication readback, in UTC, truncated to minute precision;
+the receipt also records asset ID/name and the original timestamp. It is not
+the rolling release container's original publication date, upload update time,
+pipeline completion time or a local clock estimate. Retries reuse the same
+asset creation timestamp. Missing/invalid asset timestamps fail only the draft
+job, never an otherwise valid APK publication. Historical entries stay undated
+unless their actual asset timestamps are verified and the edit is approved.
+
+The publisher records the prior source in its existing release provenance and
+a restricted same-pipeline receipt only after publication readback succeeds.
+Retries retain that baseline and overwrite the same per-build draft path,
+rather than accumulating duplicate entries. An older/superseded pipeline gets
+no receipt or draft. Missing previous provenance, mismatched source/version,
+incomplete history or invalid artifacts fail the draft job explicitly; they do
+not undo or prevent an otherwise valid publication. Retry the draft job after
+restoring its required inputs; never invent a baseline.
+
+Main pushes changing only root `README.md` and/or `ci/README.md` (including
+merges of approved changelog entries) skip signing, assembly, APK publication
+and draft generation. After tests succeed, the serialized publisher still
+synchronizes personal GitHub `main` to the exact canonical source SHA using
+the existing non-force ancestry/readback safeguards. README changes therefore
+reach the GitHub source mirror without replacing the rolling APK release.
+No release body, assets or tags are modified by this source-only path.
+All other paths, including other Markdown, license, CI and packaging changes,
+retain normal release behavior. Exact before/source ancestry and full history
+are required; an initial all-zero before SHA remains release-eligible. Official
+tag and manual signed-trial behavior is unchanged. No job rewrites README,
+creates a commit or automatically approves a draft.
+
+WearOS base version is `5.8.4`, base code `584`. CI retains the existing
+`584 * 10000 + CI_PIPELINE_IID` code and `5.8.4-p<IID>+<sha>` name convention;
+this increases codes above the previous `583` base without changing signing or
+the fixed rolling-release URL.
+
 Successful **protected `main` push pipelines** from
 `git.tak.gov/core/weartak-core/wearos-tak-civ` publish the final production-signed
-`main_release` APK to the fixed GitHub mirror
-`Ascent-Integrated-Tech/wearos-tak-civ`. The visible title is
+`main_release` APK only to the fixed public personal GitHub repository
+[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos). The visible title is
 **TAK.gov Forge CI/CD Pipeline Release (<version>)**, e.g.
 `TAK.gov Forge CI/CD Pipeline Release (5.8.0.3-p105)`, where `<version>` is the APK
 versionName without its `+<sha>` build metadata. The APK is attached as
@@ -17,27 +237,15 @@ The actual APK versionName/versionCode, canonical source SHA, pipeline ID/IID,
 pipeline URL, and APK SHA256 appear in the release body. The rolling release
 does not take over GitHub's "Latest" designation from other numbered releases.
 Official `v...` pipelines and all existing numbered/stable releases remain unchanged.
+The pipeline does not publish to, update, or delete historical company Releases or tags.
 
-The additional approved public personal mirror is
-[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos).
-It uses the same publisher and signed pipeline artifact, not an independent build.
-The existing company destination remains the default; personal publication is the
-fixed `--personal` mode described below, not an arbitrary destination override.
+## Administrator setup
 
-## Administrator setup (separate approval required)
-
-1. Public signed-APK distribution to the exact fixed destination
-   `Ascent-Integrated-Tech/wearos-tak-civ` was explicitly approved on 2026-10-19.
-   The mirror was private at the original setup and is now public. The publisher
-   permits either visibility for this approved destination only and checks its
-   exact identity and active status before every update. Other, archived, disabled
-   or unknown-status destinations fail closed. This job never changes repository
-   visibility or access; any different destination needs separate approval.
-2. Protect canonical GitLab `main` and restrict who may push/merge, edit pipeline
+1. Protect canonical GitLab `main` and restrict who may push/merge, edit pipeline
    configuration, use protected runners, or override pipeline variables.
-3. In the GitHub mirror, create the fixed tag `TAK.gov-Forge-CI-CD-Pipeline-Release` on an
-   existing mirrored commit, with separate approval. (It replaced the original
-   `wearos-development` anchor, whose release is no longer updated.)
+2. Verify the fixed tag `TAK.gov-Forge-CI-CD-Pipeline-Release` in
+   `aegorsuch/weartak-wearos` remains on an existing mirrored commit. (It replaced
+   the original `wearos-development` anchor, whose release is no longer updated.)
    Do not move the tag on each build. The publisher checks that it exists before
    creating a release, never pushes commits, and has no tag-management calls.
    The mirror was behind canonical `gov/develop` at inspection, so a GitLab
@@ -46,21 +254,22 @@ fixed `--personal` mode described below, not an arbitrary destination override.
    release metadata. GitHub's automatic source archives refer to the fixed anchor,
    not necessarily the APK source. The job uploads **only the signed APK**, never
    custom source bundles, logs, checksums as assets, signing files, or credentials.
-4. Create a fine-grained GitHub token scoped **only** to this mirror with
+3. Create a fine-grained GitHub token scoped **only** to `weartak-wearos` with
    **Contents: read and write** (metadata read is implicit), an appropriate expiry,
    and organization approval/SSO authorization if required. No administration,
    workflows, issues, or other repository permissions are needed. Restrict the
    token owner to this automation as appropriate. Do not copy local `gh`/`glab`
    credentials or reuse a broad personal token.
-5. Add `WEARTAK_GITHUB_TOKEN` to the canonical GitLab project's CI/CD variables as
+4. Add `WEARTAK_PERSONAL_GITHUB_TOKEN` to the canonical GitLab project's CI/CD variables as
    **masked**, **protected**, and hidden if supported; disable variable expansion.
    Make it available to the publish job's environment scope. Never place it in YAML,
    repository files, logs, or artifacts. Rotate it according to organization policy.
-6. Allow the existing runner to pull `python:3.12-slim` (stdlib only, no package
-   installation), and allow HTTPS to `api.github.com`, `uploads.github.com`, and
+5. Allow the existing runner to pull `python:3.12-bookworm` (Git is needed for
+   source synchronization; Python uses only its standard library), and allow HTTPS
+   to `api.github.com`, `uploads.github.com`, and
    GitHub's signed release-asset storage endpoints. The Android build continues
    using the existing TAK Gradle launcher and production-certificate verification.
-7. Review/approve and merge these changes through the normal ticket process.
+6. Review/approve and merge these changes through the normal ticket process.
    A subsequent authorized protected `main` push will run publication. Do not
    trigger a pipeline or publish manually merely to complete setup.
 
@@ -70,29 +279,32 @@ signed APK remains available as a GitLab artifact for 30 days even when publicat
 fails. An unprotected pipeline is intentionally excluded from publication by rules,
 not reported as a successful upload. The script also enforces the source gates.
 
-## Additional personal mirror
+## Personal destination and source synchronization
 
-`publish_personal_github_main` inherits the company's canonical-only protected
-`main` push rules, successful earlier-stage gate, same-pipeline
-`main_release` artifact dependency, noninterruptible behavior and
-`wearos-github-development` serialized resource group. It runs the shared script
-with `--personal`. No second Android build, signer, GitHub Actions build, manual
-dispatch or signing credential in GitHub is introduced. Company publication and
-its release-testing notification are unchanged; the personal mirror sends no
-duplicate tester notification and its GitHub Actions remain disabled.
+`publish_personal_github_main` is the only publisher job. It uses the protected
+canonical `main` push gate, waits for all earlier stages, downloads the same-pipeline
+`main_release` artifact, and is noninterruptible. It keeps the existing
+`wearos-github-development` resource group so in-flight publishers stay serialized
+during cutover. No second Android build, signer, company-repository write, or
+company token is used. Historical company Releases and tags remain untouched.
 
-The only personal destination is the active **public**
-`aegorsuch/weartak-wearos`. The fixed rolling anchor was provisioned without moving
-the company's tag: `2a7f47f707d3b9419f27f0036caa3cb8024f1f3b`, verified as
-canonical public `main` ancestry. Neither publisher creates or moves tags.
-A tag alone is not a GitHub release or an APK upload.
+The only destination is the active **public** `aegorsuch/weartak-wearos`. The
+fixed rolling anchor was provisioned at
+`2a7f47f707d3b9419f27f0036caa3cb8024f1f3b`, verified as canonical public `main`
+ancestry. The publisher never creates or moves tags. A tag alone is not a GitHub
+release or an APK upload.
 
 Before personal artifact publication, the job verifies its checkout is the exact
 pipeline source SHA, inspects and fetches the existing personal `main`, requires
 it to be an ancestor of that source, pushes **only** that commit to `main`
 without force, tag following, submodule pushes or deletions, then verifies the
-remote SHA. Missing/divergent/ahead state or a tip change detected during fetch
-fails closed; the normal non-force push also rejects non-fast-forward races.
+remote SHA. If the pipeline source is instead an ancestor of personal `main`,
+the job verifies that tip again and returns `superseded`, without pushing or
+changing release assets, body or tags. This also covers a mirror advanced before
+its newer APK has been published. Missing/divergent state or a tip change detected
+during fetch/readback fails closed; the normal non-force push also rejects
+non-fast-forward races. Git failures report only a fixed step name and exit code,
+never raw stderr, command credentials or transport details.
 This is not a lock against external writers and never adopts unrelated work or
 rewrites history. A newer owned
 release skips an older pipeline before source synchronization. Complete canonical
@@ -109,9 +321,9 @@ unchanged; automatic GitHub source archives still refer to its old anchor.
 An upload failure may leave source advanced while the previous usable APK remains;
 the source SHA in each APK's verified release metadata is authoritative.
 
-Use a **separate** fine-grained token owned by `aegorsuch`, scoped only to
+Use a fine-grained token owned by `aegorsuch`, scoped only to
 `weartak-wearos`, with **Contents: read and write** (implicit Metadata read).
-Do not reuse the company token, another personal repository's token, or a local
+Do not use a company token, another personal repository's token, or a local
 `gh` credential. In the canonical project's
 [Settings > CI/CD > Variables](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/settings/ci_cd),
 add `WEARTAK_PERSONAL_GITHUB_TOKEN`: protected, masked, hidden when supported,
@@ -120,12 +332,13 @@ No agent needs to inspect, copy or print its value. GitHub may require additiona
 workflow permission for a future source commit that changes `.github/workflows`;
 the Contents-only token must fail rather than silently expanding access.
 
-The personal release uses the same version/tag/title, stable/non-Latest status,
+The release uses the same version/tag/title, stable/non-Latest status,
 production-verified APK, checksum, canonical source/pipeline provenance,
 download verification, ownership, manual-note preservation, retry and retention
 rules below. Repository/variable setup alone does **not** prove activation:
 acceptance requires a subsequent normally merged, naturally signed pipeline to
-succeed and both destinations' APK bytes/checksum and source metadata to match.
+succeed and the personal release APK checksum/source metadata to match the
+verified GitLab artifact and pipeline.
 
 ## Ordering and safe retention
 
@@ -196,18 +409,15 @@ prove runner registry/network access, protected-variable delivery, token authori
 or real GitHub upload behavior. Those remain end-to-end acceptance checks after
 separate approval and administrator setup. No Android build is needed for CI-only tests.
 
-## Release-testing checklist for testers
+## Manual release-testing checklist
 
-After a release is published **and verified**, the publisher sends a GitHub
-`repository_dispatch` (`weartak-release-published`) with the pipeline ID. The
-token's existing Contents: write permission covers this; no new scopes are needed.
-If the notification fails, the job fails with a clear message and can be retried;
-nothing is duplicated.
-
-`.github/workflows/release-testing.yml` handles it on the GitHub mirror. GitHub only
-runs workflows from the default branch, so `.github/workflows/release-testing.yml`
-and `ci/release-testing/` must also be present on the mirror's `main` (an approved
-exception to publishing source to GitHub). Keep both copies identical.
+The GitLab publisher does not start the release-testing workflow or send a
+`repository_dispatch`. After a release is published and verified, run
+**Actions > Release testing checklist > Run workflow** on the GitHub mirror.
+GitHub only runs workflows from the default branch, so
+`.github/workflows/release-testing.yml` and `ci/release-testing/` must also be
+present on the mirror's `main` (an approved exception to publishing source to
+GitHub). Keep both copies identical.
 
 The workflow re-reads the release (it never trusts the payload), skips superseded
 pipelines, and opens one issue per pipeline titled

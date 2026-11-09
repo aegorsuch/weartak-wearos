@@ -6,6 +6,14 @@ import com.aitech.weartak_civ.data.DataRepository
 import java.util.Locale
 
 object CotDetailBuilder {
+    data class DittoMetadata(val peerId: String, val deviceName: String, val version: String)
+
+    fun ditto(metadata: DittoMetadata, ip: String = "0.0.0.0"): String =
+        CotXml.element("ditto", listOf(
+            "a" to CotXml.escape(metadata.peerId), "ip" to CotXml.escape(ip),
+            "version" to CotXml.escape(metadata.version), "deviceName" to CotXml.escape(metadata.deviceName),
+        ))
+
     fun takv(): String = CotXml.element("takv", listOf(
         "os" to Build.VERSION.SDK_INT,
         "version" to CotXml.escape(BuildConfig.VERSION_NAME),
@@ -19,10 +27,10 @@ object CotDetailBuilder {
     })
 
     // Keep device identity even without vitals: CoT consumers use it to identify WearTAK.
-    fun biometrics(uid: String, physio: DataRepository.PhysioData?, battery: Int?): String {
+    fun physiology(uid: String, physio: DataRepository.PhysioData?, battery: Int?): String {
         fun number(value: Number, format: String) =
             String.format(Locale.US, format, value.toDouble()).trimEnd('0').trimEnd('.')
-        return "<biometrics><device><model>WEAROS</model><uid>${CotXml.escape(uid)}</uid>" +
+        return "<physiology><device><model>WEAROS</model><uid>${CotXml.escape(uid)}</uid>" +
             buildString {
                 physio?.heartRateBpm?.takeIf { it in 20..250 }?.let { append("<hr>$it</hr>") }
                 physio?.skinTempF?.takeIf { it.isFinite() && it in 59f..113f }?.let {
@@ -32,7 +40,7 @@ object CotDetailBuilder {
                     append("<exert>${number(it, "%.2f")}</exert>")
                 }
                 battery?.takeIf { it in 0..100 }?.let { append("<bat>$it</bat>") }
-            } + "</device></biometrics>"
+            } + "</device></physiology>"
     }
 
     fun dittoTrack(
@@ -62,11 +70,8 @@ object CotDetailBuilder {
             CotXml.element("__group", listOf("role" to CotXml.escape(role), "name" to CotXml.escape(team))) +
             status(battery) +
             "<remarks>${CotXml.escape(remarks)}</remarks>" +
-            biometrics(uid, monitoredPhysio, battery) +
+            physiology(uid, monitoredPhysio, battery) +
             CotXml.element("track", listOf("course" to course, "speed" to speed)) +
-            CotXml.element("ditto", listOf(
-                "a" to CotXml.escape(dittoA), "ip" to CotXml.escape(dittoIp),
-                "version" to CotXml.escape(dittoVersion), "deviceName" to CotXml.escape(dittoDeviceName),
-            )),
+            ditto(DittoMetadata(dittoA, dittoDeviceName, dittoVersion), dittoIp),
     )
 }

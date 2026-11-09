@@ -43,4 +43,29 @@ class DittoTransportPolicyTest {
         assertTrue(config.connect.websocketUrls.isEmpty())
         assertFalse(config.peerToPeer.bluetoothLe.enabled)
     }
+
+    @Test fun diagnosticCapabilitiesRequirePublicAwareAndConfiguredWebsocketNotPrivateDirect() {
+        val features = mockk<PackageManager>()
+        every { features.hasSystemFeature(any()) } answers {
+            firstArg<String>() in setOf(PackageManager.FEATURE_BLUETOOTH_LE,
+                PackageManager.FEATURE_WIFI, "sem.hardware.wifi.direct")
+        }
+        val config = DittoTransportConfig().apply { enableAllPeerToPeer() }
+        assertEquals(DittoDiagnosticTransports(true, true), dittoDiagnosticTransports(features, config))
+        config.peerToPeer.bluetoothLe.enabled = false
+        config.peerToPeer.lan.enabled = false
+        assertEquals("temporary BLE window/LAN network gates do not hide usable hardware",
+            DittoDiagnosticTransports(true, true), dittoDiagnosticTransports(features, config))
+        every { features.hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE) } returns true
+        assertTrue(dittoDiagnosticTransports(features, config).p2pWifi)
+        config.peerToPeer.wifiAware.enabled = false
+        assertFalse(dittoDiagnosticTransports(features, config).p2pWifi)
+        assertFalse("unknown service config cannot claim Aware is usable", dittoDiagnosticTransports(features).p2pWifi)
+        config.connect.websocketUrls = mutableSetOf("wss://example.invalid/sync")
+        assertTrue(dittoDiagnosticTransports(features, config).websocket)
+        config.connect.websocketUrls.clear()
+        assertTrue("a configured endpoint survives temporary internet gating",
+            dittoDiagnosticTransports(features, config, websocketConfigured = true).websocket)
+        assertFalse(dittoDiagnosticTransports(features, config).websocket)
+    }
 }

@@ -131,9 +131,20 @@ class DittoIdentityApplyTest {
             isAccessible = true
             get(service) as CoroutineScope
         }
+        val diagnosticsStarted = CompletableDeferred<Unit>()
+        val diagnosticsClosed = CompletableDeferred<Unit>()
+        DittoDiagnostics(scope, MutableStateFlow(true), old, { _, _ -> },
+            observe = { _, _ ->
+                diagnosticsStarted.complete(Unit)
+                AutoCloseable { diagnosticsClosed.complete(Unit) }
+            })
+        diagnosticsStarted.await()
         activeService().value = service
         every { context.stopService(any()) } answers { service.onDestroy(); true }
-        every { old.close() } answers { assertFalse(scope.isActive) }
+        every { old.close() } answers {
+            assertFalse(scope.isActive)
+            assertTrue(diagnosticsClosed.isCompleted)
+        }
         assertTrue(DittoService.applySelectedIdentity(context, repo))
         verifyOrder { old.stopSync(); old.close() }
     }

@@ -4,14 +4,21 @@ import android.content.ComponentName
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.RemoteException
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.engine.config.ParserException
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import com.weartak.plugin.sdk.WearTakPluginContract
+import com.weartak.plugin.sdk.host.v1.HostServicesContract
 import com.weartak.plugin.sdk.aidl.IWearTakPlugin
 import com.weartak.plugin.sdk.model.PluginInitParcel
 import com.weartak.plugin.sdk.model.PluginInfoParcel
+import com.weartak.plugin.sdk.mopp.MoppPpeContract
+import com.weartak.plugin.sdk.routestatus.RouteStatusContract
+import com.weartak.plugin.sdk.transport.TransportCloseReason
+import com.weartak.plugin.sdk.transport.TransportContract
 import com.weartak.plugin.sdk.v2.WearTakPluginV2Contract
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +43,7 @@ class PluginConnection(
 
     /** Package key for diagnostics when the connection is not yet in [PluginManager]'s map. */
     internal val connectionPackageName: String get() = pluginPackage
+    internal val connectionComponent: ComponentName get() = component
 
     private var pluginBinder: IBinder? = null
     private var plugin: IWearTakPlugin? = null
@@ -46,6 +54,24 @@ class PluginConnection(
     private var hostControl: HostControlImpl? = null
     private var hostCallback: HostCallbackImpl? = null
     private var hostPcmControlV3: HostPcmControlV3Impl? = null
+    @Volatile private var hostTransportV1: PluginTransportHostV1Impl? = null
+    @Volatile private var hostMoppControl: HostMoppPpeControl? = null
+    @Volatile private var hostRouteStatusControl: HostRouteStatusControl? = null
+    private var hostServicesV1: HostServicesV1Impl? = null
+    private val stateLock = Any()
+    @Volatile private var closed = false
+    @Volatile private var trustVerified = false
+    internal val hasVerifiedTrust: Boolean get() = trustVerified && !closed
+    private var initializing = false
+    private var pendingRemoteCleanup: (() -> Unit)? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val handshakeTimeout = Runnable {
+        if (!closed) failBind("lifecycle_timeout")
+    }
+    @Volatile private var certificateImport: HostPkcs12ImportControl? = null
+    @Volatile private var serverPackages: HostServerPackageControl? = null
+    private val wearerLaunchUntil = java.util.concurrent.atomic.AtomicLong()
+    @Volatile private var sessionActive = false
 
     /**
      * Set when [onServiceConnected] fails before [PluginManager.bind] registers this connection.
@@ -55,17 +81,28 @@ class PluginConnection(
         private set
 
     private fun failBind(reason: String) {
+        if (closed) return
         suppressPostBindRegistration = true
         manager.onConnectionFailed(this@PluginConnection, reason)
     }
 
     private val deathRecipient = IBinder.DeathRecipient {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        hostRouteStatusControl?.close()
+        hostMoppControl?.close()
+        sessionActive = false
+        certificateImport?.close()
+        serverPackages?.close()
         appScope.launch {
             onBinderDiedInternal()
         }
     }
 
     private fun onBinderDiedInternal() {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        revokeCertificateSessions()
+        hostRouteStatusControl?.close()
+        hostMoppControl?.close()
         PluginDiagnostics.recordBinderDeath(pluginPackage)
         manager.onConnectionDied(this)
     }
@@ -79,40 +116,86 @@ class PluginConnection(
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    internal fun startBindingTimeout() {
+        mainHandler.postDelayed(handshakeTimeout, HANDSHAKE_TIMEOUT_MS)
+    }
+
     override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+        if (closed) return
         if (service == null) {
             PluginDiagnostics.recordBindFailure(component.flattenToString(), null, includeBinderProtocolCategory = false)
             failBind("null_binder")
             return
         }
+        synchronized(stateLock) {
+            if (closed || initializing || pluginBinder != null) return
+            initializing = true
+        }
+        mainHandler.removeCallbacks(handshakeTimeout)
+        startBindingTimeout()
+        if (!PluginLifecycleWork.execute(pluginPackage) {
+            try {
+                initialize(service)
+            } catch (error: RemoteException) {
+                Log.e(TAG, "plugin lifecycle failed pkg=$pluginPackage", error)
+                postFailure("remote_exception")
+            } catch (error: RuntimeException) {
+                Log.e(TAG, "plugin initialization failed pkg=$pluginPackage", error)
+                postFailure("initialization_failed")
+            } finally {
+                val cleanup = synchronized(stateLock) {
+                    initializing = false
+                    pendingRemoteCleanup.also { pendingRemoteCleanup = null }
+                }
+                cleanup?.invoke()
+            }
+        }) {
+            synchronized(stateLock) { initializing = false }
+            failBind("lifecycle_busy")
+        }
+    }
+
+    private fun postFailure(reason: String) {
+        mainHandler.post { if (!closed) failBind(reason) }
+    }
+
+    private fun initialize(service: IBinder) {
+        if (closed) return
         val iface = runCatching { IWearTakPlugin.Stub.asInterface(service) }.getOrElse { t ->
             PluginDiagnostics.recordBindFailure(component.flattenToString(), t, includeBinderProtocolCategory = false)
-            failBind("asInterface")
+            postFailure("asInterface")
             return
         }
-        pluginBinder = service
-        plugin = iface
+        synchronized(stateLock) {
+            if (closed) return
+            pluginBinder = service
+            plugin = iface
+        }
         runCatching { service.linkToDeath(deathRecipient, 0) }
             .onFailure { Log.w(TAG, "linkToDeath failed pkg=$pluginPackage", it) }
 
         val info = runCatching { iface.pluginInfo }.getOrElse { t ->
             Log.e(TAG, "getPluginInfo failed", t)
-            failBind("get_plugin_info")
+            postFailure("get_plugin_info")
             return
         }
-        pluginInfoSnapshot = info
+        if (closed) return
+        synchronized(stateLock) {
+            if (closed) return
+            pluginInfoSnapshot = info
+        }
         if (info.packageName != pluginPackage || info.pluginId != pluginPackage) {
             Log.w(
                 TAG,
                 "plugin info mismatch pkg=$pluginPackage info.pkg=${info.packageName} info.id=${info.pluginId}"
             )
-            failBind("plugin_info_mismatch")
+            postFailure("plugin_info_mismatch")
             return
         }
 
         val senderPackages = ingress.packagesForUid(app, pluginUid)
         if (pluginPackage !in senderPackages) {
-            failBind("uid_package_mismatch")
+            postFailure("uid_package_mismatch")
             return
         }
 
@@ -122,30 +205,69 @@ class PluginConnection(
             }
         }.onFailure { e ->
             val code = (e as? ParserException)?.reasonCode ?: e.javaClass.simpleName
-            failBind("trust_failure:$code")
+            postFailure("trust_failure:$code")
             return
         }
+        trustVerified = true
 
         val api = runCatching { iface.apiVersion }.getOrDefault(-1)
-        apiVersionSnapshot = api
+        if (closed) return
+        synchronized(stateLock) {
+            if (closed) return
+            apiVersionSnapshot = api
+        }
         if (
             api != WearTakPluginContract.CONTRACT_API_VERSION &&
             api != WearTakPluginV2Contract.CONTRACT_API_VERSION &&
             api != WearTakPluginV3Contract.CONTRACT_API_VERSION
         ) {
             Log.w(TAG, "plugin apiVersion=$api unsupported pkg=$pluginPackage")
-            failBind("api_version_mismatch:$api")
+            postFailure("api_version_mismatch:$api")
             return
         }
 
-        val control = HostControlImpl(app, ingress, pluginPackage, pluginUid)
+        val control = HostControlImpl(app, ingress, pluginPackage, pluginUid, isActive = { !closed })
         val controlV2 = if (api >= WearTakPluginV2Contract.CONTRACT_API_VERSION) {
-            HostControlV2Impl(app, ingress, pluginPackage, pluginUid)
+            HostControlV2Impl(app, ingress, pluginPackage, pluginUid, isActive = { !closed })
         } else {
             null
         }
         val controlV3 = if (api == WearTakPluginV3Contract.CONTRACT_API_VERSION) {
-            HostPcmControlV3Impl(app.audioRepo, pluginPackage, pluginUid)
+            sessionActive = true
+            val authenticate = {
+                    if (closed || !sessionActive || pluginBinder?.isBinderAlive != true) false
+                    else try {
+                        runBlocking {
+                            pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+                        }
+                        true
+                    } catch (_: com.aitech.weartak_civ.cep.engine.config.ParserException) {
+                        Log.w(TAG, "Certificate import session authentication rejected")
+                        false
+                    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                        Log.w(TAG, "Certificate import plugin package unavailable")
+                        false
+                    } catch (_: Exception) {
+                        Log.e(TAG, "Certificate import session verification unavailable")
+                        false
+                    }
+            }
+            val launch: (String) -> Unit = { handle ->
+                    app.startActivity(android.content.Intent(app,
+                        com.aitech.weartak_civ.presentation.CertificateImportActivity::class.java)
+                        .putExtra("review_handle", handle).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            val consumeLaunch = { wearerLaunchUntil.getAndSet(0) > android.os.SystemClock.elapsedRealtime() }
+            val importer = HostPkcs12ImportControl(pluginUid, authenticate, launch, consumeWearerLaunch = consumeLaunch)
+            certificateImport = importer
+            val packages = HostServerPackageControl(pluginUid, authenticate, launch, launchExport = { handle ->
+                app.startActivity(android.content.Intent(app,
+                    com.aitech.weartak_civ.presentation.ServerPackageExportActivity::class.java)
+                    .putExtra("export_handle", handle).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }, consumeWearerLaunch = consumeLaunch)
+            serverPackages = packages
+            HostPcmControlV3Impl(app.audioRepo, pluginPackage, pluginUid,
+                pkcs12Import = importer, serverPackages = packages)
         } else {
             null
         }
@@ -154,18 +276,81 @@ class PluginConnection(
             settingsCoordinator = manager.settingsCoordinator,
             pluginId = pluginPackage,
             pluginUid = pluginUid,
+            isActive = { !closed },
         )
-        hostControl = control
-        hostCallback = callback
-        hostPcmControlV3 = controlV3
+        val moppControl = if (pluginPackage == MoppPluginAvailability.PACKAGE) {
+            HostMoppPpeControl(app.repo.moppPpeStore, pluginUid, authorize = {
+                if (closed || pluginBinder?.isBinderAlive != true) {
+                    false
+                } else {
+                    try {
+                        runBlocking {
+                            pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+                        }
+                        true
+                    } catch (error: ParserException) {
+                        Log.w(TAG, "MOPP trust rejected: ${error.reasonCode}")
+                        false
+                    } catch (error: android.content.pm.PackageManager.NameNotFoundException) {
+                        Log.w(TAG, "MOPP package unavailable", error)
+                        false
+                    } catch (error: SecurityException) {
+                        Log.w(TAG, "MOPP package access denied", error)
+                        false
+                    }
+                }
+            })
+        } else null
+        val services = HostServicesV1Impl(app, pluginPackage, pluginUid)
+        val routeStatusControl = HostRouteStatusControl(
+            manager.settingsCoordinator.routeStatuses, pluginPackage, pluginUid,
+            isBindingActive = { !closed && pluginBinder?.isBinderAlive == true }
+        )
+        val transportV1 = PluginTransportHostV1Impl(
+            app = app,
+            ingress = ingress,
+            pluginId = pluginPackage,
+            expectedPluginUid = pluginUid,
+        )
+        synchronized(stateLock) {
+            if (closed) {
+                revokeCertificateSessions()
+                routeStatusControl.close()
+                moppControl?.close()
+                controlV3?.close()
+                services.close()
+                transportV1.closeBinding(TransportCloseReason.STOPPED)
+                return
+            }
+            hostControl = control
+            hostCallback = callback
+            hostPcmControlV3 = controlV3
+            hostServicesV1 = services
+            hostMoppControl = moppControl
+            hostRouteStatusControl = routeStatusControl
+            hostTransportV1 = transportV1
+            manager.settingsCoordinator.registerTransportHost(pluginPackage, transportV1)
+        }
 
         val init = PluginInitParcel(
             hostPackageName = app.packageName,
             hostUid = android.os.Process.myUid(),
             pluginIdExpected = pluginPackage,
             hostExtras = android.os.Bundle().apply {
+                putInt(com.weartak.plugin.sdk.MainUiActionContract.HOST_PRESENTATION_VERSION_KEY,
+                    com.weartak.plugin.sdk.MainUiActionContract.PRESENTATION_VERSION)
+                putInt(HostServicesContract.EXTRA_VERSION, HostServicesContract.VERSION)
+                putBinder(HostServicesContract.EXTRA_BINDER, services.asBinder())
                 putBoolean(HostControlImpl.HOST_EXTRA_COT_ROUTING_V1, true)
                 putBoolean(HostControlImpl.HOST_EXTRA_CHAT_DISPATCH_V1, true)
+                putBoolean(RouteStatusContract.EXTRA_CAPABILITY, true)
+                putBinder(RouteStatusContract.EXTRA_CONTROL, routeStatusControl)
+                putInt(TransportContract.EXTRA_VERSION, TransportContract.VERSION)
+                putBinder(TransportContract.EXTRA_CONTROL, transportV1.asBinderForInit())
+                if (moppControl != null) {
+                    putBoolean(MoppPpeContract.EXTRA_CAPABILITY, true)
+                    putBinder(MoppPpeContract.EXTRA_CONTROL, moppControl)
+                }
             },
         )
         try {
@@ -174,25 +359,43 @@ class PluginConnection(
             } else {
                 iface.initializePluginV2(init, control, controlV2)
             }
+            if (closed) return
             iface.registerHostCallback(callback)
+            if (closed) return
             iface.startPlugin()
-            manager.settingsCoordinator.onPluginConnected(pluginPackage, iface)
+            if (closed) return
+            transportV1.activateBinding()
+            manager.settingsCoordinator.onPluginConnected(pluginPackage, iface) { !closed }
         } catch (e: RemoteException) {
             Log.e(TAG, "plugin lifecycle failed pkg=$pluginPackage", e)
-            failBind("remote_exception")
+            postFailure("remote_exception")
             return
         }
-        PluginDiagnostics.markConnected(pluginPackage)
-        manager.onConnectionReady(pluginPackage)
-        Log.i(TAG, "initialized plugin pkg=$pluginPackage api=$api")
+        mainHandler.post {
+            if (!closed && manager.onConnectionReady(this)) {
+                mainHandler.removeCallbacks(handshakeTimeout)
+                PluginDiagnostics.markConnected(pluginPackage)
+                moppControl?.ready()
+                routeStatusControl.ready()
+                Log.i(TAG, "initialized plugin pkg=$pluginPackage api=$api")
+            }
+        }
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        revokeCertificateSessions()
+        hostRouteStatusControl?.close()
+        hostMoppControl?.close()
         Log.w(TAG, "onServiceDisconnected pkg=$pluginPackage")
         manager.onConnectionLost(this@PluginConnection)
     }
 
     override fun onBindingDied(name: ComponentName?) {
+        hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        revokeCertificateSessions()
+        hostRouteStatusControl?.close()
+        hostMoppControl?.close()
         Log.w(TAG, "onBindingDied pkg=$pluginPackage")
         manager.onConnectionLost(this)
     }
@@ -202,37 +405,87 @@ class PluginConnection(
         failBind("null_binder")
     }
 
+    private fun revokeCertificateSessions() {
+        sessionActive = false
+        wearerLaunchUntil.set(0)
+        certificateImport?.close()
+        serverPackages?.close()
+    }
+
     fun tearDownBinder(reason: String) {
+        revokeCertificateSessions()
         Log.i(TAG, "tearDownBinder pkg=$pluginPackage reason=$reason")
-        val iface = plugin
-        val cb = hostCallback
-        val binder = pluginBinder
-        runCatching {
-            if (iface != null && cb != null) {
-                iface.unregisterHostCallback(cb)
+        val cleanup = synchronized(stateLock) {
+            if (closed) return
+            closed = true
+            revokeCertificateSessions()
+            certificateImport = null
+            serverPackages = null
+            hostRouteStatusControl?.close()
+            hostRouteStatusControl = null
+            hostMoppControl?.close()
+            hostMoppControl = null
+            mainHandler.removeCallbacks(handshakeTimeout)
+            hostServicesV1?.close()
+            hostPcmControlV3?.close()
+            hostTransportV1?.closeBinding(
+                if (reason.contains("disconnect", ignoreCase = true) ||
+                    reason.contains("death", ignoreCase = true)
+                ) {
+                    TransportCloseReason.DISCONNECTED
+                } else {
+                    TransportCloseReason.STOPPED
+                },
+            )
+            hostTransportV1?.let {
+                manager.settingsCoordinator.unregisterTransportHost(pluginPackage, it)
             }
+            val iface = plugin
+            val cb = hostCallback
+            val binder = pluginBinder
+            // Local revocation must not wait for a remote lifecycle transaction.
+            hostCallback?.close()
+            manager.settingsCoordinator.unregisterPlugin(pluginPackage)
+            plugin = null
+            pluginInfoSnapshot = null
+            apiVersionSnapshot = -1
+            hostControl = null
+            hostCallback = null
+            hostPcmControlV3 = null
+            hostServicesV1 = null
+            hostTransportV1 = null
+            pluginBinder = null
+            val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) null else ({
+                fun attempt(method: String, block: () -> Unit) {
+                    runCatching(block).onFailure { Log.w(TAG, "$method failed pkg=$pluginPackage", it) }
+                }
+                attempt("unregisterHostCallback") { if (iface != null && cb != null) iface.unregisterHostCallback(cb) }
+                attempt("stopPlugin") { iface?.stopPlugin() }
+                attempt("shutdownPlugin") { iface?.shutdownPlugin() }
+                attempt("unlinkToDeath") { binder?.unlinkToDeath(deathRecipient, 0) }
+            })
+            if (initializing) {
+                pendingRemoteCleanup = remoteCleanup
+                null
+            } else remoteCleanup
         }
-        runCatching { iface?.stopPlugin() }
-        hostPcmControlV3?.close()
-        runCatching { iface?.shutdownPlugin() }
-        runCatching {
-            if (binder != null) binder.unlinkToDeath(deathRecipient, 0)
+        if (cleanup != null && !PluginLifecycleWork.execute(pluginPackage, cleanup)) {
+            Log.w(TAG, "Best-effort remote cleanup skipped: lifecycle busy pkg=$pluginPackage")
         }
-        manager.settingsCoordinator.unregisterPlugin(pluginPackage)
-        plugin = null
-        pluginInfoSnapshot = null
-        apiVersionSnapshot = -1
-        hostControl = null
-        hostCallback = null
-        hostPcmControlV3 = null
-        pluginBinder = null
     }
 
     internal fun pluginInfoSnapshot(): PluginInfoParcel? = pluginInfoSnapshot
 
     internal fun apiVersionSnapshot(): Int = apiVersionSnapshot
 
+    internal fun allowCertificateReviewFromWearerLaunch() {
+        wearerLaunchUntil.set(android.os.SystemClock.elapsedRealtime() + 300_000L)
+        certificateImport?.allowReviewFromWearerLaunch()
+        serverPackages?.allowFromWearerLaunch()
+    }
+
     companion object {
         private const val TAG = "CEP-PluginConnection"
+        private const val HANDSHAKE_TIMEOUT_MS = 10_000L
     }
 }

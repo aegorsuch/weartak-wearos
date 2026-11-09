@@ -9,23 +9,16 @@
 
 package com.aitech.weartak_civ.presentation.audio
 
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.wear.compose.material.Icon
-import androidx.wear.compose.material.MaterialTheme.colors
-import androidx.wear.compose.material.Text
+import androidx.compose.ui.res.stringResource
+import androidx.wear.compose.material.ChipDefaults
+import com.aitech.weartak_civ.R
+import com.aitech.weartak_civ.Utils.AlertChipState
+import com.aitech.weartak_civ.presentation.WarningReviewAction
+import com.aitech.weartak_civ.presentation.WarningReviewDialog
+import kotlin.math.roundToInt
 
 @Composable
 fun DetectionFeedbackDialog(
@@ -34,44 +27,23 @@ fun DetectionFeedbackDialog(
     confidence: Float,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
-    onReject: () -> Unit
+    onReject: () -> Unit,
+    feedbackFailed: Boolean = false
 ) {
     if (!shouldShow) return
-
-    val confPercent = kotlin.math.round(confidence * 100f)
-
-    AlertDialog(
-        containerColor = colors.background,
-        modifier = Modifier.fillMaxSize(),
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                Icons.Default.Warning,
-                modifier = Modifier.size(25.dp),
-                contentDescription = null,
-                tint = Color.LightGray
-            )
-        },
-        text = {
-            Text(
-                "$promptText\nScore: ${"%.0f".format(confPercent)}%",
-                textAlign = TextAlign.Center,
-                fontSize = 14.sp
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                modifier = Modifier.fillMaxWidth(0.45f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Green)
-            ) { Text("YES", color = Color.Black) }
-        },
-        dismissButton = {
-            Button(
-                onClick = onReject,
-                modifier = Modifier.fillMaxWidth(0.45f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
-            ) { Text("NO") }
-        }
-    )
+    val score = stringResource(R.string.audio_detection_score, (confidence * 100f).roundToInt())
+    WarningReviewDialog(
+        title = promptText,
+        detail = score + if (feedbackFailed) "\n${stringResource(R.string.audio_detection_feedback_failed)}" else "",
+        chipState = AlertChipState.Warning,
+        tag = "audio-detection-dialog",
+        backTag = "audio-detection-back",
+        onDismiss = onDismiss
+    ) {
+        WarningReviewAction(stringResource(R.string.audio_detection_yes), "audio-detection-yes",
+            onConfirm, Modifier.weight(1f),
+            ChipDefaults.chipColors(backgroundColor = Color.Green, contentColor = Color.Black))
+        WarningReviewAction(stringResource(R.string.audio_detection_no), "audio-detection-no",
+            onReject, Modifier.weight(1f), ChipDefaults.secondaryChipColors())
+    }
 }

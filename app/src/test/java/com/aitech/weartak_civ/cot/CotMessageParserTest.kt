@@ -93,6 +93,30 @@ class CotMessageParserTest {
     }
 
     @Test
+    fun acceptsPhysiologyAndLegacyBiometricsPliWithoutChangingPositionFields() {
+        val expected = CotMessageParser.parseUserPositionOrNull(PLI_XML)
+        for (tag in listOf("physiology", "biometrics")) {
+            val xml = PLI_XML.replace("</detail>",
+                "<$tag><device><model>WEAROS</model><uid>watch-1</uid>" +
+                    "<hr>72</hr><skt>98.6</skt><exert>0.25</exert><bat>80</bat></device></$tag></detail>")
+            assertEquals(expected, CotMessageParser.parseUserPositionOrNull(xml))
+            assertNull(CotMessageParser.parseCompanionUserOrNull(
+                xml.replace("uid='watch-1'", "uid='rewritten'"), "watch-1", "phone-self"))
+        }
+    }
+
+    @Test
+    fun physiologyAndLegacyBiometricsAlertsRetainIdenticalMetadata() {
+        for (legacy in listOf(EMERGENCY_XML, ATAK_STANDARD_ALERT_XML, WEARTAK_ALERT_XML, WEARTAK_CANCEL_XML)) {
+            val physiology = legacy.replace("<biometrics", "<physiology")
+                .replace("</biometrics>", "</physiology>")
+            val expected = CotMessageParser.parseEmergencyOrNull(legacy)
+            assertNotNull(expected)
+            assertEquals(expected, CotMessageParser.parseEmergencyOrNull(physiology))
+        }
+    }
+
+    @Test
     fun rejectsMarkersWithInvalidCoordinates() {
         assertNull(CotMessageParser.parseMarkerOrNull(MARKER_XML.replace("lat='41.0'", "lat='91.0'")))
         assertNull(CotMessageParser.parseMarkerOrNull(MARKER_XML.replace("lon='-87.0'", "lon='NaN'")))

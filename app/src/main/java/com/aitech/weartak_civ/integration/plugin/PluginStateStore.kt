@@ -4,6 +4,10 @@ import android.content.Context
 
 /** Durable host-side lifecycle and visibility state for installed plugins. */
 class PluginStateStore(context: Context) {
+    private val legacyPreferences = context.applicationContext.getSharedPreferences(
+        "plugin_loading",
+        Context.MODE_PRIVATE,
+    )
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,
         Context.MODE_PRIVATE,
@@ -11,7 +15,7 @@ class PluginStateStore(context: Context) {
 
     fun isEnabled(packageName: String): Boolean = preferences.getBoolean(
         key(packageName, ENABLED_SUFFIX),
-        true,
+        packageName !in legacyPreferences.getStringSet("disabled_packages", emptySet()).orEmpty(),
     )
 
     fun setEnabled(packageName: String, enabled: Boolean) {

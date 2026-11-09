@@ -49,8 +49,9 @@ class DittoCompanionLifecycleTest {
     private fun field(name: String) = DittoService::class.java.getDeclaredField(name)
         .apply { isAccessible = true }
 
-    private fun service(): DittoService =
-        Robolectric.buildService(DittoService::class.java).get().also {
+    private fun service(spy: Boolean = false): DittoService =
+        Robolectric.buildService(DittoService::class.java).get()
+            .let { if (spy) spyk(it) else it }.also {
             field("dataRepository").set(it, repo)
             services += it
         }
@@ -66,7 +67,7 @@ class DittoCompanionLifecycleTest {
         connected.value = true
         val app = mockk<WearTakApplication>(relaxed = true)
         every { app.repo } returns repo
-        val service = spyk(service())
+        val service = service(spy = true)
         every { service.applicationContext } returns app
         field("dittoInstance").set(null, native)
         service.onCreate()
@@ -77,7 +78,7 @@ class DittoCompanionLifecycleTest {
         graceActive.value = true
         val app = mockk<WearTakApplication>(relaxed = true)
         every { app.repo } returns repo
-        val service = spyk(service())
+        val service = service(spy = true)
         every { service.applicationContext } returns app
         field("dittoInstance").set(null, native)
 

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.Text
@@ -188,7 +189,7 @@ class MapLayerLifecycleTest {
                 compose.runOnIdle { generation.value++ }
                 compose.onNodeWithText("Select synthetic marker").performClick()
                 compose.runOnIdle { generation.value++ }
-                compose.onNodeWithText("Start Bloodhound").performClick()
+                compose.onNodeWithContentDescription("Start Bloodhound").performClick()
                 compose.waitForIdle()
                 assertEquals(index + 1, returned)
                 assertFalse(RecordingSymbolLayer.detachedFilterCalled)

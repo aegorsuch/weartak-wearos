@@ -1,11 +1,15 @@
 package com.aitech.weartak_civ.presentation
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.KeyEvent
+import android.view.View
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -19,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardActionScope
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +40,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.annotation.IdRes
 import androidx.wear.compose.material.MaterialTheme.colors
 
 internal const val WEARTAK_TEXT_FIELD_TAG = "weartak_platform_text_field"
@@ -48,22 +54,41 @@ internal fun PlatformTextField(
     label: String,
     keyboardType: KeyboardType,
     keyboardActions: KeyboardActions,
-    autoFocus: Boolean = false
+    autoFocus: Boolean = false,
+    @IdRes fieldId: Int = View.NO_ID,
+    accessibilityError: String? = null,
+    saveState: Boolean = true,
 ): TextFieldValue {
-    var value by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+    val state = if (saveState) rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(string, TextRange(string.length)))
+    } else remember {
         mutableStateOf(TextFieldValue(string, TextRange(string.length)))
     }
+    var value by state
     val actions by rememberUpdatedState(keyboardActions)
+    val currentError by rememberUpdatedState(accessibilityError)
     val holder = remember { arrayOfNulls<EditText>(1) }
     var hadFocus by remember { mutableStateOf(false) }
     val primary = colors.primary
+
+    LaunchedEffect(accessibilityError) {
+        holder[0]?.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(text = label, color = primary, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         AndroidView(
             factory = { context ->
                 EditText(context).apply {
+                    id = fieldId
                     tag = WEARTAK_TEXT_FIELD_TAG
+                    accessibilityDelegate = object : View.AccessibilityDelegate() {
+                        override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                            super.onInitializeAccessibilityNodeInfo(host, info)
+                            info.isContentInvalid = currentError != null
+                            info.error = currentError
+                        }
+                    }
                     background = null
                     isSaveEnabled = false
                     setSingleLine(true)
@@ -107,6 +132,10 @@ internal fun PlatformTextField(
                     }
                 }
             },
+            update = { field ->
+                field.id = fieldId
+                field.hint = label
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 48.dp)
@@ -128,6 +157,8 @@ private fun hideKeyboard(editText: EditText) {
     imm?.hideSoftInputFromWindow(editText.windowToken, 0)
 }
 
+// Pure keyboard-type adapter, not an authentication prompt; password variants must remain masked.
+@SuppressLint("WearPasswordInput")
 internal fun inputTypeFor(keyboardType: KeyboardType): Int = when (keyboardType) {
     KeyboardType.Number -> InputType.TYPE_CLASS_NUMBER
     KeyboardType.Decimal -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL

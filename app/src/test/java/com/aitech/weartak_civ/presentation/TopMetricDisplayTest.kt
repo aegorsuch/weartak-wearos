@@ -27,15 +27,26 @@ class TopMetricDisplayTest {
         MainActivity.device_uid = "test-watch"
         val repo = DataRepository(app)
         val key = stringPreferencesKey("selected_physio_metric")
-        for (metric in TopDisplayMetric.entries) {
-            // Seed the existing persisted format rather than rewriting it via the current setter.
-            repo.legacyDataStore().edit { it[key] = metric.key }
-            for (input in LocationInput.entries) {
-                val reopened = DataRepository(app)
-                assertEquals(metric.key, reopened.getSelectedPhysioMetric.first())
-                assertTrue(reopened.storeLocationInput(input))
-                assertEquals(metric.key, DataRepository(app).getSelectedPhysioMetric.first())
-                assertEquals(metric.key, repo.legacyDataStore().data.first()[key])
+        val locationKey = stringPreferencesKey("location_input")
+        val original = repo.legacyDataStore().data.first()
+        try {
+            for (metric in TopDisplayMetric.entries) {
+                // Seed the existing persisted format rather than rewriting it via the current setter.
+                repo.legacyDataStore().edit { it[key] = metric.key }
+                for (input in LocationInput.entries) {
+                    val reopened = DataRepository(app)
+                    assertEquals(metric.key, reopened.getSelectedPhysioMetric.first())
+                    assertTrue(reopened.storeLocationInput(input))
+                    assertEquals(metric.key, DataRepository(app).getSelectedPhysioMetric.first())
+                    assertEquals(metric.key, repo.legacyDataStore().data.first()[key])
+                }
+            }
+        } finally {
+            repo.legacyDataStore().edit { prefs ->
+                for (changedKey in listOf(locationKey, key)) {
+                    val value = original[changedKey]
+                    if (value == null) prefs.remove(changedKey) else prefs[changedKey] = value
+                }
             }
         }
     }

@@ -8,12 +8,13 @@ import android.database.Cursor
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 
-// Debug-only: draws a red DEV label near the bottom of every activity so dev and release builds are easy to tell apart.
+// Physical debug builds remain distinguishable; emulator previews show production branding.
 class DevBadgeInitializer : ContentProvider() {
     override fun onCreate(): Boolean {
         (context?.applicationContext as? Application)?.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -29,6 +30,7 @@ class DevBadgeInitializer : ContentProvider() {
     }
 
     private fun addBadge(activity: Activity) {
+        if (!showDevBadge(Build.HARDWARE)) return
         val decor = activity.window?.decorView as? ViewGroup ?: return
         if (decor.findViewWithTag<TextView>(TAG) != null) return
         val density = activity.resources.displayMetrics.density
@@ -43,6 +45,7 @@ class DevBadgeInitializer : ContentProvider() {
             isClickable = false
             isFocusable = false
         }
+
         val params = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -60,3 +63,5 @@ class DevBadgeInitializer : ContentProvider() {
 
     private companion object { const val TAG = "dev_badge" }
 }
+
+internal fun showDevBadge(hardware: String): Boolean = hardware !in setOf("ranchu", "goldfish")

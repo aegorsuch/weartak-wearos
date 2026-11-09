@@ -1164,22 +1164,22 @@ class SkinTempService : Service() {
         HrvPayload(rmssd_ms = lastNonZeroRmssdMs, ts = lastRmssdWallMs)
     }
 
-	// ---- HRV helpers (mirrors WEAR-383) ----
-	private fun addValidNnIntervals(ibiList: List<Int>?, ibiStatusList: List<Int>?): Boolean {
-		if (ibiList.isNullOrEmpty()) return false
+    // ---- HRV helpers (mirrors WEAR-383) ----
+    private fun addValidNnIntervals(ibiList: List<Int>?, ibiStatusList: List<Int>?): Boolean {
+        if (ibiList.isNullOrEmpty()) return false
         var added = false
-		val hasStatus = !ibiStatusList.isNullOrEmpty() && ibiStatusList.size == ibiList.size
-		for (i in ibiList.indices) {
-			val ibi = ibiList[i]
-			val statusOk = if (hasStatus) (ibiStatusList!![i] == 0) else true
-			if (!statusOk) continue
-			if (ibi < NN_MIN_MS || ibi > NN_MAX_MS) continue
-			nnBuffer.addLast(ibi)
+        val hasStatus = !ibiStatusList.isNullOrEmpty() && ibiStatusList.size == ibiList.size
+        for (i in ibiList.indices) {
+            val ibi = ibiList[i]
+            val statusOk = if (hasStatus) (ibiStatusList!![i] == 0) else true
+            if (!statusOk) continue
+            if (ibi < NN_MIN_MS || ibi > NN_MAX_MS) continue
+            nnBuffer.addLast(ibi)
             added = true
-			while (nnBuffer.size > MAX_NN_BUFFER) nnBuffer.removeFirst()
-		}
+            while (nnBuffer.size > MAX_NN_BUFFER) nnBuffer.removeFirst()
+        }
         return added
-	}
+    }
 
 	private fun computeRmssdMs(): Double? {
 		if (nnBuffer.size < MIN_NN_FOR_RMSSD) return null

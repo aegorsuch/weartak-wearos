@@ -46,7 +46,8 @@ enum class DiagnosticEvent {
     MOTION_CONFIRMATION, POWER_CONTEXT, DEVICE_SETTING, RESOURCE_LIFETIME,
     MISSION_LIST, // RESULT: 0 paused, 1 fetched, 2 unchanged, 3 failed
     OFF_BODY_TAK,
-    BLE_DISCOVERY, SPO2_SKIPPED_MOTION
+    BLE_DISCOVERY, SPO2_SKIPPED_MOTION,
+    DITTO_LIFECYCLE, DITTO_STATE, DITTO_TRANSPORTS, DITTO_PEERS, DITTO_SDK_LOG
 }
 
 @Keep
@@ -256,6 +257,19 @@ class AppDiagnostics internal constructor(private val application: Application) 
                         }
                     }
                 }
+            }
+        }
+        scope.launch {
+            enabled.collectLatest { recording ->
+                if (!recording) return@collectLatest
+                combine(DittoService.syncActive, DittoService.powerSuppressed,
+                    DittoService.isReconfiguring) { active, suppressed, changing ->
+                    mapOf(
+                        DiagnosticMetric.ACTIVE to if (active) 1L else 0L,
+                        DiagnosticMetric.SUPPRESSED to if (suppressed) 1L else 0L,
+                        DiagnosticMetric.REQUESTED to if (changing) 1L else 0L
+                    )
+                }.distinctUntilChanged().collect { capture(DiagnosticEvent.DITTO_STATE, it) }
             }
         }
         if (enabled.value) {

@@ -21,9 +21,22 @@ class PluginActivityLauncherTest {
     private val packageManager = mockk<PackageManager>()
     private val context = mockk<Context> {
         every { packageManager } returns this@PluginActivityLauncherTest.packageManager
+        every { applicationContext } returns mockk<Context>(relaxed = true)
         every { startActivity(any()) } returns Unit
     }
     private val packageName = "com.weartak.plugin.sample"
+
+    @Test fun activityLaunchKeepsHostInForegroundTaskForExplicitReviewReturn() {
+        val activity = mockk<android.app.Activity> {
+            every { packageManager } returns this@PluginActivityLauncherTest.packageManager
+            every { startActivity(any()) } returns Unit
+            every { applicationContext } returns mockk<Context>(relaxed = true)
+        }
+        val intent = Intent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        every { packageManager.getLaunchIntentForPackage(packageName) } returns intent
+        assertTrue(PluginActivityLauncher.launch(activity, packageName))
+        assertFalse(intent.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+    }
 
     @Test
     fun launchesEachPluginsOwnPackageWithoutRequiringLoadedCapabilities() {

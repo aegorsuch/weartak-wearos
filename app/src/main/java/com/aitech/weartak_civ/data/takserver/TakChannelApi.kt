@@ -122,14 +122,18 @@ internal class TakChannelApi(
     private val serverId: String,
     private val serverName: String,
     hostnameVerifier: HostnameVerifier,
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    client: OkHttpClient = OkHttpClient.Builder()
         .sslSocketFactory(sslContext.socketFactory, trustManager)
         .hostnameVerifier(hostnameVerifier)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build(),
     private val session: TakHttpSession? = null,
+    strictEndpoint: Boolean = false,
 ) {
+    private val client = if (strictEndpoint) client.newBuilder()
+        .followRedirects(false).followSslRedirects(false).build() else client
+
     fun loadGroups(
         sendLatestSa: Boolean,
         checkSupport: Boolean,

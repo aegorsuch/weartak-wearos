@@ -114,6 +114,75 @@ class CommandReplyWriteTest {
         verify(exactly = 0) { socket.outputStream }
     }
 
+    @Test fun medicalGateIsRecheckedInsideOutputQueueAndNewSessionIsNotUsed() = runBlocking {
+        val bytes = ByteArrayOutputStream()
+        every { socket.outputStream } returns bytes
+        val attempt = detail.runtime.currentAttempt!!
+        var consent = true
+        attempt.outputMutex.lock()
+        val pending = async(Dispatchers.Default) {
+            TAKConnectService.writeCommandReply(detail, "<synthetic-patient/>", beforeWrite = { consent })
+        }
+        delay(100)
+        consent = false
+        attempt.outputMutex.unlock()
+        assertFalse(pending.await())
+        assertEquals(0, bytes.size())
+        assertFalse(TAKConnectService.writeCommandReply(detail, "<synthetic-patient/>", beforeWrite = {
+            detail.runtime.generation++
+            true
+        }))
+        assertEquals(0, bytes.size())
+    }
+
+    @Test fun patientWritesOnlyEnabledConnectedNonduplicateTakStreamsAndHonorsGate() = runBlocking {
+        mockkObject(LicenseManager)
+        every { LicenseManager.isLicenseValid() } returns true
+        TAKConnectService.isNetworkConnected = true
+        val previous = TAKConnectService.takServerDetails
+        val outputs = linkedMapOf<String, ByteArrayOutputStream>()
+        fun server(id: String): TAKConnectService.TakServerDetail {
+            val output = ByteArrayOutputStream().also { outputs[id] = it }
+            val sessionSocket = mockk<SSLSocket> {
+                every { isClosed } returns false
+                every { isConnected } returns true
+                every { outputStream } returns output
+            }
+            return TAKConnectService.TakServerDetail(id, true, id, "synthetic.invalid",
+                8089, false, "", "", null, null).apply {
+                runtime.generation = 1
+                runtime.currentAttempt = TAKConnectService.ConnectionAttempt(1).apply { socket = sessionSocket }
+                secureSocket = sessionSocket
+                connectionStatus.set(TAKConnectService.TAK_SERVER_CONNECTED_COT_PORT)
+            }
+        }
+        try {
+            TAKConnectService.takServerDetails = mutableListOf(
+                server("first"), server("second"),
+                server("disabled").apply { isEnabled = false },
+                server("duplicate").apply { duplicateEndpointSuppressed = true },
+                server("disconnected").apply { connectionStatus.set(TAKConnectService.TAK_SERVER_DISCONNECTED) }
+            )
+            assertEquals(BatdokTakWrite(2, 2), TAKConnectService.sendBatdokPatient("<synthetic-patient/>") { true })
+            assertEquals("<synthetic-patient/>", outputs.getValue("first").toString("UTF-8"))
+            assertEquals("<synthetic-patient/>", outputs.getValue("second").toString("UTF-8"))
+            listOf("disabled", "duplicate", "disconnected").forEach { assertEquals(0, outputs.getValue(it).size()) }
+            outputs.values.forEach { it.reset() }
+            assertEquals(BatdokTakWrite(0, 2), TAKConnectService.sendBatdokPatient("<revoked/>") { false })
+            assertTrue(outputs.values.all { it.size() == 0 })
+            TAKConnectService.takEndpointEnabled = false
+            assertEquals(BatdokTakWrite(0, 0, "tak_endpoint_off"),
+                TAKConnectService.sendBatdokPatient("<disabled-endpoint/>") { true })
+            assertTrue(outputs.values.all { it.size() == 0 })
+            TAKConnectService.takEndpointEnabled = true
+            TAKConnectService.isNetworkConnected = false
+            assertEquals(BatdokTakWrite(0, 0, "network"), TAKConnectService.sendBatdokPatient("<offline/>") { true })
+            assertTrue(outputs.values.all { it.size() == 0 })
+        } finally {
+            TAKConnectService.takServerDetails = previous
+        }
+    }
+
     @Test fun normalAndConfirmedWritesShareOneConnectionSerializer() = runBlocking {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)

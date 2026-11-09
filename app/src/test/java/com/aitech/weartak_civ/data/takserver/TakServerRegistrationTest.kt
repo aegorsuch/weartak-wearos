@@ -1,4 +1,5 @@
 package com.aitech.weartak_civ.data.takserver
+import kotlinx.coroutines.CancellationException
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -7,6 +8,10 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.logging.Handler
+import java.util.logging.LogRecord
+import java.util.logging.Logger
+import javax.net.ssl.SSLHandshakeException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TakServerRegistrationTest {
@@ -200,5 +205,94 @@ class TakServerRegistrationTest {
         old.join()
         assertEquals("new-server", registration.state.value.serverId)
         assertTrue(registration.state.value.isLoading)
+    }
+
+    @Test fun registrationStepsPreserveInnermostStageAndCancellationWithoutSensitiveValues() = runTest {
+        val logs = mutableListOf<LogRecord>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) { logs.add(record) }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger("WearTAK-Registration")
+        logger.addHandler(handler)
+        try {
+            TakServerRegistration.Step.entries.forEach { step ->
+                registration.saveAndConnect(serverId, { TakServerRegistration.SaveResult.SAVED }) {
+                    registration.atStep(step) { error("private-key password server.example") }
+                }
+                assertTrue(logs.last().message.contains("registrationStep=$step"))
+                assertTrue(logs.last().message.contains("StepFailure -> IllegalStateException"))
+                assertFalse(registration.state.value.isLoading)
+            }
+            registration.saveAndConnect(serverId, { TakServerRegistration.SaveResult.SAVED }) {
+                registration.atStep(TakServerRegistration.Step.RUNTIME_RECONCILIATION) {
+                    registration.atStep(TakServerRegistration.Step.ID_NORMALIZATION) {
+                        throw TakEnrollmentException(TakConnectionFailure(
+                            TakEnrollmentStage.CERTIFICATE, TakFailureCategory.CERTIFICATE))
+                    }
+                }
+            }
+            assertTrue(logs.last().message.contains("registrationStep=ID_NORMALIZATION"))
+            assertFalse(logs.last().message.contains("registrationStep=RUNTIME_RECONCILIATION"))
+            assertEquals(TakFailureCategory.CERTIFICATE, registration.state.value.failure?.category)
+            val count = logs.size
+            val cancellation = CancellationException("private-key")
+            try {
+                registration.atStep(TakServerRegistration.Step.PERSISTED_LIST_RELOAD) { throw cancellation }
+                fail("Cancellation must propagate")
+            } catch (error: CancellationException) {
+                assertSame(cancellation, error)
+            }
+            assertEquals(count, logs.size)
+            logs.forEach {
+                assertNull(it.thrown)
+                listOf("private-key", "password", "server.example", serverId).forEach { secret ->
+                    assertFalse(it.message.contains(secret))
+                }
+            }
+        } finally {
+            logger.removeHandler(handler)
+        }
+    }
+
+    @Test fun failureLogsPreserveSafePhaseCauseAndEnrollmentDetailsWithoutSensitiveValues() = runTest {
+        val logs = mutableListOf<LogRecord>()
+        val handler = object : Handler() {
+            override fun publish(record: LogRecord) { logs.add(record) }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        val logger = Logger.getLogger("WearTAK-Registration")
+        logger.addHandler(handler)
+        try {
+            registration.saveAndConnect(serverId, {
+                throw IllegalStateException("fake-secret password server.example",
+                    SSLHandshakeException("private key and hostname"))
+            }) { fail("Must not connect after failed save") }
+            assertTrue(logs.last().message.contains("phase=save"))
+            assertTrue(logs.last().message.contains("IllegalStateException -> SSLHandshakeException"))
+            val failure = TakConnectionFailure(TakEnrollmentStage.SIGN, TakFailureCategory.AUTHENTICATION, 401)
+            registration.saveAndConnect(serverId, { TakServerRegistration.SaveResult.SAVED }) {
+                throw IllegalStateException("fake-secret token", TakEnrollmentException(failure))
+            }
+            assertTrue(logs.last().message.contains("phase=connect"))
+            assertTrue(logs.last().message.contains("stage=SIGN category=AUTHENTICATION httpCode=401"))
+            assertEquals(failure, registration.state.value.failure)
+            assertFalse(registration.state.value.isLoading)
+            val deep = (1..20).fold<Int, Exception>(SSLHandshakeException("fake-secret")) { cause, _ ->
+                IllegalStateException("fake-secret", cause)
+            }
+            registration.saveAndConnect(serverId, { throw deep }) { fail("Save failed") }
+            assertEquals(8, logs.last().message.substringAfter("causes=").split(" -> ").size)
+            logs.forEach {
+                assertNull(it.thrown)
+                listOf("fake-secret", "password", "private key", "server.example", serverId, "token").forEach { secret ->
+                    assertFalse(it.message.contains(secret))
+                }
+            }
+        } finally {
+            logger.removeHandler(handler)
+        }
     }
 }

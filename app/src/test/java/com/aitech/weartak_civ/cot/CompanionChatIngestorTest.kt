@@ -36,6 +36,15 @@ class CompanionChatIngestorTest {
             .messageList.single().timeReceived)
     }
 
+    @Test fun originalSentTimeOrdersLateBridgeMessagesWithoutChangingReceiptTime() {
+        val message = CompanionChatIngestor.room(payload().copy(sentAt = 50), 200)
+            .messageList.single()
+        assertEquals(50L, message.messageTime)
+        assertEquals(100L, message.timeReceived)
+        assertEquals(100L, CompanionChatIngestor.room(payload().copy(sentAt = 0), 200)
+            .messageList.single().messageTime)
+    }
+
     @Test fun malformedCanonicalSenderNeverFallsBackToMessageIdAsDirectDestination() {
         for (sender in listOf(null, "", " ")) {
             val canonical = payload().copy(

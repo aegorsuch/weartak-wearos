@@ -25,17 +25,47 @@ class RouteDetailsViewTest {
         TakRoutePoint(35.0, -118.0, name = "Finish")
     ), "server")
 
+    @Test fun compactRouteRowHasBloodhoundThenTargetAndNoChat() {
+        var bloodhound = 0
+        var target = 0
+        compose.setContent {
+            RouteDetailsView(route, {}, {}, {},
+                onBloodhound = { bloodhound++ }, onTarget = { target++ })
+        }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Start Bloodhound"))
+        val first = compose.onNodeWithContentDescription("Start Bloodhound")
+        val second = compose.onNodeWithContentDescription("Center and zoom to target")
+        first.assertIsDisplayed().performClick()
+        second.assertIsDisplayed().performClick()
+        val firstBounds = first.fetchSemanticsNode().boundsInRoot
+        val secondBounds = second.fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue(firstBounds.center.x < secondBounds.center.x)
+        assertEquals(firstBounds.center.y, secondBounds.center.y, 0.1f)
+        compose.onAllNodesWithContentDescription("Open Chat").assertCountEquals(0)
+        compose.runOnIdle {
+            assertEquals(1, bloodhound)
+            assertEquals(1, target)
+        }
+    }
+
+    @Test fun emptyRouteDisablesBothActions() {
+        compose.setContent { RouteDetailsView(route.copy(points = emptyList()), {}, {}, {}) }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Start Bloodhound"))
+        compose.onNodeWithContentDescription("Start Bloodhound").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Center and zoom to target").assertIsNotEnabled()
+    }
+
     @Test fun wholeRouteRemovalRequiresConfirmationAndCanBeCancelled() {
         var removed = 0
         compose.setContent { RouteDetailsView(route, {}, { removed++ }, {}) }
-        compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("route-remove"))
-        compose.onNodeWithTag("route-remove").performClick()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Delete"))
+        compose.onNodeWithContentDescription("Delete").performClick()
         compose.runOnIdle { assertEquals(0, removed) }
         compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("route-remove-cancel"))
         compose.onNodeWithTag("route-remove-cancel").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(0, removed) }
-        compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("route-remove"))
-        compose.onNodeWithTag("route-remove").performClick()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Delete"))
+        compose.onNodeWithContentDescription("Delete").performClick()
         compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("route-remove-confirm"))
         compose.onNodeWithTag("route-remove-confirm").performClick()
         compose.runOnIdle { assertEquals(1, removed) }
@@ -67,8 +97,8 @@ class RouteDetailsViewTest {
             {}, { backed++ }) }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("0 named points / 3 total points"))
         compose.onNodeWithText("0 named points / 3 total points").assertIsDisplayed()
-        compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("route-remove"))
-        compose.onNodeWithTag("route-remove").assertIsDisplayed()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Delete"))
+        compose.onNodeWithContentDescription("Delete").assertIsDisplayed()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText(
             "No named points. Tap the route on the map to select unnamed points."))
         compose.onNodeWithText("No named points. Tap the route on the map to select unnamed points.")
@@ -93,5 +123,18 @@ class RouteDetailsViewTest {
             assertEquals(1, backed)
             assertEquals(0, removed)
         }
+    }
+
+    @Test fun missionRouteKeepsExistingConfirmedWatchLocalRemoval() {
+        var removed = 0
+        compose.setContent {
+            RouteDetailsView(route.copy(missionName = "Mission"), {}, { removed++ }, {})
+        }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Delete"))
+        compose.onNodeWithContentDescription("Delete").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(0, removed) }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("route-remove-confirm"))
+        compose.onNodeWithTag("route-remove-confirm").performClick()
+        compose.runOnIdle { assertEquals(1, removed) }
     }
 }

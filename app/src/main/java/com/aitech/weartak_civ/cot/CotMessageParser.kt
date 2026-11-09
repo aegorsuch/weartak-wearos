@@ -20,6 +20,9 @@ data class CotIngressDiagnostics(
 )
 
 object CotMessageParser {
+    private val radioSilenceGeofenceCallsign = Regex(
+        """<contact\b[^>]*\bcallsign\s*=\s*['"][^'"]*(SecureMode|SCIF|RadioSilence)[^'"]*['"]"""
+    )
     private val urgentDetail = Regex(
         "<(?:[\\w.-]+:)?(?:emergency|__emergency|alert|__chat|__chatreceipt|ackrequest)\\b" +
             "|\\b(?:emergency|alert)\\s*=",
@@ -51,7 +54,7 @@ object CotMessageParser {
                 }
             }
             if (detail.getElementsByTagName("emergency").length > 0) return null
-            // WearTAK's own PLI carries biometrics/device identity even if an upstream UID is rewritten.
+            // Match physiology and legacy biometrics device identity even if an upstream UID is rewritten.
             val devices = detail.getElementsByTagName("device")
             for (index in 0 until devices.length) {
                 val device = devices.item(index) as Element
@@ -106,6 +109,8 @@ object CotMessageParser {
     fun parseMarkerOrNull(rawXml: String): CotMarkerEvent? {
         val type = eventAttribute(rawXml, "type") ?: return null
         if (!isMarkerType(type)) return null
+        if (isRadioSilenceRectangleGeofence(rawXml)) return null
+        if (rawXml.length > MAX_MAP_SHAPE_EVENT_BYTES && isMapShapeType(type)) return null
         val uid = eventAttribute(rawXml, "uid")?.takeIf(String::isNotBlank) ?: return null
         val time = eventAttribute(rawXml, "time") ?: return null
         val start = eventAttribute(rawXml, "start") ?: time
@@ -120,6 +125,8 @@ object CotMessageParser {
             !point.hae.isFinite() || !point.ce.isFinite() || !point.le.isFinite()
         ) return null
 
+        val detail = detailOf(rawXml)
+        if (isMapShapeType(type) && type != "u-d-c-c" && detail.mapShape == null) return null
         return CotMarkerEvent(
             version = eventAttribute(rawXml, "version") ?: "",
             uid = uid,
@@ -130,7 +137,7 @@ object CotMessageParser {
             stale = staleMs,
             access = eventAttribute(rawXml, "access"),
             point = point,
-            detail = detailOf(rawXml),
+            detail = detail,
         )
     }
 
@@ -154,8 +161,8 @@ object CotMessageParser {
                 .firstOrNull { it.attribute("relation") in listOf("p-p", "p-r") }
         }
         val senderText = emergency?.textContent?.trim()?.takeIf(String::isNotBlank)
-        val biometrics = child("biometrics")
-        val biometricDeviceUid = (biometrics?.getElementsByTagName("uid")?.item(0) as? Element)
+        val physiology = child("physiology") ?: child("biometrics")
+        val physiologyDeviceUid = (physiology?.getElementsByTagName("uid")?.item(0) as? Element)
             ?.textContent?.trim()?.takeIf(String::isNotBlank)
         val creator = child("creator")
         val point = child("point")?.let { p ->
@@ -173,13 +180,13 @@ object CotMessageParser {
         }
         return CotEmergencyEvent(
             uid, type, time, start, stale, point,
-            // WearTAK cancellations carry the sender only in biometrics/device/uid.
-            link?.attribute("uid") ?: creator?.attribute("uid") ?: biometricDeviceUid,
+            // WearTAK cancellations carry the sender only in physiology (legacy biometrics)/device/uid.
+            link?.attribute("uid") ?: creator?.attribute("uid") ?: physiologyDeviceUid,
             link?.attribute("parent_callsign") ?: creator?.attribute("callsign")
                 ?: senderText ?: child("contact")?.attribute("callsign")?.substringBefore('\n'),
-            standardType?.displayName ?: biometrics?.attribute("alertCategory") ?: biometrics?.attribute("alertType")
+            standardType?.displayName ?: physiology?.attribute("alertCategory") ?: physiology?.attribute("alertType")
                 ?: emergency?.attribute("type") ?: type,
-            emergency?.attribute("type") ?: biometrics?.attribute("alertDescription")
+            emergency?.attribute("type") ?: physiology?.attribute("alertDescription")
                 ?: child("remarks")?.textContent?.trim()
                 ?: child("contact")?.attribute("callsign")?.substringAfter('\n', "")?.takeIf(String::isNotBlank)
                 ?: standardType?.displayName,
@@ -196,7 +203,13 @@ object CotMessageParser {
 
     fun isMarkerType(type: String): Boolean =
         (CotAffiliation.isAtomType(type) && !isUserPositionType(type)) ||
-            type in setOf("b-m-p-s-p-i", "b-m-p-s-m", "u-d-c-c", "b-i-v")
+            type in setOf("b-m-p-s-p-i", "b-m-p-s-m", "u-d-c-c", "u-d-e", "u-d-f", "u-d-r", "b-i-v")
+
+    fun isMapShapeType(type: String): Boolean = type in setOf("u-d-c-c", "u-d-e", "u-d-f", "u-d-r")
+
+    fun isRadioSilenceRectangleGeofence(rawXml: String): Boolean =
+        eventTypeOrNull(rawXml) == "u-d-r" &&
+            radioSilenceGeofenceCallsign.containsMatchIn(rawXml)
 
     internal fun isCamera(rawXml: String): Boolean {
         val root = parseDocumentOrNull(rawXml)?.documentElement ?: return false
@@ -215,8 +228,9 @@ object CotMessageParser {
     }
 
     fun isGenericMapType(type: String): Boolean =
-        isMarkerType(type) && type !in setOf("a-f-G", "a-h-G", "a-n-G", "a-u-G", "b-m-p-s-p-i",
-            "a-f-A-M-F-Q", "a-u-A-M-F-Q", "a-h-A-M-F-Q")
+        (isMarkerType(type) || isMapShapeType(type)) &&
+            type !in setOf("a-f-G", "a-h-G", "a-n-G", "a-u-G", "b-m-p-s-p-i",
+                "a-f-A-M-F-Q", "a-u-A-M-F-Q", "a-h-A-M-F-Q")
 
     fun parseDeletionOrNull(rawXml: String): CotDeletion? {
         val root = parseDocumentOrNull(rawXml)?.documentElement ?: return null
@@ -308,6 +322,8 @@ object CotMessageParser {
         val document = parseDocumentOrNull(rawXml) ?: return emptyList()
         if (document.documentElement.tagName != "event") return emptyList()
 
+        val messageTime = document.documentElement.getAttribute("time").let(::parseIsoToEpochMs)
+            .takeIf { it > 0L } ?: receivedAt
         val rooms = mutableListOf<ChatRoom>()
         val chatElements = document.getElementsByTagName("__chat")
         val remarkElements = document.getElementsByTagName("remarks")
@@ -351,7 +367,8 @@ object CotMessageParser {
                         if (isGroup) conversationUid else if (legacyBroadcast) ALL_CHAT_ROOMS else senderUid,
                         if (isGroup) title ?: ALL_CHAT_ROOMS else if (legacyBroadcast) ALL_CHAT_ROOMS else senderCallsign,
                         isGroup || legacyBroadcast,
-                        if (isGroup && !broadcast) participants else emptyList()
+                        if (isGroup && !broadcast) participants else emptyList(),
+                        messageTime
                     )
                 }
             }
@@ -367,6 +384,7 @@ object CotMessageParser {
         remarks = extractElementText(rawXml, "remarks"),
         contact = extractAttribute(rawXml, "contact", "endpoint")?.takeIf(String::isNotBlank),
         circleRadiusMeters = if (eventTypeOrNull(rawXml) == "u-d-c-c") circleRadius(rawXml) else null,
+        mapShape = if (eventTypeOrNull(rawXml)?.let(::isMapShapeType) == true) mapShape(rawXml) else null,
         isCamera = isCamera(rawXml),
         hasUrgentDetail = urgentDetail.containsMatchIn(rawXml),
     )
@@ -376,6 +394,139 @@ object CotMessageParser {
         val minor = extractAttribute(rawXml, "ellipse", "minor")?.toDoubleOrNull() ?: return null
         return major.takeIf { it.isFinite() && minor.isFinite() && it > 0 && it <= 100_000 && it == minor }
     }
+
+    private fun mapShape(rawXml: String): CotMapShape? {
+        val document = parseDocumentOrNull(rawXml) ?: return null
+        val root = document.documentElement ?: return null
+        val type = root.getAttribute("type")
+        val pointNode = root.getElementsByTagName("point").item(0) as? Element ?: return null
+        val centerLat = pointNode.getAttribute("lat").toDoubleOrNull() ?: return null
+        val centerLon = pointNode.getAttribute("lon").toDoubleOrNull() ?: return null
+        if (!centerLat.isFinite() || centerLat !in -90.0..90.0 ||
+            !centerLon.isFinite() || centerLon !in -180.0..180.0
+        ) return null
+
+        fun Element.attr(vararg names: String): String? =
+            names.firstNotNullOfOrNull { name -> getAttribute(name).takeIf(String::isNotBlank) }
+        fun coordinate(latText: String?, lonText: String?): Pair<Double, Double>? {
+            val lat = latText?.toDoubleOrNull() ?: return null
+            val lon = lonText?.toDoubleOrNull() ?: return null
+            if (!lat.isFinite() || lat !in -90.0..90.0 ||
+                !lon.isFinite() || lon !in -180.0..180.0
+            ) return null
+            return lon to lat
+        }
+
+        val vertices = mutableListOf<Pair<Double, Double>>()
+        val links = root.getElementsByTagName("link")
+        for (index in 0 until links.length) {
+            val element = links.item(index) as? Element ?: continue
+            val raw = element.getAttribute("point").takeIf(String::isNotBlank) ?: continue
+            val parts = raw.split(',')
+            if (parts.size < 2) return null
+            vertices += coordinate(parts[0].trim(), parts[1].trim()) ?: return null
+            if (vertices.size > MAX_MAP_SHAPE_VERTICES) return null
+        }
+        if (vertices.isEmpty()) {
+            val nodes = root.getElementsByTagName("vertex")
+            for (index in 0 until nodes.length) {
+                val element = nodes.item(index) as? Element ?: continue
+                vertices += coordinate(element.attr("lat"), element.attr("lon")) ?: return null
+                if (vertices.size > MAX_MAP_SHAPE_VERTICES) return null
+            }
+        }
+
+        val geometryType: String
+        val coordinates = com.google.gson.JsonArray()
+        when (type) {
+            "u-d-c-c", "u-d-e" -> {
+                val ellipse = root.getElementsByTagName("ellipse").item(0) as? Element ?: return null
+                val major = ellipse.attr("major", "majorAxis")?.toDoubleOrNull() ?: return null
+                val minor = ellipse.attr("minor", "minorAxis")?.toDoubleOrNull() ?: return null
+                val rotation = ellipse.attr("angle", "rotation", "bearing")?.toDoubleOrNull() ?: 0.0
+                if (!major.isFinite() || !minor.isFinite() || !rotation.isFinite() ||
+                    major <= 0.0 || minor <= 0.0 || major > 100_000.0 || minor > 100_000.0 ||
+                    (type == "u-d-c-c" && major != minor)
+                ) return null
+                val ring = com.google.gson.JsonArray()
+                for (index in 0..64) {
+                    val theta = Math.toRadians(index * (360.0 / 64.0))
+                    val north = major * kotlin.math.cos(theta)
+                    val east = minor * kotlin.math.sin(theta)
+                    val bearing = Math.toRadians(rotation) + kotlin.math.atan2(east, north)
+                    val distance = kotlin.math.hypot(east, north)
+                    val angularDistance = distance / 6_371_000.0
+                    val lat1 = Math.toRadians(centerLat)
+                    val lon1 = Math.toRadians(centerLon)
+                    val lat2 = kotlin.math.asin(
+                        (kotlin.math.sin(lat1) * kotlin.math.cos(angularDistance) +
+                            kotlin.math.cos(lat1) * kotlin.math.sin(angularDistance) *
+                            kotlin.math.cos(bearing)).coerceIn(-1.0, 1.0)
+                    )
+                    val lon2 = lon1 + kotlin.math.atan2(
+                        kotlin.math.sin(bearing) * kotlin.math.sin(angularDistance) * kotlin.math.cos(lat1),
+                        kotlin.math.cos(angularDistance) - kotlin.math.sin(lat1) * kotlin.math.sin(lat2)
+                    )
+                    ring.add(com.google.gson.JsonArray().apply {
+                        add(((Math.toDegrees(lon2) + 540.0) % 360.0) - 180.0)
+                        add(Math.toDegrees(lat2))
+                    })
+                }
+                geometryType = "Polygon"
+                coordinates.add(ring)
+            }
+            "u-d-f" -> {
+                if (vertices.size < 2) return null
+                geometryType = "LineString"
+                vertices.forEach { coordinates.add(com.google.gson.JsonArray().apply {
+                    add(it.first)
+                    add(it.second)
+                }) }
+            }
+            "u-d-r" -> {
+                if (vertices.size < 3) return null
+                val ring = com.google.gson.JsonArray()
+                vertices.forEach { ring.add(com.google.gson.JsonArray().apply {
+                    add(it.first)
+                    add(it.second)
+                }) }
+                if (vertices.first() != vertices.last()) ring.add(com.google.gson.JsonArray().apply {
+                    add(vertices.first().first)
+                    add(vertices.first().second)
+                })
+                geometryType = "Polygon"
+                coordinates.add(ring)
+            }
+            else -> return null
+        }
+
+        val detail = root.getElementsByTagName("detail").item(0) as? Element
+        fun styleColor(tag: String): Int? {
+            val element = (detail?.getElementsByTagName(tag)?.item(0) as? Element) ?: return null
+            val raw = element.getAttribute("value").toLongOrNull() ?: return null
+            if (raw !in Int.MIN_VALUE.toLong()..0xFFFF_FFFFL) return null
+            return raw.toInt()
+        }
+        val strokeWeight = (detail?.getElementsByTagName("strokeWeight")?.item(0) as? Element)
+        val strokeWidth = strokeWeight?.getAttribute("value")?.toFloatOrNull()?.also {
+            if (!it.isFinite() || it !in 0.5f..20f) return null
+        }
+        if (detail?.getElementsByTagName("strokeColor")?.length?.let { it > 0 } == true &&
+            styleColor("strokeColor") == null
+        ) return null
+        if (detail?.getElementsByTagName("fillColor")?.length?.let { it > 0 } == true &&
+            styleColor("fillColor") == null
+        ) return null
+        if (strokeWeight != null && strokeWidth == null) return null
+        val geometry = com.google.gson.JsonObject().apply {
+            addProperty("type", geometryType)
+            add("coordinates", coordinates)
+        }.toString()
+        return CotMapShape(geometry, styleColor("strokeColor"), styleColor("fillColor"), strokeWidth)
+    }
+
+    private const val MAX_MAP_SHAPE_EVENT_BYTES = 256 * 1024
+    private const val MAX_MAP_SHAPE_VERTICES = 1_000
 
     private fun pointOf(rawXml: String): CotPoint? {
         val lat = extractAttribute(rawXml, "point", "lat")?.toDoubleOrNull() ?: return null
@@ -411,7 +562,8 @@ object CotMessageParser {
         conversationUid: String = senderUid,
         conversationTitle: String = senderCallsign,
         isGroup: Boolean = false,
-        participantUids: List<String> = emptyList()
+        participantUids: List<String> = emptyList(),
+        messageTime: Long = receivedAt
     ) = ChatRoom(
         uid = conversationUid,
         title = conversationTitle,
@@ -422,7 +574,8 @@ object CotMessageParser {
                 callsign = senderCallsign,
                 timeReceived = receivedAt,
                 sourceServerId = sourceServerId,
-                messageId = messageId
+                messageId = messageId,
+                messageTime = messageTime
             )
         ),
         newMessagesPresent = true,

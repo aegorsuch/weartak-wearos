@@ -3,10 +3,16 @@ package com.aitech.weartak_civ.service
 import android.app.Application
 import android.os.SystemClock
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.cot.CotDetailBuilder
 import com.aitech.weartak_civ.presentation.MainActivity
 import io.mockk.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import live.ditto.Ditto
 import live.ditto.DittoSyncSubscription
 import live.ditto.DittoStore
@@ -33,7 +39,7 @@ class DittoServicePowerTest {
     private fun field(name: String) = DittoService::class.java.getDeclaredField(name).apply { isAccessible = true }
 
     @Before fun setup() {
-        MainActivity.device_uid = "test-watch"
+        MainActivity.device_uid = "WEAROS_056b9ca33004b318"
         every { repo.shouldSuppressWatchTransportNow() } returns false
         coEvery { repo.snapshotPliLocation() } returns null
         Ditto::class.java.getDeclaredField("sync").apply { isAccessible = true }.set(native, sync)
@@ -60,6 +66,7 @@ class DittoServicePowerTest {
         assertTrue(DittoService.syncActive.value)
         service.onPowerStateChanged(healthy.copy(worn = false))
         assertTrue(DittoService.powerSuppressed.value)
+        assertEquals(DittoPowerSuppression.OFF_WRIST, DittoService.powerSuppressionReason.value)
         assertFalse(DittoService.syncActive.value)
         verify(exactly = 1) { native.stopSync() }
         verify(exactly = 0) { subscription.close() }
@@ -69,7 +76,161 @@ class DittoServicePowerTest {
         service.onPowerStateChanged(healthy)
         verify(exactly = 2) { native.startSync() }
         assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
         verify(exactly = 0) { repo.setEndpointDisconnected(any()) }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun preferenceMonitorResumesSyncLiveWithoutBypassingPowerCompanionOrStoppedPeer() = runTest {
+        val stay = MutableStateFlow(true)
+        val battery = MutableStateFlow<Int?>(80)
+        every { repo.latestDeviceWornObservation } returns MutableStateFlow(false)
+        every { repo.chargingState } returns MutableStateFlow(false)
+        every { repo.latestBatteryPercentage } returns battery
+        every { repo.getBatteryWarnPercentage } returns MutableStateFlow(20)
+        every { repo.isAlerting } returns MutableStateFlow(false)
+        every { repo.stayConnectedOffWrist } returns stay
+        val monitor = DittoPowerMonitor(service, repo, this, service::onPowerStateChanged)
+        try {
+            field("powerState").set(service, monitor.initial(20))
+            assertTrue(service.startPeerSync())
+            assertTrue(DittoService.syncActive.value)
+            monitor.start()
+            runCurrent()
+            verify(exactly = 1) { native.startSync() }
+            stay.value = false
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            assertEquals(DittoPowerSuppression.OFF_WRIST, DittoService.powerSuppressionReason.value)
+            service.retryPointPublications()
+            verify(exactly = 0) { repo.dittoPointLedger.retry(any(), any()) }
+            stay.value = true
+            runCurrent()
+            assertTrue(DittoService.syncActive.value)
+            assertFalse(DittoService.powerSuppressed.value)
+            verify(exactly = 2) { native.startSync() }
+            service.retryPointPublications()
+            verify(exactly = 1) { repo.dittoPointLedger.retry(any(), any()) }
+            battery.value = 10
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            assertEquals(DittoPowerSuppression.POWER, DittoService.powerSuppressionReason.value)
+            service.retryPointPublications()
+            verify(exactly = 1) { repo.dittoPointLedger.retry(any(), any()) }
+            stay.value = false
+            runCurrent()
+            stay.value = true
+            runCurrent()
+            verify(exactly = 2) { native.startSync() }
+            every { repo.shouldSuppressWatchTransportNow() } returns true
+            battery.value = 80
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            verify(exactly = 2) { native.startSync() }
+            every { repo.shouldSuppressWatchTransportNow() } returns false
+            service.onDestroy()
+            stay.value = false
+            runCurrent()
+            stay.value = true
+            runCurrent()
+            assertFalse(DittoService.syncActive.value)
+            verify(exactly = 2) { native.startSync() }
+        } finally {
+            monitor.close()
+        }
+    }
+
+    @Test fun reasonChangesWhileSuppressedWithoutRestartingSyncAndClearsOnStop() {
+        service.onPowerStateChanged(healthy.copy(sleeping = true))
+        assertEquals(DittoPowerSuppression.POWER, DittoService.powerSuppressionReason.value)
+        service.onPowerStateChanged(healthy.copy(worn = false))
+        assertEquals(DittoPowerSuppression.OFF_WRIST, DittoService.powerSuppressionReason.value)
+        service.onPowerStateChanged(healthy.copy(worn = false, battery = 10))
+        assertEquals(DittoPowerSuppression.POWER, DittoService.powerSuppressionReason.value)
+        verify(exactly = 1) { native.stopSync() }
+        verify(exactly = 0) { native.startSync() }
+        service.onDestroy()
+        assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
+    }
+
+    @Test fun livePeerCountsClearSynchronouslyOnPowerGateAndDestroy() {
+        val diagnostics = DittoLiveStatusStore()
+        val session = diagnostics.begin()
+        field("liveStatusSession").set(service, session)
+        val counts = DittoDirectPeers(1, 1, 0, 0, 0)
+        service.onPowerStateChanged(healthy)
+        session.peers(counts)
+        session.recovery(DittoRecoveryStatus.ACTIVE)
+        assertEquals(counts, diagnostics.state.value.peers)
+        service.onPowerStateChanged(healthy.copy(worn = false))
+        assertEquals(DittoLiveStatus(recovery = DittoRecoveryStatus.INELIGIBLE), diagnostics.state.value)
+        session.peers(counts)
+        assertNull(diagnostics.state.value.peers)
+        service.onPowerStateChanged(healthy)
+        assertNull(diagnostics.state.value.peers)
+        session.peers(counts)
+        service.onDestroy()
+        session.peers(counts)
+        session.recovery(DittoRecoveryStatus.ACTIVE)
+        assertEquals(DittoLiveStatus(), diagnostics.state.value)
+    }
+
+    @Test fun cotMetadataUsesConfiguredWatchIdentityOnlyWhileLocalSyncEligible() = runBlocking {
+        val enabled = MutableStateFlow(true)
+        every { repo.getEnableDittoService } returns enabled
+        @Suppress("UNCHECKED_CAST")
+        val active = field("activeService").get(null) as MutableStateFlow<DittoService?>
+        @Suppress("UNCHECKED_CAST")
+        val changing = field("reconfiguring").get(null) as MutableStateFlow<Boolean>
+        assertNull(DittoService.currentCotMetadata())
+        active.value = service
+        assertNull(service.ownCotMetadata())
+        service.onPowerStateChanged(healthy)
+        assertNull(service.ownCotMetadata())
+        every { native.sdkVersion } returns "runtime-sdk-version"
+        val configureIdentity = DittoService::class.java.getDeclaredMethod("configureCotIdentity").apply {
+            isAccessible = true
+        }
+        val originalCallsign = MainActivity.callsign
+        try {
+            for (callsign in listOf("ODIN-WEARTAK", "RENAMED-WATCH")) {
+                MainActivity.callsign = callsign
+                configureIdentity.invoke(service)
+                assertEquals("T004b318", native.deviceName)
+                assertEquals(callsign, MainActivity.callsign)
+            }
+        } finally {
+            MainActivity.callsign = originalCallsign
+        }
+        DittoService.localPeerKeyString = "watch-sdk-peer"
+        val expected = CotDetailBuilder.DittoMetadata(
+            "watch-sdk-peer", "T004b318", "runtime-sdk-version")
+        assertEquals(expected, service.ownCotMetadata())
+        assertTrue(CotDetailBuilder.ditto(service.ownCotMetadata()!!).contains("deviceName='${native.deviceName}'"))
+        assertEquals(expected, DittoService.currentCotMetadata())
+        enabled.value = false
+        assertNull(DittoService.currentCotMetadata())
+        enabled.value = true
+        changing.value = true
+        assertNull(DittoService.currentCotMetadata())
+        changing.value = false
+        every { repo.shouldSuppressWatchTransportNow() } returns true
+        assertNull(DittoService.currentCotMetadata())
+        every { repo.shouldSuppressWatchTransportNow() } returns false
+        for (state in listOf(healthy.copy(worn = false), healthy.copy(battery = 1),
+                healthy.copy(sleeping = true), healthy.copy(powerSave = true))) {
+            service.onPowerStateChanged(state)
+            assertNull(DittoService.currentCotMetadata())
+            service.onPowerStateChanged(healthy)
+            assertEquals(expected, DittoService.currentCotMetadata())
+        }
+        service.prepareForCompanionHandoff()
+        assertTrue(DittoService.syncActive.value)
+        assertNull(DittoService.currentCotMetadata())
+        service.onDestroy()
+        assertNull(service.ownCotMetadata())
+        assertNull(DittoService.currentCotMetadata())
     }
 
     @Test fun chargingRecoveryOverridesAllPowerReasonsAndUnpluggingReappliesThem() {
@@ -78,6 +239,7 @@ class DittoServicePowerTest {
         assertTrue(DittoService.powerSuppressed.value)
         service.onPowerStateChanged(off.copy(charging = true))
         assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
         assertTrue(DittoService.syncActive.value)
         service.onPowerStateChanged(off)
         assertTrue(DittoService.powerSuppressed.value)
@@ -88,6 +250,7 @@ class DittoServicePowerTest {
         service.onPowerStateChanged(off)
         assertTrue(service.publishDocument("alert", mapOf("_id" to "sos")))
         assertFalse(DittoService.powerSuppressed.value)
+        assertNull(DittoService.powerSuppressionReason.value)
         verifyOrder {
             native.startSync()
             store.write(any<(live.ditto.DittoWriteTransaction) -> Unit>())

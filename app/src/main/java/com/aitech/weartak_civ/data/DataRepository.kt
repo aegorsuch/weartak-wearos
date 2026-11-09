@@ -130,7 +130,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import com.aitech.weartak_civ.service.BleLinkWarning
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.emitAll
@@ -179,6 +182,7 @@ import com.aitech.weartak_civ.data.model.TakRoute
 import com.aitech.weartak_civ.cot.CotEventTime
 import com.aitech.weartak_civ.cot.CotEventTimeFactory
 import com.aitech.weartak_civ.cot.CotMarkerEvent
+import com.aitech.weartak_civ.cot.CotMapShape
 import com.aitech.weartak_civ.cot.CotTimeOffset
 import com.aitech.weartak_civ.cot.CotUserPositionEvent
 import com.aitech.weartak_civ.ipc.AtosCotPacket
@@ -1053,10 +1057,13 @@ class DataRepository(
     }
 
     suspend fun storeEnableBatdokCot(enable: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[ENABLE_BATDOK_COT] = enable
-        }
+        batdokSharing.setEnabled(enable)
     }
+
+    val batdokSharing = BatdokSharingStore(context.dataStore)
+    val batdokPatientStatus = MutableStateFlow(com.aitech.weartak_civ.service.BatdokPatientStatus.CONFIRMATION_REQUIRED)
+    /** Sanitized code for the last FAILED publish (stage + exception class), null otherwise. */
+    val batdokPatientFailureCode = MutableStateFlow<String?>(null)
 
     val getEnableBatdokCot: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[ENABLE_BATDOK_COT] ?: DEFAULT_ENABLE_BATDOK_COT
@@ -1317,14 +1324,15 @@ class DataRepository(
     private val selfStatusSkinTemperature = MutableStateFlow<PhysioSample<Float>?>(null)
 
     fun selfStatusInputs(): Flow<SelfStatusInputs> = combine(
-        context.dataStore.data, selfStatusHeartRate, selfStatusSkinTemperature, latestIsDeviceWorn
-    ) { prefs, hr, skin, worn ->
+        context.dataStore.data, selfStatusHeartRate, selfStatusSkinTemperature, latestIsDeviceWorn,
+        com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available
+    ) { prefs, hr, skin, worn, moppAvailable ->
         val savedMopp = MoppStatus.entries.firstOrNull { it.key == prefs[MOPP_STATUS] }?.let {
             SavedMoppStatus(it, prefs[MOPP_SAVED_AT])
         }
         SelfStatusInputs(
             SelfStatusPolicy(
-                prefs[ENABLE_MOPP] ?: false, savedMopp,
+                moppAvailable, savedMopp,
                 prefs[ENABLE_PHYSIOLOGICAL_SERVICES] ?: DEFAULT_ENABLE_PHYSIOLOGICAL_SERVICES,
                 prefs[ENABLE_HEART_RATE_SERVICE] ?: DEFAULT_ENABLE_HEART_RATE_SERVICE,
                 prefs[ENABLE_SKIN_TEMP_SERVICE] ?: DEFAULT_ENABLE_SKIN_TEMPERATURE_SERVICE,
@@ -1338,20 +1346,29 @@ class DataRepository(
         prefs[ENABLE_CRM_SERVICE] ?: DEFAULT_ENABLE_CRM_SERVICE
     }
 
-    val getEnableMopp: Flow<Boolean> = context.dataStore.data.map { it[ENABLE_MOPP] ?: false }
+    val getEnableMopp: Flow<Boolean> = context.dataStore.data.map { true }
+    internal val moppPpeStore = MoppPpeStore(context.dataStore, available = {
+        com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available.value
+    })
     val getMoppStatus: Flow<MoppStatus> = context.dataStore.data.map {
         MoppStatus.fromKey(it[MOPP_STATUS])
     }
     val getEnableDataSync: Flow<Boolean> = context.dataStore.data.map { it[ENABLE_DATA_SYNC] ?: true }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun storeEnableMopp(enabled: Boolean) {
-        context.dataStore.edit { it[ENABLE_MOPP] = enabled }
+        context.dataStore.edit {
+            // Retain the legacy write contract without allowing publishing to be disabled.
+            it[ENABLE_MOPP] = true
+            MoppPpeStore.recordLegacyWrite(it)
+        }
     }
 
     suspend fun storeMoppStatus(status: MoppStatus) {
         context.dataStore.edit {
             it[MOPP_STATUS] = status.key
             it[MOPP_SAVED_AT] = System.currentTimeMillis()
+            MoppPpeStore.recordLegacyWrite(it)
         }
     }
 
@@ -2092,6 +2109,7 @@ class DataRepository(
         val systemData: SystemSnapshot,
         val remarks: String = "",
         val monitoredPhysio: PhysioData? = null,
+        val moppGeneration: Long? = null,
     )
 
     suspend fun snapshotPliLocation(): LocationSnapshot? =
@@ -2106,6 +2124,7 @@ class DataRepository(
         )
 
         val physio = snapshotPhysio()
+        val moppGeneration = com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.generation()
         val now = System.currentTimeMillis()
         val input = selfStatusInputs().first()
         val selfStatus = selfStatusSnapshot(input, now)
@@ -2116,6 +2135,7 @@ class DataRepository(
             physioData = physio,
             systemData = snapshotSystem(),
             remarks = selfStatus.remarksLine(now),
+            moppGeneration = moppGeneration,
             monitoredPhysio = physio.data.takeIf { policy.monitoring && policy.worn }?.let {
                 it.copy(
                     heartRateBpm = selfStatus.physio?.hr,
@@ -2545,6 +2565,7 @@ class DataRepository(
         val sourceServerId: String? = null,
         val receivedAt: Long = timeReceived,
         val circleRadiusMeters: Double? = null,
+        val mapShape: CotMapShape? = null,
         val isCamera: Boolean = false
     )
 
@@ -2593,6 +2614,10 @@ class DataRepository(
         _droppedMarkerList.emit(droppedMarkerList)
     }
 
+    private val importedMapShapePersistence = ImportedMapShapePersistence(
+        context.getSharedPreferences("imported-map-shapes-v1", Context.MODE_PRIVATE)
+    )
+    private val importedMapShapeMutex = Mutex()
     private val receivedMarkerStore = SourceAwareCotStore(
         sourceIdOf = { item: ReceivedMarker -> item.sourceServerId ?: NON_TAK_COT_SOURCE_ID },
         cotUidOf = ReceivedMarker::uid,
@@ -2609,8 +2634,61 @@ class DataRepository(
     )
     val receivedMarkerList: StateFlow<List<ReceivedMarker>> = receivedMarkerStore.visibleItems
 
+    init {
+        importedMapShapePersistence.load().forEach { record ->
+            receivedMarkerStore.upsertWithResult(record.toReceivedMarker())
+        }
+    }
+
     suspend fun upsertReceivedMarker(item: ReceivedMarker): SourceCotUpsertResult =
         receivedMarkerStore.upsertWithResult(item)
+
+    internal suspend fun replaceImportedMapShapes(sourceId: String, shapes: List<ImportedMapShapeRecord>) {
+        require(sourceId.startsWith("import:") && shapes.all { it.sourceId == sourceId }) {
+            "Invalid imported map shape source"
+        }
+        shapes.forEach(::validateImportedMapShape)
+        importedMapShapeMutex.withLock {
+            val retained = importedMapShapePersistence.loadStrict().filterNot { it.sourceId == sourceId }
+            importedMapShapePersistence.save(retained + shapes)
+            receivedMarkerStore.removeSource(sourceId)
+            shapes.forEach { receivedMarkerStore.upsertWithResult(it.toReceivedMarker()) }
+        }
+    }
+
+    suspend fun removeImportedMapShape(uid: String, sourceId: String): Boolean =
+        importedMapShapeMutex.withLock {
+            require(uid.isNotBlank() && sourceId.startsWith("import:")) {
+                "Invalid imported map shape identity"
+            }
+            val catalog = importedMapShapePersistence.loadStrict()
+            val retained = catalog.filterNot { it.sourceId == sourceId && it.uid == uid }
+            if (retained.size == catalog.size) return@withLock false
+            importedMapShapePersistence.save(retained)
+            receivedMarkerStore.remove(SourceCotKey(sourceId, uid)) != null
+        }
+
+    private fun validateImportedMapShape(record: ImportedMapShapeRecord) {
+        require(record.uid.isNotBlank() && record.title.isNotBlank() &&
+            record.sourceId.startsWith("import:")) { "Invalid imported map shape identity" }
+        require(com.aitech.weartak_civ.cot.CotMessageParser.isMapShapeType(record.markerType) &&
+            record.latitude.isFinite() && record.latitude in -90.0..90.0 &&
+            record.longitude.isFinite() && record.longitude in -180.0..180.0
+        ) { "Invalid imported map shape geometry" }
+    }
+
+    private fun ImportedMapShapeRecord.toReceivedMarker() = ReceivedMarker(
+        uid = uid,
+        markerType = markerType,
+        title = title,
+        timeReceived = timeMillis,
+        staleTime = Long.MAX_VALUE,
+        location = LocationSnapshot(timeMillis, latitude, longitude, null, null, null, null, null),
+        source = "imported-map-shapes",
+        sourceServerId = sourceId,
+        receivedAt = timeMillis,
+        mapShape = shape
+    )
 
     suspend fun removeReceivedMarkerByUid(uid: String) {
         receivedMarkerStore.removeUid(uid)
@@ -2801,6 +2879,7 @@ class DataRepository(
             sourceServerId = sourceServerId,
             receivedAt = receivedAt,
             circleRadiusMeters = event.detail.circleRadiusMeters,
+            mapShape = event.detail.mapShape,
             isCamera = event.detail.isCamera
         )
         val result = receivedMarkerStore.upsertWithResult(item,
@@ -2830,7 +2909,8 @@ class DataRepository(
                     markerIngressMutex.withLock { pruneGenericMarkers() }
                     val keepRunning = synchronized(receivedMarkerStore) {
                         val hasGeneric = receivedMarkerStore.snapshot().values.any {
-                            com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType)
+                            com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType) &&
+                                it.source != "imported-map-shapes"
                         }
                         if (!hasGeneric) genericExpiryJob = null
                         hasGeneric
@@ -2843,8 +2923,14 @@ class DataRepository(
 
     fun pruneGenericMarkers(now: Long = System.currentTimeMillis()) {
         receivedMarkerStore.pruneSelected(
-            selected = { com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType) },
-            expired = { it.staleTime <= now || now - it.receivedAt >= 15 * 60_000L },
+            selected = {
+                com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType) &&
+                    it.source != "imported-map-shapes"
+            },
+            expired = {
+                it.staleTime <= now ||
+                    (it.source != "imported-map-shapes" && now - it.receivedAt >= 15 * 60_000L)
+            },
             maxCount = 512
         ).forEach {
             genericBloodhounds?.removeMarkerCopy(it.uid, it.sourceServerId, it.timeReceived, now)
@@ -4352,6 +4438,31 @@ class DataRepository(
 
     private val _companionAppConnected = MutableStateFlow<Boolean>(false)
     val isCompanionConnected: StateFlow<Boolean> = _companionAppConnected.asStateFlow()
+
+    // Local-only: this watch's direct Ditto BLE links. Never an alert event or mesh health.
+    private val _dittoBleLinkWarning = MutableStateFlow(BleLinkWarning.NONE)
+    val dittoBleLinkWarning: StateFlow<BleLinkWarning> = _dittoBleLinkWarning.asStateFlow()
+    fun setDittoBleLinkWarning(warning: BleLinkWarning) {
+        _dittoBleLinkWarning.value = warning
+    }
+
+    enum class DittoBleRecoveryAction { RETRY_NOW, PAUSE }
+    private val _dittoBleRecoveryActions = MutableSharedFlow<DittoBleRecoveryAction>(
+        extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val dittoBleRecoveryActions: SharedFlow<DittoBleRecoveryAction> =
+        _dittoBleRecoveryActions.asSharedFlow()
+    fun requestDittoBleRecovery(action: DittoBleRecoveryAction) {
+        _dittoBleRecoveryActions.tryEmit(action)
+    }
+
+    /** Persisted so service/process restart and reboot cannot bypass a timeout or pause. */
+    val getDittoBleRecoveryState: Flow<String?> = context.dataStore.data.map { it[DITTO_BLE_RECOVERY_STATE] }
+    suspend fun storeDittoBleRecoveryState(state: String?) {
+        context.dataStore.edit { prefs ->
+            if (state == null) prefs.remove(DITTO_BLE_RECOVERY_STATE) else prefs[DITTO_BLE_RECOVERY_STATE] = state
+        }
+    }
     private val _companionEverReady = MutableStateFlow<Boolean?>(null)
     val companionEverReady: StateFlow<Boolean?> = _companionEverReady.asStateFlow()
     private val companionHistoryLoaded = CompletableDeferred<Unit>()
@@ -4567,7 +4678,9 @@ class DataRepository(
         val password: String,
         val p12Cert: String,
         val p12CertPassword: String,
-        val serverId: String? = null
+        val serverId: String? = null,
+        val identityEpoch: String? = null,
+        val strictServerTrust: Boolean = false
     ) {
         override fun toString() = "TakServerItem(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
@@ -4626,30 +4739,97 @@ class DataRepository(
         apply: suspend () -> Unit
     ): Boolean {
         awaitTakServerMigration()
+        val target = readTakServerList().firstOrNull { it.serverId == serverId } ?: return false
+        return try {
+            applyReviewedCertificate(target, p12, null, apply = apply)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: CertificateRecoveryException) {
+            throw error
+        } catch (_: IllegalStateException) {
+            Log.e(TAG, "Chat P12 refused: settings locked or changed")
+            false
+        }
+    }
+
+    internal class CertificateRecoveryException(cause: Throwable) :
+        IllegalStateException("Certificate recovery failed; configuration requires attention", cause)
+
+    internal class StaleCertificateDestinationException :
+        IllegalStateException("Server changed; review again")
+
+    internal class ManagedServerExportException : IllegalStateException("Managed server export is prohibited")
+
+    internal suspend fun applyReviewedCertificate(
+        expected: TakServerItem,
+        identity: com.aitech.weartak_civ.command.ValidatedChatP12?,
+        certificate: String?,
+        stillAuthorized: () -> Boolean = { true },
+        complete: () -> Boolean = { true },
+        apply: suspend () -> Unit,
+    ): Boolean {
+        require(identity != null || certificate != null)
+        val proposed = if (identity == null) expected else expected.copy(isP12Cert = true,
+            p12Cert = identity.base64, p12CertPassword = identity.password)
+        return applyReviewedServer(expected, proposed, certificate, stillAuthorized = stillAuthorized,
+            complete = complete, apply = { apply() })
+    }
+
+    internal suspend fun applyReviewedServer(
+        expected: TakServerItem?,
+        proposed: TakServerItem,
+        certificate: String?,
+        expectedCa: String? = null,
+        checkCaSnapshot: Boolean = false,
+        stillAuthorized: () -> Boolean,
+        complete: () -> Boolean,
+        apply: suspend (String) -> Unit,
+        rollback: suspend () -> Unit = { expected?.serverId?.let { apply(it) } },
+    ): Boolean {
+        awaitTakServerMigration()
         return TakServerEndpointIdentity.mutationMutex.withLock {
-            if (phoneManagedSettingsLocked.first() || getNetworkPreferencesLocked.first()) return@withLock false
+            check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
             val before = readTakServerList()
-            val index = before.indexOfFirst { it.serverId == serverId }
-            if (index < 0) return@withLock false
-            val after = before.toMutableList().apply {
-                this[index] = this[index].copy(isP12Cert = true, p12Cert = p12.base64, p12CertPassword = p12.password)
+            val id = expected?.serverId ?: TakServerId.ensureUnique(null, before.mapNotNullTo(mutableSetOf(), TakServerItem::serverId))
+            val index = before.indexOfFirst { it.serverId == id }
+            if (expected != null && (index < 0 || before[index] != expected)) throw StaleCertificateDestinationException()
+            val endpoint = TakServerEndpointIdentity.key(proposed)
+            if (before.any { it.serverId != id && TakServerEndpointIdentity.key(it) == endpoint }) {
+                throw StaleCertificateDestinationException()
             }
+            val oldCa = if (expected != null && (certificate != null || checkCaSnapshot))
+                getApprovedServerCa(id, expected.address, expected.port) else null
+            if (checkCaSnapshot && oldCa != expectedCa) throw StaleCertificateDestinationException()
+            certificate?.let(com.aitech.weartak_civ.data.takserver.TakServerCaTrust::decodeAll)
+            require(proposed.name.isNotBlank() && proposed.name.length <= 128 && proposed.port in 1..65535)
+            okhttp3.HttpUrl.Builder().scheme("https").host(proposed.address).port(proposed.port).build()
+            val after = before.toMutableList()
+            if (expected == null) after.add(proposed.copy(serverId = id)) else after[index] = proposed.copy(serverId = id)
+            check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
             try {
-                writeTakServerList(after, "installChatP12")
-                apply()
+                writeTakServerList(after, "applyReviewedCertificate")
+                if (certificate != null || checkCaSnapshot)
+                    takServerSecretsRepository.setApprovedCa(id, proposed.address, proposed.port, certificate)
+                check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
+                apply(id)
+                check(!chatEnrollmentBlocked() && stillAuthorized()) { "Certificate review is no longer authorized" }
+                check(complete()) { "Certificate review was cancelled before commit" }
                 true
             } catch (error: Exception) {
-                try {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                        writeTakServerList(before, "rollbackChatP12")
-                        apply()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        writeTakServerList(before, "rollbackReviewedCertificate")
+                        if (expected == null) takServerSecretsRepository.removeApprovedCa(id)
+                        else if (certificate != null || checkCaSnapshot)
+                            takServerSecretsRepository.setApprovedCa(id, expected.address, expected.port, oldCa)
+                        rollback()
+                    } catch (recovery: Exception) {
+                        Log.e(TAG, "Certificate recovery failed; configuration requires attention")
+                        throw CertificateRecoveryException(recovery)
                     }
-                } catch (_: Exception) {
-                    Log.e(TAG, "Chat P12 rollback failed; configuration requires attention")
-                    throw IllegalStateException("P12 recovery failed; configuration requires attention")
                 }
                 if (error is CancellationException) throw error
-                Log.e(TAG, "Chat P12 apply failed; previous credentials restored")
+                Log.e(TAG, "Certificate apply failed; previous settings restored")
                 false
             }
         }
@@ -4728,6 +4908,47 @@ class DataRepository(
         return parseTakServerRead(takServerSecretsRepository.takServerListRead.first())
     }
 
+    suspend fun getApprovedServerCa(serverId: String, address: String, port: Int): String? =
+        takServerSecretsRepository.getApprovedCa(serverId, address, port)
+
+    suspend fun setApprovedServerCa(serverId: String, address: String, port: Int, certificate: String?) {
+        TakServerEndpointIdentity.mutationMutex.withLock {
+            check(!chatEnrollmentBlocked()) { "Server settings are managed or locked" }
+            check(readTakServerList().any {
+                it.serverId == serverId &&
+                    TakServerEndpointIdentity.key(it) == TakServerEndpointIdentity.key(address, port)
+            }) { "Server changed before CA approval could be saved" }
+            takServerSecretsRepository.setApprovedCa(serverId, address, port, certificate)
+        }
+    }
+
+    internal suspend fun reviewedExportStillAllowed(expected: TakServerItem, ca: String?): Boolean {
+        awaitTakServerMigration()
+        return TakServerEndpointIdentity.mutationMutex.withLock {
+            !chatEnrollmentBlocked() && readTakServerList().any { it == expected } &&
+                getApprovedServerCa(requireNotNull(expected.serverId), expected.address, expected.port) == ca
+        }
+    }
+
+    internal suspend fun exportReviewedServer(
+        expected: TakServerItem,
+        ca: String?,
+        create: suspend () -> ByteArray,
+    ): ByteArray {
+        awaitTakServerMigration()
+        return TakServerEndpointIdentity.mutationMutex.withLock {
+            if (chatEnrollmentBlocked()) throw ManagedServerExportException()
+            if (readTakServerList().none { it == expected } ||
+                getApprovedServerCa(requireNotNull(expected.serverId), expected.address, expected.port) != ca)
+                throw StaleCertificateDestinationException()
+            val bytes = create()
+            try {
+                if (chatEnrollmentBlocked()) throw ManagedServerExportException()
+                bytes
+            } catch (error: Exception) { bytes.fill(0); throw error }
+        }
+    }
+
     suspend fun tryAwaitTakServerList(): List<TakServerItem>? {
         return try {
             awaitTakServerList()
@@ -4770,6 +4991,7 @@ class DataRepository(
             val jsonString = gson.toJson(uniqueList)
             Log.i(TAG, "storeTakServerList: writing list size=${uniqueList.size}, len=${jsonString.length}")
             takServerSecretsRepository.setTakServerListJson(jsonString)
+            clearObsoleteServerCa(currentList, uniqueList)
             if (watchOwned) recordWatchOwnedTakServers(jsonString)
         }
 
@@ -4924,7 +5146,8 @@ class DataRepository(
                 return@withLock TakServerUpdateResult.INVALID_INDEX
             }
             val normalizedItem = normalizeTakServerItem(
-                newItem,
+                newItem.copy(identityEpoch = newItem.identityEpoch ?: currentList[oldItemIndex].identityEpoch,
+                    strictServerTrust = newItem.strictServerTrust || currentList[oldItemIndex].strictServerTrust),
                 preferredServerId = currentList[oldItemIndex].serverId
             )
             val duplicateIndex = currentList.indexOfFirst {
@@ -4942,10 +5165,22 @@ class DataRepository(
     }
 
     private suspend fun writeTakServerList(list: List<TakServerItem>, operation: String) {
+        val before = readTakServerList()
         val json = gson.toJson(normalizeTakServerList(list))
         Log.i(TAG, "$operation: writing list size=${list.size}, len=${json.length}")
         takServerSecretsRepository.setTakServerListJson(json)
+        clearObsoleteServerCa(before, list)
         recordWatchOwnedTakServers(json)
+    }
+
+    private suspend fun clearObsoleteServerCa(previous: List<TakServerItem>, next: List<TakServerItem>) {
+        previous.forEach { old ->
+            val id = old.serverId ?: return@forEach
+            val replacement = next.firstOrNull { it.serverId == id }
+            if (replacement == null || TakServerEndpointIdentity.key(old) != TakServerEndpointIdentity.key(replacement)) {
+                takServerSecretsRepository.removeApprovedCa(id)
+            }
+        }
     }
 
     /** Watch-side server edits made while no live phone session holds the lock survive a restore. */
@@ -5099,6 +5334,8 @@ class DataRepository(
             .map { prefs -> prefs[ENABLE_WEARTAK_DEV_MODE] ?: false }
             .distinctUntilChanged()
 
+    internal val connectionStatusPreferences = ConnectionStatusPreferences(context.dataStore)
+
     val networkPreferencesChecklistEnabled: Flow<Boolean> =
         context.dataStore.data
             .map { prefs -> prefs[NETWORK_PREFERENCES_CHECKLIST_ENABLED] ?: false }
@@ -5106,6 +5343,15 @@ class DataRepository(
 
     suspend fun storeNetworkPreferencesChecklistEnabled(enabled: Boolean) {
         context.dataStore.edit { it[NETWORK_PREFERENCES_CHECKLIST_ENABLED] = enabled }
+    }
+
+    val stayConnectedOffWrist: Flow<Boolean> =
+        context.dataStore.data
+            .map { prefs -> prefs[STAY_CONNECTED_OFF_WRIST] ?: false }
+            .distinctUntilChanged()
+
+    suspend fun storeStayConnectedOffWrist(enabled: Boolean) {
+        context.dataStore.edit { it[STAY_CONNECTED_OFF_WRIST] = enabled }
     }
 
     val getBondedLocationDiagnosticsEnabled: Flow<Boolean> =
@@ -5162,6 +5408,9 @@ class DataRepository(
                 prefs[TAK_ENDPOINT_USER_CHOICE] = enabled
             } else if (key == ENABLE_MULTICAST) {
                 prefs[MULTICAST_USER_CHOICE] = enabled
+            } else if (key == ENABLE_DITTO_SERVICE && !enabled) {
+                // Explicit Ditto off/on starts a fresh BLE recovery budget.
+                prefs.remove(DITTO_BLE_RECOVERY_STATE)
             }
         }
         return rejection
@@ -5683,12 +5932,12 @@ class DataRepository(
     }
 
     val getPhysiologicalMetricUserType: Flow<String> = context.dataStore.data.map { prefs ->
-        prefs[USER_TYPE] ?: DEFAULT_USER_TYPE
+        ProfileUnit.normalizeStored(prefs[USER_TYPE] ?: DEFAULT_USER_TYPE)
     }
 
     suspend fun storePhysiologicalMetricUserType(usertype: String) {
         context.dataStore.edit { prefs ->
-            prefs[USER_TYPE] = usertype
+            prefs[USER_TYPE] = ProfileUnit.normalizeStored(usertype)
         }
     }
 
@@ -5696,8 +5945,14 @@ class DataRepository(
         prefs[YEAR_OF_BIRTH] ?: DEFAULT_BIRTH_YEAR
     }
 
-    suspend fun storeYearOfBirth(year: Int) {
+    val confirmedBirthYear: Flow<Int?> = context.dataStore.data.map { prefs ->
+        prefs[YEAR_OF_BIRTH].takeIf { prefs[BIRTH_YEAR_EXPLICITLY_SUPPLIED] == true }
+    }
+
+    suspend fun storeYearOfBirth(year: Int, explicitlySupplied: Boolean = true) {
         context.dataStore.edit { prefs ->
+            if (explicitlySupplied) prefs[BIRTH_YEAR_EXPLICITLY_SUPPLIED] = true
+            else if (prefs[YEAR_OF_BIRTH] != year) prefs.remove(BIRTH_YEAR_EXPLICITLY_SUPPLIED)
             prefs[YEAR_OF_BIRTH] = year
         }
         storePhysiologicalMetricAge((Year.now().value - year).coerceAtLeast(0))
@@ -6090,6 +6345,7 @@ class DataRepository(
         private val HIGH_ATM_PRESSURE_ALERT_THRESHOLD = intPreferencesKey("high_atm_pressure_alert_threshold")
         private val ENABLE_ACTIVITY_RECOGNITION_SERVICE = booleanPreferencesKey("enable_activity_recognition_service")
         private val ENABLE_DITTO_SERVICE = booleanPreferencesKey("enable_ditto_service")
+        private val DITTO_BLE_RECOVERY_STATE = stringPreferencesKey("ditto_ble_recovery_state")
         private val ENABLE_CHAT_SERVICE = booleanPreferencesKey("enable_chat_service")
         private val ENABLE_AUDIO_CAP_SERVICE = booleanPreferencesKey("enable_audio_capture_service")
         private val ENABLE_BETA_FEATURES = booleanPreferencesKey("enable_beta_features")
@@ -6110,7 +6366,7 @@ class DataRepository(
         private val ENABLE_WIFI_BATTERY_OPTIMIZATION = booleanPreferencesKey("enable_wifi_battery_optimization")
         private val ENABLE_ALL_WIFI_BATTERY_OPTIMIZATION = booleanPreferencesKey("enable_all_wifi_battery_optimization")
         private val ENABLE_HAIL_SERVICE = booleanPreferencesKey("enable_hail_service")
-        private val ENABLE_BATDOK_COT = booleanPreferencesKey("enable_batdok_cot")
+        private val ENABLE_BATDOK_COT = BatdokSharingStore.ENABLED
         private val HAIL_LICENSE_INFO_JSON = stringPreferencesKey("hail_license_info_json_v1") // include suffix for forward-compat
         private val HAIL_LICENSE_STATE = stringPreferencesKey("hail_license_state")
         private val HAIL_COMBAT_ID = intPreferencesKey("hail_combat_id")
@@ -6165,6 +6421,7 @@ class DataRepository(
         private val BONDED_LOCATION_DIAGNOSTICS_ENABLED =
             booleanPreferencesKey("bonded_location_diagnostics_enabled")
         private val NETWORK_PREFERENCES_CHECKLIST_ENABLED = booleanPreferencesKey("network_preferences_checklist_enabled")
+        private val STAY_CONNECTED_OFF_WRIST = booleanPreferencesKey("stay_connected_off_wrist")
         private val NETWORK_PREFERENCES_LOCKED = booleanPreferencesKey("network_preferences_locked")
         private val SMS_NUMBERS_LIST = stringPreferencesKey("sms_numbers_list")
         private val RESTING_HR_HIGH_ALERT_BPM_THRESHOLD = intPreferencesKey("resting_hr_high_alert_bpm_threshold")
@@ -6227,5 +6484,6 @@ class DataRepository(
         private val TABLET_COMMAND_APIKEY = stringPreferencesKey("tablet_command_apikey")
         private val TABLET_COMMAND_REPORTING_UPDATE_INTERVAL = intPreferencesKey("tablet_command_reporting_update_interval")
         private val YEAR_OF_BIRTH = intPreferencesKey("year_of_birth")
+        private val BIRTH_YEAR_EXPLICITLY_SUPPLIED = booleanPreferencesKey("birth_year_explicitly_supplied")
     }
 }

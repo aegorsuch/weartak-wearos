@@ -15,6 +15,7 @@ import org.maplibre.compose.expressions.dsl.asString
 import org.maplibre.compose.expressions.dsl.const
 import org.maplibre.compose.expressions.dsl.offset
 import org.maplibre.compose.expressions.value.SymbolAnchor
+import org.maplibre.compose.expressions.value.TextPitchAlignment
 import org.maplibre.compose.layers.CircleLayer
 import org.maplibre.compose.layers.LineLayer
 import org.maplibre.compose.layers.SymbolLayer
@@ -104,6 +105,7 @@ internal fun GenericPointsOnMap(
             )
             SymbolLayer(
                 id = "$id-label", source = source,
+                textPitchAlignment = const(TextPitchAlignment.Viewport),
                 onClick = { hits ->
                     val hit = hits.firstOrNull() ?: return@SymbolLayer ClickResult.Pass
                     if (onSelectionKey != null) onSelectionKey(hit.getStringProperty("selectionKey").orEmpty())
@@ -119,7 +121,9 @@ internal fun GenericPointsOnMap(
             val circles = remember(points) {
                 FeatureCollection(points.mapNotNull { point ->
                     val center = validMapPositionOrNull(point.lat, point.lon) ?: return@mapNotNull null
-                    point.circleRadiusMeters?.takeIf { it.isFinite() && it > 0 && it <= 100_000 }?.let { radius ->
+                    point.circleRadiusMeters?.takeIf {
+                        point.mapShape == null && it.isFinite() && it > 0 && it <= 100_000
+                    }?.let { radius ->
                         Feature(
                             MultiLineString(circleSegments(circleOutline(
                                 center.latitude, center.longitude, radius

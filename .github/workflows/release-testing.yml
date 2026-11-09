@@ -1,11 +1,8 @@
 # Lives on the GitHub mirror's default branch (GitHub only runs workflows from there).
-# The TAK.gov publisher (ci/publish_github_release.py) sends the dispatch after it has
-# verified the uploaded APK. "Run workflow" re-checks the current release by hand.
+# Manually re-check the current release after publication.
 name: Release testing checklist
 
 on:
-  repository_dispatch:
-    types: [weartak-release-published]
   workflow_dispatch:
 
 permissions:

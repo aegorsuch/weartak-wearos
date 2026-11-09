@@ -13,6 +13,53 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.xml.sax.InputSource
 
 class CotMessageBuilderTest {
+    @Test fun pliPreservesWatchUidAndHumanCallsignWithAtakStyleDittoDeviceName() {
+        val base = pliSnapshot()
+        val uid = "WEAROS_056b9ca33004b318"
+        val snapshot = base.copy(systemData = base.systemData.copy(deviceId = uid))
+        val xml = CotMessageBuilder.pli(snapshot,
+            CotMessageBuilder.PliOptions("ODIN-WEARTAK", "Medic", "Blue", false, "",
+                dittoMetadata = CotDetailBuilder.DittoMetadata("watch-sdk-peer", "T004b318", "runtime-sdk")))
+        val event = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(InputSource(StringReader(xml))).documentElement
+        val ditto = event.getElementsByTagName("ditto").item(0) as Element
+        assertEquals(uid, event.getAttribute("uid"))
+        assertEquals("T004b318", ditto.getAttribute("deviceName"))
+        assertEquals("watch-sdk-peer", ditto.getAttribute("a"))
+        assertEquals("runtime-sdk", ditto.getAttribute("version"))
+        assertEquals("0.0.0.0", ditto.getAttribute("ip"))
+        assertEquals("ODIN-WEARTAK",
+            (event.getElementsByTagName("contact").item(0) as Element).getAttribute("callsign"))
+        val group = event.getElementsByTagName("__group").item(0) as Element
+        assertEquals("Medic", group.getAttribute("role"))
+        assertEquals("Blue", group.getAttribute("name"))
+    }
+
+    @Test fun pliIncludesOnlySuppliedLocalDittoMetadataAndEscapesAttributes() {
+        val metadata = CotDetailBuilder.DittoMetadata(
+            "watch-peer&'<>\"", "Watch & ' \" < >", "runtime-sdk-version&",
+        )
+        for (local in listOf(metadata, null)) {
+            val xml = CotMessageBuilder.pli(pliSnapshot(),
+                CotMessageBuilder.PliOptions("EAGLE", "Medic", "Blue", false, "",
+                    dittoMetadata = local))
+            val event = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(InputSource(StringReader(xml))).documentElement
+            val elements = event.getElementsByTagName("ditto")
+            assertEquals(if (local == null) 0 else 1, elements.length)
+            assertEquals("watch-1", event.getAttribute("uid"))
+            if (local != null) {
+                val ditto = elements.item(0) as Element
+                assertEquals("detail", ditto.parentNode.nodeName)
+                assertEquals(local.peerId, ditto.getAttribute("a"))
+                assertEquals(local.deviceName, ditto.getAttribute("deviceName"))
+                assertEquals(local.version, ditto.getAttribute("version"))
+                assertEquals("0.0.0.0", ditto.getAttribute("ip"))
+                assertEquals(4, ditto.attributes.length)
+            }
+        }
+    }
+
     @Test fun ownedDeletionMatchesAtakLinkedForcedDeleteContractWithoutChangingTargetIdentity() {
         val uid = "original & ' \" < > pin"
         val now = Instant.parse("2026-10-24T12:00:00Z").toEpochMilli()
@@ -62,23 +109,26 @@ class CotMessageBuilderTest {
         val actual = CotMessageBuilder.pli(pliSnapshot(), CotMessageBuilder.PliOptions("EAGLE", "Team Member", "Cyan", false, "<hail/>"))
         val legacy = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?><event version='2.0' uid='watch-1' type='a-f-G-U-C' time='$START' start='$START' stale='$STALE' how='m-g'><point lat='41.000000' lon='-87.000000' hae='100.0' ce='4' le='5'/><detail><status readiness='true' battery='80'/><remarks/><contact endpoint='*:-1:stcp' callsign='EAGLE'/><__group role='Team Member' name='Cyan'/><track course='45' speed='3'/><hail/></detail></event>"
         val expected = legacy.replace("<detail>", "<detail>${CotDetailBuilder.takv()}")
-            .replace("<remarks/>", "<remarks/>${CotDetailBuilder.biometrics("watch-1", null, 80)}")
+            .replace("<remarks/>", "<remarks/>${CotDetailBuilder.physiology("watch-1", null, 80)}")
         assertEquals(project(expected), project(actual))
     }
 
-    @Test fun pliBiometricsIsIndependentOfBatdokAndGatesVitalsOnMonitoredPhysio() {
+    @Test fun pliPhysiologyIsIndependentOfBatdokAndGatesVitalsOnMonitoredPhysio() {
         for (monitoring in listOf(false, true)) {
             for (batdok in listOf(false, true)) {
                 val snapshot = pliSnapshot().copy(monitoredPhysio = physio().data.takeIf { monitoring })
                 val xml = CotMessageBuilder.pli(snapshot,
                     CotMessageBuilder.PliOptions("EAGLE", "Medic", "Blue", batdok, ""))
-                assertTrue(xml.contains(CotDetailBuilder.biometrics("watch-1", snapshot.monitoredPhysio, 80)))
+                assertTrue(xml.contains(CotDetailBuilder.physiology("watch-1", snapshot.monitoredPhysio, 80)))
                 val root = DocumentBuilderFactory.newInstance().newDocumentBuilder()
                     .parse(InputSource(StringReader(xml))).documentElement
-                val biometrics = root.getElementsByTagName("biometrics").item(0) as Element
+                assertEquals(0, root.getElementsByTagName("biometrics").length)
+                assertEquals(1, root.getElementsByTagName("physiology").length)
+                val physiology = root.getElementsByTagName("physiology").item(0) as Element
+                assertEquals("detail", physiology.parentNode.nodeName)
                 for ((tag, value) in listOf("hr" to "72", "skt" to "98.6", "exert" to "0.25")) {
-                    assertEquals(if (monitoring) 1 else 0, biometrics.getElementsByTagName(tag).length)
-                    if (monitoring) assertEquals(value, biometrics.getElementsByTagName(tag).item(0).textContent)
+                    assertEquals(if (monitoring) 1 else 0, physiology.getElementsByTagName(tag).length)
+                    if (monitoring) assertEquals(value, physiology.getElementsByTagName(tag).item(0).textContent)
                 }
                 assertEquals(if (batdok) 1 else 0, root.getElementsByTagName("_atmist_").length)
             }
@@ -156,7 +206,17 @@ class CotMessageBuilderTest {
         val cancel = emergencySnapshot(DataRepository.AlertState.CANCEL)
         val alertXml = CotMessageBuilder.emergency(alert)
         val cancelXml = CotMessageBuilder.emergency(cancel)
-        assertTrue(alertXml.contains("<biometrics"))
+        for (xml in listOf(alertXml, cancelXml)) {
+            val root = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(InputSource(StringReader(xml))).documentElement
+            assertEquals(1, root.getElementsByTagName("physiology").length)
+            assertEquals(0, root.getElementsByTagName("biometrics").length)
+            val parsed = CotMessageParser.parseEmergencyOrNull(xml)!!
+            assertEquals("watch-1", parsed.senderUid)
+            assertEquals(parsed, CotMessageParser.parseEmergencyOrNull(
+                xml.replace("<physiology", "<biometrics").replace("</physiology>", "</biometrics>")))
+        }
+        assertTrue(alertXml.contains("<physiology"))
         assertTrue(alertXml.contains("uid='alert-1'"))
         assertTrue(alertXml.contains("alertUid='alert-1'"))
         assertTrue(alertXml.contains("<weartak_location timeMillis='0'/>"))
@@ -166,7 +226,7 @@ class CotMessageBuilderTest {
         assertTrue(alertXml.contains("<device><model>WEAROS</model><uid>watch-1</uid><hr>72</hr><skt>98.6</skt><exert>0.25</exert></device>"))
         assertTrue(!alertXml.contains("<device model='WEAROS'"))
         assertTrue(alertXml.contains("type='b-a-o'"))
-        assertTrue(cancelXml.contains("<biometrics"))
+        assertTrue(cancelXml.contains("<physiology"))
         assertTrue(cancelXml.contains("alertUid='alert-1'"))
         assertTrue(cancelXml.contains("alertState='CANCEL'"))
         assertTrue(cancelXml.contains("<device><model>WEAROS</model><uid>watch-1</uid><hr>72</hr><skt>98.6</skt><exert>0.25</exert></device>"))

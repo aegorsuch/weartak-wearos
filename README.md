@@ -1,8 +1,437 @@
 # WearTAK-WearOS
 
+## Purpose and Capabilities
+
 WearTAK-WearOS is a standalone Wear OS application that connects a watch to the Team Awareness Kit (TAK) ecosystem. It is designed to collect location and on-watch sensor data, publish Cursor-on-Target (CoT) events, and provide a watch-native interface for operational awareness and alerts.
 
 The app can connect directly to a TAK server and can optionally use SITX, Ditto mesh, BLE companion, and plugin integrations when those capabilities are configured. A phone is not required for the app's primary watch workflow.
+
+### Nearby server review
+
+The optional V3 host controls stage PKCS12 or canonical ServerPackage V1 data in
+host-owned memory, limited to 32,700 bytes and a 300-second lease. Every Binder
+method authenticates the plugin UID, registered package, signer and live
+connection. Random, origin-bound handles are one-use; cancellation, expiry and
+connection death erase staged bytes. Opening review/export requires a one-use
+grant from the host's foreground plugin launcher. No plugin apply endpoint exists.
+
+The wearer chooses the destination and explicitly applies changes. Private CAs
+require certificate/fingerprint review, independently of client identity.
+Nearby-imported client chains do not automatically become server trust roots.
+Public-CA packages use platform trust and strict endpoint verification. Existing
+server and CA snapshots, management policy and lease authorization are checked
+again at the persistence boundary; failures restore the prior configuration.
+Runtime connection/enrollment starts are fenced while settings are provisional;
+the previous enrolled identity cache is retained for rollback. Connection starts
+only after a successful review commit. A post-commit start failure is reported
+without misrepresenting the saved configuration as unapplied.
+`APPLIED` means configuration saved, not enrollment or connection success.
+Receiver enrollment uses receiver-entered credentials (or explicitly accepted
+shared login) and a fresh, receiver-local certificate-cache identity. Separate
+administrator PKCS12 mode saves the server disabled until its client bundle is
+imported and the server is enabled.
+
+Sender export is host-owned: choose a configured server, then separately opt in
+to sharing the client identity/private key and username/password. Sensitive export
+requires an additional explicit confirmation. Managed sources, stale snapshots,
+non-exportable or unavailable keys, invalid identities and oversized packages are
+refused. Only settings, reviewed CA material and specifically approved server
+credentials are exported, never watch UID, callsign or device settings. Sharing a
+certificate allows every recipient to impersonate that identity; revocation
+affects all shared watches. Export is one-use and rechecks source authorization
+when the plugin takes the package. Sensitive bytes have no independent
+application-layer encryption: transport must use Nearby UKEY2 encryption and
+mutual code confirmation. Actual credential transmission requires separate
+authorization.
+
+This work extracts shared PKCS12 classification, CA review and guarded save logic
+from unmerged NFC MR !585 (`d6a7611a61eaebc9074ac3af9c7de135ecaf40e2`);
+it does not include NFC HCE, transport or prefilling. The SDK source pin is
+`86bdc8b04797c2cf6caa30e78e796abac1c2a330` from
+`https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` (public mirror:
+`https://github.com/aegorsuch/weartak-plugin-sdk`), tree
+`a03d33bc077d81f80cdb53b04ea75e18cf0200a1`. Build that exact source with JDK 17
+and Android SDK 34 using `gradlew.bat assembleRelease`, then pass the resulting
+AAR to host Gradle using `-PweartakPluginSdkAar=<absolute-path>`.
+Alternatively, run `python ci/build_plugin_sdk.py` to build the pinned source
+into the default ignored SDK directory. Host Gradle verifies its SHA-256 before
+building; CI uses the same helper and hash check.
+For reproducible source extraction, use `git -c core.autocrlf=false archive`;
+Windows Git newline conversion otherwise changes packaged AIDL/proguard files.
+The neutral-source release AAR SHA-256 is
+`f90a36a6cada1a55a3154944a8b524119217cb95176fd055c2a7dd3aeafaa7a7`.
+That hash is Windows-specific. Verified Linux CI output is
+`beae3192d0e80d6e1f8da39ffbb20f5e0921c904a34ab44268b9b4b35e04faa1`;
+only generated manifest line endings differ. Source pin and all other AAR
+payload entries are identical. Build verification selects the exact platform hash.
+The checked-in legacy AAR does not provide the new optional controls and must
+not be used for this integration. The SDK has no signed published AAR;
+source-built binaries are unsigned dependency artifacts, not signed releases.
+The canonical LF source manifest SHA-256 is
+`3ed70060a8435a90bd3b7369c1cc399183a0861139bf81462b821ad9757e45f9`.
+This includes the SDK owner-controlled Covered Work linking permission from
+SDK MR !9. It does not relicense Google Play services or other third-party code;
+their independent distribution terms still apply.
+Earlier synthetic demos used the equivalent uncommitted Windows-source AAR
+`a67356ae6de956033b89e834b8d91b2aaf064335fde22cb120e2f4975fbb258f`.
+Dependency reconciliation with NFC and normal distribution/licensing approvals
+remain release gates. Frozen V1 exposes stale
+destination rejection as `REJECTED/FAILED`, while the wearer sees the specific
+stale-destination message; it has no distinct stale Binder status.
+
+`:app:assembleNearbyFixture` builds an isolated `.nearbyfixture` application with
+no TAK/application startup or Internet permission. It renders production round-
+watch review/export widgets with synthetic client keys, CA certificates and a
+memory-only backend. Its optional signature-bound plugin bridge demonstrates the
+real SDK Binder and plugin UI without starting Nearby advertising/discovery.
+The fixture's visible foreground service keeps its Binder host alive while the
+plugin is foreground; stopping the fixture process ends that synthetic session.
+Debug receive injection uses the plugin's debug-only, host-bound synthetic
+loopback service; neither fixture nor receive hook belongs in release builds.
+
+Repository integration tests also exercise the production review adapter and
+encrypted disk DataStore, including rollback of server settings and approved
+CAs. They use real Tink AEAD encryption with only Android Keystore key wrapping
+substituted; physical hardware-backed key storage and radio transfer remain
+separate validation gates. The visible fixture's memory backend is not evidence
+of production persistence.
+
+### What it does
+
+- Connects to TAK endpoints and sends and receives CoT traffic.
+- Publishes position/location information (PLI), markers, SOS/manual alerts, sensor-driven alerts, and TAK chat payloads.
+- Collects health, activity, and environmental data, including heart rate, location, activity, skin temperature (where supported), BLE beacons, pressure, and off-body state.
+- Provides Wear OS activities, a Tile, and watch-face complications for common operations and status.
+- Supports managed configuration, allowing an enterprise mobility/MDM provider to apply settings and service enablement.
+- Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
+- Provides optional audio detection pipelines for gunshot and UAS events, and optional CRM inference.
+- Hosts supported WearTAK plugins through the included plugin SDK contract.
+
+Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
+
+DART/FALCON detections show a yellow home top-display warning, not an automatic
+popup. Tap to review "Gunshot detected?" or "UAS detected?" with the model score.
+Only the latest unanswered event per detector remains pending (at most two);
+superseded event records remain in history without an inferred Yes/No label.
+Opening a review freezes its event identity even if a newer detection arrives.
+Yes/No records that event's response and closes the dialog; another review requires
+another tap. Back closes without answering, leaving the latest event pending.
+There is no automatic review timeout. Actual emergencies always keep priority;
+a separate warning button keeps lower-priority reviews reachable beside it.
+When several warnings coexist, that button opens a compact selector so each
+domain remains reachable without answering another domain first.
+Pending review state survives activity recreation but is in memory, not persisted
+across process termination or reboot. Existing service feedback logging writes
+app-private `gunshot_debug/gunshot_feedback.jsonl` and `uas_debug/uas_feedback.jsonl`,
+including UID, detector, answer timestamp, tap-to-answer latency, and
+detection-to-feedback latency. These files have no explicit rotation; asynchronous
+logging is not a transactional audit guarantee. This flow adds no remote sends.
+
+CRM uses the same compact review shell, with score/status, CRM details, and Back;
+it never asks the user to confirm a health state with Yes/No. Only current accepted
+readings while CRM is enabled and the watch is worn can show a home warning:
+MODERATE is yellow, POOR is red status only, and GOOD clears it. Readings older
+than 30 seconds or unavailable/rejected readings do not remain live warnings.
+The existing CRM Reserve measurement screen and sampling controls remain reachable
+through CRM details. Home priority is actual physio/emergency, CRM POOR, physio
+warning, detection, CRM MODERATE, then Ditto BLE status. No CRM event queue,
+threshold change, medical acknowledgement, emergency dispatch, or transmission is added.
+Ditto BLE recovery uses this same shell with Retry and Back, retaining its
+30-minute eligible recovery budget and persisted timeout/pause. The shared
+warning selector and Network Preferences both keep Retry reachable under
+higher-priority warnings. An open review remains bound to its domain when
+priority changes; a cleared Ditto warning closes its review without reopening
+automatically if the warning returns. See [Ditto notes](DITTO_CHAT.md) for
+BLE-specific recovery, persistence, and eligibility details.
+The emulator-only `WarningReviewEmulatorTest` fixture uses production warning
+widgets with local synthetic state. Build debug instrumentation with
+`-PweartakEmulatorAbi=x86_64 -PweartakWarningUiDemo=true` and run only that class
+with `WarningUiTestRunner`. This opt-in runner substitutes a plain Application,
+does not bootstrap WearTAK operational services, and refuses physical hardware.
+The normal instrumentation runner is unchanged; the fixture skips there.
+
+## Status
+
+Protected canonical `main` pipelines publish signed APKs through the
+[GitHub pipeline release](#github-pipeline-release) workflow. Project policy treats
+those builds as stable, not prereleases; this is not blanket hardware or field
+acceptance. Feature-specific prototypes, placeholders, pending hardware checks,
+security boundaries, and known limitations remain documented under
+[Developer Notes](#developer-notes). A general operational-readiness certification
+or release schedule is not established by this README.
+
+## Point of Contacts
+
+### Point of Contact: Alex Gorsuch on chat.tak.gov or Signal
+
+## Ports Required
+
+Network requirements depend on enabled transports and configured endpoints;
+not every deployment requires every port below.
+
+| Transport / feature | Protocol and port | Direction / scope |
+| --- | --- | --- |
+| Direct TAK server CoT | TCP/TLS, configured server port (default `8089`) | Watch connects to the configured server. |
+| TAK channel/mission APIs and route package downloads | HTTPS/TCP `8443` | Watch connects to the source server; multicast peer packages use source-bound peer HTTPS with the restrictions in [Route point selection](#route-point-selection). |
+| Username/password certificate enrollment | HTTPS/TCP `8446` | Watch connects to the configured enrollment server. |
+| TAK SA / direct CoT multicast | UDP, configured group/port (default `239.2.3.1:6969`), plus `224.10.10.1:6969` | Send/receive on local Wi-Fi; access point must permit multicast between clients. |
+| GeoChat multicast | UDP `224.10.10.1:17012` | Send/receive on local Wi-Fi. |
+
+See [TAK SA multicast](#tak-sa-multicast) and
+[TAK certificate enrollment](#tak-certificate-enrollment) for routing and trust
+boundaries. Companion uses BLE GATT rather than an IP listening port.
+Optional SITX, Ditto, map/terrain/weather endpoints, plugins, and wireless ADB
+have deployment-dependent network requirements; a complete port inventory for
+those integrations is not established here. Verify their configured endpoints
+and provider requirements before setting firewall policy.
+
+## Equipment Required
+
+A Wear OS watch with GPS and Android API 34 or later is required by the app's
+minimum SDK and manifest. A phone is not required for standalone operation.
+Direct TAK networking requires a reachable configured endpoint and appropriate
+credentials/certificates; multicast requires a multicast-capable local Wi-Fi
+network. Optional sensors and integrations require their corresponding hardware,
+permissions, and provisioning.
+
+For source builds, use Android Studio, JDK 17, Android SDK API 35,
+build-tools 35.0.0, NDK 27.0.12077973, and the local binary dependencies described
+under [Platform and requirements](#platform-and-requirements).
+
+## Equipment Supported
+
+The documented target family is Samsung Galaxy Watch 7/8 and Galaxy Watch Ultra
+7/8; Samsung-specific sensors require compatible Samsung hardware and services.
+This identifies intended hardware, not a verified compatibility matrix for every
+model or feature. BLE and telephony are optional. Debug packaging defaults to
+`armeabi-v7a`; explicit emulator/diagnostics ABI overrides and their restrictions
+remain documented below. Paired operation requires a compatible ATAK-side
+WearTAK Companion; feature-specific phone/watch version and acceptance
+requirements still apply.
+
+## Compilation
+
+### Getting started
+
+1. Install Android Studio and an Android SDK that includes API 35, build-tools 35.0.0, and the Android NDK 27.0.12077973.
+2. Configure JDK 17 for Gradle.
+3. If required for your environment, create `signing.properties` with the debug/release keystore values expected by `app/build.gradle`. The build also accepts the corresponding `WEARTAK_*` environment variables.
+4. Build a debug APK:
+
+   ```bash
+   ./gradlew :app:assembleDebug
+   ```
+
+5. Install the generated `armeabi-v7a` APK on a connected watch:
+
+   ```bash
+   adb install -r app/build/outputs/apk/debug/*armeabi-v7a-debug.apk
+   ```
+
+6. Launch the app:
+
+   ```bash
+   adb shell am start -n com.aitech.weartak_civ.dev/.presentation.MainActivity
+   ```
+
+Debug builds add `.dev` to the application ID; release builds use
+`com.aitech.weartak_civ`. Use the installed package ID for ADB commands.
+
+The app requests permissions at runtime. On a physical device, grant only the permissions required for the services you intend to enable (for example, location, body sensors, activity recognition, notifications, Bluetooth, and microphone access).
+
+### GitHub pipeline release
+
+Protected `main` push pipelines publish the signed WearOS APK only to the rolling
+**TAK.gov Forge CI/CD Pipeline Release** in the public
+[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) repository.
+Project policy treats these as stable builds, not prereleases. See
+[CI release setup and retention](ci/README.md) for pipeline setup and safeguards.
+Existing company Releases and tags remain untouched. The publisher first fast-forwards
+personal `main` to the exact canonical
+pipeline source, then publishes the same verified signed APK using a separate
+repository-scoped CI credential. It does not build or sign independently. The CI
+documentation covers required administrator configuration, provenance and verified replacement behavior.
+Other numbered releases and unrelated assets are preserved.
+
+For focused compile checks, test-cache behavior, and debugging commands, see
+[Development notes](#development-notes). Explicit debug ABI overrides and the
+optional hosted-plugin emulator test are described under
+[Received CoT marker symbols](#received-cot-marker-symbols).
+
+## Developer Notes
+
+Detailed behavior, configuration, architecture, security limitations, and
+feature-specific testing/acceptance instructions follow.
+
+### Changelog
+
+#### 5.8.4
+
+Improves map and plugin workflows, TAK enrollment and connection reliability, Nearby server-package transfers, and Ditto recovery and peer diagnostics.
+
+- [p462](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820060) (Posted 301236Z OCT 26) — Introduced 5.8.4 with newest-first chat ordering.
+- [p464](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1820323) (Posted 301324Z OCT 26) — Reordered unit choices and simplified goTenna/TAK CAD menu rows.
+- [p472](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822116) (Posted 301822Z OCT 26) — Preserved whitespace in quoted enrollserver passwords.
+- [p475](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1822370) (Posted 301907Z OCT 26) — Fixed host lint findings and added full debug lint as CI gate.
+- [p481](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823030) (Posted 302231Z OCT 26) — Added map-action/mTLS support and MOPP display/publishing updates.
+- [p500](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1823642) (Posted 310153Z OCT 26) — Preserved public-CA enrollment trust alongside approved private CAs.
+- [p538](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1824224) (Posted 310513Z OCT 26) — Improved plugin activity launching, Bloodhound controls, collapsible map categories, connection status, and TAK CAD compatibility.
+- [p543](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825145) (Posted 311609Z OCT 26) — Improved enrollment diagnostics and clarified SMS alert wording.
+- [p546](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825555) (Posted 312025Z OCT 26) — Enabled manual Stay Awake on battery and improved Wi-Fi activation handling.
+- [p551](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825691) (Posted 010033Z NOV 26) — Fixed compact Bloodhound picker back-arrow visibility and sizing.
+- [p554](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1825746) (Posted 010305Z NOV 26) — Added public-root trust for CoT streaming alongside approved private CAs.
+- [p567](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828140) (Posted 021429Z NOV 26) — Preserved overlay category choices, fixed map-shape visibility, and standardized README structure.
+- [p573](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1828546) (Posted 021628Z NOV 26) — Removed map-shapes import button and improved accessibility and automation selectors.
+- [p578](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831099) (Posted 030423Z NOV 26) — Added bounded Ditto BLE recovery, Retry, and shared service-off warnings.
+- [p581](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1831805) (Posted 031455Z NOV 26) — Added live Ditto transport and recovery diagnostics.
+- [p584](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1832185) (Posted 031653Z NOV 26) — Simplified Ditto diagnostics to compact peer counts and separate BLE recovery status.
+- [p597](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1836625) (Posted 042243Z NOV 26) — Added wearer-reviewed Nearby Drop server-package import/export.
+- [p612](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1838815) (Posted 051548Z NOV 26) — Added standalone BATTAK patient sharing and Unit profile choices, plus default-off Stay connected off-wrist for TAK and Ditto.
+- [p632](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839276) (Posted 051747Z NOV 26) — Simplified BATTAK and Stay Connected Off-Wrist controls, added sanitized BATTAK failure codes, and introduced review-only release changelog drafts. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
+- [p635](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839827) (Posted 052053Z NOV 26) — Allowed BATTAK sharing with last valid known location while preserving its timestamp and accuracy, and added sanitized send/wait diagnostics. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
+- [p638](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1840501) (Posted 060016Z NOV 26) — Removed birth-year confirmation requirement for BATTAK ATMIST and heart rate, using saved profile birth year or default 1998. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
+
+Current APK links above download p644, not each historical entry's build. The
+single rolling release replaces older APKs; recheck these links when approving
+the next changelog update.
+
+### Map sources and 3D overlays
+
+Open the map's top **Overlay Manager** button, then **Maps** to select
+**Bing Hybrid**, **Google Hybrid**, or **OSM Vector** (the unchanged existing
+OSM vector/OpenTopoMap raster composition; the label does not mean vector-only).
+All three alphabetized choices remain visible under Maps.
+Compact rows use 10sp labels, 14dp leading radio indicators and separate 28dp
+full-width touch regions (below Android's recommended 48dp target).
+Selection persists across app restarts.
+Existing installations keep their original map until a provider is selected.
+Camera, tactical overlays, role/team filters and saved layer choices are retained.
+Original-map layer filters remain visible but disabled for hybrid imagery;
+switching back to OSM Vector re-enables them with their saved visibility choices.
+**3D Buildings** appears automatically in OSM Vector's tilted 3D mode from zoom 14,
+and is hidden in 2D; there is no separate conflicting checkbox.
+It extrudes the existing TAK `building` polygons using provider-supplied
+`render_height`/`render_min_height` values, omitting missing/nonpositive heights
+and `hide_3d` features. These are source rendering heights, not verified measured
+building heights. No guessed height or alternate provider is added.
+The bottom-right 2D/3D button on OSM Vector animates between overhead (0 degrees)
+and tilted (45 degrees), preserving center, zoom and bearing. Its choice persists
+across restarts and restores when switching back to OSM. Hybrid imagery stays
+overhead with tilt gestures disabled and the same button greyed out/disabled.
+The button hides with Buttons and while
+Overlay Manager is open; OSM gestures can still adjust pitch.
+Buildings use 60% opacity below tactical map layers. Tactical symbols remain
+viewport-aligned; a noninteractive screen-space pass keeps self/generic dots,
+route points/lines, range rings and Bloodhound lines above building depth.
+
+Map camera center, zoom and bearing are saved when idle and on leaving the map,
+then restored as the fallback on cold launch. On the first map open in a process,
+a valid self location takes priority over that saved center; a delayed first fix
+also centers once unless the user pans/zooms first or contact/route focus applies.
+Later map opens/resumes in the same process keep the current/saved view without
+snapping again. Source-specific zoom limits and the saved 2D/3D choice still apply.
+An uninitialized 0,0 camera is not saved; native floating-point jitter is not
+treated as navigation. Opening/resuming still requests a location/PLI refresh;
+the recenter button remains explicit.
+
+OSM tilted mode also has a prototype altitude/lollipop pass. It samples public
+[AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) Terrarium PNGs at
+zoom 13 (about 14.5 m/pixel at NYC), with an eight-tile memory cache and 32 MiB
+OkHttp disk cache. Requests happen only for visible, valid-altitude targets while
+the camera is idle; missing terrain is retried after a minute. Cached tiles work
+offline. Missing/void terrain, unknown HAE (including `9999999`), missing geoid or
+unprojectable heights retain the existing ground marker, never a fabricated stem.
+Missing/void terrain or a missing/invalid geoid retains the ground marker with
+no stem and no on-map failure message; diagnostic errors remain logged.
+`ElevationProvider` returns orthometric meters so a DTED provider can
+be preferred later without changing marker rendering; DTED reading is not yet implemented.
+
+The bundled unmodified GeographicLib `egm96-15.pgm` is 2,076,888 bytes (1440 x 721,
+15-minute grid; SHA256
+`2a12f13b6df65cdea52432c7fa1b43f34b007148eb817bf032af5af710905caa`),
+from [geoids-distrib/egm96-15.tar.bz2](https://sourceforge.net/projects/geographiclib/files/geoids-distrib/egm96-15.tar.bz2).
+Bilinear interpolation applies `AGL = HAE - (terrain + geoidN)`. Eight independent
+NGA harmonic-synthesis reference points from GeographicLib's
+[GeoidHeights.dat.gz](https://sourceforge.net/projects/geographiclib/files/testdata/GeoidHeights.dat.gz)
+are checked within 5 cm; the dataset's documented global maximum bilinear error
+is 1.152 m, RMS 0.040 m. No GeographicLib implementation code is copied.
+Terrain Tiles blend regional DEMs/vertical datums: treating them as approximate
+EGM96 is a **prototype**, not survey- or floor-grade elevation. Terrain source
+and dataset credits are in Credits. Tile requests disclose the visible terrain
+tile area to AWS, not identities, HAE or CoT messages.
+
+Self altitude uses `snapshotLocation`, the same effective HAE sent in outgoing
+CoT (including the existing optional BLE override), only when Android Location
+reports altitude present. `Location.getAltitude()` is WGS84 ellipsoidal; the app
+uses the platform fused location provider but does **not** implement explicit
+barometer/GPS fusion. Pressure services remain separate and unchanged. Received
+CoT HAE/LE values are passed through, not smoothed or reinterpreted.
+
+For AGL above 3 m, the marker is lifted using a perspective reconstruction from
+the current MapLibre ground projection, preserving bearing, pitch and padding.
+Markers and stems draw in Compose above building depth; taps follow the raised
+marker. Building geometry under the actual ground point is checked, including
+polygon holes and minimum height: stem portions inside a known extrusion are
+dashed, outside portions solid. Unknown footprint/height means a solid stem.
+Footprints refresh from rendered frames after camera idle, including tiles that
+arrive after the style-load callback; an early empty query is not cached indefinitely.
+No numeric AGL/floor label or altitude helper/caveat text is drawn on the map.
+Indoor GPS may be wrong by 10-30 m, and reported HAE error excludes DEM/geoid uncertainty. Existing
+contact/marker/alert navigation is retained. Native fixtures cover dashed indoor
+stems, roof alignment, overlay visibility and compact target-menu actions.
+
+OpenTopoMap raster stops requesting tiles at zoom 17 and overzooms instead of
+showing its HTTP-200 "max zoom layer =17" placeholder. TAK vectors overzoom from
+14; hybrid rasters from verified zoom 20. Camera limits are 20 for OSM and 22 for
+hybrids. The existing remote contour endpoint currently returns HTTP 403 even at
+lower zooms; this is not solved by zoom caps or a silent provider substitution.
+The menu order is Buttons, Layers (alphabetical filters), Maps, Roles, Teams;
+Roles combines the existing standard and LEO / Civil Use options without changing
+their independently saved selections.
+Global Markers, Users and ATOS visibility switches are removed. Live markers and
+ATOS tags remain visible, and users remain subject to the existing role/team filters
+(the chat-contact picker retains its own eligibility rules). Legacy saved global
+OFF values are ignored, including both spellings of the former Users preference.
+This does not bypass source ownership, expiration/deletion, privacy, invalid-coordinate
+or emergency handling.
+Each grouped category has an inline disclosure arrow: right when collapsed,
+down when expanded. Tap the header or arrow to show or hide its items without
+changing their eye toggles, selected map, or saved visibility. Categories start
+expanded except Credits until a choice is saved. Each category independently
+remembers its expansion choice across closing/reopening Overlay Manager, activity
+recreation and app restarts, using stable category IDs rather than displayed labels
+or positions. Counts, map-source changes and temporarily absent groups do not clear
+saved choices. This includes Layers (feature filters), Maps, Roles,
+Teams and Credits; individual filter rows are visibility toggles, not expandable groups.
+The top-right back arrow dismisses only Overlay Manager; the underlying map
+back button is absent while that menu is open, and system Back dismisses it first.
+The Buttons toggle also hides Channels, while Overlay Manager remains available.
+Credits is the last section. Its arrow row is
+collapsed by default; tap to reveal active-source copyright, source and license
+links. Reopening restores its saved expansion choice; changing source preserves
+its disclosure state and updates its links.
+Required on-map notices remain visible.
+If the watch has no browser, the selected URL is shown with an explicit error.
+
+These are experimental direct online tile endpoints, not authenticated official
+provider APIs. No credentials are required by these endpoints; availability does
+not grant imagery rights or guarantee future access. Provider terms apply.
+No bulk download or offline-pack feature is added. Normal renderer caching remains.
+Provider attribution stays visible on the map. Load failures or a 20-second
+loading timeout expose retry and original-map recovery in Overlay Manager.
+Credits use an 8dp safe-top inset and dark text shadow without a background box;
+All three providers use 6sp text; the Overlay Manager button stays at the same fixed
+position below the credits on every source.
+Top credits retain the short OpenStreetMap credit, SRTM and OpenTopoMap CC-BY-SA
+for the unchanged original composition; see [OpenStreetMap copyright](https://www.openstreetmap.org/copyright)
+and [OpenTopoMap usage requirements](https://opentopomap.org/about#verwendung).
+URL formats follow the public ATAK XML references from
+[ATAK-Maps](https://github.com/joshuafuller/ATAK-Maps) and
+[Map Depot](https://github.com/takwerx/map-depot); no Map Depot code is incorporated.
+Bing uses MapLibre Native 12.0.1's supported `{quadkey}` substitution, not ATAK's
+`{$q}` placeholder. Google uses XYZ `{x}`, `{y}`, `{z}` with `lyrs=y`.
+Both raster styles use 256-pixel tiles, zooms 1-20 (overzoom above 20), and retain
+the bundled style's glyph endpoint for tactical labels.
 
 ### Physiological telemetry
 
@@ -19,14 +448,19 @@ master is off; turning it back on restores those choices. Other alert defaults
 remain off, while saved choices and physiological monitoring are unchanged.
 
 Standalone PLI (TAK servers, multicast and direct CoT) and Ditto track `r` details
-share the same `<biometrics>` device block with heart rate (`hr`), skin temperature
+share the same `<physiology>` device block with heart rate (`hr`), skin temperature
 in Fahrenheit (`skt`) and exertion (`exert`). These readings require physiological
 monitoring, worn state, enabled source sensors and valid samples no older than
 120 seconds or more than 30 seconds in the future, matching self-status policy.
 Unavailable readings are omitted; model/UID remain for reflected-watch identity
-detection. The BATDOK switch controls only the separate ATMIST additions, not
-biometrics. Self-status remarks are unchanged. Battery remains in `<status>` and
-the shared `<biometrics><device><bat>` field, independent of monitoring.
+detection. The BATTAK switch controls legacy ATMIST additions and separately
+authorized patient sharing, not this physiology field. Self-status remarks are unchanged. Battery remains in `<status>` and
+the shared `<physiology><device><bat>` field, independent of monitoring.
+Physiology Dashboard consumers should listen for `<detail><physiology>`.
+Alert/cancel metadata also uses `<physiology alert...>`, preserving its attributes
+and device children. Inbound alerts accept `<physiology>` with legacy
+`<biometrics>` fallback; PLI identity detection accepts both tags. Legacy JSON
+schema keys remain unchanged.
 
 Esri and Tablet Command use the same monitored snapshot and existing schema keys.
 They export the same HR, skin temperature and exertion as TAK, plus the existing
@@ -36,14 +470,14 @@ device identity remain independent of monitoring.
 
 IBI, HRV, SpO2, ambient/core temperature, VO2/VO2max, sweat loss/duration, sleep
 score/durations, energy score and fat/muscle mass remain `-1`, with empty timestamp
-fields: they are not part of the TAK biometrics contract. No new MOPP, elevation,
+fields: they are not part of the TAK physiology contract. No new MOPP, elevation,
 calorie or sample timestamp keys are added to these legacy schemas; they have no
 established corresponding fields here. MOPP remains in TAK/Ditto remarks.
 
 ### While charging (opt-in)
 
 **Developer Preferences > While charging** is one combined toggle directly
-under the unchanged manual **Stay awake** switch, using the same row style.
+under the independent manual **Stay awake** switch, using the same row style.
 It defaults to off in both release and debug builds. Existing installations migrate
 to on if either former charging toggle was on; migration runs once and never
 overwrites a later choice. When enabled,
@@ -57,12 +491,12 @@ service manager releases this mode's demand. The saved charging choice survives
 unplugging, service stops, updates and restarts; it takes effect again when WearTAK
 is running on the charger. It does nothing off the charger.
 
-The main **Stay awake** switch takes priority with a bright screen while plugged in;
-disabling the charging toggle cannot stop manual mode. Manual mode still requires
-external power and turns itself off on unplug, preserving its original behavior.
+The main **Stay awake** switch takes priority with a bright screen on battery or charger;
+disabling the charging toggle or unplugging cannot stop manual mode.
 Turning manual mode off falls back to charging-only mode if eligible. Notification
-Stop disables both choices. Neither mode changes system stay-awake or Wi-Fi radio
-settings, and neither guarantees that vendor firmware preserves an ADB session.
+Stop disables both choices. Neither mode changes system stay-awake settings.
+Manual mode requests Wi-Fi activation when off; charging-only mode does not.
+Neither guarantees that vendor firmware preserves an ADB session.
 
 ### Wireless debugging setup for While charging
 
@@ -159,6 +593,14 @@ status artwork, subtitles, switch state, lock handling and settings navigation
 are preserved. This checklist does not add transport polling or change the main
 screen or watchface complication indicators.
 
+Ditto's checklist subtitle shows **Off-Wrist** when off-wrist detection alone
+pauses sync, and **Suppressed** for other active power gates (including low
+battery, bedtime and power save). Its switch stays on; charging or alert
+overrides restore the normal identity subtitle. Disabled Ditto keeps its
+identity subtitle. TAK server rows and their checklist summary already show
+**Off-Wrist** during eligible off-body waiting gaps, without hiding connection
+failures or relabeling Companion handoff and other route gates.
+
 While a live phone-managed Companion bond locks network controls, their
 checklist subtitles show **Bonded**, replacing any prior subtitle (or adding
 one when empty). The TAK master and plugin forwarding equivalents use the
@@ -182,7 +624,7 @@ Companion service.
 On the top-level Plugins screen, the live phone-management bond disables both
 actions and replaces the subtitle with **Bonded** only for these stable
 `BuiltInPlugin` IDs: `DITTO` (Ditto Edge Sync), `EVERYWHERE_COMMS` (Everywhere),
-`GOTENNA` (goTenna), `SOMEWEAR_LABS` (Somewear Labs), and `DATA_SYNC` (Data Sync).
+`SOMEWEAR_LABS` (Somewear Labs), and `DATA_SYNC` (Data Sync).
 The mapping does not use display names or match installed plugins by name.
 Every other entry, including Companion and installed plugins, is unchanged.
 Releasing the bond restores each original subtitle and both actions.
@@ -229,6 +671,16 @@ Configure Ditto Edge Sync under **Preferences > Tool Preferences > Plugins**. Th
 tap the Ditto Edge Sync row to select Community or configure a custom PDL in Ditto Edge Sync Identity. The row subtitle shows
 Community or the saved custom PDL, truncated to fit. Ditto is off by default on fresh installs, and saved
 enablement settings are preserved. PDL Help provides scrollable instructions for copying and pasting a custom identity.
+Outgoing standalone PLI includes a `<ditto>` detail only while the watch's enabled
+Ditto peer is actively syncing. Its peer key, SDK version and configured SDK
+device name come from the local watch SDK, never the phone. The detail is omitted
+while stopped, power-suppressed, changing identity, or handed off to Companion.
+The watch advertises the same Ditto SDK and CoT device name: `T` followed by the
+last seven characters of its stable TAK UID (`WEAROS_` plus Android ID).
+This matches observed working ATAK phone/tablet naming for peer association;
+it is a sample-based compatibility convention, not a universal SDK contract.
+Human-readable callsigns remain in CoT contact details; peer keys and SDK versions
+are unchanged. Callsign changes do not change this UID-derived peer name.
 Ditto pauses only while Companion is actually connected. An enabled or reconnecting
 Companion service does not block Ditto, and Ditto never blocks Companion startup.
 On link loss, enabled Ditto resumes; reconnecting pauses it again without changing
@@ -245,11 +697,46 @@ CoT transports by sender/message ID. Expired mesh messages are ignored and
 locally evicted without deleting inbox history. See [the chat wire schema](DITTO_CHAT.md)
 for the shared WearOS/iOS document contract and addressing rules.
 
-Plugins are listed alphabetically, including installed plugins. Everywhere, GoTenna and Somewear Labs are
-unfunded placeholders: each displays **Unfunded Request**, and their switches remain off without activating any integration.
-Installed plugins use split chips: tap the row to open the plugin's launcher activity, or use the switch
-to load/unload it. Swipe the row to access remove and info. Plugins without a launchable activity
-(or whose activity cannot be opened) reveal those actions on tap instead. Opening an activity does not load the plugin.
+Plugins are listed alphabetically, including installed plugins. Everywhere remains
+an unfunded placeholder. Somewear has no built-in placeholder; only a discovered
+installed Somewear plugin appears, even if unloaded.
+Installed plugins use split chips: use the switch to load or unload the plugin.
+If a loaded plugin advertises the SDK `hostedMainUi` capability, tapping its row opens a generic host-rendered
+page from its main UI schema; otherwise, tapping opens the plugin's launcher activity. Hosted pages render
+SDK `STATUS`, `KEY_VALUE_LIST`, and `ACTION` cards. Actions run only after a wearer tap. Host does not
+define plugin-specific controls or collect secret text input. Swipe the row to access remove and info.
+The host advertises `com.weartak.hostedUi.actionPresentationVersion = 1` (an Int) in
+`PluginInitParcel.hostExtras`. Only after that advertisement may plugins send optional ACTION
+presentation fields: `actionPresentation` (`TEXT`/`ICON`), `actionIcon`
+(`NOTE`/`BLOODHOUND`/`STOP`/`TARGET`/`BACK`), `actionPlacement` (`BODY`/`HEADER_END`),
+`actionGroup`, and `showTitle`. Without it, use the original four-key text-action content.
+Visible text defaults remain unchanged. `actionLabel` always remains a required accessibility label;
+semantic card titles remain required even when `showTitle = false` suppresses them.
+ICON actions require `showTitle = false` and use the same 48dp buttons/22dp icons as map contact
+actions. Consecutive BODY icons with the same group share a centered row (up to three per row);
+place an incident's action group before detail cards to show it at the top.
+At most one HEADER_END action is allowed: ICON/BACK, without a group. It appears at the top right
+and replaces the bottom host back control. BODY text actions can suppress just their title,
+avoiding separator-only cards in server pickers. Invalid fields or combinations reject the page
+explicitly; argument validation and credential-key rejection still apply.
+Non-action STATUS/KEY_VALUE_LIST titles are bold accessible headings; subtitles remain normal text.
+Plugins can use these cards for fields such as Address, Responders, and Summary without markup.
+
+Plugin host services expose the calling plugin's active incident UID and an ownership-checked
+`bloodhound.stop` action; Bloodhound start can opt in to returning to WearTAK main.
+See [the host-services contract](weartak-plugin-host-services-sdk/README.md).
+Debug emulator previews hide the bottom DEV badge on Android emulator hardware
+(`ranchu`/`goldfish`); physical debug builds keep it and release branding is unchanged.
+For an x86_64 Wear OS emulator, build explicit debug tasks with
+`-PweartakEmulatorAbi=x86_64`; normal/release ABI packaging remains unchanged.
+For an ARM64 diagnostics dev APK, use `-PweartakDebugAbi=arm64-v8a` with explicit debug
+tasks. The debug ABI option also accepts `x86_64`; do not combine it with the emulator option.
+Neither override permits release or broad build tasks.
+The optional `HostedTakCadEmulatorTest` requires the TAK CAD debug plugin installed on the emulator.
+It uses a test-only in-process, read-only incident response and the host activation request lane,
+with no real server calls or sensor requirements.
+Plugins without a launchable activity (or whose activity cannot be opened) reveal those actions on tap instead.
+Opening an activity does not load the plugin.
 Plugin authors can override the menu subtitle by placing this metadata **inside the plugin's
 `<service>` element** (the service advertising `com.weartak.plugin.action.PLUGIN_SERVICE`):
 
@@ -311,6 +798,9 @@ Companion JSON envelopes (`vers: 1`) also expose the full, untruncated standalon
 identity as `payload.standaloneCallsign` in `watch_info`, `settings_request`,
 and the initial/changed `settings_changed` payload. The existing `watch_info.cs`
 and settings `callsign` remain the effective (possibly phone-managed) identity.
+The optional legacy `watch_info.mac` value is unavailable and omitted from JSON;
+WearTAK does not read the watch's local Bluetooth MAC address. BLE discovery,
+pairing, connection behavior, and saved settings are unchanged.
 For example, while managed, `watch_info.payload` includes
 `{"cs":"PHONE","standaloneCallsign":"ODIN-WEARTAK"}` and settings include
 `{"callsign":"PHONE","standaloneCallsign":"ODIN-WEARTAK"}` alongside their other
@@ -401,7 +891,7 @@ preferences are unchanged; this does not unpair or rename any device.
 Commands uses original WearTAK megaphone artwork (`ic_commands_megaphone.xml`), not a vendor mark.
 Commands retains **Unfunded Request** in the plugin menu; Data Sync shows its real enabled/paused state.
 Opening Commands shows informational, wrapping command examples beneath Allowed Callsigns in the scrollable settings list.
-The six integration rows use the artwork below, fitted proportionally into 24 dp without theme tint.
+The five branded integrations use the artwork below, fitted proportionally into 24 dp without theme tint.
 The user confirmed permission to use these identified assets on 2026-10-21; this is user-confirmed
 permission, not a claim of a public redistribution license. Only Ditto is the exact ATAK plugin icon;
 the other marks are approved official-company backups, not claimed as ATAK plugin artwork.
@@ -409,7 +899,6 @@ the other marks are approved official-company backups, not claimed as ATAK plugi
 | Integration | Artwork and provenance | Preparation |
 | --- | --- | --- |
 | Somewear Labs | [Official 192 px symbol](https://somewearlabs.com/wp-content/uploads/2026/07/cropped-somewear-favicon-rounded-corners-192x192.png) | Unchanged PNG, `ic_integration_somewear.png`. |
-| GoTenna | [Official original favicon](https://gotenna.com/cdn/shop/files/favicon.webp?v=1680207627) | Native 100 x 100 WebP, requested with `Accept: image/webp`; no enlargement. `ic_integration_gotenna.webp`. |
 | Everywhere | [Official white logo](https://everywherecomms.com/cdn/shop/files/everywhere_logo_white.png?v=1727986047) | Left 232 x 232 globe crop from the 1517 x 232 logo, proportionally reduced to 192 px; no redrawing. `ic_integration_everywhere.png`. |
 | DART and FALCON | [Official Certus Innovations symbol](https://images.squarespace-cdn.com/content/v1/687cf63b5a78985697612a02/8c2c76c6-79ac-4cf4-8dca-a3e9f8f0293c/CI-Icon-Arrow_white%2Bteal.png) | 1920 px artwork proportionally reduced to 192 px, retaining white/teal and transparency. Both use `ic_integration_certus.png`; labels distinguish the products. Product identity: [DART](https://www.certusinnovations.com/products/dart), [FALCON](https://www.certusinnovations.com/products/falcon). |
 | Ditto Edge Sync | Installed `com.dittofederal.atak.plugin.ditto` APK, `drawable/ic_ditto_menu` (`0x7f07006b`), compiled `res/AC.xml` | `ic_integration_ditto.xml` preserves all four original paths and `#F6F6F6` fills. Transparent margins trimmed from the 376 x 416 viewport to the artwork bounds (284 x 324), with proportional intrinsic size. |
@@ -424,19 +913,6 @@ or a claim of working hardware. Every built-in plugin now has an explicit icon
 mapping; the existing Companion mark, Commands megaphone, integration artwork,
 MOPP mask and independent Data Sync icon are retained. Icons do not enable an
 integration or change its saved state, navigation or placeholder status.
-
-## What it does
-
-- Connects to TAK endpoints and sends and receives CoT traffic.
-- Publishes position/location information (PLI), markers, SOS/manual alerts, sensor-driven alerts, and TAK chat payloads.
-- Collects health, activity, and environmental data, including heart rate, location, activity, skin temperature (where supported), BLE beacons, pressure, and off-body state.
-- Provides Wear OS activities, a Tile, and watch-face complications for common operations and status.
-- Supports managed configuration, allowing an enterprise mobility/MDM provider to apply settings and service enablement.
-- Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
-- Provides optional audio detection pipelines for gunshot and UAS events, and optional CRM inference.
-- Hosts supported WearTAK plugins through the included plugin SDK contract.
-
-Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
 
 ### Ditto receive support and deletion boundary
 
@@ -462,8 +938,8 @@ are rejected with diagnostics; there is no fallback parser. Compatibility with
 other producers is limited to this shape, not a claim of general ATAK Ditto support.
 
 Ditto connectivity/presence alone does not provide a map position: a peer must
-publish a supported, current PLI document. Received users still obey **Layers >
-Users**, team-color and role filters. Standard and LEO role selections are saved
+publish a supported, current PLI document. Received users still obey **Overlay
+Manager > Overlays > Users**, team-color and role filters. Standard and LEO role selections are saved
 independently, so editing one section no longer hides the other after reopening
 the map. For the old shared role preference, a nonempty selection containing only
 one section's roles is retained for that section; the overwritten other section
@@ -634,8 +1110,8 @@ Standalone TAK/multicast PLI and Ditto track `r` XML use the same remarks line a
 Companion `WatchSelfStatus.Contribution.remarksLine` (canonical Companion develop
 `58fe25f1ef1e8241c02f7a37c43fc962800b0eac`). For example:
 `MOPP0; HR: 79 bpm @ 03:17:19Z; Skin: 91.1F @ 03:17:18Z; Exert: 16% @ 03:17:19Z`.
-MOPP comes from the same enabled saved state as `self_status.ppe.level`; `None`
-and unset/disabled MOPP contribute no token. Physio uses the same monitoring,
+MOPP comes from the same live-plugin saved state as `self_status.ppe.level`; `None`
+and unset/unavailable MOPP contribute no token. Physio uses the same monitoring,
 on-wrist, sensor opt-in, plausibility and actual-sample freshness policy as
 Companion self status. Unavailable metrics are omitted, not replaced with `N/A`;
 an empty contribution produces empty remarks. Skin uses one US-locale decimal,
@@ -657,14 +1133,14 @@ local tests does not establish phone consumption or server/ATAK receipt.
 ### Map rotary bezel zoom
 
 On the map, rotate the bezel clockwise to zoom in and counterclockwise to zoom
-out. Rotary input falls through to normal handling while Layers, Channels,
+out. Rotary input falls through to normal handling while Overlay Manager, Channels,
 own-location details, the overlapping-target picker, route details, or route-point
 details are open, and while navigating to the selected-user menu. Zoom resumes
 when the unobstructed map is active again.
 
 ### Map layer visibility
 
-The Layers menu preserves saved visibility choices without reloading the native
+Overlay Manager preserves saved visibility choices without reloading the native
 map style. Hidden base layers are replaced individually by invisible layers and
 restored when shown again; marker/contact/route overlays and the camera retain
 their current ownership. This avoids invalidating queued overlay filter updates
@@ -709,25 +1185,49 @@ wrapping or truncation; accessibility names latitude and longitude. This
 identification is map-only; the dashboard coordinate display is unchanged.
 
 Nearby visible contacts and pins (within 28 dp of a group anchor on the current
-map projection) share a target-count label. Tap any member icon or its label to
+map projection) suppress overlapping labels; no target-count label is drawn.
+Tap any member icon to
 open a native scrollable **Select Target** list and choose the contact, dropped
 pin or received marker. Zooming recalculates groups. All original icon coordinates,
-identities, visibility filters and stored precision remain unchanged; only labels
-are grouped. No target is offset, deleted or converted to historical copies.
+identities, visibility filters and stored precision remain unchanged. No target
+is offset, deleted or converted to historical copies.
 
-Tap a user on the map, then **Start Bloodhound** immediately below **Open Chat** to
-start the existing Bloodhound action and return to the map. The action uses the
+Tap a user on the map to show one compact row of existing icons: **Bloodhound**,
+**Chat**, then **Target**. Bloodhound starts tracking and returns to the WearTAK
+home/main menu, without opening the Bloodhound app.
+Target centers on the selected contact at zoom 17, then preserves subsequent
+manual navigation rather than repeatedly snapping back. The Bloodhound action uses the
 selected user's UID and location; subsequent PLI from that same source refreshes
 the target while preserving tracking state. Users without a valid position cannot
 be selected for Bloodhound. If the user disappears, the last known target remains
 until stopped or removed through the existing Bloodhound controls. This action is
-also available on the map opened from Chat: it starts Bloodhound and returns to
-that map without selecting a chat contact or sending a message. **Open Chat**
+also available on the map opened from Chat: it starts Bloodhound and returns home
+without selecting a chat contact or sending a message. **Open Chat**
 retains the chat picker's existing contact-selection behavior.
-The user menu uses the standard Wear scrolling list and position indicator so both
-actions remain reachable on round screens. The ordinary Bloodhound detail action
+The icons use 22 dp artwork with 48 dp touch targets, including on small round
+screens. Bloodhound and Target are disabled without a valid contact position;
+Chat retains its existing endpoint validation. The ordinary Bloodhound detail action
 also reads **Start Bloodhound** instead of **RGR**; acknowledgement and stop behavior
 are unchanged.
+
+Routes, route points, received map points and saved pins use the same compact
+**Bloodhound / Target** row without Chat. Whole-route Bloodhound opens the existing
+nearest/beginning start chooser; Target frames the entire route. Point Target
+centers at zoom 17. Starting a saved pin, received marker or individual route point
+also returns home. For the actively tracked contact or point, Bloodhound becomes
+the picker's red **Stop** control with a white square. Stopping keeps the target
+available, does not send an **nPos** acknowledgement and stays on its detail screen.
+Invalid coordinates disable starting and Target, but do not prevent stopping an
+active Bloodhound. Other point-edit and route-removal
+controls remain available.
+Saved pins and received points append a trash icon after Target, replacing their
+old Delete text controls. Saved pins retain their existing confirmation; received
+points retain their existing immediate local deletion. Delete remains available
+when navigation is disabled by a missing position. Route points have no existing
+individual-delete flow, so omit trash. Whole routes now append the same trash
+icon, replacing their Remove text control and keeping the existing confirmation.
+Route removal remains watch-local, including mission routes; it does not delete
+server mission data. The current route model has no separate read-only flag.
 
 Bloodhound applies each heading sample to source-owned targets in one batch,
 publishing only the completed compass state. Unchanged samples do not rebuild
@@ -745,7 +1245,7 @@ and installed compass complications remain heading consumers without an active
 target; active guidance also owns background heading. The listener-demand and
 cached-ambient behavior is described below, independently of reporting policy.
 
-## Performance and heading demand
+### Performance and heading demand
 
 Routine foreground services share one silent, ongoing **WearTAK active**
 notification. Its count and expanded capability list describe foreground service
@@ -889,20 +1389,7 @@ registration. Shutdown records actual removal. These numeric events use the
 existing five-second aggregation and privacy/storage bounds, not individual
 samples or a measured energy saving.
 
-## GitHub pipeline release
-
-Protected `main` push pipelines can publish the signed WearOS APK to the rolling
-**TAK.gov Forge CI/CD Pipeline Release** in the GitHub mirror. Project policy treats these
-as stable builds, not prereleases. See [CI release setup and retention](ci/README.md)
-for both the company mirror and the additional public
-[`aegorsuch/weartak-wearos`](https://github.com/aegorsuch/weartak-wearos) mirror.
-The personal publisher first fast-forwards its `main` to the exact canonical
-pipeline source, then publishes the same verified signed APK using a separate
-repository-scoped CI credential. It does not build or sign independently. The CI
-documentation covers required administrator configuration, provenance and verified replacement behavior.
-Other numbered releases and unrelated assets are preserved.
-
-## Platform and requirements
+### Platform and requirements
 
 ### WEARTAK-169: Bluetooth name is no longer changed
 
@@ -955,7 +1442,8 @@ companion snapshot when its BLE generation ends, and caps it at 512 users.
 Only live `a-*` PLI with a TAK user identity is accepted; dropped points,
 emergencies, and the watch or phone's own identity are rejected.
 
-This is a single-module Wear OS app (`:app`) with package ID `com.aitech.weartak_civ`.
+The Wear OS app (`:app`) uses package ID `com.aitech.weartak_civ`; the optional
+Host Services SDK is a separate Android library module.
 
 - **Android API levels:** min SDK 34, target SDK 34, compile SDK 35
 - **Java:** JDK 17
@@ -965,30 +1453,30 @@ This is a single-module Wear OS app (`:app`) with package ID `com.aitech.weartak
 
 The project includes local binary dependencies for the Samsung Health Sensor API, HAIL SDK, and WearTAK plugin SDK. Keep these files available when building locally.
 
-## Getting started
+Optional, backward-compatible plugin map actions and host-mediated TAK mTLS REST
+are provided by the source-built [Host Services SDK 1.0.0](weartak-plugin-host-services-sdk/README.md).
+Its versioned Binder extension is discovered through existing plugin initialization
+extras; lifecycle APIs 1-3 and plugin admission permissions remain unchanged.
 
-1. Install Android Studio and an Android SDK that includes API 35, build-tools 35.0.0, and the Android NDK 27.0.12077973.
-2. Configure JDK 17 for Gradle.
-3. If required for your environment, create `signing.properties` with the debug/release keystore values expected by `app/build.gradle`. The build also accepts the corresponding `WEARTAK_*` environment variables.
-4. Build a debug APK:
+Plugin unload revokes host controls/callbacks and publishes local unloaded state
+without waiting for remote lifecycle cleanup. Initialization and best-effort cleanup
+run off the UI thread, with four process-wide worker slots, no work queue, and no
+overlapping lifecycle generations per package. A stuck Binder call retains its
+slot until it actually returns; a timeout never creates replacement blocked threads.
+Binding and initialization each time out locally after 10 seconds. A package awaiting old
+cleanup cannot rebind until that work returns; automatic retry remains bounded.
+Plugin toggles persist the user's enabled/disabled choice across discovery refresh,
+recovery and host restart. `BINDING` is distinct from initialized `LOADED`; an on
+toggle indicates the requested enabled state, not a completed handshake.
 
-   ```bash
-   ./gradlew :app:assembleDebug
-   ```
-
-5. Install the generated `armeabi-v7a` APK on a connected watch:
-
-   ```bash
-   adb install -r app/build/outputs/apk/debug/*armeabi-v7a-debug.apk
-   ```
-
-6. Launch the app:
-
-   ```bash
-   adb shell am start -n com.aitech.weartak_civ/.presentation.MainActivity
-   ```
-
-The app requests permissions at runtime. On a physical device, grant only the permissions required for the services you intend to enable (for example, location, body sensors, activity recognition, notifications, Bluetooth, and microphone access).
+Initial plugin bindings use only `BIND_AUTO_CREATE`. After the existing UID/package,
+certificate-pinning and protocol checks pass and initialization completes, the host
+binds the same service connection again with `BIND_ALLOW_ACTIVITY_STARTS`. This lets
+verified plugins open their own screens while WearTAK is visible; pending or rejected
+handshakes never receive that flag. Android removes both binding records when the
+connection is unbound, including on unload, disconnect or shutdown. Every replacement
+connection starts unprivileged and must pass admission again. Certificate trust uses
+the existing first-handshake pinning policy, not a new signer allowlist.
 
 ### Bonded Location Diagnostics (WEARTAK-165)
 
@@ -1000,7 +1488,7 @@ Without an accepted session, both readouts explicitly show diagnostics inactive;
 
 The Developer Preferences diagnostics page shows watch and phone quality separately and provides diagnostic-only Entry/Exit markers, JSON export, and Clear. Local daily summaries retain no exact coordinates, device identifiers, or raw satellite identifiers; logs are bounded to 256 KiB per day and seven days of retention. Diagnostic messages are versioned, session-fenced, size-limited, rate-limited, and best-effort behind operational BLE traffic.
 
-## Configuration and operation
+### Configuration and operation
 
 The legacy `SettingsActivity` component redirects to `WearTAKSettingsActivity`.
 Debug tools are a screen within settings, not a separately launchable activity.
@@ -1149,7 +1637,7 @@ Bonded operation delegates these decisions to ATAK and therefore uses the native
 phone's exact objective and completion events.
 
 Route lines and named point markers remain visible on the map. Selecting a point
-uses the standard marker range/bearing display, Bloodhound/In Position action,
+uses the standard marker range/bearing display, Bloodhound/Stop action,
 and Back control. **Whole route** returns from point details to route removal
 and the named point list. The list excludes blank names but keeps original point
 indices; its count distinguishes named entries from all geometry points. Routes
@@ -1535,9 +2023,15 @@ private sends resolve a real ATAK IndividualContact with a GeoChat endpoint and 
 ATAK's native targeted chat API, preserving native phone conversation history.
 Unknown/self/broadcast-like direct contacts are rejected, never broadcast.
 Picker order is All Chat Rooms pinned first, Select User for Chat second, then
-direct/named-group rooms by their latest received remote message descending.
-Incoming messages update this order dynamically; local sends and older replayed
-messages do not promote a room. Empty rooms follow rooms with received messages.
+direct/named-group rooms by their latest message activity descending, including
+local sends. Messages inside each conversation also appear newest first, with
+date headers and previews using the same message timestamps. CoT event time or
+Companion `sentAt` determines chronology when available; legacy messages without
+that timestamp use receipt time. Older timestamped replays do not promote a room.
+Equal timestamps use deterministic sender/message and room UID ordering.
+Receipt timestamps remain separate for unread tracking. Stable message keys
+preserve the reading position when newer messages arrive while scrolling.
+Empty rooms follow rooms with messages; canned preset ordering is unchanged.
 The broadcast room appears only in its pinned entry, not again in the sorted list.
 BLE uses version-1 `msgType: chat_received` inbound and `msgType: chat` outbound,
 with a `payload` object and message ID in `msgUid`/`payload.uid`. Inbound retains
@@ -1656,6 +2150,20 @@ display. Connection windows retain normal connected/connecting status; charging,
 docking, disabled servers and inactive transport gates never show the gap label.
 Connection failures take precedence and remain visible when a batch window closes.
 
+Developer Preferences includes **Stay connected off-wrist** in both debug and
+release builds, default **OFF**. It covers **TAK servers and native Ditto Edge
+Sync**. Turning it on while already off-wrist immediately restores eligible TAK
+connections and Ditto sync, BLE discovery and publication, cancelling pending TAK
+off-body reconnect alarms and window closes. Turning it off while off-wrist
+restores normal TAK connection windows (unless charging or docked) and Ditto's
+off-wrist pause. The choice survives app restarts. Only off-wrist gating is
+bypassed: manual enable switches, network availability, Companion routing,
+authentication and TLS checks still apply. Ditto's low-battery, deep-idle,
+bedtime and battery-saver gates, charging and alert exceptions, and BLE recovery
+limits remain unchanged. It does not keep the display or radios awake or change
+other plugin/multicast connections, sensors or location power-saving policies.
+Continuous connectivity can increase battery use.
+
 CEP simulation is disabled in release and ordinary debug builds: it is excluded
 from managed service registration/startup, its Android component is disabled, and
 direct entry points cannot create notification 8123. Explicit debug test builds
@@ -1707,6 +2215,15 @@ existing demand window but do not reacquire an idle-released request. The receiv
 separate multicast filtering lock is retained; the removed high-performance power
 lock is not needed for packet reception. No normal-connected battery saving is
 claimed without a controlled measurement.
+
+While multicast remains eligible on connected Wi-Fi, receiver I/O failures are
+logged and shown to the user, then retried after five seconds without requiring
+a settings change. Each attempt closes failed sockets, releases its filtering
+lock and clears its ingress session before retrying with a fresh session.
+Disabling multicast, invalidating its endpoint, losing Wi-Fi, companion
+suppression or service shutdown cancels pending retries; an eligible replacement
+configuration starts immediately. Permission failures remain visible and are not
+retried. Receiver retries do not re-arm Wi-Fi demand or restart the publisher.
 
 ### Optional Samsung HRV acquisition
 
@@ -1764,6 +2281,38 @@ Existing Bonded Location Diagnostics remains a separate, unchanged feature;
 the Logging switch does not enable its GNSS measurement callbacks. Only the
 user-facing name changed from Diagnostics; saved consent, default-off state,
 journal contents, storage paths and technical schema identifiers are unchanged.
+
+Ditto diagnostics use this same **Logging** switch, JSONL retention and **Logs**
+export/clear path, with no separate files or consent:
+- `DITTO_LIFECYCLE`: `KIND` is start=0, identity validation=1, initialize=2,
+  start sync=3, power policy=4, transport reconfiguration=5, subscription refresh=6,
+  companion handoff=7, stop sync=8, diagnostic registration/cleanup=9.
+  `RESULT=1` marks entry/success, `0` a failure or suppressed startup.
+- `DITTO_STATE`: current `ACTIVE` sync, power `SUPPRESSED`, and identity
+  reconfiguration `REQUESTED` flags at opt-in/process start and state changes.
+- `DITTO_TRANSPORTS`: configured transport bitmask (`TRANSPORT`):
+  BLE=1, LAN=2, Wi-Fi Aware=4, outbound WebSocket=8. Recorded on configuration
+  changes and when diagnostics attach to a running Ditto peer.
+- `DITTO_PEERS`: remote peer count (`CONNECTED_COUNT`, including indirect peers),
+  direct local connection count (`SOCKET_COUNT`, not Android TCP socket count),
+  and observed connection-type bitmask (`TRANSPORT`): Bluetooth=1, AccessPoint=2,
+  SDK P2PWiFi=4, WebSocket=8. Initial presence and changed numeric projections
+  are captured; connection IDs, roles, peer metadata and names are not retained.
+- `DITTO_SDK_LOG`: SDK callback occurrence counts by severity (`KIND`):
+  error=0, warning=1, info=2, debug=3, verbose=4. Ditto 4.14.6 exposes a
+  process-global custom log callback. WearTAK discards its message argument
+  without parsing or persisting it; PDLs, shared keys, license tokens, payloads
+  and exception text never enter these records. SDK verbosity/enabled settings
+  remain unchanged, so counts include only callbacks the SDK actually emits,
+  not every internal SDK event. Raw SDK file logging/export is not enabled.
+
+The SDK hook and passive presence observer exist only while Logging is enabled
+and DittoService owns its peer; disabling Logging or stopping the service releases
+them. Logging does not start sync, alter transports, discover peers, or request
+network access. Counts/configuration are best-effort snapshots, not proof of
+delivery, sync completion, hardware scanning or Wi-Fi Direct support. These events
+share the existing five-second grouping, bounded queue and overflow reporting;
+rapid state changes can be grouped, with retained metadata flushed on export/off.
 
 The journal contains only compiled event categories and allowlisted numeric
 metadata: app/activity lifecycle, best-effort Java crash occurrence, battery
@@ -1852,9 +2401,10 @@ remain separate annotations when no existing callback exposes them.
 There are no raw coordinates, speed/health readings, identity/contact/chat
 contents, command names/arguments, exception messages/stacks, credentials,
 tokens, server addresses or device identifiers in this journal. No logcat
-interception, uploads, listener, wireless-debugging enablement, extra
+interception, uploads, network listener, wireless-debugging enablement, extra
 GPS/sensor/wakelock/network requests or battery polling is added. Existing
-callbacks feed the recorder. Events are limited to one record per category/
+app callbacks and opt-in passive SDK callbacks feed the recorder. Events are
+limited to one record per category/
 source/kind/state per five seconds; repeated occurrences are aggregated as counts,
 including on export/off. The queue is bounded to 128 records, the aggregation
 table to 256 keys, and overflow is explicitly counted. An I/O failure pauses
@@ -2076,30 +2626,41 @@ Debug and release APKs include opt-in **Stay awake** and **While charging** togg
 **Developer Preferences** (tap the
 version eight times in Preferences to reveal these tools). This standalone demo/development
 manual session control does not require Wireless debugging or read its system setting. Starting
-requires an enabled Wi-Fi radio and known external power. Otherwise a brief toast
-explains the refusal and the manual switch stays off. Charging-only mode
-additionally requires a running WearTAK service manager.
+works on battery or charger. If Wi-Fi is off, it calls Android's
+[`WifiManager.setWifiEnabled(true)`](https://developer.android.com/reference/android/net/wifi/WifiManager#setWifiEnabled(boolean))
+and checks acceptance. This API requires `CHANGE_WIFI_STATE` (already declared).
+For target SDK 34, Android permits only exempt device-owner, profile-owner or system
+apps to toggle Wi-Fi. The existing `WRITE_SECURE_SETTINGS` grant for ADB is not an
+exemption; no additional adb-grantable permission is requested as a workaround.
+When Android rejects activation, the manual choice stays off and a localized toast
+instructs the user to enable Wi-Fi in watch Settings, then retry. Accepted requests
+or an already-enabling radio wait up to 20 seconds before acquiring locks/network
+demand; the UI and notification show **Enabled, not running** meanwhile.
+Failure or timeout clears manual intent and releases resources. No radio settings
+are restored on stop, and an explicit radio-off edge is respected rather than
+forced back on. Charging-only mode still requires enabled Wi-Fi, known external
+power and a running WearTAK service manager.
 The switch holds screen, CPU and Wi-Fi locks and keeps a Wi-Fi network actively requested, including
 while viewing system settings. The request does not require Internet access, so local-only
 hotspots can satisfy it. It shows an ongoing notification with a Stop action. It remains
-enabled until you turn off the switch, tap notification Stop, switch Wi-Fi off,
-or unplug the watch.
+enabled until you turn off the switch, tap notification Stop, or switch Wi-Fi off.
 The switches reflect their independent saved choices.
 Wi-Fi radio `DISABLING` or `DISABLED` broadcasts stop the session; ordinary AP
 disconnects, roaming, or loss of Internet validation do not. Power-disconnected
-and battery plugged-state broadcasts stop both modes without polling.
+and battery plugged-state broadcasts stop charging-only mode without polling.
+They leave manual mode running, while charging-owned ADB settings are restored.
 Automatic shutoff releases the active network request and all locks immediately,
 unregisters its service receivers and removes its notification. Wi-Fi shutoff
 persists manual mode disabled; the charging opt-in remains saved. Charging-only mode
 restarts on a later power-connected edge or WearTAK startup with known external power.
 Leaving the UI or swiping the recent task does not stop the foreground service.
 There is no separate update-persistence option: enabled users retain their choice
-regardless of the old checkbox, subject to Wi-Fi and power availability. Explicitly disabled
+regardless of the old checkbox, subject to Wi-Fi availability. Explicitly disabled
 choices stay disabled. The charging opt-in is also retained across updates/restarts,
 but does not start the full WearTAK service stack at boot.
 The service requests `START_STICKY` recovery after ordinary process death; the
 package-update and post-unlock boot receiver restore only this service when enabled.
-Opening WearTAK retries a previously blocked restore. Missing or unknown Wi-Fi/power
+Opening WearTAK retries a previously blocked restore. Missing or unknown Wi-Fi
 prerequisites turn the manual choice off and explain the refusal with a toast.
 Unknown power state fails closed for charging-only mode without erasing its opt-in.
 Other Android startup failures release partial locks and report an error without
@@ -2114,16 +2675,17 @@ There is no timed expiry. The notification warns **Extra battery use. May heat w
 The Wi-Fi request is released on stop, service destruction, or startup failure.
 The active request intentionally creates Wear OS Wi-Fi demand for ADB, but the
 radio-disabling edge releases that demand before persisting shutoff; it never
-re-requests a network after that edge. It does not call APIs to force Wi-Fi on
-or guarantee connectivity against RF conditions, hotspot
+re-requests a network after that edge. Wi-Fi activation is requested only on manual
+start/restore, subject to Android policy. It does not guarantee connectivity against RF conditions, hotspot
 disconnects, or system overrides. It does not prevent an explicit screen-off action or
 guarantee ADB/multicast delivery. The switch
 is only available in the hidden Dev Mode menu.
 
 With Logging enabled, AppDiagnostics records `STAY_AWAKE_AUTO_DISABLED` and
 `STAY_AWAKE_START_REFUSED`, with numeric `REASON` codes: `WIFI_OFF=1`,
-`UNPLUGGED=2`, `WIFI_UNAVAILABLE=3` (radio not yet enabled or state unknown),
-and `POWER_UNKNOWN=4` (no usable sticky plugged state). These events retain
+`UNPLUGGED=2` (charging-only), `WIFI_UNAVAILABLE=3` (radio state unknown or network request unavailable),
+`POWER_UNKNOWN=4` (charging-only, no usable sticky plugged state),
+`WIFI_ENABLE_FAILED=5`, and `WIFI_ENABLE_TIMEOUT=6`. These events retain
 individual reasons rather than coalescing rapid transitions.
 
 ### TAK SA multicast
@@ -2167,8 +2729,26 @@ Plugins can opt in through their settings schema and enabled boolean values:
 `receiveInboundCot` receives incoming CoT as `cot.inbound`. Both actions carry `xml`;
 incoming actions also carry `source` and `receivedAt`. Incoming delivery covers direct
 TAK, multicast, SITX, and companion CoT IPC without changing their existing processing.
-Plugin-injected CoT is processed locally but is not sent back into plugin bearers,
-preventing reinjection loops. Unsupported CoT types can still be observed by opted-in plugins.
+Plugins that register optional SDK transport-v1 receive the same opted-in traffic through
+its typed chat or bounded raw-CoT callback instead of the legacy action; plugins that never
+negotiate transport keep the action path. Unregistering or losing a negotiated callback
+does not silently fall back to legacy delivery. Payloads stay within negotiated limits (at most
+48 KiB); host selects the plugin's first advertised channel. Transport acceptance means host
+admission only; channel/recipient delivery requires separate monotonic receipts.
+Nonterminal receipts reserve the final sequence number for a terminal outcome. Callback
+rejection/crash records failure unless already delivered; pending sends expire after 60 seconds
+and trigger adapter cancellation. Typed chat's negotiated byte limit applies to its UTF-8 body;
+host-generated XML is separately capped at 48 KiB after escaping.
+Host registration requires at least one mutually supported payload kind and a channel;
+`runtimeAvailable=false` does not bypass host negotiation. An unprovisioned
+provider with no established payload mapping is rejected rather than advertised as
+an active transport.
+The host builds canonical SDK source plus the pinned additive transport overlay; see
+[`ci/README.md`](ci/README.md#immutable-plugin-sdk-source) for composite identity and platform gates.
+Plugin-originated payloads pass through existing host CoT parsers with plugin,
+session, channel, sender, workspace, and external-message metadata preserved separately from
+host event IDs. Transport-reported sender IDs do not authorize host chat commands, and
+plugin-originated payloads are never automatically echoed or retransmitted to plugin bearers.
 
 These subscriptions do not start or enable any network transport, and observing inbound
 CoT does not retransmit it. A BLE-only configuration remains BLE-only. The companion BLE
@@ -2177,7 +2757,7 @@ Plugin `requestCotDispatch` retains its existing TAK-server relay by default; a 
 can declare `relayInboundToNetwork` and set it false for local-only injection. That relay
 does not enable disconnected TAK servers or fan out to other transports.
 
-## Architecture
+### Architecture
 
 ### Paired Bloodhound tracking
 
@@ -2256,15 +2836,73 @@ no snapshot, stream or historical SRT/KLV ingestion is added by this icon.
 
 ### MOPP and Data Sync plugins
 
-**Plugins > MOPP** uses an original protective-mask icon and a manual **PPE
-Status** selector: **None**, **MOPP 0**, **MOPP 1**, **MOPP 2**, **MOPP 3**,
-**MOPP 4**. None is the unset default, not level 0. MOPP defaults off; enable
-it to edit, choose a candidate, then **Save** locally. Back discards an unsaved
-candidate. Disabling retains the saved status but withdraws its Companion
-contribution. With a capable bonded and connected phone, only the saved
-selection contributes to the phone's outgoing self PLI (see below). Standalone
-watch PLI is unchanged. This does not detect PPE/CBRN, assess
-protection/compliance, set a commanded level or start a filter timer.
+**MOPP** is an installed plugin (`com.weartak.plugin.mopp`), not a built-in
+settings page. Its normal Plugins entry opens the plugin-owned selector:
+**None**, **MOPP 0** through **MOPP 4**. An unsaved selection is null, distinct
+from an explicitly saved None or level 0. The installed row shows the authoritative
+saved status as **None** or compact **MOPP0** through **MOPP4**, collected
+lifecycle-aware without writes; the manifest subtitle remains the loading fallback.
+Publishing is always on. Tapping a level saves immediately through the typed
+host Binder, without a separate Save button.
+
+WearTAK remains authoritative for the existing `mopp_status`, `mopp_saved_at`
+preferences. The legacy `enable_mopp` flag cannot disable effective publishing:
+typed state always reports enabled, saves work even with a persisted false flag,
+and legacy toggle writes retain revision/retry semantics but normalize it to true.
+Reads require no migration writes and never invent a selection or timestamp.
+Atomic revision checks and mutation IDs prevent
+stale writes and duplicate retries from changing saved state or timestamps.
+Missing, disabled, disconnected or incompatible plugins stop MOPP contributions
+to CoT remarks, Ditto and Companion self-status without deleting the saved
+selection or original timestamp. Reporting resumes only
+after a compatible plugin completes initialization/start and an authoritative
+read; reconnecting never creates a new save timestamp. No plugin means no
+editable MOPP entry. This does not detect PPE/CBRN, assess protection/compliance,
+set a commanded level or start a filter timer.
+
+The legacy bundled `weartak-plugin-sdk-release.aar` is derived from canonical SDK
+`https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` at immutable merged
+commit `5362609f69b0c527acb5d75d429ebcc16fa5772f` (tree
+`d51b1088ed550fcc605d6ae854e34707bdac5254`, merge of SDK MR !6). Release SHA-256:
+`25898D3F51D8367E877F2BB5C41EDD7FA8C513D24E35C07E0919ADD5BDC0BFBE`.
+A clean Windows JDK 17 build of that merged commit reproduced this hash; the
+hash identifies this build, not a cross-platform reproducibility guarantee.
+This historical binary is no longer the build default. Current builds use the
+verified immutable source pin in `ci/plugin-sdk.json`, described under
+[Nearby server review](#nearby-server-review). Source-built dependencies are not
+independently trusted binary releases.
+
+### Plugin route status and home connection priority
+
+Plugins can optionally report live transport routes through the SDK's
+`routeStatusV1` extension. WearTAK supplies `routeStatusV1=true` and a
+`routeStatusControlV1` Binder in `PluginInitParcel.hostExtras`; plugins use
+`PluginRouteStatusReporter.fromInit(init)` and report stable route IDs, labels,
+and connection states. This does not change existing plugin API versions or CoT
+routing. Older plugins keep the Network Preferences checklist's Enabled/Disabled
+labels. Reporting plugins show their route states and optional details instead;
+plugins without a `forwardOutboundCot` toggle show read-only status.
+
+Reports are scoped to the trusted binding and calling UID, validated, limited
+to eight routes per plugin, and sequence-checked. Reports made during startup
+are hidden until the plugin finishes initialization. Unload, binding loss,
+Binder death, and replacement revoke the old control and remove its statuses.
+Routes are not persisted: a reconnected plugin must report them again.
+
+**Developer Preferences > Connection icon priority** controls the top-left home
+icon. Move entries up/down or reset the order; changes persist immediately.
+Default order preserves Companion, connected TAK, connected SitX, connecting
+TAK/SitX, and Multicast, then adds Ditto and reported plugin routes. Separate
+connecting entries preserve the existing preference for a connected route over
+a pending server connection. Ditto uses its own icon while sync is active;
+plugins use their application icon and individual route labels. Disabled
+plugin transports and disconnected, unknown, or failed routes cannot supply
+the home icon. Disconnected is always the final fallback.
+
+Plugin-route priorities survive temporary plugin unavailability and are restored
+when the same package and stable route ID report again. New routes are appended
+deterministically. These preferences affect presentation only, not transport
+enablement, bonding, or outbound delivery.
 
 **Data Sync** now has its own icon and split enable/navigation row. The default
 remains on. Off pauses new mission API requests and background polling without
@@ -2317,7 +2955,7 @@ Every notification is a full snapshot, for example:
 - `session` is a new UUID per connection generation; repeated capability
   messages retain it. `seq` starts at zero and increases on successful queue
   admission. Old-generation queued frames cannot reach a replacement connection.
-- `ppe` is null for an unsaved status or disabled MOPP plugin. Saved levels are
+- `ppe` is null for an unsaved status or unavailable MOPP plugin. Saved levels are
   exactly `None`, `MOPP 0` through `MOPP 4`; candidates never enter the sender.
   The required `savedAt` key is ISO-8601 UTC for a new Save, or null for an
   existing saved choice with unknown save time. None remains distinct from level 0.
@@ -2511,6 +3149,10 @@ verified watch-UID membership; a room title alone never establishes membership.
 Format: `#weartakcommand<name> key=value key2="value with spaces"` (a space after
 `#weartakcommand` is also accepted). See [chat enrollment](ENROLLSERVER.md) for
 credential syntax, update behavior and plaintext/purge limitations.
+Supply paired `username=` and `password=` arguments to enroll without typing on
+the watch. Quote passwords containing spaces; quoted passwords preserve their
+surrounding spaces. Inside quotes, escape backslashes as `\\` and quotes as `\"`;
+`!` and `_` are literal.
 
 | Command | Arguments | Effect |
 | --- | --- | --- |
@@ -2610,12 +3252,118 @@ Profile commands take the same values as the settings screens (case-insensitive)
 | `setweight` | `weight=<1-1000>` |
 | `setbirthyear` | `birthyear=<1900-current year>` |
 | `setsex` | `sex=<Male, Female, N/A>` |
-| `setusertype` | `usertype="Coalition Civilian"` |
+| `setusertype` | `usertype="Air Force"` (Unit: Air Force, Army, Civilian, Foreign National, Marine Corps, Navy, None) |
 | `setpants`, `setuniformpantslengthinches` | `pants=<20-50>` (inches) |
 | `setwaist`, `setwaistsize` | `waist=<20-60>` (inches) |
 | `setprofile` | any combination of the fields above plus `callsign` |
 
 The callsign, team and role fields (including in `setprofile`) are refused when settings are managed by the phone.
+
+The physiological profile's **Unit** replaces the former User Type choices.
+Unit labels are separate from stable stored/managed values: `air_force`, `army`,
+`civilian`, `foreign_national`, `marine_corps`, `navy`, `none`, in that order.
+The `user_type` storage key, `physiological_metrics_user_type` managed key, and
+`setusertype` command remain compatible identifiers. Legacy `N/A` means None;
+other legacy classifications remain visible and unselected until explicitly
+replaced. Opening the selector never assigns Air Force or infers service/nationality.
+
+### Standalone BATTAK patient sharing
+
+The existing toggle is now labeled **BATTAK** and retains legacy PLI/ATMIST behavior.
+Deliberately switching it ON authorizes patient sharing; no separate confirmation
+page, dialog or action exists. Adjacent text explains that
+identity, callsign, Unit, location, supplied age and supported live vitals go to
+**all enabled TAK servers**, including servers enabled later. The old default-ON
+value and managed `batdok_enabled=true` do not authorize patient sharing. Existing
+users retain their legacy toggle state and must switch OFF then ON once to start
+patient sharing. A versioned explicit-user-toggle marker persists this choice.
+Turning OFF revokes it; a subsequent programmatic/managed ON cannot restore it.
+Legacy preference/API identifiers and `batdokpayload` wire naming remain unchanged.
+
+**Compatible private builds include the authorized BATTAK interoperability configuration.**
+No user parameter import, credential form, storage file or Companion is required.
+`BatdokBuiltInConfiguration` creates the independent codec from private build inputs
+`BATTAK_INTEROP_PASSPHRASE` and `BATTAK_INTEROP_SALT_BASE64` (standard Base64 salt
+bytes). Supply these only through the authorized build process environment, never
+Git, command-line literals, chat or logs. They are distinct from TAK credentials.
+The inputs are embedded in generated BuildConfig/APK and are recoverable from that
+artifact: this is compatibility configuration, **not secret storage or obfuscation**.
+Protect generated outputs according to the authorized distribution policy.
+
+An intended BATTAK acceptance build must use `-PbatdokAcceptance=true`; missing
+inputs then fail Gradle configuration explicitly. Partial inputs or invalid salt
+fail all builds. Unrelated ordinary builds with neither input remain buildable but
+show that BATTAK configuration is absent; they are not acceptance candidates.
+Private CI must set both inputs in the appropriate authorized scope and use the
+acceptance flag; no remote CI variables are created by this change.
+The shared CI release job enforces this flag for main, official and manual
+`batdok_signed_trial` builds. The trial is opt-in on canonical branch/MR pipelines,
+reuses existing production signing checks, and does not publish. Successful trial
+APK artifacts expire after seven days and require Developer access. Existing
+protected-variable permissions are unchanged: an authorized maintainer must
+ensure interoperability and signing inputs are available to the selected job;
+otherwise it fails visibly. Do not weaken variable protection to run a trial.
+The dedicated `battak-trial` environment uses preparation only, not deployment.
+A new web pipeline on the exact protected `aegorsuch-batdok-patient-sharing`
+candidate branch runs ordinary Android, lint and publisher tests before the
+manual trial becomes available. Trial-only compatibility variables must use
+environment scope `battak-trial`; earlier unprotected pipelines are not candidates.
+Main releases use the separate `battak-release` preparation environment; their
+compatibility inputs must be scoped only to `battak-release`.
+Build validation checks presence/encoding, not receiver-compatible values.
+No plaintext fallback is used. Sharing still requires explicit user toggle ON,
+regardless of built-in configuration. Derived keys are closed on service shutdown;
+BuildConfig strings necessarily remain recoverable in the process/artifact.
+The independent codec implements UTF-8 JSON -> gzip ->
+AES/ECB/PKCS5Padding -> standard unwrapped Base64, using PBKDF2-HMAC-SHA256
+(65,536 iterations, 256-bit result) from supplied passphrase/salt. Synthetic
+fixtures and independent actual-compiled-encoder comparison passed; actual
+Android receiver acceptance remains a separate required live check.
+ECB is a legacy receiver requirement, not authenticated encryption.
+
+The gated publisher uses a separate persisted random 16-hex-digit patient ID;
+heartbeats, reconnects and toggle changes retain it. Effective callsign becomes
+`name` and `alias`; Unit uses the exact nullable `unit` string (None/legacy values
+omitted). ATMIST age comes from the profile birth year: the year saved through
+settings/chat/managed configuration, or the default 1998 when none was saved.
+The default follows BATDOK team guidance as reported by the user; it is a
+placeholder, not a verified demographic. The receiver's required numeric `age`
+has no estimated/unknown marker, so a default-derived age displays like a real
+one. Because the default is a fixed year, the derived age increases each UTC
+year. Saving a real year replaces it on the next heartbeat under the same
+patient ID. The internal explicit-provenance flag is unchanged and is never set
+by the default. Age is current UTC year minus birth year, not a precise
+birthday-based age or cached physiological age. A year outside 1900..current
+year omits the entire ATMIST report rather than sending age zero or a fake age.
+
+ATMIST contains only policy-filtered, enabled, worn-state heart
+rate samples in 20..250 bpm, at most 120 seconds old or 30 seconds in the future.
+Vital timestamps use original Unix milliseconds. Skin temperature has no verified
+receiver field and is omitted rather than mislabeled core `Temp`; locally stored
+sex is retained without inventing a wire field. Injury/treatment arrays are empty;
+ATMIST incident time is report creation time, not an asserted clinical injury onset.
+Outer CoT and nested location agree. BATTAK uses the last valid known fix of any
+age (no freshness limit); its original fix timestamp and accuracy are sent
+unchanged, so an old fix is not presented as new. No fix since the location
+service/input started, invalid coordinates, or fixes more than 30 seconds in the
+future block sharing. Other location consumers keep their own freshness rules.
+
+Patient heartbeats run every 25 seconds while dispatch is running, and refresh on
+TAK readiness/consent changes, with 60-second outer CoT expiry. This path writes
+only enabled, connected, nonduplicate direct TAK streams, obeying TAK endpoint,
+license, off-body and Companion transport-suppression policy. It never uses
+generic egress, multicast, Ditto, plugins, Companion, ESRI or TabletCommand.
+Consent, policy, identity, sample freshness and connection generation are checked
+again before each socket write. No offline patient payload is queued for replay.
+Off stops updates; receiver records age out on their own independent timers.
+Logcat records one `BATTAK patient outcome:` line only when the status/detail
+changes: `SENT streams=<written>/<eligible>` or a fixed wait code such as
+`no_tak_connected`, `off_wrist`, `no_connected_stream` or `revalidation_rejected`. It never
+logs payload, patient ID, callsign, location, configuration or endpoint identity,
+and a SENT line proves only a local socket write, not server or phone receipt.
+No negative-stale patient deletion is sent because it can refresh downstream
+patient state before deletion. A successful write is not receiver acceptance,
+nor creation of a clinical encounter. No live interoperability is claimed.
 
 Allowed Callsigns uses the same full-screen text-entry page as other settings
 when adding or editing an entry, with the standard confirm/cancel controls instead of a
@@ -2910,13 +3658,74 @@ app/src/main/java/com/aitech/weartak_civ/
 └── WearTakApplication.kt
 ```
 
-## Development notes
+### Development notes
 
 - Use `./gradlew :app:assembleDebug` for a focused compile/package check.
+- Robolectric unit tests reuse the real home directory's `.m2/repository` cache
+  and download lock across local worktrees, without Artifactory credentials.
+  If the home, Maven directories, or existing download lock are not writable,
+  tests use `app/build/test-home` instead. CI's TAK Artifactory settings remain
+  unchanged. Gradle's `--offline` does not disable Robolectric's own downloader;
+  uncached Android SDK jars still need the configured Maven repository.
 - Enable optional services through the app settings or managed configuration; do not start a service directly without considering its `ServiceConfiguration` prerequisites.
 - Runtime configuration defaults live in `Constants.kt` and persistence keys/state are in `data/DataRepository.kt`.
 - CEP rules and related runtime configuration are under `app/src/main/res/raw/` and `cep/`.
 - The repository currently has unit and instrumentation test dependencies, but it does not contain a broadly established test suite. Add targeted tests with feature changes where practical.
+
+### Accessibility and UI automation (WEARTAK-236)
+
+Settings, server forms, manual alerts, and SOS expose Compose test tags as Android
+accessibility resource IDs without replacing built-in text, toggle, or button
+semantics. Existing layouts and touch actions are unchanged. Server swipe actions
+also work through accessibility custom actions (Edit/Delete).
+
+Use unqualified IDs for Compose selectors (`By.res("tak_server_add")`), not
+`By.res(packageName, tag)`. Native server `EditText` fields instead use ordinary
+package-qualified IDs: `tak_server_name`, `tak_server_address`, `tak_server_port`,
+`tak_server_username`, and `tak_server_password`. Labels remain native hints;
+validation failures expose content-invalid/error metadata without additional
+visible decoration. Never put credentials or field contents into tags or labels.
+
+Priority Compose IDs:
+
+| Surface | IDs |
+| --- | --- |
+| Settings | `settings`, `settings_open_<route>`, `settings_<toggle>`, `network_<key>_toggle`, `network_<key>_settings` |
+| TAK servers | `tak_servers`, `tak_server_add`, `tak_server_<server UUID>`, `tak_server_<server UUID>_toggle`, `_edit`, `_delete` (list index fallback for unmigrated entries) |
+| Add/Edit server | `tak_server_add_form`, `tak_server_edit_form`, `form_confirm`, `form_cancel`, `settings_back` on list pages |
+| Manual alerts | `manual_alert_list`, `manual_alert_builtin_<source index>`, `manual_alert_saved_<source index>`, `manual_alert_back`, `manual_alert_add`, `manual_alert_draft`, `manual_alert_save` |
+| SOS | `sos_open`, `sos_confirmation`, `sos_confirm`, `sos_cancel` |
+
+Lazy lists expose composed/visible items; scroll before selecting offscreen
+controls. Scope repeated form/back selectors to their active page. Saved-alert
+indices refer to the current source list, not alphabetical display order. Server
+and built-in plugin split-chip tags identify containers; select their checkable
+descendant to toggle without invoking the separate configuration action.
+
+Focused, network-free regression checks:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --tests '*AccessibilitySemanticsTest' --tests '*ServerFormValidationTest' --tests '*ManualAlertListScreenTest'
+.\gradlew.bat :app:compileDebugAndroidTestKotlin
+```
+
+`PlatformAccessibilityTreeTest` checks the real Android accessibility tree from
+an isolated test host; it never starts WearTAK services or sends alerts. Running
+connected tests installs test APKs, so obtain device-install approval first.
+No connected/device validation is implied by passing Robolectric tests.
+
+Before closing WEARTAK-236, capture an approved-device UIAutomator hierarchy for
+TAK server list/Add/Edit, enabled/disabled Settings toggles, manual alerts, and
+SOS, then verify TalkBack names, focus order, checked/disabled/error states,
+and confirm/cancel using mocked alert dispatch. Do not select operational alerts
+or SOS actions against live services. Treat hierarchy dumps as sensitive; redact
+credentials and other private field values before sharing.
+
+An empty UIAutomator dump is not proof that tags are missing: verify the current
+foreground activity/window, accessibility automation connection, unlock/overlay
+state, and composition readiness. This change adds exportable metadata; it does
+not establish the cause of the originally reported empty tree without device
+reproduction.
 
 For live Android logs, use:
 
@@ -2930,18 +3739,15 @@ To inspect app-private files on a debuggable install:
 adb shell run-as com.aitech.weartak_civ ls files
 ```
 
-## Security and data handling
+### Security and data handling
 
 WearTAK-WearOS handles potentially sensitive location, health, communications, and credential data. Treat device logs, exported app files, managed configurations, and build artifacts accordingly. Configure secure TAK endpoints and credentials appropriate to your deployment, and review required Android permissions before field use.
 
-## Contributing
+### Contributing
 
 Unlimited Rights granted to TPC
 
 Keep changes focused and validate them with the narrowest relevant Gradle task or test. When adding or changing a service, account for its manifest declaration, permission requirements, persisted enablement, and registration with the service orchestration layer.
-
-### Point of Contact: Alex Gorsuch on chat.tak.gov or Signal
-
 
 #### Bloodhound picker controls and artwork
 
@@ -2963,3 +3769,25 @@ of this artwork is pending with the project owner.
 ### Stationary location battery saving
 
 With location and activity recognition enabled, a stationary location latch (a usable still fix with significant-motion monitoring) and STILL activity at 50% confidence must agree for 30 seconds before GPS acquisition and self PLI use a minimum 60-second interval. Slower configured, docked, or network-power intervals are preserved. No additional sensors or polling are enabled. Motion, activity changes, screen wake, and user interaction restore the normal cadence; alerts and explicit sends bypass the stationary delay. Self PLI advertises at least twice the effective interval plus 15 seconds of validity, including an announcement when the stationary interval increases. Existing off-body transport policy is unchanged.
+
+## License
+
+No standalone repository-wide license file is present in this source tree.
+Source notices, including
+[`WearTakApplication.kt`](app/src/main/java/com/aitech/weartak_civ/WearTakApplication.kt),
+state Copyright (C) 2025, Ascent Integrated Tech, all rights reserved, and restrict
+use/copying to explicit written permission and the applicable license agreement
+and/or contract. The existing [Contributing](#contributing) statement grants
+Unlimited Rights to TPC; it is not a general public license grant.
+Repository-wide redistribution terms require confirmation from the project owner.
+This README reformat does not relicense code, SDKs, datasets, or artwork.
+
+Third-party terms and obligations remain separate: retain the map-provider and
+terrain/geoid credits and usage caveats under
+[Map sources and 3D overlays](#map-sources-and-3d-overlays), integration-artwork
+provenance and permission limitations under
+[Bonded phone transport](#bonded-phone-transport-weartak-272), and the GPLv3 ATAK
+artwork notice and pending distribution/licensing review under
+[Bloodhound picker controls and artwork](#bloodhound-picker-controls-and-artwork).
+Bundled third-party SDKs remain subject to their own terms; their presence does
+not establish unrestricted redistribution rights.

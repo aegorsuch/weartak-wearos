@@ -31,6 +31,7 @@ import org.robolectric.shadows.ShadowPowerManager
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34],
     shadows = [DebugStayAwakeServiceTest.StayAwakeConnectivityShadow::class,
+        DebugStayAwakeServiceTest.StayAwakeWifiShadow::class,
         ChargingStayAwakeTest.ChargingPowerShadow::class])
 class ChargingStayAwakeTest {
     private lateinit var application: Application
@@ -273,7 +274,9 @@ class ChargingStayAwakeTest {
     }
 
     @Test
-    fun unplugStopsManualModeWithoutErasingChargingOptIn() {
+    fun unplugPreservesManualModeAndRestoresChargingDebugging() {
+        shadowOf(application).grantPermissions(Manifest.permission.WRITE_SECURE_SETTINGS)
+        Settings.Global.putString(application.contentResolver, "adb_wifi_enabled", "0")
         battery(BatteryManager.BATTERY_PLUGGED_USB)
         preferences.setChargingEnabled(true)
         awake.start()
@@ -286,10 +289,15 @@ class ChargingStayAwakeTest {
         battery(0)
         application.sendBroadcast(Intent(Intent.ACTION_POWER_DISCONNECTED))
         idle()
-        assertFalse(preferences.enabled)
+        assertTrue(preferences.enabled)
         assertTrue(preferences.chargingEnabled)
+        assertTrue(DebugStayAwakeService.active.value)
+        assertTrue(wifi.isHeld)
+        assertEquals(1, connectivity.networkCallbacks.size)
+        assertEquals("0", Settings.Global.getString(application.contentResolver, "adb_wifi_enabled"))
+        DebugStayAwakeService.setEnabled(context, false)
+        idle()
         assertFalse(DebugStayAwakeService.active.value)
-        assertFalse(wifi.isHeld)
         assertTrue(connectivity.networkCallbacks.isEmpty())
     }
 
@@ -403,6 +411,31 @@ class ChargingStayAwakeTest {
         assertFalse(preferences.enabled)
         assertTrue(preferences.chargingEnabled)
         assertEquals(0, starts)
+    }
+
+    @Test
+    fun chargingModeNeverRequestsRadioActivationAndManualCanStartOnBattery() {
+        preferences.setChargingEnabled(true)
+        shadowOf(service.getSystemService(WifiManager::class.java)).setWifiState(WifiManager.WIFI_STATE_DISABLED)
+        val wifi: DebugStayAwakeServiceTest.StayAwakeWifiShadow =
+            Shadow.extract(service.getSystemService(WifiManager::class.java))
+        battery(BatteryManager.BATTERY_PLUGGED_USB)
+        awake.start()
+        idle()
+        assertFalse(DebugStayAwakeService.active.value)
+        assertEquals(0, wifi.enableCalls)
+        assertTrue(preferences.chargingEnabled)
+        battery(0)
+        shadowOf(service.getSystemService(WifiManager::class.java)).setWifiState(WifiManager.WIFI_STATE_ENABLED)
+        DebugStayAwakeService.setEnabled(context, true)
+        idle()
+        assertTrue(preferences.enabled)
+        assertAllHeld()
+        awake.stop()
+        assertAllHeld()
+        DebugStayAwakeService.setEnabled(context, false)
+        assertFalse(DebugStayAwakeService.active.value)
+        assertTrue(preferences.chargingEnabled)
     }
 
     private fun battery(plugged: Int, status: Int = BatteryManager.BATTERY_STATUS_CHARGING) {

@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">Priorität des Verbindungssymbols</string>
+    <string name="connection_status_priority_help">Der erste aktive Eintrag bestimmt das Symbol auf der Startseite. Verbundene und verbindende Einträge können getrennt verschoben werden. Ohne aktive Verbindung wird „Getrennt“ angezeigt.</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s verbunden</string>
+    <string name="connection_status_priority_connecting">%1$s verbindet</string>
+    <string name="connection_status_move_up">Nach oben</string>
+    <string name="connection_status_move_down">Nach unten</string>
+    <string name="connection_status_move_up_description">%1$s nach oben verschieben</string>
+    <string name="connection_status_move_down_description">%1$s nach unten verschieben</string>
+    <string name="connection_status_reset">Priorität zurücksetzen</string>
+    <string name="connection_status_save_failed">Symbolpriorität konnte nicht gespeichert werden. Erneut versuchen.</string>
+    <string name="connection_status_description">%1$s, %2$s. Netzwerkeinstellungen öffnen</string>
+    <string name="plugin_route_connected">Verbunden</string>
+    <string name="plugin_route_connecting">Verbindung wird hergestellt</string>
+    <string name="plugin_route_disconnected">Getrennt</string>
+    <string name="plugin_route_error">Fehler</string>
+    <string name="plugin_route_unknown">Unbekannt</string>
+    <string name="ditto_sync_active">Synchronisierung aktiv</string>
+</resources>

@@ -21,13 +21,14 @@ import com.weartak.plugin.sdk.v3.aidl.IWearTakPluginHostControlV3
 /**
  * Minimal in-process [IWearTakPlugin] for host bind/lifecycle tests (no plugin APK).
  */
-class FakeWearTakPlugin(
+open class FakeWearTakPlugin(
     private val packageName: String,
     private val apiVersion: Int = WearTakPluginContract.CONTRACT_API_VERSION,
 ) : IWearTakPlugin.Stub() {
 
     var pluginCapabilities: PluginCapabilitiesParcel = PluginCapabilitiesParcel(hostedSettingsUi = true)
     private var settingsSchema: SettingsSchemaParcel = SettingsSchemaParcel()
+    private var mainUiSchema: PluginMainUiSchemaParcel = PluginMainUiSchemaParcel()
     private val settingsValues = Bundle()
     val hostSettingsReceived = mutableListOf<HostSettingsParcel>()
     val lifecycleCalls = mutableListOf<String>()
@@ -145,7 +146,11 @@ class FakeWearTakPlugin(
         if (hostSettings != null) hostSettingsReceived += hostSettings
     }
 
-    override fun getMainUiSchema(): PluginMainUiSchemaParcel = PluginMainUiSchemaParcel()
+    override fun getMainUiSchema(): PluginMainUiSchemaParcel = mainUiSchema
+
+    fun setMainUiSchemaForTest(schema: PluginMainUiSchemaParcel) {
+        mainUiSchema = schema
+    }
 
     override fun getMainUiState(): Bundle = Bundle()
 

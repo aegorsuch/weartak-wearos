@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import com.aitech.weartak_civ.R
+import com.aitech.weartak_civ.service.DittoPowerSuppression
 import com.aitech.weartak_civ.presentation.theme.WearTAKCIVTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -83,6 +85,41 @@ class NetworkConnectivityIconsTest {
         compose.runOnIdle { suppressed = false }
         icon.assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
         compose.runOnIdle { suppressed = true; enabled = false }
+        compose.onNode(isToggleable()).assertIsOff()
+        icon.assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+    }
+
+    @Test fun dittoOffWristSubtitleAndAccessibilityFollowReasonAndEnablement() {
+        var reason by mutableStateOf<DittoPowerSuppression?>(DittoPowerSuppression.OFF_WRIST)
+        var enabled by mutableStateOf(true)
+        compose.setContent {
+            val label = dittoSuppressionLabel(enabled, reason)
+            val subtitle = label?.let { stringResource(it) } ?: "Community"
+            WearTAKCIVTheme {
+                NetworkConnectivityChip(
+                    NetworkConnectivityRow("ditto", "Ditto", subtitle, enabled, { enabled = it },
+                        statusDescription = if (label != null) "Community, $subtitle" else subtitle,
+                        suppressed = label != null,
+                        suppressionLabel = label ?: R.string.connection_route_suppressed),
+                    false, false, {}, {}, {})
+            }
+        }
+        val icon = compose.onNode(hasContentDescription("Ditto") and !isToggleable(),
+            useUnmergedTree = true)
+        compose.onNodeWithText("Off-Wrist").assertIsDisplayed()
+        icon.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Off-Wrist"))
+        compose.onNode(isToggleable()).assertIsOn().assert(SemanticsMatcher.expectValue(
+            SemanticsProperties.StateDescription, "On, Community, Off-Wrist"))
+        compose.runOnIdle { reason = DittoPowerSuppression.POWER }
+        compose.onNodeWithText("Suppressed").assertIsDisplayed()
+        compose.onNodeWithText("Off-Wrist").assertDoesNotExist()
+        icon.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Suppressed"))
+        compose.runOnIdle { reason = null }
+        compose.onNodeWithText("Community").assertIsDisplayed()
+        icon.assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+        compose.runOnIdle { reason = DittoPowerSuppression.OFF_WRIST; enabled = false }
+        compose.onNodeWithText("Off-Wrist").assertDoesNotExist()
+        compose.onNodeWithText("Community").assertIsDisplayed()
         compose.onNode(isToggleable()).assertIsOff()
         icon.assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
     }

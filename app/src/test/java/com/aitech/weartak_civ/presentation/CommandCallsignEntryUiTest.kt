@@ -62,7 +62,7 @@ class CommandCallsignEntryUiTest {
         showEntry()
         for (value in listOf("", " ", "BAD!", "A".repeat(33), " zulu ")) {
             compose.replacePlatformText(value)
-            compose.onNodeWithContentDescription("Confirm icon").performClick()
+            compose.onNodeWithTag("form_confirm").performClick()
             compose.waitForIdle()
             assertTrue(writes.isEmpty())
             assertEquals("add", nav.currentDestination?.route)
@@ -70,13 +70,13 @@ class CommandCallsignEntryUiTest {
         }
         assertEquals("That callsign is already allowed", ShadowToast.getTextOfLatestToast())
         compose.replacePlatformText("BRAVO")
-        compose.onNodeWithContentDescription("Close icon").performClick()
+        compose.onNodeWithTag("form_cancel").performClick()
         compose.onNodeWithText("Add").assertIsDisplayed()
         assertTrue(writes.isEmpty())
         compose.onNodeWithText("Add").performClick()
         assertEquals("", compose.platformText())
         compose.typePlatformText("B".repeat(32))
-        compose.onNodeWithContentDescription("Confirm icon").performClick()
+        compose.onNodeWithTag("form_confirm").performClick()
         assertEquals(listOf(listOf("B".repeat(32), "ZULU")), writes)
     }
 
@@ -144,7 +144,7 @@ class CommandCallsignEntryUiTest {
         }
         assertEquals("That callsign is already allowed", ShadowToast.getTextOfLatestToast())
         compose.replacePlatformText(" alpha one ")
-        compose.onNodeWithContentDescription("Confirm icon").performClick()
+        compose.onNodeWithTag("form_confirm").performClick()
         assertEquals(listOf(listOf("Alpha One", "ZULU")), writes)
     }
 
@@ -152,7 +152,7 @@ class CommandCallsignEntryUiTest {
         showEditableEntry()
         compose.onNodeWithText("Alpha One").performClick()
         compose.replacePlatformText("BRAVO")
-        compose.onNodeWithContentDescription("Close icon").performClick()
+        compose.onNodeWithTag("form_cancel").performClick()
         assertTrue(writes.isEmpty())
         compose.onNodeWithText("Alpha One").performClick()
         assertEquals("Alpha One", compose.platformText())
@@ -175,7 +175,7 @@ class CommandCallsignEntryUiTest {
         showEditableEntry(legacy)
         compose.onNodeWithText(legacy).performClick()
         assertEquals(legacy, compose.platformText())
-        compose.onNodeWithContentDescription("Close icon").performClick()
+        compose.onNodeWithTag("form_cancel").performClick()
         assertTrue(writes.isEmpty())
     }
 }

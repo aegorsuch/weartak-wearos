@@ -344,11 +344,10 @@ fun ChatScreen(
                             onAllChatRooms, onMap, onUsers)
                         Spacer(modifier = Modifier.height(5.dp))
                     }
-                    itemsIndexed(ChatRoomOrdering.pickerRooms(chatRooms, device_uid),
+                    itemsIndexed(ChatRoomOrdering.pickerRooms(chatRooms),
                         key = { _, room -> room.uid }) { index, room ->
-                        // room.messageList is the List<ChatMessage>
-                        val lastMessage = room.messageList.maxByOrNull { it.timeReceived }
-                        val lastMessageTime = lastMessage?.timeReceived ?: 0L
+                        val lastMessage = ChatRoomOrdering.newestMessages(room.messageList).firstOrNull()
+                        val lastMessageTime = lastMessage?.messageTime ?: 0L
                         val lastMessageText = lastMessage?.message.orEmpty()
 
                         ChatCard(
@@ -536,7 +535,7 @@ fun ChatScreenDetailed(
     WearTAKCIVTheme {
         val room = chatRooms.firstOrNull { it.uid == roomUid }
         val chatRoomTitle = room?.title.orEmpty()
-        val messageList = room?.messageList.orEmpty()
+        val messageList = ChatRoomOrdering.newestMessages(room?.messageList.orEmpty())
         val roomId = room?.uid
         val replyMessage by reply.observeAsState(initial = "")
         val sendPreset = room?.let { rememberChatPresetSender(it) }
@@ -572,12 +571,16 @@ fun ChatScreenDetailed(
                 )
 
                 LazyColumn(horizontalAlignment = Alignment.CenterHorizontally) {
-                    itemsIndexed(messageList) { messageIndex, chatMsg ->
-                        val currentDate = utcToDate(chatMsg.timeReceived)
+                    itemsIndexed(messageList, key = { _, message ->
+                        "${message.uid.length}:${message.uid}" +
+                            (message.messageId?.takeIf { it.isNotBlank() }?.let { "id:$it" }
+                                ?: "legacy:${message.timeReceived}:${message.message}")
+                    }) { messageIndex, chatMsg ->
+                        val currentDate = utcToDate(chatMsg.messageTime)
                         val displayDate = if (messageIndex == 0) {
                             true
                         } else {
-                            utcToDate(messageList[messageIndex - 1].timeReceived) != currentDate
+                            utcToDate(messageList[messageIndex - 1].messageTime) != currentDate
                         }
 
                         if (displayDate) {
@@ -589,7 +592,7 @@ fun ChatScreenDetailed(
                             )
                         }
                         ChatMessageItem(
-                            time = utcToHoursMinutes(chatMsg.timeReceived),
+                            time = utcToHoursMinutes(chatMsg.messageTime),
                             callsign = chatMsg.callsign,
                             message = chatMsg.message,
                             uid= chatMsg.uid,

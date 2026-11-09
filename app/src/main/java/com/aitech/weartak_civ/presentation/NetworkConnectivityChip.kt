@@ -22,6 +22,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -70,6 +71,7 @@ internal fun MulticastNetworkToggle(
     onCheckedChange: (Boolean) -> Unit
 ) {
     WearTAKToggleChip(
+        testTag = "settings_multicast",
         checkedLive = enabled,
         onCheckedChange = onCheckedChange,
         title = stringResource(R.string.tak_sa_multicast),
@@ -107,8 +109,21 @@ internal fun NetworkConnectivityChip(
     val subtitle = networkControlSubtitle(row.subtitle, bondLocked)
     val statusDescription = networkControlSubtitle(row.statusDescription, bondLocked)
     val route = row.settingsRoute
+    if (!row.toggleAvailable) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)
+            .semantics(mergeDescendants = true) { stateDescription = row.statusDescription },
+            verticalAlignment = Alignment.CenterVertically) {
+            appIcon()
+            Column(Modifier.weight(1f)) {
+                Text(row.title, style = MaterialTheme.typography.button)
+                Text(row.subtitle, style = MaterialTheme.typography.caption2)
+            }
+        }
+        return
+    }
     if (route == null) {
         WearTAKToggleChip(
+            testTag = "network_${row.key}_toggle",
             checkedLive = row.checked,
             onCheckedChange = row.toggle,
             title = row.title,
@@ -133,6 +148,7 @@ internal fun NetworkConnectivityChip(
     ) {
         Row(
             modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
+                .testTag("network_${row.key}_settings")
                 .clickable(role = Role.Button, onClickLabel = openSettings) {
                     when {
                         row.key == "tak" && phoneManagedSettings -> showPhoneManagedNotice()
@@ -157,6 +173,7 @@ internal fun NetworkConnectivityChip(
         }
         Box(
             modifier = Modifier.width(52.dp).fillMaxHeight().heightIn(min = 48.dp)
+                .testTag("network_${row.key}_toggle")
                 .background(colors.splitBackgroundOverlay(toggleEnabled, row.checked).value)
                 .semantics {
                     contentDescription = row.title
@@ -191,7 +208,7 @@ internal fun NetworkConnectivityIcon(row: NetworkConnectivityRow) {
                 SitxBrandIcon(row.title, Modifier.padding(end = 6.dp))
             } else {
                 val suppressed = row.checked && row.suppressed
-                val suppressedLabel = stringResource(R.string.connection_route_suppressed)
+                val suppressedLabel = stringResource(row.suppressionLabel)
                 Box(modifier) {
                     Image(painterResource(resource), contentDescription = row.title,
                         colorFilter = if (suppressed) ColorFilter.tint(Color.Gray) else null,

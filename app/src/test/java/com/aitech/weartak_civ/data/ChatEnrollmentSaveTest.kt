@@ -110,6 +110,20 @@ class ChatEnrollmentSaveTest {
         assertTrue(repo.awaitTakServerList().isEmpty())
     }
 
+    @Test fun normalServerDeleteAndEndpointEditRemoveLocalCaButRenameAndDisableDoNot() = runBlocking {
+        repo.saveChatEnrollment("Ops", "host.example", 8089, "u", "p")
+        val saved = repo.awaitTakServerList().single()
+        val id = requireNotNull(saved.serverId)
+        repo.updateTakServerItem(0, saved.copy(name = "Renamed", isEnabled = false))
+        io.mockk.coVerify(exactly = 0) { secrets.repository.removeApprovedCa(id) }
+        assertEquals(id, repo.awaitTakServerList().single().serverId)
+        repo.updateTakServerItem(0, saved.copy(address = "other.example"))
+        io.mockk.coVerify(exactly = 1) { secrets.repository.removeApprovedCa(id) }
+        repo.removeTakServerItem(repo.awaitTakServerList().single())
+        io.mockk.coVerify(exactly = 2) { secrets.repository.removeApprovedCa(id) }
+        assertTrue(repo.awaitTakServerList().isEmpty())
+    }
+
     @Test fun activePhoneManagementPreventsEnrollmentWithoutMutatingCredentials() = runBlocking {
         repo.saveChatEnrollment("Ops", "host", 8089, "u", "original")
         val before = repo.awaitTakServerList()
@@ -142,9 +156,13 @@ class ChatEnrollmentSaveTest {
 
     @Test fun runtimeStartsRegistrationForAddedAndUpdatedServersButNotRefusedOnes() = runBlocking {
         val registered = mutableListOf<String>()
+        val password = "  fake_\\secret\"!  "
         val first = com.aitech.weartak_civ.service.ChatCommandRuntime.enrollServer(
-            repo, "Ops", "host", 8089, "u", "fake-secret") { id ->
-            assertTrue(repo.awaitTakServerList().single().isEnabled)
+            repo, "Ops", "host", 8089, "alex.gorsuchait-wt", password) { id ->
+            val saved = repo.awaitTakServerList().single()
+            assertTrue(saved.isEnabled)
+            assertEquals("alex.gorsuchait-wt", saved.username)
+            assertEquals(password, saved.password)
             registered += id
         }
         assertEquals("Server Ops added", first.message)

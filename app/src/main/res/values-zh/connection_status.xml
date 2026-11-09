@@ -1,0 +1,20 @@
+<resources>
+    <string name="connection_status_priority">连接图标优先级</string>
+    <string name="connection_status_priority_help">第一个活动条目提供主页图标。已连接和正在连接的条目可分别移动。没有活动连接时始终显示已断开。</string>
+    <string name="connection_status_priority_position">%1$d. %2$s</string>
+    <string name="connection_status_priority_connected">%1$s 已连接</string>
+    <string name="connection_status_priority_connecting">%1$s 正在连接</string>
+    <string name="connection_status_move_up">上移</string>
+    <string name="connection_status_move_down">下移</string>
+    <string name="connection_status_move_up_description">上移 %1$s</string>
+    <string name="connection_status_move_down_description">下移 %1$s</string>
+    <string name="connection_status_reset">重置优先级</string>
+    <string name="connection_status_save_failed">无法保存图标优先级。请重试。</string>
+    <string name="connection_status_description">%1$s，%2$s。打开网络偏好设置</string>
+    <string name="plugin_route_connected">已连接</string>
+    <string name="plugin_route_connecting">正在连接</string>
+    <string name="plugin_route_disconnected">已断开</string>
+    <string name="plugin_route_error">错误</string>
+    <string name="plugin_route_unknown">未知</string>
+    <string name="ditto_sync_active">同步已启用</string>
+</resources>

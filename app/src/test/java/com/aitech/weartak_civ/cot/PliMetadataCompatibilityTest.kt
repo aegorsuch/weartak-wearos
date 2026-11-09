@@ -38,7 +38,8 @@ class PliMetadataCompatibilityTest {
             assertEquals(Build.VERSION.SDK_INT.toString(), takv.getAttribute("os"))
             assertEquals(BuildConfig.VERSION_NAME, takv.getAttribute("version"))
             assertEquals("72", child(detail, "status").getAttribute("battery"))
-            val device = child(child(detail, "biometrics"), "device")
+            assertEquals(0, detail.getElementsByTagName("biometrics").length)
+            val device = child(child(detail, "physiology"), "device")
             assertEquals("65", child(device, "hr").textContent)
             assertEquals("97", child(device, "skt").textContent)
             assertEquals("0.25", child(device, "exert").textContent)
@@ -57,7 +58,7 @@ class PliMetadataCompatibilityTest {
             assertEquals(value, child(detail, "contact").getAttribute("callsign"))
             assertEquals(value, child(detail, "__group").getAttribute("role"))
             assertEquals(value, child(detail, "__group").getAttribute("name"))
-            assertEquals(value, child(child(child(detail, "biometrics"), "device"), "uid").textContent)
+            assertEquals(value, child(child(child(detail, "physiology"), "device"), "uid").textContent)
         }
         val ditto = child(parse(ditto(peer = value)), "ditto")
         assertEquals(value, ditto.getAttribute("a"))
@@ -77,7 +78,7 @@ class PliMetadataCompatibilityTest {
                 if (battery != null && battery in 0..100) {
                     assertEquals(battery.toString(), status.getAttribute("battery"))
                 }
-                val device = child(child(detail, "biometrics"), "device")
+                val device = child(child(detail, "physiology"), "device")
                 val biometricBattery = device.getElementsByTagName("bat")
                 assertEquals(if (battery != null && battery in 0..100) 1 else 0, biometricBattery.length)
                 if (biometricBattery.length == 1) assertEquals(battery.toString(), biometricBattery.item(0).textContent)

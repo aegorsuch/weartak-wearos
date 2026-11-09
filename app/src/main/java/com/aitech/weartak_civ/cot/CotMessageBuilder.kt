@@ -17,6 +17,7 @@ object CotMessageBuilder {
         val team: String,
         val includeBatdok: Boolean,
         val hailDetail: String,
+        val dittoMetadata: CotDetailBuilder.DittoMetadata? = null,
     )
 
     fun pli(snapshot: DataRepository.PliSnapshot, options: PliOptions): String {
@@ -36,7 +37,7 @@ object CotMessageBuilder {
         val heartRate = rectifiedInt(physio.heartRateBpm)
         val skinTemp = rectifiedNumber(physio.skinTempF, "%.1f", negIsInvalid = false, zeroIsInvalid = false)
         val batdok = if (options.includeBatdok) batdokDetail(physio, time, heartRate, skinTemp) else ""
-        val biometrics = CotDetailBuilder.biometrics(uid, snapshot.monitoredPhysio, snapshot.systemData.batteryPercent)
+        val physiology = CotDetailBuilder.physiology(uid, snapshot.monitoredPhysio, snapshot.systemData.batteryPercent)
 
         val status = CotDetailBuilder.status(snapshot.systemData.batteryPercent, readiness = true)
 
@@ -54,7 +55,7 @@ object CotMessageBuilder {
                     (location.takeIf { time.time - it.timeMillis > 3_000L }?.let {
                         CotXml.element("weartak_location", listOf("timeMillis" to it.timeMillis))
                     } ?: "") +
-                    "<remarks>${CotXml.escape(snapshot.remarks)}</remarks>$batdok$biometrics" +
+                    "<remarks>${CotXml.escape(snapshot.remarks)}</remarks>$batdok$physiology" +
                     CotXml.element(
                         "contact",
                         listOf(
@@ -76,7 +77,8 @@ object CotMessageBuilder {
                             "speed" to speed
                         )
                     ) +
-                    options.hailDetail
+                    options.hailDetail +
+                    (options.dittoMetadata?.let { CotDetailBuilder.ditto(it) } ?: "")
         return CotXml.event(listOf(
             "version" to "2.0", "uid" to CotXml.escape(uid), "type" to "a-f-G-U-C", "time" to time.startCot,
             "start" to time.startCot, "stale" to time.staleCot, "how" to "m-g",
@@ -135,8 +137,8 @@ object CotMessageBuilder {
         )
         val physio = snapshot.physio?.data
         val standardType = StandardEmergencyType.fromDisplayName(snapshot.description)
-        val alertBiometrics = CotXml.element(
-            "biometrics",
+        val alertPhysiology = CotXml.element(
+            "physiology",
             listOf(
                 "alertUid" to snapshot.uid,
                 "alertState" to snapshot.alertState.name,
@@ -154,9 +156,9 @@ object CotMessageBuilder {
         )
         val locationDetail = CotXml.element("weartak_location", listOf("timeMillis" to location.timeMillis))
         val detail = locationDetail + if (snapshot.alertState == DataRepository.AlertState.CANCEL) {
-            alertBiometrics + CotXml.element("emergency", listOf("cancel" to "true"), snapshot.system.callsign)
+            alertPhysiology + CotXml.element("emergency", listOf("cancel" to "true"), snapshot.system.callsign)
         } else {
-            alertBiometrics + CotXml.element("link", listOf("uid" to snapshot.system.deviceId, "type" to "a-f-G-U-C", "relation" to "p-p")) +
+            alertPhysiology + CotXml.element("link", listOf("uid" to snapshot.system.deviceId, "type" to "a-f-G-U-C", "relation" to "p-p")) +
                     CotXml.element("contact", listOf("callsign" to "${snapshot.system.callsign}&#10;${snapshot.description}")) +
                     CotXml.element(
                         "emergency",

@@ -10,6 +10,7 @@ import com.aitech.weartak_civ.cot.CotMessageBuilder
 import com.aitech.weartak_civ.cot.CotDetailBuilder
 import com.aitech.weartak_civ.events.OutboundDittoTrackRefresh
 import com.aitech.weartak_civ.presentation.MainActivity
+import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -27,6 +30,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class DittoTrackLocationTest {
+    private val moppLease = Any()
+
+    @Before fun compatibleMoppPlugin() {
+        MoppPluginAvailability.acquire(moppLease)
+        MoppPluginAvailability.activate(moppLease)
+    }
+
+    @After fun removeMoppPlugin() { MoppPluginAvailability.release(moppLease) }
+
     @Test fun readinessRefreshUsesActualFixCurrentIdentityAndPrivacyWithoutLegacyCacheReplay() = runBlocking {
         MainActivity.device_uid = "fresh-watch"
         MainActivity.callsign = "OLD"
@@ -51,6 +63,7 @@ class DittoTrackLocationTest {
         fun field(name: String) = DittoService::class.java.getDeclaredField(name).apply { isAccessible = true }
         field("dataRepository").set(service, repo)
         field("dittoVersion").set(service, "test")
+        field("dittoDeviceName").set(service, "Configured SDK watch")
         @Suppress("UNCHECKED_CAST")
         val startup = field("startupResult").get(null) as MutableStateFlow<Boolean?>
         val previous = startup.value
@@ -86,6 +99,8 @@ class DittoTrackLocationTest {
             assertTrue((document["r"] as String).contains("role='Medic'"))
             assertFalse((document["r"] as String).contains("180"))
             assertTrue((document["r"] as String).contains("<remarks>MOPP3</remarks>"))
+            assertTrue((document["r"] as String).contains(
+                "<ditto a='test-peer' ip='0.0.0.0' version='test' deviceName='Configured SDK watch'/>"))
             for (tag in listOf("hr", "skt", "exert")) assertFalse((document["r"] as String).contains("<$tag>"))
             assertEquals("MOPP3", pairedPli.remarks)
             assertNull(repo.latestLocation.value)
@@ -117,6 +132,7 @@ class DittoTrackLocationTest {
         fun field(name: String) = DittoService::class.java.getDeclaredField(name).apply { isAccessible = true }
         field("dataRepository").set(service, repo)
         field("dittoVersion").set(service, "test")
+        field("dittoDeviceName").set(service, "Configured SDK watch")
         DittoService.localPeerKeyString = "test-peer"
         val documents = mutableListOf<Map<String, Any?>>()
         every { service.writeDocument("track", any()) } answers { documents += secondArg<Map<String, Any?>>() }
@@ -174,14 +190,41 @@ class DittoTrackLocationTest {
                 val direct = CotMessageBuilder.pli(snapshot,
                     CotMessageBuilder.PliOptions("WATCH", "Team Member", "Blue", false, ""))
                 assertTrue(direct.contains("<remarks>${snapshot.remarks}</remarks>"))
-                val biometrics = CotDetailBuilder.biometrics("test-watch", snapshot.monitoredPhysio,
+                val physiology = CotDetailBuilder.physiology("test-watch", snapshot.monitoredPhysio,
                     snapshot.systemData.batteryPercent)
-                assertTrue(biometrics.contains("<hr>79</hr><skt>91.1</skt><exert>"))
-                assertTrue(direct.contains(biometrics))
+                assertTrue(physiology.contains("<hr>79</hr><skt>91.1</skt><exert>"))
+                assertTrue(direct.contains(physiology))
                 tick()
                 assertTrue((documents.last()["r"] as String).contains("<remarks>${snapshot.remarks}</remarks>"))
-                assertTrue((documents.last()["r"] as String).contains(biometrics))
+                assertTrue((documents.last()["r"] as String).contains(physiology))
             }
+            val savedMopp = repo.moppPpeStore.read()
+            val sender = CompanionSelfStatus().apply { negotiate(1) }
+            val companionPpe = mutableListOf<JSONObject>()
+            fun sendStatus(elapsed: Long) {
+                sender.sendIfDue(1, "test-watch", runBlocking { repo.selfStatusInputs().first() },
+                    System.currentTimeMillis(), elapsed) {
+                    companionPpe += JSONObject(it).getJSONObject("payload")
+                    true
+                }
+            }
+            sendStatus(0)
+            MoppPluginAvailability.release(moppLease)
+            tick()
+            assertFalse((documents.last()["r"] as String).contains("MOPP"))
+            assertFalse(repo.snapshotPli().remarks.contains("MOPP"))
+            sendStatus(1)
+            assertTrue(companionPpe.last().isNull("ppe"))
+            assertEquals(savedMopp.savedAtEpochMillis, repo.moppPpeStore.read().savedAtEpochMillis)
+            assertEquals(savedMopp.selection, repo.moppPpeStore.read().selection)
+            assertTrue(repo.getEnableMopp.first())
+            MoppPluginAvailability.acquire(moppLease)
+            MoppPluginAvailability.activate(moppLease)
+            tick()
+            assertTrue((documents.last()["r"] as String).contains("MOPP4"))
+            sendStatus(2)
+            assertEquals(companionPpe.first().getJSONObject("ppe").toString(),
+                companionPpe.last().getJSONObject("ppe").toString())
             val now = System.currentTimeMillis()
             var snapshot = repo.snapshotPli()
             fun assertLegacy(snapshot: DataRepository.PliSnapshot, hasVitals: Boolean) {
@@ -207,7 +250,7 @@ class DittoTrackLocationTest {
                 assertLegacy(snapshot, false)
                 tick()
                 val detail = documents.last()["r"] as String
-                assertTrue(detail.contains(CotDetailBuilder.biometrics("test-watch", snapshot.monitoredPhysio,
+                assertTrue(detail.contains(CotDetailBuilder.physiology("test-watch", snapshot.monitoredPhysio,
                     snapshot.systemData.batteryPercent)))
                 for (tag in listOf("hr", "skt", "exert")) assertFalse(detail.contains("<$tag>"))
             }
@@ -230,6 +273,9 @@ class DittoTrackLocationTest {
             repo.storeLatestIsDeviceWorn(true)
             repo.storeEnableMopp(false)
             repo.storeEnablePhysiologicalServices(false)
+            tick()
+            assertTrue((documents.last()["r"] as String).contains("MOPP4"))
+            MoppPluginAvailability.release(moppLease)
             tick()
             assertTrue((documents.last()["r"] as String).contains("<remarks></remarks>"))
             assertNull(repo.snapshotPli().monitoredPhysio)

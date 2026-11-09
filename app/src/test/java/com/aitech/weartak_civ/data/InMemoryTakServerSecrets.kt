@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.map
 class InMemoryTakServerSecrets {
     val live = MutableStateFlow<String?>(null)
     val snapshot = MutableStateFlow<String?>(null)
+    val cas = mutableMapOf<String, Triple<String, Int, String>>()
 
     val repository: TakServerSecretsRepository = mockk {
         every { takServerListJson } returns live
@@ -22,6 +23,16 @@ class InMemoryTakServerSecrets {
             snapshot.map { json -> json?.let { DecryptResult.Success(1, it) } }
         coEvery { setTakServerListJson(any()) } answers { live.value = firstArg() }
         coEvery { setPhoneManagedSnapshotJson(any()) } answers { snapshot.value = firstArg() }
+        coEvery { getApprovedCa(any(), any(), any()) } answers {
+            cas[firstArg<String>()]?.takeIf { it.first == secondArg<String>() && it.second == thirdArg<Int>() }?.third
+        }
+        coEvery { setApprovedCa(any(), any(), any(), any()) } answers {
+            val certificate = arg<String?>(3)
+            if (certificate == null) cas.remove(firstArg<String>())
+            else cas[firstArg()] = Triple(secondArg(), thirdArg(), certificate)
+            Unit
+        }
+        coEvery { removeApprovedCa(any()) } answers { cas.remove(firstArg<String>()); Unit }
     }
 
     fun liveServers(): List<DataRepository.TakServerItem> = parse(live.value)

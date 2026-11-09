@@ -18,10 +18,12 @@ class PluginCotIngressTest {
         listOf("tak:server", "multicast:239.2.3.1:6969", "sitx:server", "companion:42").forEach { source ->
             assertFalse(PluginCotIngress.offer(TakServerCotEnvelope(source, source, 123L, xml), coordinator))
             verify(exactly = 1) {
-                coordinator.invokeActionOnPluginsWithSetting(
-                    "receiveInboundCot", "cot.inbound",
-                    match { it.getString("xml") == xml && it.getString("source") == source &&
-                        it.getLong("receivedAt") == 123L }
+                coordinator.invokeCotOnPluginsWithSetting(
+                    fieldId = "receiveInboundCot",
+                    actionId = "cot.inbound",
+                    args = match { it.getString("xml") == xml && it.getString("source") == source &&
+                        it.getLong("receivedAt") == 123L },
+                    sourceEnvelope = match { it.sourceServerId == source && it.receivedAt == 123L },
                 )
             }
         }
@@ -35,7 +37,7 @@ class PluginCotIngressTest {
                 "<event uid='test' type='a-f-G-U-C'><detail/></event>"),
             coordinator
         ))
-        verify(exactly = 0) { coordinator.invokeActionOnPluginsWithSetting(any(), any(), any()) }
+        verify(exactly = 0) { coordinator.invokeCotOnPluginsWithSetting(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test fun sensitiveEnrollmentIsConsumedWithoutCreatingPluginBundle() {
@@ -44,6 +46,6 @@ class PluginCotIngressTest {
             "<event><remarks>#weartakcommandenrollserver malformed")) {
             assertTrue(PluginCotIngress.offer(TakServerCotEnvelope("tak", "tak", 123L, xml), coordinator))
         }
-        verify(exactly = 0) { coordinator.invokeActionOnPluginsWithSetting(any(), any(), any()) }
+        verify(exactly = 0) { coordinator.invokeCotOnPluginsWithSetting(any(), any(), any(), any(), any(), any()) }
     }
 }

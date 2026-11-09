@@ -35,7 +35,7 @@ class LoadProfileHandlerTest {
         teams = { listOf("Dark Green") },
         roles = { listOf("MIL" to "K9") },
         sexes = { listOf("Male") },
-        userTypes = { listOf("Coalition Civilian") }
+        userTypes = { listOf("Civilian") }
     )
     private val profileHandler = ProfileHandler(
         ProfileHandler.COMMAND_KEYS.getValue("setprofile"), { identityLocked }, options, store, { 2026 }

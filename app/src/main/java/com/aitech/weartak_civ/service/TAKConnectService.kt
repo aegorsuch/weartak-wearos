@@ -167,6 +167,7 @@ class TAKConnectService: Service() {
     private var multicastWifiRequest: MulticastWifiRequest? = null
     private var offBodyScheduler: OffBodyTakScheduler? = null
     private var takNetworkPreference: TakNetworkPreference? = null
+    @Volatile private var stayConnectedOffWrist = false
 
     private fun updateOffBodyPolicy() {
         offBodyScheduler?.update(dataRepository.latestDeviceWornObservation.value,
@@ -174,10 +175,12 @@ class TAKConnectService: Service() {
                 takNetworkPreference?.network?.value != null &&
                 takServerDetails.any { it.isEnabled && !it.duplicateEndpointSuppressed },
             chargingOrDocked = dataRepository.chargingState.value ||
-                dataRepository.dockType.value != BatteryPowerObserver.DockType.NONE)
+                dataRepository.dockType.value != BatteryPowerObserver.DockType.NONE,
+            stayConnectedOffWrist = stayConnectedOffWrist)
     }
 
     class ConnectionAttempt(val generation: Long) {
+        var failure: TakConnectionFailure? = null
         val outputMutex = Mutex()
         val sessionId: String = java.util.UUID.randomUUID().toString()
         var job: Job? = null
@@ -229,6 +232,10 @@ class TAKConnectService: Service() {
         val channelMutex: Mutex = Mutex(),
         val runtime: ConnectionRuntime = ConnectionRuntime(),
         var duplicateEndpointSuppressed: Boolean = false,
+        var approvedCa: String? = null,
+        val connectionFailureLiveData: MutableLiveData<TakConnectionFailure?> = MutableLiveData(null),
+        var identityEpoch: String? = null,
+        var strictServerTrust: Boolean = false,
     ) {
         override fun toString() = "TakServerDetail(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
@@ -261,6 +268,7 @@ class TAKConnectService: Service() {
         )
 
         takNetworkPreference = TakNetworkPreference(this).also { it.start() }
+        stayConnectedOffWrist = runBlocking { dataRepository.stayConnectedOffWrist.first() }
         offBodyScheduler = OffBodyTakScheduler(this,
             connect = { connectToTakServers() },
             disconnect = { resetTakServerConnectionDetails(preserveFailures = true) },
@@ -272,12 +280,14 @@ class TAKConnectService: Service() {
             var previousNetwork: android.net.Network? = null
             var routeInitialized = false
             combine(combine(dataRepository.latestDeviceWornObservation,
-                    dataRepository.chargingState, dataRepository.dockType) { _, _, _ -> Unit },
+                    dataRepository.chargingState, dataRepository.dockType,
+                    dataRepository.stayConnectedOffWrist) { _, _, _, stay -> stay },
                 dataRepository.getEnableTakEndpoint,
                 dataRepository.watchTransportSuppressed,
-                requireNotNull(takNetworkPreference).network) { _, enabled, _, network ->
-                enabled to network
-            }.collect { (enabled, network) ->
+                requireNotNull(takNetworkPreference).network) { stay, enabled, _, network ->
+                Triple(stay, enabled, network)
+            }.collect { (stay, enabled, network) ->
+                stayConnectedOffWrist = stay
                 takEndpointEnabled = enabled
                 if (!routeInitialized || network != previousNetwork) {
                     val routeChanged = if (routeInitialized) network != previousNetwork else
@@ -419,13 +429,15 @@ class TAKConnectService: Service() {
             WifiMulticastReceiver.open(
                 applicationContext, requireNotNull(cfg.net), requireNotNull(cfg.address), requireNotNull(cfg.port)
             )
-        }
+        },
+        ingestCot: suspend (TakServerCotEnvelope) -> Unit = { cotIngestor.ingest(it) }
     ) {
         configurations.distinctUntilChanged().collectLatest { cfg ->
             val shouldRun = cfg.net != null && multicastEndpointEnabled(cfg)
             Log.i(TAG, "Multicast collector called: $cfg with shouldRun=$shouldRun")
             updatePublisher(cfg, shouldRun)
-            if (shouldRun) {
+            if (!shouldRun) return@collectLatest
+            while (currentCoroutineContext().isActive) {
                 try {
                     withContext(Dispatchers.IO) {
                         openReceiver(cfg).use { receiver ->
@@ -436,17 +448,19 @@ class TAKConnectService: Service() {
                                 receiver.receive(onPeerPacket = {
                                     multicastWifiRequest?.onPeerPacketReceived()
                                 }) { envelope ->
-                                    cotIngestor.ingest(envelope.copy(sourceSessionId = session))
+                                    ingestCot(envelope.copy(sourceSessionId = session))
                                 }
                             } finally {
                                 if (activeMulticastSource?.second == session) activeMulticastSource = null
                             }
                         }
                     }
+                    return@collectLatest
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: IOException) {
-                    Log.e(TAG, "Multicast receive failed", error)
+                    currentCoroutineContext().ensureActive()
+                    Log.e(TAG, "Multicast receive failed; retrying in 5 seconds", error)
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.multicast_receive_failed, Toast.LENGTH_LONG).show()
                     }
@@ -455,7 +469,9 @@ class TAKConnectService: Service() {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.multicast_receive_failed, Toast.LENGTH_LONG).show()
                     }
+                    return@collectLatest
                 }
+                delay(5000)
             }
         }
     }
@@ -499,6 +515,8 @@ class TAKConnectService: Service() {
         password = password,
         p12Cert = p12Cert,
         p12CertPassword = p12CertPassword,
+        identityEpoch = identityEpoch,
+        strictServerTrust = strictServerTrust,
         numConnAttempts = 0
     )
 
@@ -510,7 +528,8 @@ class TAKConnectService: Service() {
             username == item.username &&
             password == item.password &&
             p12Cert.orEmpty() == item.p12Cert &&
-            p12CertPassword.orEmpty() == item.p12CertPassword
+            p12CertPassword.orEmpty() == item.p12CertPassword &&
+            identityEpoch == item.identityEpoch && strictServerTrust == item.strictServerTrust
 
     private fun TakServerDetail.hasChangedCredentialMaterial(item: TakServerItem): Boolean =
         address != item.address.trim() ||
@@ -519,7 +538,8 @@ class TAKConnectService: Service() {
             username != item.username ||
             password != item.password ||
             p12Cert.orEmpty() != item.p12Cert ||
-            p12CertPassword.orEmpty() != item.p12CertPassword
+            p12CertPassword.orEmpty() != item.p12CertPassword ||
+            identityEpoch != item.identityEpoch
 
     private fun startTakServerConfigurationCollector() {
         scope.launch {
@@ -541,26 +561,39 @@ class TAKConnectService: Service() {
     suspend fun registerServer(serverId: String) {
         reloadProvisionedTakServers(registrationServerId = serverId)
 
-        val detail = getTakServerDetail(serverId)
-            ?: error("Saved TAK server is unavailable")
-
-        synchronized(detail.runtime.lock) {
-            serverRegistration.bind(detail.serverId, detail)
-            detail.numConnAttempts = 0
-            getClientCertificateAndConnect(detail)
+        val detail = serverRegistration.atStep(TakServerRegistration.Step.DETAIL_LOOKUP) {
+            getTakServerDetail(serverId) ?: error("Saved TAK server is unavailable")
         }
+
+        serverRegistration.atStep(TakServerRegistration.Step.CONNECTION_DISPATCH) {
+            synchronized(detail.runtime.lock) {
+                serverRegistration.bind(detail.serverId, detail)
+                detail.numConnAttempts = 0
+                getClientCertificateAndConnect(detail)
+            }
+        }
+
     }
 
-    private suspend fun reloadProvisionedTakServers(
+    internal suspend fun prepareReviewedServer(serverId: String) {
+        reloadProvisionedTakServers(registrationServerId = serverId)
+        check(getTakServerDetail(serverId) != null) { "Saved TAK server is unavailable" }
+    }
+
+    internal suspend fun reloadProvisionedTakServers(
         registrationServerId: String? = null,
         retryFailed: Boolean = false,
     ) = configurationMutex.withLock {
-        val storedServers = dataRepository.tryAwaitTakServerList()
-            ?: error("Persisted TAK server list is unavailable")
-        reconcileTakServers(storedServers, registrationServerId, retryFailed)
+        val storedServers = serverRegistration.atStep(TakServerRegistration.Step.PERSISTED_LIST_RELOAD) {
+            if (registrationServerId != null) dataRepository.awaitTakServerList()
+            else dataRepository.tryAwaitTakServerList() ?: error("Persisted TAK server list is unavailable")
+        }
+        serverRegistration.atStep(TakServerRegistration.Step.RUNTIME_RECONCILIATION) {
+            reconcileTakServers(storedServers, registrationServerId, retryFailed)
+        }
     }
 
-    private fun reconcileTakServers(
+    private suspend fun reconcileTakServers(
         storedServers: List<TakServerItem>,
         registrationServerId: String? = null,
         retryFailed: Boolean = false,
@@ -569,11 +602,14 @@ class TAKConnectService: Service() {
         val retainedIds = mutableSetOf<String>()
         var replacedCount = 0
         val refreshed = storedServers.map { stored ->
-            val serverId = requireNotNull(TakServerId.normalizeOrNull(stored.serverId))
+            val serverId = serverRegistration.atStep(TakServerRegistration.Step.ID_NORMALIZATION) {
+                requireNotNull(TakServerId.normalizeOrNull(stored.serverId))
+            }
             retainedIds += serverId
             val previous = previousById[serverId]
+            val approvedCa = dataRepository.getApprovedServerCa(serverId, stored.address, stored.port)
             if (previous != null && !previous.runtime.terminated &&
-                previous.hasSameRuntimeConfiguration(stored)) {
+                previous.hasSameRuntimeConfiguration(stored) && previous.approvedCa == approvedCa) {
                 previous.name = stored.name
                 dataRepository.takChannels.value
                     .firstOrNull { it.serverId == serverId }
@@ -582,15 +618,19 @@ class TAKConnectService: Service() {
                     }
                 previous
             } else {
-                val replacement = stored.toRuntimeDetail()
+                val replacement = stored.toRuntimeDetail().apply { this.approvedCa = approvedCa }
                 if (previous != null) {
                     if (previous.isEnabled && !stored.isEnabled) {
                         dataRepository.removeTakServerChannels(serverId)
                     }
                     serverRegistration.replaceRuntime(serverId, previous, replacement)
                     invalidateConnection(previous, terminate = true)
-                    if (previous.hasChangedCredentialMaterial(stored)) {
-                        context.deleteFile(certificateCacheFileName(previous))
+                    val reviewPending = com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate
+                        .blocked(stored.address, stored.port)
+                    if (!reviewPending && (previous.hasChangedCredentialMaterial(stored) || previous.approvedCa != approvedCa)) {
+                        // A fresh enrollment has its own cache; retain the prior identity for rollback.
+                        if (previous.identityEpoch == stored.identityEpoch)
+                            context.deleteFile(certificateCacheFileName(previous))
                         if (TakServerEndpointIdentity.key(previous.address, previous.port) !=
                             TakServerEndpointIdentity.key(stored)) {
                             context.deleteFile(
@@ -854,7 +894,7 @@ class TAKConnectService: Service() {
         var isWifiConnected = false
         var isAnyTakConnected : Boolean = false // Overall flag indicating that atleast one of the TAK servers is connected. This includes getting client cert and connecting to COT message port
         val isAnyTakConnectedLiveData = MutableLiveData<Boolean>(false)
-        val context: Context = mainActivity.applicationContext
+        val context: Context get() = mainActivity.applicationContext
 
         var isAnyTakConnecting : Boolean = false // Overall flag indicating if connection is being made to any TAK server
         val isAnyTakConnectingLiveData = MutableLiveData<Boolean>(false)
@@ -2002,6 +2042,31 @@ class TAKConnectService: Service() {
                 checkNotNull(detail.runtime.currentAttempt?.httpSession) { "TAK HTTP session unavailable" }
             }
 
+        internal fun pluginRestServers(): List<com.aitech.weartak_civ.integration.plugin.PluginTakServer> =
+            takServerDetails.toList().filter { missionConnectionReady(it) }.map {
+                com.aitech.weartak_civ.integration.plugin.PluginTakServer(it.serverId, it.name)
+            }
+
+        internal fun pluginRestClient(serverId: String?): com.aitech.weartak_civ.integration.plugin.PluginTakHttpClient {
+            val connected = takServerDetails.toList().filter { missionConnectionReady(it) }
+            val detail = if (serverId == null) {
+                check(connected.size == 1) { "Select one connected server by serverId" }
+                connected.single()
+            } else {
+                connected.singleOrNull { it.serverId == serverId }
+                    ?: throw IllegalStateException("Requested server is not connected")
+            }
+            return synchronized(detail.runtime.lock) {
+                val session = serverHttpSession(detail)
+                com.aitech.weartak_civ.integration.plugin.PluginTakHttpClient(
+                    com.aitech.weartak_civ.integration.plugin.PluginTakServer(detail.serverId, detail.name),
+                    detail.address, session,
+                    checkNotNull(detail.channelSslContext) { "Plugin TLS context unavailable" },
+                    checkNotNull(detail.channelTrustManager) { "Plugin trust manager unavailable" },
+                )
+            }
+        }
+
         private fun channelApi(detail: TakServerDetail): TakChannelApi {
             val session = serverHttpSession(detail)
             val sslContext = checkNotNull(detail.channelSslContext) {
@@ -2019,6 +2084,7 @@ class TAKConnectService: Service() {
                 hostnameVerifier = checkNotNull(detail.channelHostnameVerifier) {
                     "TAK Server channel hostname verifier is unavailable"
                 },
+                strictEndpoint = detail.approvedCa != null || detail.strictServerTrust,
                 session = session,
             )
         }
@@ -2062,6 +2128,7 @@ class TAKConnectService: Service() {
                 requestsAllowed = {
                     dataRepository.getEnableDataSync.first() && missionConnectionReady(detail)
                 },
+                strictHostname = detail.approvedCa != null || detail.strictServerTrust,
                 session = session
             )
         }
@@ -2406,16 +2473,40 @@ class TAKConnectService: Service() {
         }
 
         suspend fun handleInboundCot(rawXml: String, source: String) {
+            handleInboundCotWithResult(rawXml, source)
+        }
+
+        suspend fun handleInboundCotWithResult(
+            rawXml: String,
+            source: String,
+            sourceSessionId: String? = null,
+            sourceChannelId: String? = null,
+            sourceWorkspaceId: String? = null,
+            sourceExternalId: String? = null,
+            sourceTransportMessageId: String? = null,
+            sourceSentAtEpochMillis: Long? = null,
+            sourceSenderUid: String? = null,
+            sourceSenderCallsign: String? = null,
+        ): TakServerCotIngestResult {
             val envelope = TakServerCotEnvelope(
                 sourceServerId = source,
                 sourceServerAddress = source,
                 receivedAt = System.currentTimeMillis(),
-                rawXml = rawXml
+                rawXml = rawXml,
+                sourceSessionId = sourceSessionId,
+                sourceChannelId = sourceChannelId,
+                sourceWorkspaceId = sourceWorkspaceId,
+                sourceExternalId = sourceExternalId,
+                sourceTransportMessageId = sourceTransportMessageId,
+                sourceSentAtEpochMillis = sourceSentAtEpochMillis,
+                sourceSenderUid = sourceSenderUid,
+                sourceSenderCallsign = sourceSenderCallsign,
             )
 
             val result = cotIngestor.ingest(envelope)
 
             Log.d(TAG, "Plugin CoT ingested source=$source result=$result")
+            return result
         }
 
         private val TAK_CONNECT_SERVICE = TAKConnectService()
@@ -2448,6 +2539,15 @@ class TAKConnectService: Service() {
         ) {
             synchronized(detail.runtime.lock) {
                 if (isCurrent(detail, attempt)) {
+                    if (status == TakServerRegistration.Status.CONNECTED) {
+                        detail.connectionFailureLiveData.postValue(null)
+                    } else if (status == TakServerRegistration.Status.FAILED && failure != null) {
+                        // Keep the actual failure; enrollment's finally block also publishes a fallback.
+                        if (attempt.failure == null) {
+                            attempt.failure = failure
+                            detail.connectionFailureLiveData.postValue(failure)
+                        }
+                    }
                     serverRegistration.publish(detail.serverId, detail, status, failure)
                 }
             }
@@ -2497,6 +2597,7 @@ class TAKConnectService: Service() {
         }
 
         private fun beginConnectionAttempt(detail: TakServerDetail): ConnectionAttempt? {
+            if (com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate.blocked(detail.address, detail.port)) return null
             val oldSockets: MutableList<java.net.Socket> = mutableListOf()
             val attempt: ConnectionAttempt
             synchronized(detail.runtime.lock) {
@@ -2523,6 +2624,7 @@ class TAKConnectService: Service() {
                 detail.runtime.generation++
                 attempt = ConnectionAttempt(detail.runtime.generation)
                 detail.runtime.currentAttempt = attempt
+                detail.connectionFailureLiveData.postValue(null)
                 attempt.httpSession = TakHttpSession(activeService?.takNetworkPreference?.network?.value) {
                     isCurrent(detail, attempt)
                 }
@@ -2649,7 +2751,7 @@ class TAKConnectService: Service() {
                 t.runtime.sideloadedP12Password = pwd
 
                 // Optional but very helpful during bring-up:
-                dumpKeyStoreAliases(t.keyStore, "$TAG/${t.address}")
+                if (!t.strictServerTrust) dumpKeyStoreAliases(t.keyStore, "$TAG/${t.address}")
 
                 true
             } catch (e: Exception) {
@@ -2754,7 +2856,7 @@ class TAKConnectService: Service() {
             val nameValueList : MutableList<NameValueEntry> = mutableListOf()
 
             val url = "https://$takServer:8446/Marti/api/tls/config"
-            val client = OkHttpClient()
+            val client = com.aitech.weartak_civ.data.takserver.TakServerCaTrust.enrollmentClient(takServerDetail.approvedCa)
 
             // Basic Authentication
             val credential = Credentials.basic(username, password)
@@ -2816,6 +2918,7 @@ class TAKConnectService: Service() {
 
         // Returns null on ERROR else response body as String
         private fun postCsrAndGetResponse(takServer: String, username: String, password: String, base64CSR: String,
+            approvedCa: String?,
             session: TakHttpSession? = null): String? {
             try {
                 var versionName: String? = null
@@ -2835,7 +2938,7 @@ class TAKConnectService: Service() {
                 Log.d(TAG, "postCsrAndGetResponse CSR request: ($urlString)")
 
                 // Build OkHttpClient
-                val client = OkHttpClient()
+                val client = com.aitech.weartak_civ.data.takserver.TakServerCaTrust.enrollmentClient(approvedCa)
 
                 // Basic Auth header
                 val credential = Credentials.basic(username, password)
@@ -2882,7 +2985,7 @@ class TAKConnectService: Service() {
 
             var result: TakSignedCertificates? = null
 
-            val csrResponse = postCsrAndGetResponse(takServer, username, password, base64CSR,
+            val csrResponse = postCsrAndGetResponse(takServer, username, password, base64CSR, takServerDetail.approvedCa,
                 session)
             if (null != csrResponse) {
                 try {
@@ -2915,16 +3018,31 @@ class TAKConnectService: Service() {
         }
 
         private fun certificateCacheFileName(takServerDetail: TakServerDetail): String =
-            certificateCacheFileName(takServerDetail.address, takServerDetail.port)
+            certificateCacheFileName(takServerDetail.address, takServerDetail.port, takServerDetail.identityEpoch)
 
-        private fun certificateCacheFileName(address: String, port: Int): String {
-            val endpoint = TakServerEndpointIdentity.key(address, port)
-            val digest = MessageDigest.getInstance(SHA256_ALGORITHM).digest(endpoint.toByteArray())
-            val encoded = android.util.Base64.encodeToString(
-                digest,
-                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
-            ).trimEnd('=')
-            return "tak_${encoded}.jks"
+        internal fun exportCachedClientIdentity(context: Context, expected: TakServerItem): Pair<ByteArray, String> {
+            val detail = requireNotNull(getTakServerDetail(requireNotNull(expected.serverId))) {
+                "No exportable client identity is loaded"
+            }
+            return synchronized(detail.runtime.lock) {
+                check(!detail.runtime.terminated && detail.address == expected.address &&
+                    detail.port == expected.port && detail.username == expected.username &&
+                    detail.password == expected.password && detail.isP12Cert == expected.isP12Cert &&
+                    detail.p12Cert.orEmpty() == expected.p12Cert &&
+                    detail.p12CertPassword.orEmpty() == expected.p12CertPassword &&
+                    detail.identityEpoch == expected.identityEpoch) { "Server identity changed" }
+                val bytes = context.openFileInput(certificateCacheFileName(detail)).use { it.readNBytes(32701) }
+                if (bytes.size > 32700) {
+                    bytes.fill(0)
+                    throw IllegalArgumentException("Client identity is too large")
+                }
+                bytes to KEYSTORE_PASS
+            }
+        }
+
+        private fun certificateCacheFileName(address: String, port: Int, identityEpoch: String? = null): String {
+            return com.aitech.weartak_civ.data.takserver.TakServerEndpointMigration
+                .cacheFileName(address, port, identityEpoch)
         }
 
         fun loadKeyStore(keyStore : KeyStore, fileName: String, password: String): Boolean {
@@ -3124,7 +3242,8 @@ class TAKConnectService: Service() {
                         recordConnectionCounts()
 
                         // see if we have one locally
-                        if (!takServerDetail.isP12Cert || takServerDetail.p12Cert.isNullOrBlank()) {
+                        if ((!takServerDetail.isP12Cert || takServerDetail.p12Cert.isNullOrBlank()) &&
+                            !takServerDetail.strictServerTrust) {
                             Log.i(TAG, "Not P12 for ${takServerDetail.address} ... checking if p12 locally loaded ...")
                             if (maybeLoadP12FromDisk(takServerDetail)) {
                                 Log.i(TAG, "Loaded PKCS12 from disk for ${takServerDetail.address}; short-circuiting to connect")
@@ -3363,7 +3482,7 @@ class TAKConnectService: Service() {
                 takServerDetail.connectionStatusLiveData.postValue(TAK_SERVER_CONNECTING_STRING)
                 try {
                     Log.d(TAG, "Aliases for server $takServer")
-                    dumpKeyStoreAliases(takServerDetail.keyStore, TAG)
+                    if (!takServerDetail.strictServerTrust) dumpKeyStoreAliases(takServerDetail.keyStore, TAG)
                     // Initialize the KeyManagerFactory with the client certificate
                     val keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
                     val sideloadedPassword = takServerDetail.runtime.sideloadedP12Password
@@ -3379,7 +3498,7 @@ class TAKConnectService: Service() {
                     Log.d(TAG, "TAK trust root present=${root != null}")
                     val trustKs = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
                         load(null, null)
-                        setCertificateEntry("root", root)
+                        if (root != null) setCertificateEntry("root", root)
                     }
                     val trustManagerFactory = if (null != root) {
                         TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
@@ -3393,7 +3512,12 @@ class TAKConnectService: Service() {
                     val trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
                     trustManagerFactory.init(takServerDetail.keyStore)
                      */
-                    val trustManager = trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull()
+                    val trustManager = com.aitech.weartak_civ.data.takserver.TakServerCaTrust.streamingTrustManager(
+                        takServer,
+                        trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull(),
+                        takServerDetail.approvedCa,
+                        allowEnrolledTrust = !takServerDetail.strictServerTrust,
+                    )
 
                     val sslContext = SSLContext.getInstance("TLSv1.3")
                     if (null != trustManager) {
@@ -3439,6 +3563,9 @@ class TAKConnectService: Service() {
                     }
                     Log.d(TAG, "Starting secureSocket handshake")
                     socket.soTimeout = 15_000
+                    if (takServerDetail.approvedCa != null || takServerDetail.strictServerTrust) {
+                        com.aitech.weartak_civ.data.takserver.TakServerCaTrust.configureHostnameVerification(socket)
+                    }
                     socket.startHandshake()
                     socket.soTimeout = 0
                     synchronized(takServerDetail.runtime.lock) {
@@ -3460,8 +3587,9 @@ class TAKConnectService: Service() {
                     }
                     takServerDetail.channelSslContext = sslContext
                     takServerDetail.channelTrustManager = trustManager
-                    takServerDetail.channelHostnameVerifier =
-                        TakSanHostnameVerifier(takServerDetail.address, trustManager)
+                    takServerDetail.channelHostnameVerifier = if (takServerDetail.approvedCa != null || takServerDetail.strictServerTrust) {
+                        OkHttpClient().hostnameVerifier
+                    } else TakSanHostnameVerifier(takServerDetail.address, trustManager)
                     isAnyTakConnected = true
                     isAnyTakConnectedLiveData.postValue(isAnyTakConnected)
                     requestStatusIconsComplicationUpdate(context)
@@ -3586,7 +3714,7 @@ class TAKConnectService: Service() {
             socket: SSLSocket,
             xml: String,
             allowCompanionGraceForFinalExpiry: Boolean = false,
-            beforeWrite: () -> Boolean = { true },
+            beforeWrite: suspend () -> Boolean = { true },
         ): Boolean = attempt.outputMutex.withLock {
             currentCoroutineContext().ensureActive()
             synchronized(detail.runtime.lock) {
@@ -3599,6 +3727,11 @@ class TAKConnectService: Service() {
             }
             if (!beforeWrite()) return@withLock false
             currentCoroutineContext().ensureActive()
+            synchronized(detail.runtime.lock) {
+                if (!isCurrent(detail, attempt, allowCompanionGraceForFinalExpiry) || attempt.socket !== socket ||
+                    detail.secureSocket !== socket || detail.duplicateEndpointSuppressed ||
+                    socket.isClosed || !socket.isConnected) return@withLock false
+            }
             try {
                 socket.outputStream.apply {
                     write(xml.toByteArray(Charsets.UTF_8))
@@ -3932,7 +4065,8 @@ class TAKConnectService: Service() {
             }
 
         internal suspend fun writeCommandReply(
-            detail: TakServerDetail, xml: String, timeoutMs: Long = 5_000L
+            detail: TakServerDetail, xml: String, timeoutMs: Long = 5_000L,
+            beforeWrite: suspend () -> Boolean = { true }
         ): Boolean {
             val attempt: ConnectionAttempt
             val socket: SSLSocket
@@ -3952,8 +4086,11 @@ class TAKConnectService: Service() {
                     val worker = connectionScope.launch {
                         try {
                             val accepted = writeConnection(detail, attempt, socket, xml) {
-                                writing.set(true)
-                                continuation.isActive
+                                if (!continuation.isActive || !beforeWrite()) false
+                                else {
+                                    writing.set(true)
+                                    continuation.isActive
+                                }
                             }
                             continuation.resumeWith(Result.success(accepted))
                         } catch (error: CancellationException) {
@@ -3963,19 +4100,44 @@ class TAKConnectService: Service() {
                         }
                     }
                     continuation.invokeOnCancellation {
-                        Log.w(TAG, "Originating command acknowledgement cancelled or timed out")
+                        Log.w(TAG, "Direct CoT write cancelled or timed out")
                         worker.cancel()
                         if (writing.get()) {
                             connectionScope.launch {
                                 handleSocketFailure(detail, attempt, socket,
-                                    IOException("Originating command acknowledgement cancelled or timed out"))
+                                    IOException("Direct CoT write cancelled or timed out"))
                             }
                         }
                     }
                 }
             }
-            if (result == null) Log.w(TAG, "Originating command acknowledgement timed out")
+            if (result == null) Log.w(TAG, "Direct CoT write timed out")
             return result ?: false
+        }
+
+        internal suspend fun sendBatdokPatient(xml: String, stillAllowed: suspend () -> Boolean): BatdokTakWrite {
+            val blockedBy = when {
+                !isLicenseValid() -> "license"
+                !isNetworkConnected -> "network"
+                !takEndpointEnabled -> "tak_endpoint_off"
+                !offBodyAllowsConnection() -> "off_wrist"
+                dataRepository.shouldSuppressWatchTransportNow() -> "transport_suppressed"
+                else -> null
+            }
+            if (blockedBy != null) return BatdokTakWrite(0, 0, blockedBy)
+            var written = 0
+            var eligible = 0
+            // Deliberately bypass generic egress: only enabled direct TAK streams, no other destinations.
+            for (detail in takServerDetails.toList()) {
+                if (!detail.isEnabled || detail.duplicateEndpointSuppressed ||
+                    detail.connectionStatus.get() != TAK_SERVER_CONNECTED_COT_PORT) continue
+                eligible++
+                val accepted = writeCommandReply(detail, xml, beforeWrite = {
+                    offBodyAllowsConnection() && isLicenseValid() && stillAllowed()
+                })
+                if (accepted) written++
+            }
+            return BatdokTakWrite(written, eligible)
         }
 
         fun sendFinalExpiredSelfPli(xml: String): Boolean {

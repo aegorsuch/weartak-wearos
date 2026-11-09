@@ -69,6 +69,8 @@ import com.aitech.weartak_civ.service.sitx.SitxServiceCommandBus
 import com.rain.hail.sdk.HailDetail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -215,6 +217,74 @@ class CotDispatchService : Service() {
 
         startAnyEndpointConnectedCollector()
         startOutboundPliAnnouncements()
+        startBatdokPatientSharing()
+    }
+
+    private fun startBatdokPatientSharing() {
+        var codec: com.aitech.weartak_civ.cot.BatdokPatientCodec? = null
+        var lastLoggedOutcome: String? = null
+        val publisher = BatdokPatientPublisher(
+            input = {
+                val waitReason = when {
+                    !locationAnnouncementAllowed() -> "location_service_off"
+                    !dataRepository.getEnableTakEndpoint.first() -> "tak_endpoint_off"
+                    dataRepository.shouldSuppressWatchTransportNow() -> "transport_suppressed"
+                    TAKConnectService.offBodyTakWaiting.value -> "off_wrist"
+                    !TAKConnectService.isAnyTakConnected -> "no_tak_connected"
+                    else -> null
+                }
+                BatdokPublishingInput(
+                    consent = dataRepository.batdokSharing.consent.first(),
+                    allowed = waitReason == null,
+                    waitReason = waitReason,
+                    profile = com.aitech.weartak_civ.cot.BatdokPatientProfile(
+                        dataRepository.getCallsign.first(), dataRepository.getPhysiologicalMetricUserType.first(),
+                        dataRepository.getYearOfBirth.first()
+                    ),
+                    location = dataRepository.snapshotLocation(dataRepository.bestKnownLocation()),
+                    physiology = dataRepository.selfStatusInputs().first()
+                )
+            },
+            patientId = { dataRepository.batdokSharing.patientId() },
+            encoder = {
+                codec ?: com.aitech.weartak_civ.cot.BatdokBuiltInConfiguration.createCodecOrNull()
+                    ?.also { codec = it }
+            },
+            sendToTak = TAKConnectService::sendBatdokPatient,
+        )
+        serviceScope.launch {
+            try {
+                val heartbeat = kotlinx.coroutines.flow.flow {
+                    while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                        emit(Unit)
+                        kotlinx.coroutines.delay(25_000L)
+                    }
+                }
+                combine(dataRepository.batdokSharing.consent, dataRepository.outboundReadyRoutes, heartbeat) { _, _, _ -> Unit }
+                    .collectLatest {
+                        try {
+                            val status = publisher.publish()
+                            dataRepository.batdokPatientStatus.value = status
+                            dataRepository.batdokPatientFailureCode.value = null
+                            val outcome = batdokOutcomeLog(status, publisher.lastDetail)
+                            if (outcome != lastLoggedOutcome) {
+                                lastLoggedOutcome = outcome
+                                Log.i(TAG, outcome)
+                            }
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            val code = batdokFailureCode(error)
+                            lastLoggedOutcome = null
+                            Log.w(TAG, "BATTAK patient sharing blocked: $code")
+                            dataRepository.batdokPatientFailureCode.value = code
+                            dataRepository.batdokPatientStatus.value = BatdokPatientStatus.FAILED
+                        }
+                    }
+            } finally {
+                codec?.close()
+            }
+        }
     }
 
     private fun startAnyEndpointConnectedCollector() {
@@ -1079,7 +1149,7 @@ class CotDispatchService : Service() {
         val ce: Float // Horizontal Error
     )
 
-    private fun buildPliCot(snapshot: DataRepository.PliSnapshot): String {
+    private suspend fun buildPliCot(snapshot: DataRepository.PliSnapshot): String {
         val callsign = snapshot.systemData.callsign
         val role = snapshot.systemData.role
         val teamValue = snapshot.systemData.team
@@ -1104,7 +1174,8 @@ class CotDispatchService : Service() {
         val hailDetail = buildHailDetail(snapshot.physioData.data, callsign)
         val xml = CotMessageBuilder.pli(
             snapshot,
-            CotMessageBuilder.PliOptions(callsign, role, teamValue, enableBatdokCot, hailDetail),
+            CotMessageBuilder.PliOptions(callsign, role, teamValue, enableBatdokCot, hailDetail,
+                dittoMetadata = DittoService.currentCotMetadata()),
         )
         Log.e("WEARTAK_COT_XML", "XML=$xml")
         return xml
@@ -1255,6 +1326,12 @@ class CotDispatchService : Service() {
     private suspend fun dispatch(message: CotOutboundMessage): Boolean {
         if (com.aitech.weartak_civ.command.SensitiveEnrollment.containsSensitiveXml(message.xml)) {
             Log.w(TAG, "Sensitive enrollment command excluded from outbound CoT")
+            return false
+        }
+        val pli = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+        if (pli != null && !com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
+                .isCurrent(pli.moppGeneration)) {
+            Log.i(TAG, "Skipping PLI built before a MOPP session change")
             return false
         }
         // Routine self PLI waits out the grace window; only active traffic forces direct transports back.

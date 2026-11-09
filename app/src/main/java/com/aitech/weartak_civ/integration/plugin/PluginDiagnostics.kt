@@ -168,6 +168,7 @@ object PluginDiagnostics {
 
     fun markRejected(pkg: String, reason: String) {
         bound.remove(pkg)
+        connected.remove(pkg)
         rejected.add(pkg)
         deniedAdmission.incrementAndGet()
         bumpCategory(AdmissionCategory.LEGACY_REJECTION)
@@ -182,6 +183,7 @@ object PluginDiagnostics {
     fun recordAdmissionRejected(pkg: String, category: String, detail: String?) {
         synchronized(lock) {
             bound.remove(pkg)
+            connected.remove(pkg)
             rejected.add(pkg)
         }
         deniedAdmission.incrementAndGet()

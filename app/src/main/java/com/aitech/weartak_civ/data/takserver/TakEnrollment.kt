@@ -18,6 +18,10 @@ import java.security.PrivateKey
 import java.security.cert.Certificate
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.cert.CertPathValidatorException
+import java.security.cert.PKIXReason
+import java.security.cert.CertificateExpiredException
+import java.security.cert.CertificateNotYetValidException
 import java.util.Base64
 import javax.net.ssl.SSLException
 import javax.xml.parsers.DocumentBuilderFactory
@@ -32,7 +36,8 @@ enum class TakFailureCategory { AUTHENTICATION, HTTP, TLS, CONNECTIVITY, CERTIFI
 data class TakConnectionFailure(
     val stage: TakEnrollmentStage,
     val category: TakFailureCategory,
-    val httpCode: Int? = null
+    val httpCode: Int? = null,
+    val untrustedServerCa: Boolean = false,
 ) {
     fun displayMessage(context: Context): String {
         val stageResource = when (stage) {
@@ -45,7 +50,8 @@ data class TakConnectionFailure(
         val detail = when (category) {
             TakFailureCategory.AUTHENTICATION -> context.getString(R.string.tak_enrollment_authentication_failed)
             TakFailureCategory.HTTP -> context.getString(R.string.tak_enrollment_http_failed, httpCode)
-            TakFailureCategory.TLS -> context.getString(R.string.tak_enrollment_tls_failed)
+            TakFailureCategory.TLS -> context.getString(
+                if (untrustedServerCa) R.string.ca_trust_untrusted else R.string.tak_enrollment_tls_failed)
             TakFailureCategory.CONNECTIVITY -> context.getString(R.string.tak_enrollment_connectivity_failed)
             TakFailureCategory.CERTIFICATE -> context.getString(R.string.tak_enrollment_certificate_failed)
         }
@@ -55,7 +61,8 @@ data class TakConnectionFailure(
     fun displayMessage(): String = "${stage.label}: " + when (category) {
         TakFailureCategory.AUTHENTICATION -> "authentication rejected (HTTP 401). Check username/password."
         TakFailureCategory.HTTP -> "server rejected request (HTTP $httpCode)."
-        TakFailureCategory.TLS -> "secure connection failed. Check server certificate and hostname."
+        TakFailureCategory.TLS -> if (untrustedServerCa) "server certificate issuer is not trusted."
+            else "secure connection failed. Check server certificate and hostname."
         TakFailureCategory.CONNECTIVITY -> "server unreachable. Check network and server address."
         TakFailureCategory.CERTIFICATE -> "invalid or missing certificate data."
     }
@@ -69,7 +76,17 @@ data class TakConnectionFailure(
                 error is IOException -> TakFailureCategory.CONNECTIVITY
                 else -> TakFailureCategory.CERTIFICATE
             }
-            return TakConnectionFailure(stage, category)
+            val untrustedCa = category == TakFailureCategory.TLS &&
+                causes.none {
+                    it is CertificateExpiredException || it is CertificateNotYetValidException ||
+                        it is javax.net.ssl.SSLPeerUnverifiedException
+                } && causes.any {
+                    (it is CertPathValidatorException &&
+                        (it.reason == PKIXReason.NO_TRUST_ANCHOR ||
+                            it.message == "Trust anchor for certification path not found.")) ||
+                        it.javaClass.name == "sun.security.provider.certpath.SunCertPathBuilderException"
+                }
+            return TakConnectionFailure(stage, category, untrustedServerCa = untrustedCa)
         }
     }
 }

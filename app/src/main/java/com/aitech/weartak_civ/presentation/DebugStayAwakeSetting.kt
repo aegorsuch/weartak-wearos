@@ -27,6 +27,7 @@ fun DebugStayAwakeSetting() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val preferences = remember(context) { DebugStayAwakePreferences(context) }
     val enabled by remember(preferences) { preferences.enabledFlow }.collectAsState(initial = preferences.enabled)
+    val active by DebugStayAwakeService.active.collectAsState()
     DisposableEffect(context, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) DebugStayAwakeService.restoreIfEnabled(context)
@@ -37,6 +38,7 @@ fun DebugStayAwakeSetting() {
     }
     WearTAKToggleChip(
         title = stringResource(R.string.debug_stay_awake),
+        description = if (enabled && !active) stringResource(R.string.debug_stay_awake_waiting) else "",
         checkedLive = enabled,
         onCheckedChange = { DebugStayAwakeService.setEnabled(context, it) })
 }

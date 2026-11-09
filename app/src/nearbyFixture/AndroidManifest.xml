@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" tools:node="remove" />
+    <application android:name="android.app.Application"
+        android:label="Nearby import offline fixture" tools:replace="android:name,android:label">
+        <activity android:name=".presentation.MainActivity" tools:node="remove" />
+        <service android:name=".presentation.FixturePluginBridgeService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Offline synthetic Nearby Binder integration fixture" />
+        </service>
+        <activity android:name=".presentation.FixturePluginExportActivity" android:exported="false" />
+        <activity android:name=".presentation.FixturePluginReviewActivity" android:exported="false" />
+        <activity android:name="com.aitech.weartak_civ.presentation.NearbyImportFixtureActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
