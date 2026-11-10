@@ -57,6 +57,9 @@
 -keepclassmembers class ai.onnxruntime.** { *; }
 -dontwarn ai.onnxruntime.**
 
+# JNI resolves these instance native methods by their generated symbol names.
+-keep class com.aitech.weartak_civ.service.openvpn.OpenVpnNativeBridge { *; }
+
 # Jackson optional Java desktop APIs
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient

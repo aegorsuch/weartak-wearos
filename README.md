@@ -2141,6 +2141,25 @@ failed connection. Initial route collection also replaces pre-collector attempts
 TLS handshakes have a 15-second read deadline; connected CoT readers remain blocking.
 Sideloaded PKCS12 passwords stay in runtime state rather than changing the saved
 configuration used to decide whether a connection needs replacing.
+
+### App-owned OpenVPN transport (preview)
+
+**Plugins > OpenVPN** imports bounded, self-contained `.ovpn` profiles and stores
+profiles and username/password credentials encrypted on the watch. External
+certificate/key file references, static challenges, encrypted private keys and
+external-PKI profiles are not supported; embed certificate/key material in the
+profile. One app-owned tunnel can be active at a time. Assign its profile to a
+TAK server to route that server's CoT TLS and session-backed HTTPS traffic
+(channels, missions and packages) through the tunnel. A selected route fails
+closed while its profile is disconnected; it does not fall back to direct
+traffic. This does not install device-wide VPN routes or tunnel other app traffic.
+
+TAK endpoint names resolve through Android's selected network, outside the VPN
+tunnel, and the TAK endpoint must resolve to IPv4. Automated tests cover profile parsing, native validation, encrypted credential
+storage and fail-closed routing; emulator instrumentation exercises JNI and
+encrypted storage. Real-server profile interoperability, VPN connectivity, and
+physical-watch validation remain unverified.
+
 While charging or docked, off-wrist TAK connections stay continuous under the
 existing server, network and Companion gates. Plugging in reconnects immediately
 and cancels pending off-body window closes. Unplugging while off wrist resumes

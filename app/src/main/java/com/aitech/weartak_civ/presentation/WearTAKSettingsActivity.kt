@@ -3248,6 +3248,13 @@ fun WearTAKSettingsNav(
             WearTAKPageWithBackArrow(
                 stringResource(R.string.plugins),
                 columnContent = {
+                    item {
+                        WearTAKTitleChip(
+                            title = "OpenVPN",
+                            route = "openvpn_settings",
+                            navController = navController
+                        )
+                    }
                     itemsIndexed(items = menuEntries, key = { _, entry -> entry.key }) { _, entry ->
                         when (entry) {
                             is PluginMenuEntry.BuiltIn -> when (entry.kind) {
@@ -3587,6 +3594,13 @@ fun WearTAKSettingsNav(
                 plugins = pluginList,
                 pluginVm = pluginVm,
                 navController = navController,
+            )
+        }
+        composable("openvpn_settings") {
+            OpenVpnSettingsPage(
+                navController = navController,
+                settingsVm = settingsVm,
+                servers = takServerList,
             )
         }
         composable("data_sync") {

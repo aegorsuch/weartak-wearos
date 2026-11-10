@@ -5,9 +5,19 @@ import okhttp3.Call
 import okhttp3.Response
 import android.net.Network
 import okhttp3.OkHttpClient
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
+import com.aitech.weartak_civ.service.openvpn.OpenVpnSocketFactory
 
 /** Cancels only HTTP work belonging to one TAK connection generation. */
-class TakHttpSession(val network: Network? = null, private val allowed: () -> Boolean) {
+class TakHttpSession(
+    val network: Network? = null,
+    private val openVpnSocketFactory: OpenVpnSocketFactory? = null,
+    private val allowed: () -> Boolean,
+) {
+    val usesOpenVpn: Boolean get() = openVpnSocketFactory != null
     private val lock = Any()
     private var closed = false
     private val calls = mutableSetOf<Call>()
@@ -20,12 +30,22 @@ class TakHttpSession(val network: Network? = null, private val allowed: () -> Bo
 
     fun route(client: OkHttpClient): OkHttpClient {
         ensureCurrent()
-        val route = network ?: return client
-        return client.newBuilder()
-            .socketFactory(route.socketFactory)
-            .dns(requireNotNull(dns))
-            .connectionPool(pool)
-            .build()
+        val route = network
+        if (route == null && openVpnSocketFactory == null) return client
+        val builder = client.newBuilder().connectionPool(pool)
+        if (openVpnSocketFactory != null) builder.socketFactory(openVpnSocketFactory)
+        else if (route != null) builder.socketFactory(route.socketFactory)
+        if (route != null) builder.dns(requireNotNull(dns))
+        return builder.build()
+    }
+
+    fun connectOpenVpnSocket(host: String, port: Int, timeoutMs: Int): Socket {
+        ensureCurrent()
+        val factory = openVpnSocketFactory ?: throw IOException("OpenVPN route is not selected")
+        val addresses = network?.getAllByName(host)?.toList() ?: InetAddress.getAllByName(host).toList()
+        val address = addresses.firstOrNull { it is Inet4Address }
+            ?: throw IOException("OpenVPN route requires a TAK server with IPv4 address")
+        return factory.createSocket().apply { connect(InetSocketAddress(address, port), timeoutMs) }
     }
 
     fun register(call: Call) {

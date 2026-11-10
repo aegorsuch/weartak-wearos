@@ -4680,7 +4680,8 @@ class DataRepository(
         val p12CertPassword: String,
         val serverId: String? = null,
         val identityEpoch: String? = null,
-        val strictServerTrust: Boolean = false
+        val strictServerTrust: Boolean = false,
+        val openVpnProfileId: String? = null
     ) {
         override fun toString() = "TakServerItem(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
