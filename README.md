@@ -3774,15 +3774,19 @@ With location and activity recognition enabled, a stationary location latch (a u
 
 ## License
 
-No standalone repository-wide license file is present in this source tree.
-Source notices, including
-[`WearTakApplication.kt`](app/src/main/java/com/aitech/weartak_civ/WearTakApplication.kt),
-state Copyright (C) 2025, Ascent Integrated Tech, all rights reserved, and restrict
-use/copying to explicit written permission and the applicable license agreement
-and/or contract. The existing [Contributing](#contributing) statement grants
-Unlimited Rights to TPC; it is not a general public license grant.
-Repository-wide redistribution terms require confirmation from the project owner.
-This README reformat does not relicense code, SDKs, datasets, or artwork.
+WearTAK-owned core code is open source under the
+**GNU General Public License, version 3 only** (`GPL-3.0-only`).
+See [LICENSE](LICENSE) for the complete license, including its warranty disclaimer.
+Copyright attribution and years remain with their respective holders.
+The existing [Contributing](#contributing) grant of Unlimited Rights to TPC
+remains unchanged.
+
+This grant covers owner-controlled WearTAK core code, not independently owned
+contributions, third-party SDKs, dependencies, datasets, models, or artwork.
+Their existing licenses, copyright notices, permissions, and obligations remain
+in force. The pinned plugin SDK's GPL license and additional permission remain
+unchanged and apply to that SDK's covered work, not as an additional permission
+for WearTAK core.
 
 Third-party terms and obligations remain separate: retain the map-provider and
 terrain/geoid credits and usage caveats under
@@ -3793,3 +3797,12 @@ artwork notice and pending distribution/licensing review under
 [Bloodhound picker controls and artwork](#bloodhound-picker-controls-and-artwork).
 Bundled third-party SDKs remain subject to their own terms; their presence does
 not establish unrestricted redistribution rights.
+
+In particular, redistribution and GPLv3 linking compatibility have not been
+established for `app/libs/samsung-health-sensor-api-1.4.1.aar` or
+`app/libs/hail-sdk.aar`; neither archive includes a license or notice document.
+Other integrations, including Ditto and Google Play services, require review
+under their own terms. The model assets under `app/src/main/assets/` also
+require provenance and distribution-rights confirmation. These unresolved
+boundaries prevent treating the entire dependency bundle as GPLv3-cleared;
+the core license is not a legal-clearance claim for a combined APK.
