@@ -547,4 +547,5 @@
     <plurals name="network_server_count">
         <item quantity="other">서버 %1$d/%2$d개</item>
     </plurals>
+    <string name="openvpn_service_running">OpenVPN 터널 활성화됨</string>
 </resources>

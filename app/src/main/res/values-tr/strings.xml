@@ -550,4 +550,5 @@
         <item quantity="one">%1$d/%2$d Sunucu</item>
         <item quantity="other">%1$d/%2$d Sunucu</item>
     </plurals>
+    <string name="openvpn_service_running">OpenVPN tüneli etkin</string>
 </resources>

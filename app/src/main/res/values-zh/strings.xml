@@ -547,4 +547,5 @@
     <plurals name="network_server_count">
         <item quantity="other">%1$d/%2$d 个服务器</item>
     </plurals>
+    <string name="openvpn_service_running">OpenVPN 隧道已启用</string>
 </resources>

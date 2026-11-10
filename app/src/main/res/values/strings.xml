@@ -1025,7 +1025,7 @@
     <string name="exertion_alert_threshold">Exertion Alert Threshold</string>
     <string name="bloodhound_compass">Bloodhound</string>
     <string name="plugins">Plugins</string>
-    <string name="openvpn">OpenVPN</string>
+    <string name="openvpn" translatable="false">OpenVPN</string>
     <string name="openvpn_service_running">OpenVPN tunnel active</string>
     <string name="n_a">N/A</string>
     <string name="male">Male</string>

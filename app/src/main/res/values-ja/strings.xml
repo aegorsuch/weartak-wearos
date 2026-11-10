@@ -547,4 +547,5 @@
     <plurals name="network_server_count">
         <item quantity="other">%1$d/%2$dサーバー</item>
     </plurals>
+    <string name="openvpn_service_running">OpenVPN トンネルが有効です</string>
 </resources>
