@@ -409,6 +409,7 @@ tasks.named('preBuild').configure {
 
 dependencies {
     implementation project(':weartak-plugin-host-services-sdk')
+    implementation project(':voice-package-api')
     implementation files(pluginSdkAarPath.get())
     implementation files('libs/samsung-health-sensor-api-1.4.1.aar')
     implementation files('libs/hail-sdk.aar')

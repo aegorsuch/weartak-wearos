@@ -396,7 +396,9 @@ class CompanionAppRepository(private val context: Context) {
         val mac: String?,   // Optional legacy field; local Bluetooth address is unavailable.
         val bat: Int?,
         val int: Int,       // reporting interval
-        val standaloneCallsign: String
+        val standaloneCallsign: String,
+        val software: Map<String, Any> = emptyMap(),
+        val capabilitiesVersion: Int = 1
     )
 
     data class ReportingIntPayload(
@@ -427,7 +429,8 @@ class CompanionAppRepository(private val context: Context) {
             mac     = null,
             bat = sys.batteryPercent,
             int  = sys.reportIntSecs,
-            standaloneCallsign = sys.standaloneCallsign
+            standaloneCallsign = sys.standaloneCallsign,
+            software = WatchCapabilities.software(context).let { o -> o.keys().asSequence().associateWith { o.get(it) } }
         )
     }
 

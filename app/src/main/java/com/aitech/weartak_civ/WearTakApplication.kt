@@ -91,6 +91,8 @@ class WearTakApplication : Application() {
 
     lateinit var pluginIngress: PluginIngressPort
         private set
+    lateinit var voicePackages: com.aitech.weartak_civ.integration.plugin.VoicePackageBroker
+    lateinit var voiceStandalone: com.aitech.weartak_civ.integration.plugin.VoiceStandaloneAdapter
     lateinit var pluginManager: PluginManager
         private set
     lateinit var pluginRepository: HostPluginRepository
@@ -171,6 +173,9 @@ class WearTakApplication : Application() {
 
         pluginStateStore = PluginStateStore(applicationContext)
         pluginIngress = PluginIngressPort(this)
+        voicePackages = com.aitech.weartak_civ.integration.plugin.VoicePackageBroker(this)
+        voiceStandalone = com.aitech.weartak_civ.integration.plugin.VoiceStandaloneAdapter(this)
+        voiceStandalone.startIfEnabled()
         pluginManager = PluginManager(this, pluginIngress, pluginStateStore = pluginStateStore)
         pluginRepository = HostPluginRepository(this, pluginManager, pluginStateStore)
         diagnostics.bindConnectivity(repo, pluginManager.settingsCoordinator)

@@ -66,3 +66,5 @@ dependencyResolutionManagement {
 rootProject.name = "WearTAK-CIV"
 include ':app'
 include ':weartak-plugin-host-services-sdk'
+
+include ':voice-package-api'
