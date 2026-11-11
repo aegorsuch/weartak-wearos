@@ -85,6 +85,9 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.tabletCommandE
 import com.aitech.weartak_civ.presentation.requestStatusIconsComplicationUpdate
 import com.aitech.weartak_civ.service.CotDispatchService.Companion.esriGeojsonMsg
 import com.aitech.weartak_civ.service.CotDispatchService.Companion.tabletCommandJsonMsg
+import com.aitech.weartak_civ.service.openvpn.OpenVpnService
+import com.aitech.weartak_civ.service.openvpn.OpenVpnSocketFactory
+import com.aitech.weartak_civ.service.openvpn.OpenVpnStatus
 import com.aitech.weartak_civ.service.LicenseManager.isLicenseValid
 import com.aitech.weartak_civ.data.takserver.TakEnrollment
 import com.aitech.weartak_civ.data.takserver.TakEnrollmentStage
@@ -236,6 +239,7 @@ class TAKConnectService: Service() {
         val connectionFailureLiveData: MutableLiveData<TakConnectionFailure?> = MutableLiveData(null),
         var identityEpoch: String? = null,
         var strictServerTrust: Boolean = false,
+        var openVpnProfileId: String? = null,
     ) {
         override fun toString() = "TakServerDetail(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
@@ -276,6 +280,23 @@ class TAKConnectService: Service() {
         updateOffBodyPolicy()
         setFromDatastore()
         updateOffBodyPolicy()
+        scope.launch {
+            var previous = OpenVpnService.runtimeState.value
+            OpenVpnService.runtimeState.collect { state ->
+                if (state != previous) {
+                    val routedServersExist = takServerDetails.any { it.openVpnProfileId != null }
+                    if (routedServersExist &&
+                        (previous.status == OpenVpnStatus.CONNECTED || state.status == OpenVpnStatus.CONNECTED)) {
+                        closeTakServerSockets()
+                        resetTakServerConnectionDetails()
+                        if (state.status == OpenVpnStatus.CONNECTED && isNetworkConnected) {
+                            connectToTakServers()
+                        }
+                    }
+                    previous = state
+                }
+            }
+        }
         scope.launch(Dispatchers.Main.immediate) {
             var previousNetwork: android.net.Network? = null
             var routeInitialized = false
@@ -517,6 +538,7 @@ class TAKConnectService: Service() {
         p12CertPassword = p12CertPassword,
         identityEpoch = identityEpoch,
         strictServerTrust = strictServerTrust,
+        openVpnProfileId = openVpnProfileId,
         numConnAttempts = 0
     )
 
@@ -529,7 +551,8 @@ class TAKConnectService: Service() {
             password == item.password &&
             p12Cert.orEmpty() == item.p12Cert &&
             p12CertPassword.orEmpty() == item.p12CertPassword &&
-            identityEpoch == item.identityEpoch && strictServerTrust == item.strictServerTrust
+            identityEpoch == item.identityEpoch && strictServerTrust == item.strictServerTrust &&
+            openVpnProfileId == item.openVpnProfileId
 
     private fun TakServerDetail.hasChangedCredentialMaterial(item: TakServerItem): Boolean =
         address != item.address.trim() ||
@@ -2598,6 +2621,14 @@ class TAKConnectService: Service() {
 
         private fun beginConnectionAttempt(detail: TakServerDetail): ConnectionAttempt? {
             if (com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate.blocked(detail.address, detail.port)) return null
+            val vpnProfileId = detail.openVpnProfileId
+            if (vpnProfileId != null) {
+                val vpn = OpenVpnService.runtimeState.value
+                if (vpn.status != OpenVpnStatus.CONNECTED || vpn.profileId != vpnProfileId) {
+                    detail.connectionStatusLiveData.postValue("OpenVPN not connected")
+                    return null
+                }
+            }
             val oldSockets: MutableList<java.net.Socket> = mutableListOf()
             val attempt: ConnectionAttempt
             synchronized(detail.runtime.lock) {
@@ -2625,9 +2656,10 @@ class TAKConnectService: Service() {
                 attempt = ConnectionAttempt(detail.runtime.generation)
                 detail.runtime.currentAttempt = attempt
                 detail.connectionFailureLiveData.postValue(null)
-                attempt.httpSession = TakHttpSession(activeService?.takNetworkPreference?.network?.value) {
-                    isCurrent(detail, attempt)
-                }
+                attempt.httpSession = TakHttpSession(
+                    network = activeService?.takNetworkPreference?.network?.value,
+                    openVpnSocketFactory = vpnProfileId?.let(::OpenVpnSocketFactory),
+                ) { isCurrent(detail, attempt) }
                 detail.runtime.connectJob = null
                 detail.runtime.readerJob = null
                 detail.connectionStatus.set(TAK_SERVER_OBTAINING_CLIENT_CERT)
@@ -3530,8 +3562,19 @@ class TAKConnectService: Service() {
                     Log.d(TAG, "Going to createSocket and startHandshake")
                     // Create the socket and connect
                     val socketFactory = sslContext.socketFactory
-                    val route = attempt.httpSession?.network
-                    val socket = if (route == null) {
+                    val session = attempt.httpSession
+                    val route = session?.network
+                    val socket = if (session?.usesOpenVpn == true) {
+                        val raw = session.connectOpenVpnSocket(takServer, port, 15_000)
+                        synchronized(takServerDetail.runtime.lock) {
+                            if (!isCurrent(takServerDetail, attempt)) {
+                                raw.close()
+                                return
+                            }
+                            attempt.rawSocket = raw
+                        }
+                        socketFactory.createSocket(raw, takServer, port, true) as SSLSocket
+                    } else if (route == null) {
                         socketFactory.createSocket(takServer, port) as SSLSocket
                     } else {
                         val raw = route.socketFactory.createSocket()

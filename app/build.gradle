@@ -279,6 +279,13 @@ android {
     }
     buildToolsVersion '35.0.0'
     ndkVersion '27.0.12077973'
+
+    externalNativeBuild {
+        cmake {
+            path file("src/main/cpp/CMakeLists.txt")
+            version "3.22.1"
+        }
+    }
     lint {
         abortOnError true
         checkReleaseBuilds true
@@ -347,6 +354,41 @@ def sdkNotices = tasks.register('generatePluginSdkNotices', Copy) {
     }
 }
 android.sourceSets.main.assets.srcDir(sdkNoticeAssets)
+def nativeThirdPartySource = file('src/main/cpp/third_party')
+def nativeNoticeAssets = layout.buildDirectory.dir('generated/nativeThirdPartyNotices')
+def nativeNoticeFiles = [
+        'README.md',
+        'asio/LICENSE_1_0.txt',
+        'fmt/LICENSE',
+        'lwip/COPYING',
+        'lz4/LICENSE',
+        'lz4/lib/LICENSE',
+        'mbedtls/LICENSE',
+        'mbedtls/framework/LICENSE',
+        'openvpn3/LICENSE.md',
+        'openvpn3/LICENSES/AGPL-3.0-only.txt',
+        'openvpn3/LICENSES/MPL-2.0.txt',
+        'openvpn3/LICENSES/openvpn3-openssl-exception.txt',
+        'openvpn3/openvpn/http/LICENSE_1_0.txt'
+]
+def nativeNotices = tasks.register('generateNativeThirdPartyNotices', Copy) {
+    from(nativeThirdPartySource) {
+        include(nativeNoticeFiles)
+        includeEmptyDirs = false
+        eachFile {
+            path = "licenses/native/${path}"
+        }
+    }
+    into nativeNoticeAssets
+    doFirst {
+        nativeNoticeFiles.each { name ->
+            if (!new File(nativeThirdPartySource, name).isFile()) {
+                throw new GradleException("Missing native dependency notice: ${name}")
+            }
+        }
+    }
+}
+android.sourceSets.main.assets.srcDir(nativeNoticeAssets)
 tasks.register('verifyPluginSdk') {
     inputs.file(pluginSdkAarPath)
     inputs.property('expectedSha256', pluginSdkExpectedHash)
@@ -362,7 +404,7 @@ tasks.register('verifyPluginSdk') {
     }
 }
 tasks.named('preBuild').configure {
-    dependsOn tasks.named('verifyPluginSdk'), sdkNotices
+    dependsOn tasks.named('verifyPluginSdk'), sdkNotices, nativeNotices
 }
 
 dependencies {

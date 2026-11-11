@@ -293,6 +293,12 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
         <service
+            android:name=".service.openvpn.OpenVpnService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            android:stopWithTask="false" />
+        <service
             android:name=".service.SitxTakService"
             android:enabled="true"
             android:exported="false"

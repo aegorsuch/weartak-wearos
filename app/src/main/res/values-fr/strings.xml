@@ -553,4 +553,5 @@
         <item quantity="other">%1$d/%2$d serveurs</item>
         <item quantity="many">%1$d/%2$d serveurs</item>
     </plurals>
+    <string name="openvpn_service_running">Tunnel OpenVPN actif</string>
 </resources>

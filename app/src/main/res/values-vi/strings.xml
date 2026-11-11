@@ -547,4 +547,5 @@
     <plurals name="network_server_count">
         <item quantity="other">%1$d/%2$d máy chủ</item>
     </plurals>
+    <string name="openvpn_service_running">Đường hầm OpenVPN đang hoạt động</string>
 </resources>
