@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tak_companion_active">Companion 사용 중</string>
+    <string name="tak_companion_active_detail">TAK 직접 연결이 일시 중지되었습니다. 직접 연결하려면 WearTAK Companion을 끄세요. 블루투스는 켜 둬도 됩니다.</string>
+    <string name="tak_companion_waiting_detail">WearTAK가 휴대전화를 기다리는 동안 TAK 직접 연결이 일시 중지됩니다.</string>
+</resources>
