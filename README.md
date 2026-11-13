@@ -3817,11 +3817,16 @@ artwork notice and pending distribution/licensing review under
 Bundled third-party SDKs remain subject to their own terms; their presence does
 not establish unrestricted redistribution rights.
 
+The Ditto SDK's [published binary-license notice](https://www.ditto.com/sdk-license)
+is bundled in the app at
+[`assets/licenses/ditto-sdk/LICENSE.txt`](app/src/main/assets/licenses/ditto-sdk/LICENSE.txt).
+Distribution remains subject to the applicable Ditto Agreement and Order Form.
+
 In particular, redistribution and GPLv3 linking compatibility have not been
 established for `app/libs/samsung-health-sensor-api-1.4.1.aar` or
 `app/libs/hail-sdk.aar`; neither archive includes a license or notice document.
-Other integrations, including Ditto and Google Play services, require review
-under their own terms. The model assets under `app/src/main/assets/` also
+Google Play services and other integrations require review under their own
+terms. The model assets under `app/src/main/assets/` also
 require provenance and distribution-rights confirmation. These unresolved
 boundaries prevent treating the entire dependency bundle as GPLv3-cleared;
 the core license is not a legal-clearance claim for a combined APK.

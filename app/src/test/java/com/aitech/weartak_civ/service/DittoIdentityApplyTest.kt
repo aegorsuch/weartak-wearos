@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import live.ditto.Ditto
+import live.ditto.DittoError
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -65,6 +66,7 @@ class DittoIdentityApplyTest {
     @After fun cleanup() {
         set("dittoInstance", null)
         activeService().value = null
+        shutdownFailure().value = false
         ReactiveServiceManager.isRunning.set(false)
         unmockkObject(DittoService.Companion)
         unmockkConstructor(ServiceConfiguration::class)
@@ -166,6 +168,132 @@ class DittoIdentityApplyTest {
         }
         assertFalse(DittoService.applySelectedIdentity(context, repo))
         assertSame(replacement, DittoService.getDittoInstance())
+    }
+
+    @Test fun failedSdkStopBlocksIdentityReplacementAndSubsequentRequests() = runTest {
+        val service = runningService()
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        every { old.stopSync() } throws mockk<DittoError>(relaxed = true)
+
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+        assertTrue(DittoService.shutdownFailed.value)
+        assertSame(old, DittoService.getDittoInstance())
+        assertNull(activeService().value)
+        assertFalse(DittoService.isReconfiguring.value)
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+        assertFalse(DittoService.applyEnabled(context, repo, true))
+        verify(exactly = 1) { old.stopSync() }
+        verify(exactly = 0) { old.close() }
+        verify(exactly = 0) { DittoService.Companion["initializeDitto"](context, repo) }
+        assertFalse(service.startPeerSync())
+    }
+
+    @Test fun failedDisableRestoresIntentButFencesAutomaticRestart() = runTest {
+        enabled.value = true
+        val service = runningService()
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        every { old.stopSync() } throws mockk<DittoError>(relaxed = true)
+
+        assertFalse(DittoService.applyEnabled(context, repo, false))
+        assertTrue(enabled.value)
+        assertTrue(DittoService.shutdownFailed.value)
+        val configuration = ServiceConfiguration(context, repo, app.audioRepo, flowOf(false), null)
+        assertFalse(configuration.getServiceEnabledFlow(ReactiveServiceManager.ServiceType.DITTO).first())
+        val next = runningService(ownsDitto = false)
+        assertFalse(next.startPeerSync())
+        next.onDestroy()
+        assertTrue(DittoService.shutdownFailed.value)
+        verify(exactly = 1) { old.stopSync() }
+    }
+
+    @Test fun missingOwnedInstanceCannotAcknowledgeShutdown() = runTest {
+        val service = runningService()
+        set("dittoInstance", null)
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+        assertTrue(DittoService.shutdownFailed.value)
+        verify(exactly = 0) { old.close() }
+        verify(exactly = 0) { DittoService.Companion["initializeDitto"](context, repo) }
+    }
+
+    @Test fun failedShutdownBlocksServiceCreationBeforeNativeAccess() = runTest {
+        val service = runningService()
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        every { old.stopSync() } throws mockk<DittoError>(relaxed = true)
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+
+        every { app.repo } returns repo
+        val next = spyk(runningService(ownsDitto = false))
+        every { next.applicationContext } returns app
+        next.onCreate()
+        try {
+            verify(exactly = 0) { old.startSync(); old.sync; old.presence }
+            assertTrue(DittoService.shutdownFailed.value)
+            assertFalse(DittoService.syncActive.value)
+        } finally {
+            next.onDestroy()
+        }
+    }
+
+    @Test fun failedResourceCleanupDoesNotAcknowledgeSuccessfulSdkStop() = runTest {
+        val service = runningService()
+        val observers = mockk<DittoStoreObservers>()
+        every { observers.close() } throws IllegalStateException("synthetic cleanup failure")
+        DittoService::class.java.getDeclaredField("storeObservers").apply {
+            isAccessible = true
+            set(service, observers)
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+        assertTrue(DittoService.shutdownFailed.value)
+        verify(exactly = 1) { old.stopSync() }
+        verify(exactly = 0) { old.close() }
+        verify(exactly = 0) { DittoService.Companion["initializeDitto"](context, repo) }
+    }
+
+    @Test fun workerJoinTimeoutBlocksReplacementAndRestartUntilProcessRestart() = runTest {
+        val service = runningService()
+        val scope = DittoService::class.java.getDeclaredField("ioScope").run {
+            isAccessible = true
+            get(service) as CoroutineScope
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        try {
+            assertFalse(DittoService.applySelectedIdentity(context, repo))
+            assertTrue(DittoService.shutdownFailed.value)
+            assertFalse(DittoService.isReconfiguring.value)
+            assertFalse(DittoService.applySelectedIdentity(context, repo))
+            verify(exactly = 1) { old.stopSync() }
+            verify(exactly = 0) { old.close() }
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
+    }
+
+    private fun runningService(ownsDitto: Boolean = true): DittoService =
+        Robolectric.buildService(DittoService::class.java).get().also { service ->
+            DittoService::class.java.getDeclaredField("dataRepository").apply {
+                isAccessible = true
+                set(service, repo)
+            }
+            DittoService::class.java.getDeclaredField("ownsDitto").apply {
+                isAccessible = true
+                set(service, ownsDitto)
+            }
+            activeService().value = service
+        }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun shutdownFailure() = DittoService::class.java.getDeclaredField("shutdownFailureState").run {
+        isAccessible = true
+        get(null) as MutableStateFlow<Boolean>
     }
 
     @Suppress("UNCHECKED_CAST")
