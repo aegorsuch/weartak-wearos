@@ -20,6 +20,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class PluginServiceQueryTest {
+    @org.junit.Test fun devVoicePermissionIsRestrictedToTheDevVoicePackageAndDebugHost() {
+        org.junit.Assert.assertTrue(PluginServiceQuery.allowedBindPermission(
+            PluginServiceQuery.VOICE_DEV_PERMISSION, "se.takcampus.voice.watch.dev", true))
+        org.junit.Assert.assertFalse(PluginServiceQuery.allowedBindPermission(
+            PluginServiceQuery.VOICE_DEV_PERMISSION, "se.takcampus.voice.watch.dev", false))
+        org.junit.Assert.assertFalse(PluginServiceQuery.allowedBindPermission(
+            PluginServiceQuery.VOICE_DEV_PERMISSION, "another.plugin", true))
+        org.junit.Assert.assertFalse(PluginServiceQuery.allowedBindPermission(null, "se.takcampus.voice.watch.dev", true))
+    }
 
     private val component = ComponentName("com.weartak.plugin.sample", ".SamplePluginService")
 

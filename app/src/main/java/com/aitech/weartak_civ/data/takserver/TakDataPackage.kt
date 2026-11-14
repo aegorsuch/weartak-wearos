@@ -44,14 +44,14 @@ data class TakDataPackageRequest(
         require(size in 1..MAX_DATA_PACKAGE_BYTES.toLong()) { "Invalid package size" }
     }
 
-    internal fun acknowledgement(deviceUid: String, nowMs: Long, success: Boolean): String? {
+    internal fun acknowledgement(deviceUid: String, nowMs: Long, success: Boolean, reason: String? = null): String? {
         val uid = ackUid ?: return null
         val recipient = requireNotNull(senderUid) { "Missing acknowledgement recipient" }
         val time = CotEventTimeFactory.at(nowMs, staleOffset = CotTimeOffset(seconds = 10))
         val ack = CotXml.element("ackresponse", listOf(
             "uid" to CotXml.escape(uid), "senderUid" to CotXml.escape(deviceUid),
             "success" to success, "tag" to CotXml.escape(name),
-            "reason" to if (success) "Routes imported" else "Route package import failed",
+            "reason" to (reason ?: if (success) "Routes imported" else "Route package import failed"),
             "sha256" to sha256, "sizeInBytes" to size
         ))
         val destination = CotXml.element("marti", content =
@@ -247,7 +247,10 @@ internal class TakDataPackageClient(
             .addQueryParameter("hash", offer.sha256)
             .build()
 
-    fun downloadRoutes(offer: TakDataPackageRequest, serverId: String): List<TakRoute> {
+    fun downloadRoutes(offer: TakDataPackageRequest, serverId: String): List<TakRoute> =
+        TakDataPackageImporter.routes(downloadBytes(offer), serverId)
+
+    fun downloadBytes(offer: TakDataPackageRequest): ByteArray {
         val request = Request.Builder().url(downloadUrl(offer)).get().build()
         (session?.route(client) ?: client).newCall(request).withSessionResponse(session) { response ->
             if (!response.isSuccessful) throw IOException("Package download HTTP ${response.code}")
@@ -258,14 +261,14 @@ internal class TakDataPackageClient(
             val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
                 .joinToString("") { "%02x".format(it) }
             require(hash == offer.sha256) { "Package SHA-256 mismatch" }
-            return TakDataPackageImporter.routes(bytes, serverId)
+            return bytes
         }
     }
 }
 
 internal object TakDataPackageImporter {
-    fun routes(bytes: ByteArray, serverId: String): List<TakRoute> {
-        require(serverId.isNotBlank()) { "Missing package source server" }
+    /** Structural validation shared by both importers; a manifest action is only a hint. */
+    private fun checkedEntries(bytes: ByteArray): Map<String, ByteArray> {
         require(bytes.size in 1..MAX_DATA_PACKAGE_BYTES) { "Invalid package size" }
         val entries = mutableMapOf<String, ByteArray>()
         val names = mutableSetOf<String>()
@@ -279,14 +282,57 @@ internal object TakDataPackageImporter {
                 val limit = if (entry.name == MANIFEST_PATH) MAX_MANIFEST_BYTES else MAX_ENTRY_BYTES
                 val content = zip.readBounded(minOf(limit, MAX_EXPANDED_BYTES - expandedBytes))
                 expandedBytes += content.size
-                if (!entry.isDirectory &&
-                    (entry.name == MANIFEST_PATH || entry.name.endsWith(".cot", ignoreCase = true))
-                ) {
+                if (!entry.isDirectory) {
                     entries[entry.name] = content
                 }
                 zip.closeEntry()
             }
         }
+        return entries
+    }
+
+    fun voiceCandidate(bytes: ByteArray): Boolean {
+        val entries = checkedEntries(bytes)
+        val manifest = requireNotNull(entries[MANIFEST_PATH]) { "Missing TAK package manifest" }
+        var valid = false
+        var hint = false
+        var inContents = false
+        val selected = mutableSetOf<String>()
+        readPackageXml(manifest.toString(Charsets.UTF_8)) { parser ->
+            if (parser.eventType != XmlPullParser.START_TAG) return@readPackageXml
+            if (parser.depth == 1) {
+                valid = parser.name == "MissionPackageManifest" && parser.getAttributeValue(null, "version") == "2"
+                require(valid) { "Unsupported package manifest" }
+            }
+            if (parser.depth == 2) inContents = parser.name == "Contents"
+            if (parser.name == "Parameter" && parser.getAttributeValue(null, "name") == "onReceiveAction") {
+                hint = parser.getAttributeValue(null, "value") == "com.atakmap.android.gbr.multicastvoice.sharing.downloaded"
+            }
+            if (inContents && parser.name == "Content" && parser.depth == 3) {
+                val path = requireNotNull(parser.getAttributeValue(null, "zipEntry"))
+                validateEntryPath(path, false)
+                val ignore = parser.getAttributeValue(null, "ignore") ?: "false"
+                require(ignore == "true" || ignore == "false")
+                if (ignore == "false") {
+                    require(selected.add(path) && entries.containsKey(path)) { "Missing or duplicate manifest entry" }
+                }
+            }
+        }
+        require(valid)
+        return selected.any { path ->
+            val content = entries.getValue(path)
+            val json = if (content.size in 1..32700 && content.first() == '{'.code.toByte())
+                runCatching { org.json.JSONObject(content.toString(Charsets.UTF_8)) }.getOrNull() else null
+            val jsonCandidate = json != null && json.optJSONObject("missionId")?.optString("uuid")?.isNotBlank() == true &&
+                json.optJSONArray("channels") != null && json.optString("missionType") == "COMBINED"
+            // Binary semantic parsing stays in the Voice importer. An offer is not an applied config.
+            jsonCandidate || (hint && path.endsWith("_proto") && content.size in 4..131072 && content.first() == 10.toByte())
+        }
+    }
+
+    fun routes(bytes: ByteArray, serverId: String): List<TakRoute> {
+        require(serverId.isNotBlank()) { "Missing package source server" }
+        val entries = checkedEntries(bytes)
         val manifest = requireNotNull(entries[MANIFEST_PATH]) { "Missing TAK package manifest" }
         val selected = mutableSetOf<String>()
         var validManifest = false

@@ -12,6 +12,11 @@ import com.weartak.plugin.sdk.WearTakPluginContract
  * [com.aitech.weartak_civ.WearTakApplication].
  */
 internal object PluginServiceQuery {
+    internal const val VOICE_DEV_PERMISSION = "se.takcampus.voice.permission.BIND_PLUGIN_DEV"
+    internal fun allowedBindPermission(permission: String?, packageName: String, debugHost: Boolean = com.aitech.weartak_civ.BuildConfig.DEBUG): Boolean =
+        permission == WearTakPluginContract.PERMISSION_BIND_PLUGIN ||
+            (debugHost && packageName == "se.takcampus.voice.watch.dev" && permission == VOICE_DEV_PERMISSION)
+
     const val MENU_SUBTITLE = "com.weartak.plugin.MENU_SUBTITLE"
 
     fun menuSubtitle(pm: PackageManager, component: ComponentName): String? {
@@ -46,7 +51,7 @@ internal object PluginServiceQuery {
             val si = ri.serviceInfo ?: continue
             val pkg = si.packageName
             if (pkg == hostPackage) continue
-            if (si.permission != WearTakPluginContract.PERMISSION_BIND_PLUGIN) continue
+            if (!allowedBindPermission(si.permission, pkg)) continue
             out.putIfAbsent(pkg, ComponentName(si.packageName, si.name))
         }
         return out.values.toList()
