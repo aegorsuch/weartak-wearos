@@ -174,6 +174,33 @@ class PluginTransportHostV1ImplTest {
     }
 
     @Test
+    fun failedInboundNormalizationCanRetrySameMessageId() {
+        val host = createHost { TakServerCotIngestResult.CHAT }
+        val sessionId = register(host, RecordingCallback())
+        val invalidChat = TransportMessageParcel(
+            messageId = "retry-after-normalization-failure",
+            payloadKind = TransportPayloadKind.CHAT_UTF8,
+            payload = "Hello".toByteArray(Charsets.UTF_8),
+            senderUid = "remote-1",
+            senderCallsign = "REMOTE",
+        )
+
+        assertEquals(
+            TransportResultCode.INVALID_REQUEST,
+            host.receiveMessage(sessionId, "satellite", invalidChat).code,
+        )
+        val validChat = invalidChat.copy(recipientUid = DEVICE_UID)
+        assertEquals(
+            TransportResultCode.ACCEPTED,
+            host.receiveMessage(sessionId, "satellite", validChat).code,
+        )
+        assertEquals(
+            TransportResultCode.DUPLICATE,
+            host.receiveMessage(sessionId, "satellite", validChat).code,
+        )
+    }
+
+    @Test
     fun cancelledInboundIngestionReleasesMessageReservation() {
         val attempts = AtomicInteger()
         val host = createHost {
