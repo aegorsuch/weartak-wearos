@@ -1,10 +1,11 @@
-from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,10 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 class ReleaseMemoryTests(unittest.TestCase):
     def test_arm64_zip_verification_consumes_listing_before_matching(self):
         bash = shutil.which("bash")
-        unzip = shutil.which("unzip")
         grep = shutil.which("grep")
-        if not bash or not unzip or not grep:
-            self.skipTest("Bash, unzip, and grep are required for pipefail regression")
+        if not bash or not grep:
+            self.skipTest("Bash and grep are required for pipefail regression")
         probe = subprocess.run(
             [bash, "-c", "set -o pipefail"],
             capture_output=True,
@@ -27,6 +27,21 @@ class ReleaseMemoryTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            env = os.environ.copy()
+            unzip = shutil.which("unzip")
+            if not unzip:
+                stub_dir = root / "bin"
+                stub_dir.mkdir()
+                unzip_stub = stub_dir / "unzip"
+                unzip_stub.write_text(
+                    "#!/bin/sh\n"
+                    "[ \"$1\" = \"-Z1\" ] || exit 2\n"
+                    "cat \"$APK_ENTRY_LIST\"\n",
+                    encoding="utf-8",
+                )
+                unzip_stub.chmod(0o755)
+                env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
+                unzip = str(unzip_stub)
 
             def create_apk_listing(path, abis):
                 with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
@@ -38,19 +53,29 @@ class ReleaseMemoryTests(unittest.TestCase):
                             b"x",
                         )
 
+            def run_check(script, path):
+                command_env = env.copy()
+                if Path(unzip).parent == root / "bin":
+                    with zipfile.ZipFile(path) as archive:
+                        listing_path = path.with_suffix(".entries")
+                        listing_path.write_text(
+                            "\n".join(archive.namelist()) + "\n",
+                            encoding="utf-8",
+                        )
+                    command_env["APK_ENTRY_LIST"] = str(listing_path)
+                return subprocess.run(
+                    [bash, "-c", script, "arm64-verifier-test", str(path)],
+                    capture_output=True,
+                    check=False,
+                    env=command_env,
+                )
+
             valid_apk = root / "arm64.apk"
             create_apk_listing(valid_apk, ["arm64-v8a"])
-            old_check = subprocess.run(
-                [
-                    bash,
-                    "-c",
-                    "set -o pipefail; "
-                    "if ! unzip -Z1 \"$1\" | grep -q '^lib/arm64-v8a/'; then exit 1; fi",
-                    "arm64-verifier-test",
-                    str(valid_apk),
-                ],
-                capture_output=True,
-                check=False,
+            old_check = run_check(
+                "set -o pipefail; "
+                "if ! unzip -Z1 \"$1\" | grep -q '^lib/arm64-v8a/'; then exit 1; fi",
+                valid_apk,
             )
             self.assertEqual(1, old_check.returncode)
 
@@ -59,29 +84,17 @@ class ReleaseMemoryTests(unittest.TestCase):
                 "if ! unzip -Z1 \"$1\" | grep '^lib/arm64-v8a/' >/dev/null; then exit 1; fi; "
                 "if unzip -Z1 \"$1\" | grep '^lib/armeabi-v7a/' >/dev/null; then exit 2; fi"
             )
-            valid_check = subprocess.run(
-                [bash, "-c", new_check_script, "arm64-verifier-test", str(valid_apk)],
-                capture_output=True,
-                check=False,
-            )
+            valid_check = run_check(new_check_script, valid_apk)
             self.assertEqual(0, valid_check.returncode)
 
             no_arm64_apk = root / "no-arm64.apk"
             create_apk_listing(no_arm64_apk, ["armeabi-v7a"])
-            missing_check = subprocess.run(
-                [bash, "-c", new_check_script, "arm64-verifier-test", str(no_arm64_apk)],
-                capture_output=True,
-                check=False,
-            )
+            missing_check = run_check(new_check_script, no_arm64_apk)
             self.assertEqual(1, missing_check.returncode)
 
             mixed_abi_apk = root / "mixed-abi.apk"
             create_apk_listing(mixed_abi_apk, ["arm64-v8a", "armeabi-v7a"])
-            mixed_check = subprocess.run(
-                [bash, "-c", new_check_script, "arm64-verifier-test", str(mixed_abi_apk)],
-                capture_output=True,
-                check=False,
-            )
+            mixed_check = run_check(new_check_script, mixed_abi_apk)
             self.assertEqual(2, mixed_check.returncode)
 
     def test_release_bounds_workers_and_shares_existing_heap_with_kotlin(self):
