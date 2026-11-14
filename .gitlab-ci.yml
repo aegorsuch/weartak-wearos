@@ -46,6 +46,8 @@ android_mopp_check:
       --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
       --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
       --tests '*PluginSettingsCoordinatorTest'
+      --tests '*HostControlImplTest' --tests '*HostControlVerifyCallerTest'
+      --tests '*PluginTransportHostV1ImplTest' --tests '*ChatServicePreferenceTest'
       --tests '*MapSourceTest' --tests '*MapCameraTest' --tests '*MapLayerLifecycleTest'
       --tests '*MapUserActionsTest' --tests '*MarkerReadabilityTest' --tests '*MapTargetSelectionTest'
       --tests '*MarkerBloodhoundActionsTest' --tests '*BloodhoundPickerActionsTest'

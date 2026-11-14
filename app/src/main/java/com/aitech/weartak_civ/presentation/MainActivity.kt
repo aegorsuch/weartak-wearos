@@ -1440,6 +1440,11 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, R.string.invalid_managed_network_configuration, Toast.LENGTH_LONG).show()
             return
         }
+        val enableChatServiceConfigUpdate = runBlocking {
+            dataRepository.applyManagedChatServiceSetting(
+                appRestrictions.getNullableBoolean("chat_service_enabled")
+            )
+        }
 
         // Store previous license before getting new license and validating it
         val prevLicenseIsValid = isLicenseValid()
@@ -1565,6 +1570,7 @@ class MainActivity : ComponentActivity() {
         localMap[ServiceType.ACTIVITY_RECOGNITION] = enableActRecService
         localMap[ServiceType.SKIN_TEMP]  = enableSkinTempService
         localMap[ServiceType.DITTO]      = enableDittoService
+        localMap[ServiceType.CHAT]       = enableChatServiceConfigUpdate
         localMap[ServiceType.COMPANION_APP] = enableCompanionAppService
         localMap[ServiceType.BLE_BEACON] = enableBleBeaconService
         localMap[ServiceType.HAIL]        = enableHailService
@@ -1615,6 +1621,7 @@ class MainActivity : ComponentActivity() {
         cfgUpdateMap[ServiceType.ACTIVITY_RECOGNITION] = enableActivityRecognitionServiceConfigUpdate
         cfgUpdateMap[ServiceType.SKIN_TEMP] = enableSkinTempServiceConfigUpdate
         cfgUpdateMap[ServiceType.DITTO] = enableDittoServiceConfigUpdate
+        cfgUpdateMap[ServiceType.CHAT] = enableChatServiceConfigUpdate
         cfgUpdateMap[ServiceType.BLE_BEACON] = enableBleBeaconServiceConfigUpdate
         cfgUpdateMap[ServiceType.HAIL]       = enableHailServiceConfigUpdate
         cfgUpdateMap[ServiceType.SITX_SERVICE] = enableSitxServiceConfigUpdate
