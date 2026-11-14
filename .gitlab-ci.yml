@@ -281,6 +281,64 @@ batdok_signed_trial:
       when: manual
       allow_failure: true
 
+# Protected, developer-only ARM64 qualification. The job deliberately has no
+# publication dependency or access to the release publisher's artifacts.
+arm64_qualification:
+  extends: .release_build
+  script:
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true -PweartakArm64Qualification=true :app:clean :app:assembleRelease
+    - |
+      APK_LIST="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)"
+      APK_COUNT="$(printf '%s\n' "$APK_LIST" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+      if [ "$APK_COUNT" != "1" ]; then
+        echo "ERROR: Expected exactly one ARM64 qualification APK; found $APK_COUNT."
+        exit 1
+      fi
+      APK="$APK_LIST"
+
+      APKSIGNER="/opt/android-sdk-linux/build-tools/35.0.0/apksigner"
+      if [ ! -x "$APKSIGNER" ]; then
+        echo "ERROR: apksigner not found at $APKSIGNER"
+        exit 1
+      fi
+      if ! unzip -Z1 "$APK" | grep -q '^lib/arm64-v8a/'; then
+        echo "ERROR: Qualification APK does not contain ARM64 native libraries."
+        exit 1
+      fi
+      if unzip -Z1 "$APK" | grep -q '^lib/armeabi-v7a/'; then
+        echo "ERROR: Qualification APK unexpectedly contains ARMv7 libraries."
+        exit 1
+      fi
+
+      EXPECTED_SIGNER="1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
+      "$APKSIGNER" verify "$APK" || { echo "ERROR: Qualification APK signature verification failed."; exit 1; }
+      ACTUAL_SIGNER="$(
+        "$APKSIGNER" verify --print-certs "$APK" |
+        sed -n 's/.*certificate SHA-256 digest: //p' |
+        head -1 |
+        tr '[:upper:]' '[:lower:]'
+      )"
+      if [ "$ACTUAL_SIGNER" != "$EXPECTED_SIGNER" ]; then
+        echo "ERROR: Qualification APK has unexpected signing certificate."
+        exit 1
+      fi
+
+      echo "ARM64 qualification APK signature and ABI verified."
+      sha256sum "$APK" > app/build/outputs/apk/release/arm64-qualification.sha256
+  artifacts:
+    when: on_success
+    expire_in: 7 days
+    access: developer
+    paths:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/release/arm64-qualification.sha256
+      - app/build/outputs/apk/release/output-metadata.json
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+      when: manual
+      allow_failure: true
+
 # ---------------------------------------------------------------------------
 # Main build
 #
