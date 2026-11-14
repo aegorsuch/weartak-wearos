@@ -285,6 +285,9 @@ batdok_signed_trial:
 # publication dependency or access to the release publisher's artifacts.
 arm64_qualification:
   extends: .release_build
+  environment:
+    name: battak-release
+    action: prepare
   script:
     - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true -PweartakArm64Qualification=true :app:clean :app:assembleRelease
     - |

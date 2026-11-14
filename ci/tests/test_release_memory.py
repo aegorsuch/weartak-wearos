@@ -53,6 +53,8 @@ class ReleaseMemoryTests(unittest.TestCase):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
         qualification = ci.split("\narm64_qualification:", 1)[1].split("\n# ---------------------------------------------------------------------------", 1)[0]
         self.assertIn("extends: .release_build", qualification)
+        self.assertIn("name: battak-release", qualification)
+        self.assertIn("action: prepare", qualification)
         self.assertIn("-PweartakArm64Qualification=true :app:clean :app:assembleRelease", qualification)
         self.assertIn("EXPECTED_SIGNER=", qualification)
         self.assertIn("lib/arm64-v8a/", qualification)
