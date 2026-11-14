@@ -4,19 +4,18 @@
 
 Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
 pins upstream source commit/tree, the additive transport-v1 overlay, and the
-combined release AAR SHA-256. This unpublished composite is **not** unchanged
-SDK `86bdc8b`: all canonical APIs and notices remain intact, with 17 frozen
+combined release AAR SHA-256. Upstream SDK `cfbab369` adds the optional
+`DeviceStatusContract.KEY_TAK_UID` telemetry key without changing Binder
+transactions or Parcelable layouts. This unpublished composite retains all
+canonical APIs and notices, with 17 frozen
 transport source/AIDL/test files added. The repository includes the overlay-only
 ZIP and per-file inventory under `ci/plugin-sdk-transport/`; both are independently
 SHA-256 pinned. The helpers verify the ZIP inventory and every added source,
 reject canonical-file replacement and unexpected untracked sources, then build.
-Exact artifact hashes are platform-specific. Windows neutral-checkout release:
-`6ec84b18e1c8ac6b4be727083c4ea7a572150b521384270212434c239e5a1e0b`.
-Linux neutral-source release (Temurin 17, Android API/build-tools 34, Gradle 8.10.2):
-`8f911b81ac85e691ad182097fe0ef0f00ffa0d2da3442d3d2f03c5ec2529184f`.
-Both platforms passed 210 SDK tests per debug/release variant, both assemblies,
-and debug/release lint without errors. Independent AAR comparison found only
-generated `AndroidManifest.xml` newline differences; `classes.jar` is byte-identical.
+Exact artifact hashes are platform-specific and recorded in `ci/plugin-sdk.json`.
+Qualification uses Temurin 17, Android API/build-tools 34, and Gradle 8.10.2.
+Generated `AndroidManifest.xml` newlines can differ between Windows and Linux;
+API-equivalent bytes are not a substitute for an independently verified platform hash.
 Neither old canonical-only nor old
 transport-only AAR hashes are accepted. The helpers and host select the exact hash for their
 verified platform, not an unrestricted allowlist. Other platforms fail closed
@@ -38,6 +37,32 @@ Host APKs include the pinned SDK GPL license and additional permission unchanged
 under `assets/licenses/weartak-plugin-sdk/`. The public source commit plus pinned
 overlay identify the corresponding combined SDK source. These notices do not
 relicense host or third-party material, or authorize distribution of this snapshot.
+
+### Authenticated local host identity
+
+Plugins query `IWearTakPluginControl.getDeviceStatus()` off their main thread,
+using the authenticated control supplied during initialization. Its telemetry
+includes `KEY_TAK_UID` (`takUid`) when Core's local TAK identity is available,
+and `KEY_CALLSIGN` (`callsign`) when configured. This works offline and does not
+require outbound CoT traffic. Missing keys mean unsupported or unavailable;
+an empty callsign must not be replaced with an invented identity.
+
+The TAK UID is distinct from `PluginInitParcel.hostUid` (Android Binder UID).
+It is scoped to Core's signing/user/device context, not a permanent identifier.
+Existing authenticated `onHostSettingsChanged` callbacks can trigger a serialized,
+off-Binder requery when callsign changes. Discard identity and stale query results
+on binding loss; reacquire on rebind. Callbacks are best-effort, and this interface
+does not provide a peer roster or a live UID-reassignment subscription.
+
+### Managed chat ingress
+
+The managed `chat_service_enabled` restriction now applies to the saved chat
+service preference. Explicit `true` or `false` overrides the saved value;
+an absent restriction preserves the saved value (enabled by default).
+Transport chat ingress still requires the negotiated `CHAT_UTF8` capability,
+plain nonblank UTF-8 text, sender UID/callsign and recipient UID. The broadcast
+recipient is exactly `All Chat Rooms`. This chat-setting repair is separate
+from the additive device-status identity key.
 
 ## Protected ARM64 qualification
 

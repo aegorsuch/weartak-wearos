@@ -3994,6 +3994,14 @@ class DataRepository(
         }
     }
 
+    suspend fun applyManagedChatServiceSetting(managedSetting: Boolean?): Boolean {
+        val enabled = managedSetting ?: getEnableChatService.first()
+        if (managedSetting != null) {
+            storeEnableChatService(enabled)
+        }
+        return enabled
+    }
+
     val getEnableAudioCaptureService: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[ENABLE_AUDIO_CAP_SERVICE] ?: DEFAULT_ENABLE_AUDIO_CAP_SERVICE
     }

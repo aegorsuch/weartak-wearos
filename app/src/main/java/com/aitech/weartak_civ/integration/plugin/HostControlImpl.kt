@@ -305,8 +305,15 @@ class HostControlImpl(
         app.repo.latestHeartRate.value?.let {
             telemetry.putInt(DeviceStatusContract.KEY_HEART_RATE_BPM, it)
         }
-        runCatching { app.repo.getCallsign.first() }.getOrNull()?.let {
-            if (it.isNotBlank()) telemetry.putString(DeviceStatusContract.KEY_CALLSIGN, it)
+        val takUid = app.repo.androidDeviceUid
+        if (takUid.isNotBlank() && takUid != "WEAROS_null" && takUid != "WEAROS_") {
+            telemetry.putString(DeviceStatusContract.KEY_TAK_UID, takUid)
+        } else {
+            Log.w(TAG, "Device status local TAK identity unavailable")
+        }
+        val callsign = app.repo.getCallsign.first()
+        if (callsign.isNotBlank()) {
+            telemetry.putString(DeviceStatusContract.KEY_CALLSIGN, callsign)
         }
         val loc = app.repo.snapshotLocation()
         if (loc != null) {
