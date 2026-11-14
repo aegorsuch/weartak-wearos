@@ -39,6 +39,21 @@ under `assets/licenses/weartak-plugin-sdk/`. The public source commit plus pinne
 overlay identify the corresponding combined SDK source. These notices do not
 relicense host or third-party material, or authorize distribution of this snapshot.
 
+## Protected ARM64 qualification
+
+`arm64_qualification` is an optional manual job in protected canonical `main`
+push pipelines. It uses the established release signing certificate but builds
+only `arm64-v8a`, verifies the signature and ABI contents, and retains the APK,
+checksum, and Gradle metadata as developer-only artifacts for seven days. It
+has no publication dependency and is not included in the GitHub release
+publisher. Do not publish or install qualification artifacts.
+
+The `weartakArm64Qualification` Gradle property is fail-closed: it accepts only
+the explicit `:app:assembleRelease` task, optionally preceded by
+`:app:clean`; all other task combinations and ABI overrides are rejected.
+Ordinary release builds still package only `armeabi-v7a`; debug emulator ABI
+options and official release behavior are unchanged.
+
 ## Host full-lint quality gate
 
 `host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.

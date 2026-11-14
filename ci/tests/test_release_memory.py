@@ -29,7 +29,7 @@ class ReleaseMemoryTests(unittest.TestCase):
 
     def test_signed_trial_is_scoped_manual_and_does_not_publish(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
-        trial = ci.split("\nbatdok_signed_trial:", 1)[1].split("\nmain_release:", 1)[0]
+        trial = ci.split("\nbatdok_signed_trial:", 1)[1].split("\narm64_qualification:", 1)[0]
         self.assertIn("extends: .release_build", trial)
         self.assertIn("name: battak-trial", trial)
         self.assertIn("action: prepare", trial)
@@ -48,6 +48,34 @@ class ReleaseMemoryTests(unittest.TestCase):
         android = ci.split("\nandroid_mopp_check:", 1)[1].split("\nrelease_publisher_tests:", 1)[0]
         self.assertIn('CI_PIPELINE_SOURCE == "web"', android)
         self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', android)
+
+    def test_arm64_qualification_is_protected_manual_and_nonpublishing(self):
+        ci = (ROOT / ".gitlab-ci.yml").read_text()
+        qualification = ci.split("\narm64_qualification:", 1)[1].split("\n# ---------------------------------------------------------------------------", 1)[0]
+        self.assertIn("extends: .release_build", qualification)
+        self.assertIn("-PweartakArm64Qualification=true :app:clean :app:assembleRelease", qualification)
+        self.assertIn("EXPECTED_SIGNER=", qualification)
+        self.assertIn("lib/arm64-v8a/", qualification)
+        self.assertIn("lib/armeabi-v7a/", qualification)
+        self.assertIn("expire_in: 7 days", qualification)
+        self.assertIn("access: developer", qualification)
+        self.assertIn('CI_COMMIT_BRANCH == "main"', qualification)
+        self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', qualification)
+        self.assertIn('$CI_PIPELINE_SOURCE == "push"', qualification)
+        self.assertIn("when: manual", qualification)
+        self.assertNotIn("publish_personal_github_main", qualification)
+        self.assertNotIn("main_release", qualification)
+        publisher = ci.split("\npublish_personal_github_main:", 1)[1].split("\nchangelog_draft:", 1)[0]
+        self.assertNotIn("arm64_qualification", publisher)
+
+        build = (ROOT / "app" / "build.gradle").read_text()
+        self.assertIn('providers.gradleProperty("weartakArm64Qualification")', build)
+        self.assertIn('arm64Qualification != "true"', build)
+        self.assertIn('[":app:assembleRelease"]', build)
+        self.assertIn('[":app:clean", ":app:assembleRelease"]', build)
+        self.assertIn('include(arm64Qualification == "true"', build)
+        self.assertIn('"arm64-v8a"', build)
+        self.assertIn('"armeabi-v7a"', build)
 
 
 if __name__ == "__main__":

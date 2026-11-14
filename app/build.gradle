@@ -186,7 +186,19 @@ android {
     def isBuildingBundle = gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }
     def emulatorAbi = providers.gradleProperty("weartakEmulatorAbi").orNull
     def debugAbi = providers.gradleProperty("weartakDebugAbi").orNull
+    def arm64Qualification = providers.gradleProperty("weartakArm64Qualification").orNull
+    def arm64QualificationTasks = [
+            [":app:assembleRelease"],
+            [":app:clean", ":app:assembleRelease"],
+    ]
     def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last().toLowerCase() }
+    if (arm64Qualification != null &&
+            (arm64Qualification != "true" ||
+            !(gradle.startParameter.taskNames in arm64QualificationTasks) ||
+            emulatorAbi != null || debugAbi != null)) {
+        throw new GradleException(
+                "weartakArm64Qualification=true is restricted to :app:assembleRelease, optionally preceded by :app:clean.")
+    }
     if (providers.gradleProperty("weartakWarningUiDemo").orElse("false").get() == "true" &&
             (!requestedTasks.any { it.contains("debug") } ||
             requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
@@ -212,7 +224,9 @@ android {
         abi {
             enable !isBuildingBundle && !gradle.startParameter.taskNames.any { it.toLowerCase().contains("nearbyfixture") }
             reset()
-            include debugAbi ?: emulatorAbi ?: "armeabi-v7a"
+            include(arm64Qualification == "true"
+                    ? "arm64-v8a"
+                    : (debugAbi ?: emulatorAbi ?: "armeabi-v7a"))
             universalApk false
         }
     }
