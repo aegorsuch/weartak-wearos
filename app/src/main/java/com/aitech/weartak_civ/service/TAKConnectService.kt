@@ -973,7 +973,7 @@ class TAKConnectService: Service() {
             }
             val job = connectionScope.launch {
                 try {
-                    val routes = client.downloadRoutes(offer, detail.serverId)
+                    val packageBytes = client.downloadBytes(offer)
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     synchronized(detail.runtime.lock) {
                         requireDataPackageSession(
@@ -983,6 +983,21 @@ class TAKConnectService: Service() {
                             throw IOException("Package source configuration changed")
                         }
                     }
+                    if (com.aitech.weartak_civ.data.takserver.TakDataPackageImporter.voiceCandidate(packageBytes)) {
+                        val broker = (context.applicationContext as com.aitech.weartak_civ.WearTakApplication).voicePackages
+                        val receipt = broker.stage(com.weartak.voice.api.VoicePackageContract.ZIP, packageBytes,
+                            java.util.UUID.randomUUID().toString(), "tak:" + detail.serverId) {
+                            isCurrent(detail, attempt) && detail.isEnabled && !dataRepository.isCompanionConnected.value
+                        }
+                        offer.acknowledgement(MainActivity.device_uid, System.currentTimeMillis(), true,
+                            "Voice package downloaded; operator review pending")?.let {
+                            sendData(detail, it, isNotPli = true, currTime = System.currentTimeMillis())
+                        }
+                        withContext(Dispatchers.Main) { Toast.makeText(context,
+                            "Voice package ${receipt.getString("status")} — open Voice to review", Toast.LENGTH_LONG).show() }
+                        return@launch
+                    }
+                    val routes = com.aitech.weartak_civ.data.takserver.TakDataPackageImporter.routes(packageBytes, detail.serverId)
                     routes.forEach { dataRepository.upsertTakRoute(it) }
                     Log.i(TAG, "Route package imported serverId=${detail.serverId} routes=${routes.size}")
                     val now = System.currentTimeMillis()
@@ -993,11 +1008,19 @@ class TAKConnectService: Service() {
                         Toast.makeText(context, context.getString(R.string.route_package_imported, routes.size),
                             Toast.LENGTH_LONG).show()
                     }
+                } catch (error: com.aitech.weartak_civ.integration.plugin.VoicePackageStageException) {
+                    offer.acknowledgement(MainActivity.device_uid, System.currentTimeMillis(), false, error.message)?.let {
+                        sendData(detail, it, isNotPli = true, currTime = System.currentTimeMillis())
+                    }
+                    withContext(Dispatchers.Main) { Toast.makeText(context, error.message, Toast.LENGTH_LONG).show() }
                 } catch (error: IOException) {
                     reportDataPackageFailure(detail, attempt, offer, error)
                 } catch (error: IllegalArgumentException) {
                     reportDataPackageFailure(detail, attempt, offer, error)
                 } catch (error: org.xmlpull.v1.XmlPullParserException) {
+                    reportDataPackageFailure(detail, attempt, offer, error)
+                } catch (error: Exception) {
+                    if (error is kotlinx.coroutines.CancellationException) throw error
                     reportDataPackageFailure(detail, attempt, offer, error)
                 }
             }
@@ -1026,12 +1049,22 @@ class TAKConnectService: Service() {
                     }
                     acquired = dataPackageSlot.tryAcquire()
                     if (!acquired) throw IOException("Route package importer is busy")
-                    val routes = TakDataPackageClient.peer(offer, peer, source.first).downloadRoutes(offer, sourceId)
+                    val packageBytes = TakDataPackageClient.peer(offer, peer, source.first).downloadBytes(offer)
                     currentCoroutineContext().ensureActive()
                     if (activeMulticastSource != source || serviceStopping ||
                         dataRepository.isCompanionConnected.value) {
                         throw IOException("Local receive session changed")
                     }
+                    if (com.aitech.weartak_civ.data.takserver.TakDataPackageImporter.voiceCandidate(packageBytes)) {
+                        (context.applicationContext as com.aitech.weartak_civ.WearTakApplication).voicePackages.stage(
+                            com.weartak.voice.api.VoicePackageContract.ZIP, packageBytes, java.util.UUID.randomUUID().toString(),
+                            "peer:" + com.aitech.weartak_civ.integration.plugin.VoicePackageBroker.digest(peer.toByteArray())) {
+                            activeMulticastSource == source && !serviceStopping && !dataRepository.isCompanionConnected.value
+                        }
+                        withContext(Dispatchers.Main) { Toast.makeText(context, "Voice package downloaded — open Voice to review", Toast.LENGTH_LONG).show() }
+                        return@launch
+                    }
+                    val routes = com.aitech.weartak_civ.data.takserver.TakDataPackageImporter.routes(packageBytes, sourceId)
                     routes.forEach { dataRepository.upsertTakRoute(it) }
                     Log.i(TAG, "Local route package imported peer=$peer routes=${routes.size}")
                     // Local transfer acknowledgements require peer-specific routing, not a TAK-server ACK.
@@ -1059,6 +1092,8 @@ class TAKConnectService: Service() {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, R.string.route_package_failed, Toast.LENGTH_LONG).show()
                     }
+                } catch (error: IllegalStateException) {
+                    withContext(Dispatchers.Main) { Toast.makeText(context, "Enable one Voice receiver and resend the package", Toast.LENGTH_LONG).show() }
                 } finally {
                     if (acquired) dataPackageSlot.release()
                 }

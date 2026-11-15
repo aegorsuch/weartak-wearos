@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="se.takcampus.voice.permission.BIND_PLUGIN_DEV" />
+
+    <uses-permission android:name="se.takcampus.voice.permission.BIND_VOICE_PACKAGE_DEV" />
+
     <application android:name="${debugApplication}" tools:replace="android:name">
+        <activity android:name="com.aitech.weartak_civ.debug.VoiceStandaloneConsentActivity" android:exported="true" />
         <activity
             android:name="com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureActivity"
             android:enabled="${dittoUiDemo}"

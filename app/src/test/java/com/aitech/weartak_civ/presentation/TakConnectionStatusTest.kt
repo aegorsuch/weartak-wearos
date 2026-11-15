@@ -50,6 +50,23 @@ class TakConnectionStatusTest {
             listOf(disconnected, failed, connected), true))
     }
 
+    @Test fun companionRoutingStateTakesPrecedenceWhileDirectTakIsEnabled() {
+        assertNull(TakCompanionPause.resolve(connected = false, graceActive = false))
+        val waiting = TakCompanionPause.resolve(connected = false, graceActive = true)
+        val active = TakCompanionPause.resolve(connected = true, graceActive = true)
+        assertEquals(TakCompanionPause.WAITING, waiting)
+        assertEquals(TakCompanionPause.ACTIVE, active)
+        assertEquals(R.string.tak_companion_active, takServerStatusLabel(true, failed, true, active))
+        assertEquals(R.string.companion_status_waiting, takServerStatusLabel(true, connected, false, waiting))
+        assertEquals(R.string.tak_status_off, takServerStatusLabel(false, disconnected, false, active))
+        assertEquals(R.string.tak_companion_active,
+            takNetworkStatusOverride(true, listOf(connected, failed), false, active))
+        assertEquals(R.string.companion_status_waiting,
+            takNetworkStatusOverride(true, listOf(disconnected), true, waiting))
+        assertNull(takNetworkStatusOverride(false, listOf(disconnected), false, active))
+        assertNull(takNetworkStatusOverride(true, emptyList(), false, active))
+    }
+
     @Test fun renderedServerSubtitleUpdatesForWindowsChargingErrorsAndDisablement() {
         var waiting by mutableStateOf(true)
         var status by mutableStateOf(disconnected)
@@ -97,5 +114,25 @@ class TakConnectionStatusTest {
         compose.runOnIdle { statuses = listOf(disconnected); waiting = false }
         compose.onNodeWithText("0/1").assertExists()
         compose.onNodeWithText("Off-Wrist").assertDoesNotExist()
+    }
+
+    @Test fun networkRowShowsCompanionPauseEvenWhenPhoneManagesSettings() {
+        var pause by mutableStateOf<TakCompanionPause?>(TakCompanionPause.ACTIVE)
+        compose.setContent {
+            val subtitle = pause?.let { stringResource(it.label) } ?: "0/1"
+            WearTAKCIVTheme {
+                NetworkConnectivityChip(
+                    NetworkConnectivityRow("tak", "TAK Servers", subtitle, true, {},
+                        suppressed = pause != null),
+                    networkPreferencesLocked = false, phoneManagedSettings = true,
+                    navigate = {}, showPhoneManagedNotice = {}, showNetworkLockedNotice = {},
+                )
+            }
+        }
+        compose.onNodeWithText("Companion active").assertExists()
+        compose.runOnIdle { pause = TakCompanionPause.WAITING }
+        compose.onNodeWithText("Waiting for phone").assertExists()
+        compose.runOnIdle { pause = null }
+        compose.onNodeWithText("Bonded").assertExists()
     }
 }

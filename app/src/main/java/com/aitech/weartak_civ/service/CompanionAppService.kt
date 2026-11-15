@@ -2031,6 +2031,8 @@ class CompanionAppService : Service() {
 
         Log.d(TAG, "sendChunkedNotify: sent ${bytes.size} bytes in chunks (maxPayload=$maxPayload)")
     }
+    private var capabilitiesRequestId: String? = null
+    private var capabilitiesGeneration = -1L
     private val rxBuf = com.aitech.weartak_civ.cot.CompanionJsonFramer()
 
     suspend fun applySettingsFromCompanion(
@@ -2349,6 +2351,83 @@ class CompanionAppService : Service() {
                             if (base.type == "bloodhound_control") bloodhoundSync.receiveControl(payload)
                             else bloodhoundSync.receiveResult(payload)
                         }
+                    }
+                }
+
+                "voice_channels_v1", "request_voice_status" -> {
+                    val address = connectedDevice?.address ?: return
+                    val generation = bloodhoundConnectionGeneration.get()
+                    require(currentPeer(address, generation)) { "Voice requires bonded ready transport" }
+                    val message = org.json.JSONObject(json)
+                    require(message.optInt("version") == 1)
+                    val envelope = message.optJSONObject("handoff")
+                    val id = envelope?.getString("transferId") ?: message.getString("transferId")
+                    require(java.util.UUID.fromString(id).toString() == id)
+                    val origin = "companion:" + com.aitech.weartak_civ.integration.plugin.VoicePackageBroker.digest(address.toByteArray())
+                    val broker = (application as com.aitech.weartak_civ.WearTakApplication).voicePackages
+                    val incoming = base.type == "voice_channels_v1"
+                    val mission = if (incoming) {
+                        requireNotNull(envelope)
+                        require(envelope.optString("type") == "voice_channels_v1" && envelope.optInt("version") == 1)
+                        require(capabilitiesGeneration == generation && capabilitiesRequestId == message.optString("requestId")) { "Refresh capabilities first" }
+                        envelope.getString("missionJson").toByteArray(Charsets.UTF_8).also {
+                            require(it.size in 1..com.weartak.voice.api.VoicePackageContract.MAX_JSON)
+                            require(com.aitech.weartak_civ.integration.plugin.VoicePackageBroker.digest(it) == envelope.getString("sha256"))
+                        }
+                    } else null
+                    serviceScope.launch {
+                        if (!currentPeer(address, generation)) return@launch
+                        try {
+                            var receipt = if (incoming) broker.stage(com.weartak.voice.api.VoicePackageContract.JSON,
+                                requireNotNull(mission), id, origin) { currentPeer(address, generation) }
+                                else broker.statusForOrigin(id, origin)
+                            fun sendReceipt(value: android.os.Bundle) {
+                                val response = org.json.JSONObject().put("msgType", "voice_channels_result").put("version", 1)
+                                    .put("transferId", id).put("canonicalTransferId", value.getString("transferId", id))
+                                    .put("status", value.getString("status", "UNKNOWN")).put("errorCode", value.getInt("errorCode"))
+                                sendJsonForPeer(response.toString(), address, generation)
+                            }
+                            sendReceipt(receipt)
+                            if (incoming) {
+                                val canonical = receipt.getString("transferId", id)
+                                for (attempt in 0 until 10) {
+                                    delay(500)
+                                    if (!currentPeer(address, generation)) return@launch
+                                    receipt = broker.statusForOrigin(canonical, origin)
+                                    if (receipt.getInt("state") != com.weartak.voice.api.VoicePackageContract.DOWNLOADED) {
+                                        sendReceipt(receipt); break
+                                    }
+                                }
+                            }
+                        } catch (failure: Exception) {
+                            if (failure is kotlinx.coroutines.CancellationException) throw failure
+                            val response = org.json.JSONObject().put("msgType", "voice_channels_result").put("version", 1)
+                                .put("transferId", id).put("status", "FAILED").put("errorCode",
+                                    (failure as? com.aitech.weartak_civ.integration.plugin.VoicePackageStageException)?.code
+                                        ?: com.weartak.voice.api.VoicePackageContract.UNAVAILABLE)
+                            sendJsonForPeer(response.toString(), address, generation)
+                        }
+                    }
+                }
+
+                "request_capabilities" -> {
+                    val address = connectedDevice?.address ?: return
+                    val generation = bloodhoundConnectionGeneration.get()
+                    require(currentPeer(address, generation)) { "Capabilities require a bonded ready peer" }
+                    val message = org.json.JSONObject(json)
+                    require(message.optInt("version") == 1) { "Unsupported capabilities protocol" }
+                    val requestId = message.getString("requestId")
+                    require(java.util.UUID.fromString(requestId).toString() == requestId)
+                    capabilitiesRequestId = requestId; capabilitiesGeneration = generation
+                    serviceScope.launch {
+                        if (!currentPeer(address, generation)) return@launch
+                        val sys = repo.snapshotSystem()
+                        val response = com.aitech.weartak_civ.data.WatchCapabilities.snapshot(
+                            application as com.aitech.weartak_civ.WearTakApplication, requestId, sys.deviceId,
+                            voiceDeliveryAvailable = true,
+                            receiverCount = (application as com.aitech.weartak_civ.WearTakApplication).voicePackages.readyCount(),
+                            standaloneReceiver = (application as com.aitech.weartak_civ.WearTakApplication).voiceStandalone.inventory())
+                        sendJsonForPeer(response.toString(), address, generation)
                     }
                 }
 

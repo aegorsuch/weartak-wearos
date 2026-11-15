@@ -395,6 +395,9 @@ fun WearTAKSettingsNav(
     val sitxEvent by settingsVm.lastSitxEvent.collectAsState()
 
     val enableCompanionAppService by settingsVm.savedEnableCompanionAppService.collectAsState()
+    val companionConnected by dataRepository.isCompanionConnected.collectAsStateWithLifecycle()
+    val companionGraceActive by dataRepository.companionDisconnectGraceActive.collectAsStateWithLifecycle()
+    val takCompanionPause = TakCompanionPause.resolve(companionConnected, companionGraceActive)
     val enableChatCommands by settingsVm.savedEnableChatCommands.collectAsState()
     val enableSensorManager by settingsVm.savedEnableSensorManager.collectAsState()
     val chatCommandCallsigns by settingsVm.savedChatCommandCallsigns.collectAsState()
@@ -1448,10 +1451,14 @@ fun WearTAKSettingsNav(
                 detail.serverId to status
             }
             val connected = statuses.filterValues { it == TAK_SERVER_CONNECTED_STRING }.keys
-            val takStatusOverride = takNetworkStatusOverride(enableTakEndpoint,
-                takServerList.filter { it.isEnabled }.map {
-                    statuses[it.serverId] ?: TAK_SERVER_DISCONNECTED_STRING
-                }, offBodyWaiting)
+            val enabledServers = takServerList.filter { it.isEnabled }
+            val pause = takCompanionPause.takeIf { enableTakEndpoint && enabledServers.isNotEmpty() }
+            val takStatusOverride = takNetworkStatusOverride(
+                enableTakEndpoint,
+                enabledServers.map { statuses[it.serverId] ?: TAK_SERVER_DISCONNECTED_STRING },
+                offBodyWaiting,
+                pause,
+            )
             val takSubtitleOverride = takStatusOverride?.let { stringResource(it) }
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
             val pluginRouteStatuses by pluginVm.connectionStatuses.collectAsStateWithLifecycle()
@@ -1483,9 +1490,11 @@ fun WearTAKSettingsNav(
             val takIndicator = TakServerIndicator.resolve(
                 hasServer = takServerList.isNotEmpty(),
                 masterEnabled = enableTakEndpoint,
-                anyConnected = takServerList.any { it.isEnabled && it.serverId in connected }
+                anyConnected = pause == null && enabledServers.any { it.serverId in connected }
             )
-            val takConnectedCount = if (enableTakEndpoint) takServerList.count { it.isEnabled && it.serverId in connected } else 0
+            val takConnectedCount = if (enableTakEndpoint && pause == null) {
+                enabledServers.count { it.serverId in connected }
+            } else 0
             val rows = (listOf(
                 NetworkConnectivityRow("tak", stringResource(R.string.tak_servers),
                     takSubtitleOverride ?: stringResource(R.string.network_server_ratio, takConnectedCount, takServerList.size),
@@ -1494,7 +1503,9 @@ fun WearTAKSettingsNav(
                         takSubtitleOverride ?: stringResource(takIndicator.label),
                         androidx.compose.ui.res.pluralStringResource(R.plurals.network_server_count,
                             takServerList.size, takConnectedCount, takServerList.size)),
-                    iconRes = takIndicator.drawable),
+                    iconRes = takIndicator.drawable,
+                    suppressed = pause != null,
+                    suppressionLabel = pause?.label ?: R.string.connection_route_suppressed),
                 NetworkConnectivityRow("multicast", stringResource(R.string.tak_sa_multicast),
                     "", enableMulticast, settingsVm::storeEnableMulticast),
                 NetworkConnectivityRow("sitx", stringResource(R.string.sitx_tak),
@@ -1552,7 +1563,7 @@ fun WearTAKSettingsNav(
                         if (phoneManagedSettings) {
                             WearTAKLockedTitleChip(
                                 title = stringResource(R.string.tak_servers),
-                                lockedState = stringResource(R.string.network_control_bonded),
+                                lockedState = stringResource(pause?.label ?: R.string.network_control_bonded),
                                 onClick = showPhoneManagedNotice
                             )
                         } else {
@@ -1563,6 +1574,9 @@ fun WearTAKSettingsNav(
                                 navController = navController
                             )
                         }
+                    }
+                    if (phoneManagedSettings && pause != null) {
+                        item { TakCompanionPauseDetail(pause) }
                     }
                     item {
                         MulticastNetworkPreference(
@@ -1627,6 +1641,9 @@ fun WearTAKSettingsNav(
                             enabled = !networkPreferencesLocked && !phoneManagedSettings
                         )
                     }
+                    if (enableTakEndpoint && takCompanionPause != null && takServerList.any { it.isEnabled }) {
+                        item { TakCompanionPauseDetail(takCompanionPause) }
+                    }
                     itemsIndexed(
                         takServerList.alphabetizedServerEntries { it.name },
                         key = { _, entry -> entry.value.serverId ?: entry.index }
@@ -1644,6 +1661,9 @@ fun WearTAKSettingsNav(
                             androidx.lifecycle.MutableLiveData<com.aitech.weartak_civ.data.takserver.TakConnectionFailure?>(null)
                         }
                         val failure by (runtimeDetail?.connectionFailureLiveData ?: noFailure).observeAsState()
+                        val statusLabel = takServerStatusLabel(
+                            enableTakEndpoint && takServerChecked, takServerStatus, offBodyWaiting, takCompanionPause
+                        )
                         Log.d(TAG, "index($index): takServerChecked($takServerChecked)")
                         Column {
                         WearTAKSwipeToRevealChip(
@@ -1672,11 +1692,11 @@ fun WearTAKSettingsNav(
                                 WearTAKSplitToggleChip(
                                     appIcon = {
                                         Image(
-                                            painter = if (takServerStatus == TAK_SERVER_CONNECTED_STRING) painterResource(
-                                                R.drawable.tak_server_connected
-                                            ) else if (takServerStatus == TAK_SERVER_CONNECTING_STRING) painterResource(
-                                                R.drawable.tak_server_connecting
-                                            ) else painterResource(R.drawable.tak_server_disconnected),
+                                            painter = painterResource(when (statusLabel) {
+                                                R.string.tak_status_connected -> R.drawable.tak_server_connected
+                                                R.string.server_connecting -> R.drawable.tak_server_connecting
+                                                else -> R.drawable.tak_server_disconnected
+                                            }),
                                             contentDescription = null,
                                             modifier = Modifier
                                                 .size(22.dp)
@@ -1684,8 +1704,7 @@ fun WearTAKSettingsNav(
                                         )
                                     },
                                     title = takServerItem.name,
-                                    label = stringResource(takServerStatusLabel(
-                                        enableTakEndpoint && takServerChecked, takServerStatus, offBodyWaiting)),
+                                    label = stringResource(statusLabel),
                                     checked = takServerChecked,
                                     modifier = Modifier.testTag("${serverTag}_toggle"),
                                     onCheckedChange = {
@@ -1710,9 +1729,7 @@ fun WearTAKSettingsNav(
                                 )
                             },
                         )
-                        if (enableTakEndpoint && takServerChecked &&
-                            takServerStatus == TAKConnectService.TAK_SERVER_CONNECTION_FAILED_STRING &&
-                            failure?.untrustedServerCa == true) {
+                        if (statusLabel == R.string.connection_failed && failure?.untrustedServerCa == true) {
                             Text(stringResource(R.string.ca_trust_untrusted))
                             ServerCaImportAction(!phoneManagedSettings && !networkPreferencesLocked) {
                                 navController.navigate("edit_server_screen/$index?importCa=true")
@@ -1928,11 +1945,14 @@ fun WearTAKSettingsNav(
                         Text(
                             stringResource(takServerStatusLabel(
                                 enableTakEndpoint && savedServer?.isEnabled == true,
-                                connectionStatus, offBodyWaiting)),
+                                connectionStatus, offBodyWaiting, takCompanionPause)),
                             style = MaterialTheme.typography.caption2,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().padding(5.dp),
                         )
+                    }
+                    if (enableTakEndpoint && savedServer?.isEnabled == true && takCompanionPause != null) {
+                        item { TakCompanionPauseDetail(takCompanionPause) }
                     }
                     item {
                         name = WearTAKOutlinedTextField(
@@ -3966,6 +3986,16 @@ fun WearTAKTitleChip(
             .testTag("settings_open_$route")
             .fillMaxWidth()
 //            .padding(bottom = 7.dp)
+    )
+}
+
+@Composable
+private fun TakCompanionPauseDetail(pause: TakCompanionPause) {
+    Text(
+        stringResource(pause.detail),
+        style = MaterialTheme.typography.caption2,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(5.dp),
     )
 }
 

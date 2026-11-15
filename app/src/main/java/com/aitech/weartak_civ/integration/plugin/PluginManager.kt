@@ -264,6 +264,32 @@ open class PluginManager(
     internal fun connectionFor(packageName: String): PluginConnection? =
         connections[packageName]
 
+    /** Inventory is local/cached: never blocks the BLE handshake on remote Binder calls. */
+    fun companionPluginInventory(): List<org.json.JSONObject> = discoverPluginComponents()
+        .sortedBy { it.packageName }.take(64).map { component ->
+            val connection = connections[component.packageName]
+            val info = connection?.pluginInfoSnapshot()
+            val installed = runCatching { app.packageManager.getPackageInfo(component.packageName, 0) }.getOrNull()
+            val ready = isEnabled(component.packageName) && connection?.companionReady() == true
+            val caps = if (ready) settingsCoordinator.getState(component.packageName)?.capabilities else null
+            org.json.JSONObject().put("packageName", component.packageName)
+                .put("name", info?.displayName?.take(256) ?: component.packageName)
+                .put("versionName", (info?.versionName ?: installed?.versionName ?: "unknown").take(64))
+                .put("versionCode", installed?.longVersionCode ?: 0)
+                .put("installed", true).put("enabled", isEnabled(component.packageName))
+                .put("loaded", ready).put("apiVersion", connection?.apiVersionSnapshot() ?: 0)
+                .put("sdkCapabilities", org.json.JSONObject().put("hostedSettingsUi", caps?.hostedSettingsUi ?: false)
+                    .put("externalSettingsActivity", caps?.externalSettingsActivity ?: false)
+                    .put("hostedMainUi", caps?.hostedMainUi ?: false).put("externalMainActivity", caps?.externalMainActivity ?: false)
+                    .put("cotReadyEvents", caps?.cotReadyEvents ?: false).put("mapLayers", caps?.mapLayers ?: false)
+                    .put("deviceIntegration", caps?.deviceIntegration ?: false).put("sharedMemory", caps?.sharedMemory ?: false))
+                .put("features", org.json.JSONObject(if (ready) connection!!.companionFeaturesSnapshot() else emptyMap<String, Int>()))
+        }
+
+    internal fun companionVoiceTarget(): String? = companionPluginInventory()
+        .filter { it.getBoolean("loaded") && it.getJSONObject("features").optInt("voice_channels_v1") == 1 }
+        .map { it.getString("packageName") }.singleOrNull()
+
     fun addTopologyListener(listener: PluginTopologyListener) {
         topologyListeners.add(listener)
     }

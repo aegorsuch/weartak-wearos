@@ -888,6 +888,20 @@ phone-managed settings remain saved. Reconnecting and subscribing switches back
 to phone-only routing. Standalone route selection and configured service
 preferences are unchanged; this does not unpair or rename any device.
 
+#### TAK server status on the watch
+
+In **Settings → Network Preferences**, TAK server rows and the server detail
+screen show **Companion active** when the phone is carrying traffic and
+**Waiting for phone** during the Companion reconnect grace period. The detail
+screen explains why the direct connection is paused. The status follows the
+live link and grace period, so a saved Bluetooth bond alone does not show a
+pause. Disabled servers keep their disabled status.
+
+The matching ATAK Companion can query a ready watch for its software version,
+installed plugin state, and supported features. See [Companion capabilities](COMPANION_CAPABILITIES.md)
+for the session and compatibility rules and [the voice package proposal](SDK_VOICE_PACKAGE_API_PROPOSAL.md)
+for the optional receiver API.
+
 Commands uses original WearTAK megaphone artwork (`ic_commands_megaphone.xml`), not a vendor mark.
 Commands retains **Unfunded Request** in the plugin menu; Data Sync shows its real enabled/paused state.
 Opening Commands shows informational, wrapping command examples beneath Allowed Callsigns in the scrollable settings list.

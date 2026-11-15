@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tak_companion_active">Companion 使用中</string>
+    <string name="tak_companion_active_detail">TAK への直接接続を一時停止中です。直接接続するには WearTAK Companion をオフにしてください。Bluetooth はオンのままで構いません。</string>
+    <string name="tak_companion_waiting_detail">WearTAK がスマートフォンを待機している間、TAK への直接接続は一時停止します。</string>
+</resources>

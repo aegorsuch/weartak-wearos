@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tak_companion_active">Companion 已连接</string>
+    <string name="tak_companion_active_detail">TAK 直连已暂停。如需直接连接，请关闭 WearTAK Companion。蓝牙可以保持开启。</string>
+    <string name="tak_companion_waiting_detail">WearTAK 等待手机时，TAK 直连会暂停。</string>
+</resources>
