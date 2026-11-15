@@ -61,8 +61,25 @@ No native Ditto document/store, point-ledger, PDL migration, or host-owned
 mesh-runtime contract was found in the inspected plugin interfaces. A plugin
 would need to own its Ditto SDK/runtime, provisioning, state, and permission
 handling, or a separately designed host contract would be needed for any
-core-owned native data behavior. Do not expose the current shared PDL through
-plugin host services.
+core-owned native data behavior.
+
+The user approved automatic, authenticated, on-watch provisioning of the
+existing Community identity when the plugin is enabled. An additive, scoped
+Community identity control is being developed; it accepts only the Ditto
+plugin's exact package, unique UID, and pinned release signer, revalidates the
+binding, and releases no identity until a verified ownership gate exists.
+The host currently always denies that gate: no Community identity is sent and
+the new control does not yet enable automatic provisioning. The plugin and
+host have synthetic-tested package/UID/signer checks and stale-session fencing,
+but still need device validation before use. The plugin has an asynchronous
+client exercised with synthetic responses; its production ownership gate
+prevents real reads, and successful test identities are discarded. Its temporary
+independently declared wire interface still needs a reproducibly pinned
+host-services SDK. This design does not need ATAK Companion and does not add
+credentials to the plugin APK. Synthetic host tests cover caller
+UID, signer identity, session revocation, expired/invalid identities, and the
+denied gate; they do not exercise transfer of the real identity or a device
+Binder.
 
 ### Coexistence and handoff
 
@@ -91,6 +108,18 @@ ownership merely because either flag became false. It needs an explicit
 successful quiescence acknowledgement, fail-closed handling for stop errors,
 and crash/restart and rollback tests without overwriting the user's setting.
 
+Ditto's [4.14.6 Android API reference](https://software.ditto.live/android/Ditto/4.14.6/api-reference/ditto/live.ditto/-ditto/index.html)
+describes `stopSync()` as stopping all network transports and `close()` as
+shutting Ditto down and releasing resources. It does not specify the timing of
+native quiescence or cross-process handoff guarantees; those still require
+vendor clarification or direct validation before granting ownership.
+
+Explicit disable now holds the process-local restart gate while awaiting both
+the cancelled service scope and its update thread, as identity replacement
+already did. A timeout, cancellation, or failed shutdown fences restart and
+restores the saved toggle where applicable. These worker joins do not prove
+native transport quiescence or prevent cross-process ownership.
+
 Candidate handoff sequence (not implemented): authenticate a specific plugin
 session and confirm its prerequisites; fence new core publications and service
 restarts without changing the saved enablement setting; settle pending writes
@@ -110,6 +139,8 @@ failures, one skipped. This is core-only synthetic validation, not plugin
 handoff, SDK shutdown, or device validation.
 An additional direct service-creation rejection case subsequently passed in the
 focused identity suite, verifying no native startup access after failed shutdown.
+The focused identity, companion-lifecycle, and power suites subsequently passed
+31 tests including disable wait, timeout, and cancellation coverage.
 
 The plugin now authenticates initialization against the actual Binder caller UID,
 claimed package membership, signing match, and granted signature-level
@@ -128,6 +159,14 @@ subsequent handshake-order test passed in the focused service suite. Actual
 Binder calls, permission ownership/grants, signing lineage, reconnect behavior,
 and device interoperability remain unverified. No transport is registered and
 the plugin runtime remains disabled.
+
+The plugin now has uncommitted route-status groundwork for a stable `ditto`
+route: an authenticated host control receives only disconnected/runtime
+unavailable, not a fictional connected or connecting state. Core can list that
+reported route in its network checklist and icon-priority settings while the
+plugin is loaded; no real on/off control or network status exists yet. The
+host/device path is not yet verified, and the signed CI artifact predates this
+change. Plugin debug and release unit suites passed with 98 tests each.
 
 PLI and deletion require separate parity work: the core's native Ditto track
 refresh is not a Ditto `mapitem` CoT send, and core-owned point deletion uses
@@ -237,6 +276,103 @@ token, and expiry. Startup logs only whether a PDL is present and its length,
 not its contents. No provisioned PDL or CI secret was read for this review.
 Existing parser tests use synthetic credentials; the authorized-file test is
 opt-in and was skipped.
+
+## Private community subgroup groundwork
+
+The user requested plugin-local group selection, with SpringLake as an example,
+while retaining the exact existing community PDL and Ditto identity. The
+agreed design selects one active group at a time: Community or a private group
+joined using an invitation. This is application-layer content encryption, not
+a replacement PDL, an SDK-authenticated submesh, or a new license.
+
+Private membership needs an independently generated group key and opaque group
+identifier; knowing a display name or the community PDL must not grant access.
+Persist membership keys using Android Keystore protection, not host-readable
+settings or plaintext preferences. Invitations contain credentials and require
+deliberate, secure handling. Missing keys, encryption failure, or invalid
+membership must block private publication rather than fall back to Community.
+
+Group selection must not relabel pending writes, tombstones, replay state, or
+cached documents from another group. The encrypted envelope must be distinct
+from existing public native Ditto documents so legacy readers cannot mistake
+it for a public location, chat, or map item. Actual schema and integration
+remain subject to implementation and interoperability validation.
+
+Encryption protects content, not radio visibility, peer discovery, or traffic
+metadata. Every holder of a group's shared key is trusted with that group's
+content; member removal needs key rotation and does not erase previously
+obtained data. Plugin-local selection does not suppress independent core TAK,
+SITX, multicast, or Companion routes and must not be presented as making those
+transports private.
+
+The plugin session implemented authenticated hosted group selection, internal
+create/import APIs, encrypted membership storage in an app-private no-backup
+file wrapped by Android Keystore, and unwired authenticated CHAT/LOCATION/MAP
+envelopes. Synthetic encoder-to-encryption round trips, tampering and wrong-key
+rejection, persistence failures, and selection/restart checks passed in an
+88-test offline debug suite. Synthetic wrapping keys do not verify Android
+Keystore or filesystem behavior on an actual watch.
+
+The local plugin-owned, signature-protected MAIN/LAUNCHER activity now supports
+group creation/selection and deliberate document-picker invitation import/export.
+The core plugin menu uses this launcher path when hosted main UI is unavailable;
+`externalSettingsActivity` does not itself select an activity route.
+Invitations contain a group key, and a user-selected document provider may
+upload them: provider warnings are not an authenticated transfer protocol.
+Watch activity launch, signing grants, Keystore, and picker behavior remain
+device-unverified.
+
+Selected-group preparation now covers native chat, track/location, mapitem, and
+alert encoders. Private preparation returns only an authenticated envelope;
+failure does not return a public native document. Prepared outputs are single-use
+and bound to persisted selection generation/scope; switching away and back
+invalidates an older output. Ordinary local group switching preserves each
+membership and sender's counters without the initial permanent selection lock.
+Migration from the immediately preceding local v2 encrypted state to v3 preserves
+memberships and counters. This is plugin development-state migration, not core
+Ditto data migration.
+
+Per-sender derived data keys limit attempted envelopes to 100,000, and wrapping
+keys limit state writes to 1,000,000, with persisted accounting before output.
+These limits do not establish production nonce safety, protect against rollback,
+or prove crash durability and collision freedom. The final offline debug build
+and 95 synthetic tests passed; APK inspection found no Ditto SDK or stop-bridge
+references.
+
+No SDK transport, subscription, network path, or group-isolated ledger/replay/
+cache/outbox is active. Existing native encoders remain independent helpers;
+future runtime must use the selected-group boundary, segregate those stores, and
+recheck scope/generation at actual transport release. Local encryption tests do
+not demonstrate private mesh interoperability or replay-safe delivery.
+
+No subgroup runtime activation, actual credential access, new commits, pushes,
+or additional branches are authorized by this implementation request. Existing
+core Ditto behavior remains unchanged.
+
+## Release UI trial preparation
+
+The plugin now builds a genuine non-debuggable release variant for local group
+UI evaluation; this does not enable the Ditto SDK or mesh runtime. Both debug
+and release builds and their 95-test synthetic suites passed. The assembled
+release APK is explicitly unsigned, not installable as a signed watch trial,
+and must not be replaced by a re-signed debug build.
+
+Core CI pins the established WearTAK release certificate SHA-256 to
+`1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d`.
+Plugin signing-input and verification support uses CI references and the
+canonical certificate pin, without obtaining or copying private key material.
+Synthetic guard checks reject missing signing inputs or a missing explicit
+verifier. The current worktree was rebuilt offline using the verified pinned
+SDK AAR: 95 debug and 95 release tests passed. The release verifier correctly
+reports the resulting non-debuggable APK as unsigned. A disposable synthetic
+keystore was also used to sign that release APK; the real Gradle verifier
+rejected the noncanonical certificate, and the synthetic key and signed test
+artifact were removed. The unsigned APK's package is
+`com.weartak.plugin.ditto`; it contains no Ditto runtime or mesh permissions.
+Actual plugin-project signing variable availability, authorized CI signing,
+installed host signer/grants, and watch behavior remain unverified. No watch was
+connected through ADB during the readiness check, and no device installation
+was attempted.
 
 ## Distribution and migration gates
 

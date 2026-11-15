@@ -1042,19 +1042,29 @@ class DittoService : Service() {
             identityMutex.withLock {
                 if (repo.phoneManagedSettingsLocked.first() || repo.getNetworkPreferencesLocked.first()) return@withLock false
                 val before = repo.getEnableDittoService.first()
+                var previous: DittoService? = null
+                var previousThread: HandlerThread? = null
+                var shutdownRequested = false
+                var shutdownAcknowledged = false
                 try {
                     check(!shutdownFailureState.value) { "Previous Ditto shutdown failed" }
+                    if (!enabled) {
+                        previous = activeService.value
+                        previousThread = previous?.dittoUpdateThread
+                        shutdownRequested = true
+                        reconfiguring.value = true
+                    }
                     if (enabled && !isRunning.get()) startupResult.value = null
                     repo.storeEnableDittoService(enabled)
                     if (repo.getEnableDittoService.first() != enabled) return@withLock false
                     if (!enabled) {
-                        val previous = activeService.value
                         withContext(Dispatchers.Main) { context.stopService(Intent(context, DittoService::class.java)) }
-                        withTimeout(15_000) { activeService.first { it == null } }
+                        awaitStoppedWorkers(previous, previousThread)
                         check(previous == null || previous.didStopPeerSuccessfully()) {
                             "Ditto shutdown was not acknowledged"
                         }
                         check(!shutdownFailureState.value) { "Ditto shutdown failed" }
+                        shutdownAcknowledged = true
                         true
                     } else {
                         val app = context.applicationContext as WearTakApplication
@@ -1078,29 +1088,41 @@ class DittoService : Service() {
                     repo.storeEnableDittoService(before)
                     Log.e(TAG, "Ditto enable update failed")
                     false
+                } finally {
+                    if (!enabled) {
+                        if (shutdownRequested && previous != null && !shutdownAcknowledged) {
+                            shutdownFailureState.value = true
+                            Log.e(TAG, "Ditto shutdown incomplete; blocking restart and identity replacement")
+                        }
+                        reconfiguring.value = false
+                    }
                 }
             }
 
+        private suspend fun awaitStoppedWorkers(previous: DittoService?, thread: HandlerThread?) {
+            withTimeout(15_000) {
+                activeService.first { it == null }
+                // Cancellation is not completion: wait for store writes/observers before restart or JNI close.
+                previous?.ioScope?.coroutineContext?.get(Job)?.join()
+                if (thread != null) withContext(Dispatchers.IO) { thread.join(10_000) }
+                check(thread?.isAlive != true) { "Ditto worker did not stop" }
+            }
+        }
+
         suspend fun applySelectedIdentity(context: Context, repo: DataRepository): Boolean =
             identityMutex.withLock {
+                val previous = activeService.value
+                val thread = previous?.dittoUpdateThread
                 reconfiguring.value = true
                 var shutdownRequested = false
                 var shutdownAcknowledged = false
                 try {
                     check(!shutdownFailureState.value) { "Previous Ditto shutdown failed" }
-                    val previous = activeService.value
-                    val thread = previous?.dittoUpdateThread
                     shutdownRequested = true
                     withContext(Dispatchers.Main) {
                         context.stopService(Intent(context, DittoService::class.java))
                     }
-                    withTimeout(15_000) {
-                        activeService.first { it == null }
-                        // Cancellation is not completion: wait for store writes/observers before closing JNI.
-                        previous?.ioScope?.coroutineContext?.get(Job)?.join()
-                        if (thread != null) withContext(Dispatchers.IO) { thread.join(10_000) }
-                        check(thread?.isAlive != true) { "Ditto worker did not stop" }
-                    }
+                    awaitStoppedWorkers(previous, thread)
                     check(previous == null || previous.didStopPeerSuccessfully()) {
                         "Ditto shutdown was not acknowledged"
                     }

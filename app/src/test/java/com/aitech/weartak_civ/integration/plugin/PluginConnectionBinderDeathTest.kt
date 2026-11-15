@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import com.weartak.plugin.sdk.nearbyimport.Pkcs12ImportState
+import com.weartak.plugin.sdk.community.v1.CommunityIdentityContract
 import com.weartak.plugin.sdk.serverpackage.ServerPackage
 import com.weartak.plugin.sdk.serverpackage.ServerPackageCodec
 import com.weartak.plugin.sdk.serverpackage.ServerPackageExportState
@@ -33,6 +34,12 @@ class PluginConnectionBinderDeathTest {
             val trust = mockk<PluginTrust>(relaxed = true)
             val connection = PluginConnection(app, ingress, ComponentName("com.synthetic.plugin", ".Svc"),
                 42, manager, trust)
+            val community = HostCommunityIdentityControl(42, { true }, { true }, { false }, { "" }, { 42 })
+            community.ready()
+            PluginConnection::class.java.getDeclaredField("communityIdentityControl").apply {
+                isAccessible = true
+                set(connection, community)
+            }
             val packages = HostServerPackageControl(42, { true }, {}, {}, { 42 })
             PluginConnection::class.java.getDeclaredField("serverPackages").apply {
                 isAccessible = true
@@ -61,6 +68,8 @@ class PluginConnectionBinderDeathTest {
             assertFalse(packages.imports.completeApplied(staged))
             assertFalse(packages.exportLive(outgoing))
             assertTrue(runCatching { packages.imports.openPackage(staged) }.isFailure)
+            assertEquals(termination, CommunityIdentityContract.INACTIVE,
+                community.readCommunityIdentity().getString(CommunityIdentityContract.KEY_STATUS))
             packages.close()
         }
     }

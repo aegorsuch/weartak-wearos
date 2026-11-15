@@ -129,9 +129,10 @@ class DittoIdentityApplyTest {
             isAccessible = true
             set(service, true)
         }
-        val scope = DittoService::class.java.getDeclaredField("ioScope").run {
+        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        DittoService::class.java.getDeclaredField("ioScope").apply {
             isAccessible = true
-            get(service) as CoroutineScope
+            set(service, scope)
         }
         val diagnosticsStarted = CompletableDeferred<Unit>()
         val diagnosticsClosed = CompletableDeferred<Unit>()
@@ -204,6 +205,88 @@ class DittoIdentityApplyTest {
         next.onDestroy()
         assertTrue(DittoService.shutdownFailed.value)
         verify(exactly = 1) { old.stopSync() }
+    }
+
+    @Test fun disableWaitsForCancelledWorkersBeforeAllowingRestart() = runTest {
+        enabled.value = true
+        val service = runningService()
+        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        DittoService::class.java.getDeclaredField("ioScope").apply {
+            isAccessible = true
+            set(service, scope)
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        val disable = async(UnconfinedTestDispatcher(testScheduler)) {
+            DittoService.applyEnabled(context, repo, false)
+        }
+        try {
+            assertFalse(disable.isCompleted)
+            assertTrue(DittoService.isReconfiguring.value)
+            assertFalse(enabled.value)
+            releaseWorker.complete(Unit)
+            worker.join()
+            assertTrue(logs(), disable.await())
+            assertFalse(DittoService.isReconfiguring.value)
+            assertFalse(DittoService.shutdownFailed.value)
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
+    }
+
+    @Test fun disableWorkerTimeoutRestoresIntentAndFencesRestart() = runTest {
+        enabled.value = true
+        val service = runningService()
+        val scope = DittoService::class.java.getDeclaredField("ioScope").run {
+            isAccessible = true
+            get(service) as CoroutineScope
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        try {
+            assertFalse(DittoService.applyEnabled(context, repo, false))
+            assertTrue(enabled.value)
+            assertTrue(DittoService.shutdownFailed.value)
+            assertFalse(DittoService.isReconfiguring.value)
+            assertFalse(DittoService.applyEnabled(context, repo, true))
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
+    }
+
+    @Test fun cancelledDisableRestoresIntentAndFencesRestart() = runTest {
+        enabled.value = true
+        val service = runningService()
+        val scope = DittoService::class.java.getDeclaredField("ioScope").run {
+            isAccessible = true
+            get(service) as CoroutineScope
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        val disable = async(UnconfinedTestDispatcher(testScheduler)) {
+            DittoService.applyEnabled(context, repo, false)
+        }
+        try {
+            assertFalse(disable.isCompleted)
+            disable.cancelAndJoin()
+            assertTrue(enabled.value)
+            assertTrue(DittoService.shutdownFailed.value)
+            assertFalse(DittoService.isReconfiguring.value)
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
     }
 
     @Test fun missingOwnedInstanceCannotAcknowledgeShutdown() = runTest {
