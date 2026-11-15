@@ -189,6 +189,43 @@ class DittoIdentityApplyTest {
         assertFalse(service.startPeerSync())
     }
 
+    @Test fun failedNativeCloseFencesRestartAndIdentityReplacement() = runTest {
+        every { old.close() } throws IllegalStateException("synthetic close failure")
+
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+        assertTrue(DittoService.shutdownFailed.value)
+        assertSame(old, DittoService.getDittoInstance())
+        assertFalse(DittoService.isReconfiguring.value)
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+        assertFalse(DittoService.applyEnabled(context, repo, true))
+        verify(exactly = 1) { old.close() }
+        verify(exactly = 0) { DittoService.Companion["initializeDitto"](context, repo) }
+    }
+
+    @Test fun cancelledNativeCloseAlsoFencesRestart() = runTest {
+        every { old.close() } throws CancellationException("synthetic close cancellation")
+
+        try {
+            DittoService.applySelectedIdentity(context, repo)
+            fail("Expected cancellation")
+        } catch (_: CancellationException) {
+            assertTrue(DittoService.shutdownFailed.value)
+            assertSame(old, DittoService.getDittoInstance())
+            assertFalse(DittoService.isReconfiguring.value)
+            assertFalse(DittoService.applyEnabled(context, repo, true))
+        }
+    }
+
+    @Test fun failedCandidateCleanupFencesRestart() = runTest {
+        every { replacement.close() } throws IllegalStateException("synthetic cleanup failure")
+
+        assertThrows(IllegalStateException::class.java) {
+            DittoService.closeNativeDitto(replacement)
+        }
+        assertTrue(DittoService.shutdownFailed.value)
+        assertFalse(DittoService.applyEnabled(context, repo, true))
+    }
+
     @Test fun failedDisableRestoresIntentButFencesAutomaticRestart() = runTest {
         enabled.value = true
         val service = runningService()

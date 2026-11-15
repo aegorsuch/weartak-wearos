@@ -245,7 +245,7 @@ class DittoService : Service() {
     }
 
     internal fun startPeerSync(): Boolean = synchronized(peerLock) {
-        if (peerStopped || shutdownFailureState.value ||
+        if (peerStopped || reconfiguring.value || shutdownFailureState.value ||
             dataRepository.shouldSuppressWatchTransportNow()) return@synchronized false
         val reason = powerPolicy.suppressionReason(powerState, android.os.SystemClock.elapsedRealtime())
         if (reason != null) {
@@ -261,7 +261,8 @@ class DittoService : Service() {
 
     internal fun onPowerStateChanged(state: DittoPowerState) = synchronized(peerLock) {
         powerState = state
-        if (peerStopped || !ownsDitto || dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
+        if (peerStopped || !ownsDitto || reconfiguring.value || shutdownFailureState.value ||
+            dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
         val reason = powerPolicy.suppressionReason(state, android.os.SystemClock.elapsedRealtime())
         val suppressed = reason != null
         if (suppressed == powerSuppressedState.value && syncActiveState.value == !suppressed) {
@@ -294,7 +295,8 @@ class DittoService : Service() {
     }
 
     internal fun resumeForAlert() = synchronized(peerLock) {
-        if (peerStopped || dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
+        if (peerStopped || reconfiguring.value || shutdownFailureState.value ||
+            dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
         powerPolicy.resumeForAlert(android.os.SystemClock.elapsedRealtime())
         onPowerStateChanged(powerState)
         alertGraceJob?.cancel()
@@ -1129,7 +1131,7 @@ class DittoService : Service() {
                     check(!shutdownFailureState.value) { "Ditto shutdown failed" }
                     shutdownAcknowledged = true
                     withContext(Dispatchers.Main) {
-                        dittoInstance?.close()
+                        dittoInstance?.let(::closeNativeDitto)
                         dittoInstance = null
                         check(initializeDitto(context, repo)) { "Ditto identity could not be applied" }
                     }
@@ -1167,6 +1169,19 @@ class DittoService : Service() {
                     false
                 }
             }
+
+        internal fun closeNativeDitto(instance: Ditto) {
+            var closed = false
+            try {
+                instance.close()
+                closed = true
+            } finally {
+                if (!closed) {
+                    shutdownFailureState.value = true
+                    Log.e(TAG, "Ditto native close failed; blocking restart and identity replacement")
+                }
+            }
+        }
 
         private fun initializeDitto(
             applicationContext: Context,
@@ -1237,7 +1252,7 @@ class DittoService : Service() {
                 true
             } catch (error: Exception) {
                 recordDittoLifecycle(DittoDiagnosticPhase.INITIALIZE, false)
-                candidate?.close()
+                candidate?.let(::closeNativeDitto)
                 Log.e(TAG, "Failed to initialize Ditto")
                 Toast.makeText(applicationContext, "Ditto failed to start", Toast.LENGTH_LONG).show()
                 false

@@ -73,13 +73,25 @@ the new control does not yet enable automatic provisioning. The plugin and
 host have synthetic-tested package/UID/signer checks and stale-session fencing,
 but still need device validation before use. The plugin has an asynchronous
 client exercised with synthetic responses; its production ownership gate
-prevents real reads, and successful test identities are discarded. Its temporary
-independently declared wire interface still needs a reproducibly pinned
-host-services SDK. This design does not need ATAK Companion and does not add
+prevents real reads, and successful test identities are discarded. The plugin
+worktree replaces its temporary wire interface with the host-services SDK built
+from pinned core source; device validation remains pending.
+This design does not need ATAK Companion and does not add
 credentials to the plugin APK. Synthetic host tests cover caller
 UID, signer identity, session revocation, expired/invalid identities, and the
 denied gate; they do not exercise transfer of the real identity or a device
 Binder.
+
+The host-services contract source is available in core revision
+`07d8649559dee44543f82cd1895c726fd904e64f`. The plugin worktree verifies the
+SDK AAR contents against pinned hashes. Offline debug and release builds and
+117 tests per variant passed using the pinned SDKs; the local release was
+unsigned. CI for these uncommitted changes and device-level Binder
+interoperability remain unverified.
+Core pipeline 1859540 passed host lint and publisher tests, but its manual
+signed trial failed because the signing keystore variable was unavailable.
+The trial ran on an unprotected branch; existing protected-variable
+permissions must not be weakened to run it. No signed core trial APK resulted.
 
 ### Coexistence and handoff
 
@@ -99,6 +111,12 @@ explicit disable cannot report success after an unacknowledged stop. SDK stop
 failure, a missing owned instance, or an exception during owned resource cleanup
 also latches a process-local failure gate. Identity-change cancellation or timeout
 before the service and its workers acknowledge shutdown latches the same gate.
+An exception or cancellation during native `close()` also latches the gate;
+the instance's resource state is then unknown and it must not be restarted.
+Initial sync and power-driven sync resumption decline to start when they observe
+the reconfiguration or shutdown-failure gates. These checks are not an atomic
+cross-thread ownership barrier: a callback already past its check can still
+finish before shutdown.
 The service manager and direct sync
 startup refuse restart, and subsequent identity/toggle requests fail without
 replacing the instance or overwriting saved enablement intent. The gate lasts
@@ -110,9 +128,10 @@ and crash/restart and rollback tests without overwriting the user's setting.
 
 Ditto's [4.14.6 Android API reference](https://software.ditto.live/android/Ditto/4.14.6/api-reference/ditto/live.ditto/-ditto/index.html)
 describes `stopSync()` as stopping all network transports and `close()` as
-shutting Ditto down and releasing resources. It does not specify the timing of
-native quiescence or cross-process handoff guarantees; those still require
-vendor clarification or direct validation before granting ownership.
+shutting Ditto down and releasing resources; it requires `close()` before
+recreating an instance with the same persistence directory. It does not specify
+the timing of native quiescence or cross-process handoff guarantees; those still
+require vendor clarification or direct validation before granting ownership.
 
 Explicit disable now holds the process-local restart gate while awaiting both
 the cancelled service scope and its update thread, as identity replacement

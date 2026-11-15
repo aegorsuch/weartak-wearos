@@ -154,6 +154,37 @@ class DittoServicePowerTest {
         assertNull(DittoService.powerSuppressionReason.value)
     }
 
+    @Test fun reconfigurationAndFailedShutdownPreventSyncRestart() {
+        @Suppress("UNCHECKED_CAST")
+        val changing = field("reconfiguring").get(null) as MutableStateFlow<Boolean>
+        @Suppress("UNCHECKED_CAST")
+        val failed = field("shutdownFailureState").get(null) as MutableStateFlow<Boolean>
+        service.onPowerStateChanged(healthy.copy(worn = false))
+        try {
+            changing.value = true
+            assertFalse(service.startPeerSync())
+            service.onPowerStateChanged(healthy)
+            service.resumeForAlert()
+            verify(exactly = 0) { native.startSync() }
+
+            changing.value = false
+            failed.value = true
+            assertFalse(service.startPeerSync())
+            service.onPowerStateChanged(healthy)
+            service.resumeForAlert()
+            verify(exactly = 0) { native.startSync() }
+
+            failed.value = false
+            service.onPowerStateChanged(healthy.copy(worn = false))
+            verify(exactly = 0) { native.startSync() }
+            service.onPowerStateChanged(healthy)
+            verify(exactly = 1) { native.startSync() }
+        } finally {
+            changing.value = false
+            failed.value = false
+        }
+    }
+
     @Test fun livePeerCountsClearSynchronouslyOnPowerGateAndDestroy() {
         val diagnostics = DittoLiveStatusStore()
         val session = diagnostics.begin()
