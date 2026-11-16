@@ -46,6 +46,8 @@ android_mopp_check:
       --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
       --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
       --tests '*PluginSettingsCoordinatorTest'
+      --tests '*HostControlImplTest' --tests '*HostControlVerifyCallerTest'
+      --tests '*PluginTransportHostV1ImplTest' --tests '*ChatServicePreferenceTest'
       --tests '*MapSourceTest' --tests '*MapCameraTest' --tests '*MapLayerLifecycleTest'
       --tests '*MapUserActionsTest' --tests '*MarkerReadabilityTest' --tests '*MapTargetSelectionTest'
       --tests '*MarkerBloodhoundActionsTest' --tests '*BloodhoundPickerActionsTest'
@@ -195,6 +197,7 @@ agp_resolution_diagnostic:
       RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS
       RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD
       EOF
+    - chmod 600 "$CI_PROJECT_DIR/signing.properties"
 
     # Confirm the keystore/password/alias combination before spending 17 minutes building.
     - |
@@ -208,11 +211,13 @@ agp_resolution_diagnostic:
     - java -version
     - ./gradlew --version
 
+  after_script:
+    - rm -f "$CI_PROJECT_DIR/signing.properties" "$CI_PROJECT_DIR/app/weartak.keystore"
 
   script:
     # Build the same release APK that we previously built manually.
     # Share the 4Gi Gradle heap with Kotlin and bound workers within the 8Gi container.
-    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true clean assembleRelease
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true clean :app:assembleRelease :openvpn-plugin:assembleRelease :weartak-plugin-host-services-sdk:assembleRelease
 
     # Verify that the resulting APK is signed with the established
     # WearTAK Android production certificate.
@@ -253,8 +258,47 @@ agp_resolution_diagnostic:
 
       echo "Release signing verified."
 
+      PLUGIN_APK_LIST="$(find openvpn-plugin/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)"
+      PLUGIN_APK_COUNT="$(printf '%s\n' "$PLUGIN_APK_LIST" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [ "$PLUGIN_APK_COUNT" != "1" ]; then
+        echo "ERROR: Expected exactly one signed OpenVPN plugin APK; found $PLUGIN_APK_COUNT."
+        exit 1
+      fi
+      PLUGIN_APK="$PLUGIN_APK_LIST"
+
+      APKANALYZER="/opt/android-sdk-linux/cmdline-tools/latest/bin/apkanalyzer"
+      if [ ! -x "$APKANALYZER" ]; then
+        echo "ERROR: apkanalyzer not found at $APKANALYZER"
+        exit 1
+      fi
+      PLUGIN_DEBUGGABLE="$("$APKANALYZER" manifest debuggable "$PLUGIN_APK")" || {
+        echo "ERROR: Unable to inspect OpenVPN plugin APK manifest."
+        exit 1
+      }
+      if [ "$PLUGIN_DEBUGGABLE" != "false" ]; then
+        echo "ERROR: OpenVPN plugin release APK must not be debuggable."
+        exit 1
+      fi
+      echo "OpenVPN plugin APK debuggable flag verified false."
+
+      "$APKSIGNER" verify "$PLUGIN_APK" || { echo "ERROR: Plugin APK signature verification failed."; exit 1; }
+      ACTUAL_PLUGIN_SIGNER="$(
+        "$APKSIGNER" verify --print-certs "$PLUGIN_APK" |
+        sed -n 's/.*certificate SHA-256 digest: //p' |
+        head -1 |
+        tr '[:upper:]' '[:lower:]'
+      )"
+      echo "OpenVPN plugin APK: $PLUGIN_APK"
+      echo "Plugin signer: $ACTUAL_PLUGIN_SIGNER"
+      if [ "$ACTUAL_PLUGIN_SIGNER" != "$EXPECTED_SIGNER" ]; then
+        echo "ERROR: OpenVPN plugin APK has unexpected Android signing certificate."
+        exit 1
+      fi
+      echo "OpenVPN plugin release signing verified."
+
     # Bind publication to the exact APK whose production signature was checked.
     - sha256sum "$APK" > app/build/outputs/apk/release/verified-apk.sha256
+    - sha256sum "$PLUGIN_APK" > openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
     - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
 
 batdok_signed_trial:
@@ -270,6 +314,8 @@ batdok_signed_trial:
       - app/build/outputs/apk/release/*.apk
       - app/build/outputs/apk/release/verified-apk.sha256
       - app/build/outputs/apk/release/output-metadata.json
+      - openvpn-plugin/build/outputs/apk/release/*.apk
+      - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
   rules:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
       when: manual
@@ -278,6 +324,69 @@ batdok_signed_trial:
       when: manual
       allow_failure: true
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: manual
+      allow_failure: true
+
+# Protected, developer-only ARM64 qualification. The job deliberately has no
+# publication dependency or access to the release publisher's artifacts.
+arm64_qualification:
+  extends: .release_build
+  environment:
+    name: battak-release
+    action: prepare
+  script:
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true -PweartakArm64Qualification=true :app:clean :app:assembleRelease
+    - |
+      APK_LIST="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)"
+      APK_COUNT="$(printf '%s\n' "$APK_LIST" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+      if [ "$APK_COUNT" != "1" ]; then
+        echo "ERROR: Expected exactly one ARM64 qualification APK; found $APK_COUNT."
+        exit 1
+      fi
+      APK="$APK_LIST"
+
+      APKSIGNER="/opt/android-sdk-linux/build-tools/35.0.0/apksigner"
+      if [ ! -x "$APKSIGNER" ]; then
+        echo "ERROR: apksigner not found at $APKSIGNER"
+        exit 1
+      fi
+      if ! unzip -Z1 "$APK" | grep '^lib/arm64-v8a/' >/dev/null; then
+        echo "ERROR: Qualification APK does not contain ARM64 native libraries."
+        echo "Native library entries present:"
+        unzip -Z1 "$APK" | grep '^lib/' || true
+        exit 1
+      fi
+      if unzip -Z1 "$APK" | grep '^lib/armeabi-v7a/' >/dev/null; then
+        echo "ERROR: Qualification APK unexpectedly contains ARMv7 libraries."
+        exit 1
+      fi
+
+      EXPECTED_SIGNER="1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
+      "$APKSIGNER" verify "$APK" || { echo "ERROR: Qualification APK signature verification failed."; exit 1; }
+      ACTUAL_SIGNER="$(
+        "$APKSIGNER" verify --print-certs "$APK" |
+        sed -n 's/.*certificate SHA-256 digest: //p' |
+        head -1 |
+        tr '[:upper:]' '[:lower:]'
+      )"
+      if [ "$ACTUAL_SIGNER" != "$EXPECTED_SIGNER" ]; then
+        echo "ERROR: Qualification APK has unexpected signing certificate."
+        exit 1
+      fi
+
+      echo "ARM64 qualification APK signature and ABI verified."
+      sha256sum "$APK" > app/build/outputs/apk/release/arm64-qualification.sha256
+  artifacts:
+    when: on_success
+    expire_in: 7 days
+    access: developer
+    paths:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/release/arm64-qualification.sha256
+      - app/build/outputs/apk/release/output-metadata.json
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
       when: manual
       allow_failure: true
 
@@ -303,6 +412,8 @@ main_release:
       - app/build/outputs/apk/release/*.apk
       - app/build/outputs/apk/release/verified-apk.sha256
       - app/build/outputs/apk/release/output-metadata.json
+      - openvpn-plugin/build/outputs/apk/release/*.apk
+      - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
       - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
       - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
 
@@ -331,6 +442,9 @@ official_release:
     expire_in: never
     paths:
       - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/release/verified-apk.sha256
+      - openvpn-plugin/build/outputs/apk/release/*.apk
+      - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
 
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/'

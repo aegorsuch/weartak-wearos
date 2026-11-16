@@ -1,12 +1,102 @@
-from pathlib import Path
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
+import zipfile
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class ReleaseMemoryTests(unittest.TestCase):
+    def test_arm64_zip_verification_consumes_listing_before_matching(self):
+        bash = shutil.which("bash")
+        grep = shutil.which("grep")
+        if not bash or not grep:
+            self.skipTest("Bash and grep are required for pipefail regression")
+        probe = subprocess.run(
+            [bash, "-c", "set -o pipefail"],
+            capture_output=True,
+            check=False,
+        )
+        if probe.returncode != 0:
+            self.skipTest("Executable Bash is unavailable")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            env = os.environ.copy()
+            unzip = shutil.which("unzip")
+            if not unzip:
+                stub_dir = root / "bin"
+                stub_dir.mkdir()
+                unzip_stub = stub_dir / "unzip"
+                unzip_stub.write_text(
+                    "#!/bin/sh\n"
+                    "[ \"$1\" = \"-Z1\" ] || exit 2\n"
+                    "cat \"$APK_ENTRY_LIST\"\n",
+                    encoding="utf-8",
+                )
+                unzip_stub.chmod(0o755)
+                env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
+                unzip = str(unzip_stub)
+
+            def create_apk_listing(path, abis):
+                with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
+                    for abi in abis:
+                        archive.writestr(f"lib/{abi}/libwearvpn.so", b"native")
+                    for index in range(20_000):
+                        archive.writestr(
+                            f"assets/entries/{index:05d}-{'x' * 100}.bin",
+                            b"x",
+                        )
+
+            def run_check(script, path):
+                command_env = env.copy()
+                if Path(unzip).parent == root / "bin":
+                    with zipfile.ZipFile(path) as archive:
+                        listing_path = path.with_suffix(".entries")
+                        listing_path.write_text(
+                            "\n".join(archive.namelist()) + "\n",
+                            encoding="utf-8",
+                        )
+                    command_env["APK_ENTRY_LIST"] = str(listing_path)
+                return subprocess.run(
+                    [bash, "-c", script, "arm64-verifier-test", str(path)],
+                    capture_output=True,
+                    check=False,
+                    env=command_env,
+                )
+
+            valid_apk = root / "arm64.apk"
+            create_apk_listing(valid_apk, ["arm64-v8a"])
+            old_check = run_check(
+                "set -o pipefail; "
+                "if ! unzip -Z1 \"$1\" | grep -q '^lib/arm64-v8a/'; then exit 1; fi",
+                valid_apk,
+            )
+            self.assertEqual(1, old_check.returncode)
+
+            new_check_script = (
+                "set -o pipefail; "
+                "if ! unzip -Z1 \"$1\" | grep '^lib/arm64-v8a/' >/dev/null; then exit 1; fi; "
+                "if unzip -Z1 \"$1\" | grep '^lib/armeabi-v7a/' >/dev/null; then exit 2; fi"
+            )
+            valid_check = run_check(new_check_script, valid_apk)
+            self.assertEqual(0, valid_check.returncode)
+
+            no_arm64_apk = root / "no-arm64.apk"
+            create_apk_listing(no_arm64_apk, ["armeabi-v7a"])
+            missing_check = run_check(new_check_script, no_arm64_apk)
+            self.assertEqual(1, missing_check.returncode)
+
+            mixed_abi_apk = root / "mixed-abi.apk"
+            create_apk_listing(mixed_abi_apk, ["arm64-v8a", "armeabi-v7a"])
+            mixed_check = run_check(new_check_script, mixed_abi_apk)
+            self.assertEqual(2, mixed_check.returncode)
+
     def test_release_bounds_workers_and_shares_existing_heap_with_kotlin(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
         release = ci.split("\n.release_build:", 1)[1].split("\nmain_release:", 1)[0]
@@ -16,7 +106,9 @@ class ReleaseMemoryTests(unittest.TestCase):
             command.group(1),
             "./gradlew --no-daemon --max-workers=2 "
             "-Pkotlin.compiler.execution.strategy=in-process "
-            "-PbatdokAcceptance=true clean assembleRelease",
+            "-PbatdokAcceptance=true clean :app:assembleRelease "
+            ":openvpn-plugin:assembleRelease "
+            ":weartak-plugin-host-services-sdk:assembleRelease",
         )
         self.assertIn('KUBERNETES_MEMORY_LIMIT: "8Gi"', ci)
         properties = (ROOT / "gradle.properties").read_text()
@@ -25,11 +117,19 @@ class ReleaseMemoryTests(unittest.TestCase):
         release_type = build.split("minifyEnabled true", 1)[1]
         self.assertIn("shrinkResources true", release_type)
         self.assertIn("Release signing verified.", release)
+        self.assertIn("OpenVPN plugin release signing verified.", release)
+        self.assertIn("PLUGIN_DEBUGGABLE", release)
+        self.assertIn("verified-plugin-apk.sha256", release)
         self.assertIn("verified-apk.sha256", release)
+        self.assertIn('chmod 600 "$CI_PROJECT_DIR/signing.properties"', release)
+        self.assertIn(
+            'rm -f "$CI_PROJECT_DIR/signing.properties" "$CI_PROJECT_DIR/app/weartak.keystore"',
+            release,
+        )
 
     def test_signed_trial_is_scoped_manual_and_does_not_publish(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
-        trial = ci.split("\nbatdok_signed_trial:", 1)[1].split("\nmain_release:", 1)[0]
+        trial = ci.split("\nbatdok_signed_trial:", 1)[1].split("\narm64_qualification:", 1)[0]
         self.assertIn("extends: .release_build", trial)
         self.assertIn("name: battak-trial", trial)
         self.assertIn("action: prepare", trial)
@@ -48,6 +148,38 @@ class ReleaseMemoryTests(unittest.TestCase):
         android = ci.split("\nandroid_mopp_check:", 1)[1].split("\nrelease_publisher_tests:", 1)[0]
         self.assertIn('CI_PIPELINE_SOURCE == "web"', android)
         self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', android)
+
+    def test_arm64_qualification_is_protected_manual_and_nonpublishing(self):
+        ci = (ROOT / ".gitlab-ci.yml").read_text()
+        qualification = ci.split("\narm64_qualification:", 1)[1].split("\n# ---------------------------------------------------------------------------", 1)[0]
+        self.assertIn("extends: .release_build", qualification)
+        self.assertIn("name: battak-release", qualification)
+        self.assertIn("action: prepare", qualification)
+        self.assertIn("-PweartakArm64Qualification=true :app:clean :app:assembleRelease", qualification)
+        self.assertIn("grep '^lib/arm64-v8a/' >/dev/null", qualification)
+        self.assertIn("grep '^lib/armeabi-v7a/' >/dev/null", qualification)
+        self.assertIn("EXPECTED_SIGNER=", qualification)
+        self.assertIn("lib/arm64-v8a/", qualification)
+        self.assertIn("lib/armeabi-v7a/", qualification)
+        self.assertIn("expire_in: 7 days", qualification)
+        self.assertIn("access: developer", qualification)
+        self.assertIn('CI_COMMIT_BRANCH == "main"', qualification)
+        self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', qualification)
+        self.assertIn('$CI_PIPELINE_SOURCE == "push"', qualification)
+        self.assertIn("when: manual", qualification)
+        self.assertNotIn("publish_personal_github_main", qualification)
+        self.assertNotIn("main_release", qualification)
+        publisher = ci.split("\npublish_personal_github_main:", 1)[1].split("\nchangelog_draft:", 1)[0]
+        self.assertNotIn("arm64_qualification", publisher)
+
+        build = (ROOT / "app" / "build.gradle").read_text()
+        self.assertIn('providers.gradleProperty("weartakArm64Qualification")', build)
+        self.assertIn('arm64Qualification != "true"', build)
+        self.assertIn('[":app:assembleRelease"]', build)
+        self.assertIn('[":app:clean", ":app:assembleRelease"]', build)
+        self.assertIn('include(arm64Qualification == "true"', build)
+        self.assertIn('"arm64-v8a"', build)
+        self.assertIn('"armeabi-v7a"', build)
 
 
 if __name__ == "__main__":

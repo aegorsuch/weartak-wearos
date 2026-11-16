@@ -1,7 +1,9 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import com.aitech.weartak_civ.WearTakApplication
+import com.weartak.plugin.sdk.DeviceStatusContract
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -22,6 +24,9 @@ class HostControlVerifyCallerTest {
         val st = ctrl.deviceStatus
         assertFalse(st.online)
         assertEquals("denied", st.summary)
+        assertFalse(st.telemetry.containsKey(DeviceStatusContract.KEY_TAK_UID))
+        assertFalse(st.telemetry.containsKey(DeviceStatusContract.KEY_CALLSIGN))
+        verify(exactly = 0) { app.repo }
         assertFalse(ctrl.isCotConnected)
         val caps = ctrl.hostCapabilities
         assertFalse(caps.cotDispatch)
@@ -29,5 +34,18 @@ class HostControlVerifyCallerTest {
         // Avoid getDeviceStatus() success path — it touches TAKConnectService static init.
         val capsOk = ctrl.hostCapabilities
         assertTrue(capsOk.cotDispatch)
+    }
+
+    @Test
+    fun closedBindingDoesNotExposeIdentityToPreviouslyAuthorizedUid() {
+        val app = mockk<WearTakApplication>(relaxed = true)
+        val ctrl = HostControlImpl(app, mockk(relaxed = true), "com.plugin.x",
+            expectedPluginUid = 55, isActive = { false })
+        ShadowBinder.setCallingUid(55)
+        val status = ctrl.deviceStatus
+        assertEquals("denied", status.summary)
+        assertFalse(status.telemetry.containsKey(DeviceStatusContract.KEY_TAK_UID))
+        assertFalse(status.telemetry.containsKey(DeviceStatusContract.KEY_CALLSIGN))
+        verify(exactly = 0) { app.repo }
     }
 }

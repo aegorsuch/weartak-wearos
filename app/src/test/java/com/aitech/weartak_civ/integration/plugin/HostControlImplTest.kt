@@ -14,6 +14,9 @@ import com.weartak.plugin.sdk.model.SettingsFieldTypes
 import com.weartak.plugin.sdk.model.CepRuleEventParcel
 import com.weartak.plugin.sdk.model.CepRuleOperation
 import com.weartak.plugin.sdk.model.HostCapabilitiesParcel
+import com.weartak.plugin.sdk.DeviceStatusContract
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import io.mockk.every
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -22,6 +25,7 @@ import io.mockk.mockkObject
 import io.mockk.unmockkObject
 import io.mockk.verify
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,6 +34,69 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class HostControlImplTest {
+    @Test
+    fun offlineDeviceStatusReportsActualTakUidAndCurrentCallsignWithoutTraffic() {
+        mockkObject(TAKConnectService.Companion)
+        try {
+            every { TAKConnectService.isAnyTakConnected } returns false
+            val repo = deviceStatusRepository()
+            val callsign = MutableStateFlow("")
+            every { repo.getCallsign } returns callsign
+            val app = mockk<WearTakApplication>()
+            every { app.repo } returns repo
+            val control = HostControlImpl(app, mockk(relaxed = true), "com.plugin.pkg", Process.myUid())
+
+            val initial = control.deviceStatus
+            assertFalse(initial.online)
+            assertEquals("WEAROS_0123456789abcdef",
+                initial.telemetry.getString(DeviceStatusContract.KEY_TAK_UID))
+            assertFalse(initial.telemetry.containsKey(DeviceStatusContract.KEY_CALLSIGN))
+
+            callsign.value = "ALPHA"
+            val configured = control.deviceStatus
+            assertEquals("ALPHA", configured.telemetry.getString(DeviceStatusContract.KEY_CALLSIGN))
+            callsign.value = "BRAVO"
+            val updated = control.deviceStatus
+            assertEquals("BRAVO", updated.telemetry.getString(DeviceStatusContract.KEY_CALLSIGN))
+            assertEquals(initial.telemetry.getString(DeviceStatusContract.KEY_TAK_UID),
+                updated.telemetry.getString(DeviceStatusContract.KEY_TAK_UID))
+        } finally {
+            unmockkObject(TAKConnectService.Companion)
+        }
+    }
+
+    @Test
+    fun unavailableTakIdentityIsNotAdvertisedAndCallsignReadFailurePropagates() {
+        mockkObject(TAKConnectService.Companion)
+        try {
+            every { TAKConnectService.isAnyTakConnected } returns false
+            val repo = deviceStatusRepository()
+            val app = mockk<WearTakApplication>()
+            every { app.repo } returns repo
+            val control = HostControlImpl(app, mockk(relaxed = true), "com.plugin.pkg", Process.myUid())
+            for (uid in listOf("", "WEAROS_", "WEAROS_null")) {
+                every { repo.androidDeviceUid } returns uid
+                assertFalse(control.deviceStatus.telemetry.containsKey(DeviceStatusContract.KEY_TAK_UID))
+            }
+            val failure = IllegalStateException("Preference read failed")
+            every { repo.getCallsign } returns flow { throw failure }
+            val result = runCatching { control.deviceStatus }
+            assertEquals(failure, result.exceptionOrNull())
+        } finally {
+            unmockkObject(TAKConnectService.Companion)
+        }
+    }
+
+    private fun deviceStatusRepository(): DataRepository = mockk<DataRepository>().also { repo ->
+        every { repo.androidDeviceUid } returns "WEAROS_0123456789abcdef"
+        every { repo.getCallsign } returns MutableStateFlow("ALPHA")
+        every { repo.sitxStatus } returns MutableStateFlow(DataRepository.SitxServerStatus.DISCONNECTED)
+        every { repo.latestBatteryPercentage } returns MutableStateFlow(null)
+        every { repo.latestHeartRate } returns MutableStateFlow(null)
+        every { repo.latestLocation } returns MutableStateFlow(null)
+        coEvery { repo.snapshotLocation(null) } returns null
+    }
+
     @Test
     fun injectedCotIsIngestedLocallyAndRelayCanBeDisabled() {
         MainActivity.mainActivity = mockk {

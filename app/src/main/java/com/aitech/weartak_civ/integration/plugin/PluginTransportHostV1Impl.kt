@@ -64,6 +64,10 @@ internal class PluginTransportHostV1Impl(
         val callback: IPluginTransportCallbackV1,
         val callbackBinder: IBinder,
         val deathRecipient: IBinder.DeathRecipient,
+        // Mirror bounded SDK message-ID accounting while ingress IDs are only reserved.
+        val inboundMessageIds: MutableSet<String> = LinkedHashSet(),
+        val inboundInFlight: MutableSet<String> = LinkedHashSet(),
+        val outboundMessageIds: MutableSet<String> = LinkedHashSet(),
     )
 
     private val lock = Any()
@@ -167,57 +171,107 @@ internal class PluginTransportHostV1Impl(
         }
 
         val callingUid = Binder.getCallingUid()
-        val admitted = synchronized(lock) {
+        val sourceMessage = requireNotNull(message)
+        var inboundMessage: TransportMessageParcel = sourceMessage
+        val reservation = synchronized(lock) {
             if (!isCurrent(current) || !bindingActive) {
+                return@synchronized result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin is not active")
+            }
+            if (!current.capabilities.runtimeAvailable) {
+                return@synchronized result(TransportResultCode.UNAVAILABLE, detail = "Transport unavailable")
+            }
+            if (channelId !in current.capabilities.channelIds) {
+                return@synchronized result(TransportResultCode.UNSUPPORTED, detail = "Unknown channel")
+            }
+            val validation = TransportValidator.message(sourceMessage, current.capabilities, outbound = false)
+            if (validation.code != TransportResultCode.ACCEPTED) return@synchronized validation
+            inboundMessage = sourceMessage.copy(payload = sourceMessage.payload.copyOf())
+            val snapshotValidation =
+                TransportValidator.message(inboundMessage, current.capabilities, outbound = false)
+            if (snapshotValidation.code != TransportResultCode.ACCEPTED) {
+                return@synchronized snapshotValidation
+            }
+            val messageId = inboundMessage.messageId
+            if (messageId in current.inboundMessageIds ||
+                messageId in current.inboundInFlight ||
+                messageId in current.outboundMessageIds
+            ) {
+                return@synchronized result(TransportResultCode.DUPLICATE, detail = "Message already observed")
+            }
+            if (current.inboundMessageIds.size + current.inboundInFlight.size +
+                current.outboundMessageIds.size >= TransportContract.MAX_SESSION_MESSAGES
+            ) {
+                return@synchronized result(TransportResultCode.LIMIT_EXCEEDED, detail = "Session capacity reached")
+            }
+            current.inboundInFlight.add(messageId)
+            null
+        }
+        if (reservation != null) return reservation
+
+        try {
+            val xml = when (inboundMessage.payloadKind) {
+                TransportPayloadKind.COT_XML_UTF8 -> decodeUtf8(inboundMessage.payload)
+                TransportPayloadKind.CHAT_UTF8 -> PluginTransportMessageMapper.chatToCot(inboundMessage)
+                else -> null
+            } ?: return result(TransportResultCode.INVALID_REQUEST, detail = "Invalid transport message payload")
+            if (xml.toByteArray(Charsets.UTF_8).size > HOST_MAX_PAYLOAD_BYTES) {
+                return result(TransportResultCode.LIMIT_EXCEEDED, detail = "Normalized CoT exceeds host payload limit")
+            }
+            val envelope = TakServerCotEnvelope(
+                sourceServerId = "plugin:$pluginId",
+                sourceServerAddress = "plugin:$pluginId",
+                receivedAt = clock(),
+                rawXml = xml,
+                sourceSessionId = current.sessionId,
+                sourceChannelId = channelId,
+                sourceWorkspaceId = inboundMessage.workspaceId,
+                sourceExternalId = inboundMessage.externalId,
+                sourceTransportMessageId = inboundMessage.messageId,
+                sourceSentAtEpochMillis = inboundMessage.sentAtEpochMillis,
+                sourceSenderUid = inboundMessage.senderUid,
+                sourceSenderCallsign = inboundMessage.senderCallsign,
+            )
+            if (!synchronized(lock) { isCurrent(current) && bindingActive }) {
                 return result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin is not active")
             }
-            current.session.admitInbound(
-                sessionId = sessionId.orEmpty(),
-                channelId = channelId,
-                message = message,
-                callingUid = callingUid,
-            )
-        }
-        if (admitted.code != TransportResultCode.ACCEPTED) return admitted
-
-        val xml = when (message.payloadKind) {
-            TransportPayloadKind.COT_XML_UTF8 -> decodeUtf8(message.payload)
-            TransportPayloadKind.CHAT_UTF8 -> PluginTransportMessageMapper.chatToCot(message)
-            else -> null
-        } ?: return result(TransportResultCode.INVALID_REQUEST, detail = "Invalid transport message payload")
-        if (xml.toByteArray(Charsets.UTF_8).size > HOST_MAX_PAYLOAD_BYTES) {
-            return result(TransportResultCode.LIMIT_EXCEEDED, detail = "Normalized CoT exceeds host payload limit")
-        }
-        val envelope = TakServerCotEnvelope(
-            sourceServerId = "plugin:$pluginId",
-            sourceServerAddress = "plugin:$pluginId",
-            receivedAt = clock(),
-            rawXml = xml,
-            sourceSessionId = current.sessionId,
-            sourceChannelId = channelId,
-            sourceWorkspaceId = message.workspaceId,
-            sourceExternalId = message.externalId,
-            sourceTransportMessageId = message.messageId,
-            sourceSentAtEpochMillis = message.sentAtEpochMillis,
-            sourceSenderUid = message.senderUid,
-            sourceSenderCallsign = message.senderCallsign,
-        )
-        val ingestResult = try {
-            runBlocking { cotIngest(envelope) }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.e(TAG, "Transport ingress failed pkg=$pluginId channel=$channelId type=${error.javaClass.simpleName}")
-            return result(TransportResultCode.UNAVAILABLE, detail = "Host CoT ingestion failed")
-        }
-        return when (ingestResult) {
-            TakServerCotIngestResult.MALFORMED ->
-                result(TransportResultCode.INVALID_REQUEST, detail = "Malformed CoT payload")
-            TakServerCotIngestResult.SUPPRESSED ->
-                result(TransportResultCode.UNAVAILABLE, detail = "Host currently suppresses direct CoT")
-            TakServerCotIngestResult.UNSUPPORTED ->
-                result(TransportResultCode.UNSUPPORTED, detail = "Unsupported CoT payload")
-            else -> result(TransportResultCode.ACCEPTED, sessionId = current.sessionId)
+            val ingestResult = try {
+                runBlocking { cotIngest(envelope) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Transport ingress failed pkg=$pluginId channel=$channelId type=${error.javaClass.simpleName}")
+                return result(TransportResultCode.UNAVAILABLE, detail = "Host CoT ingestion failed")
+            }
+            return when (ingestResult) {
+                TakServerCotIngestResult.MALFORMED ->
+                    result(TransportResultCode.INVALID_REQUEST, detail = "Malformed CoT payload")
+                TakServerCotIngestResult.SUPPRESSED ->
+                    result(TransportResultCode.UNAVAILABLE, detail = "Host currently suppresses direct CoT")
+                TakServerCotIngestResult.UNSUPPORTED ->
+                    result(TransportResultCode.UNSUPPORTED, detail = "Unsupported CoT payload")
+                else -> synchronized(lock) {
+                    if (!isCurrent(current) || !bindingActive) {
+                        result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin is not active")
+                    } else {
+                        val admitted = current.session.admitInbound(
+                            sessionId = sessionId.orEmpty(),
+                            channelId = channelId,
+                            message = inboundMessage,
+                            callingUid = callingUid,
+                        )
+                        if (admitted.code == TransportResultCode.ACCEPTED) {
+                            current.inboundMessageIds.add(inboundMessage.messageId)
+                            result(TransportResultCode.ACCEPTED, sessionId = current.sessionId)
+                        } else {
+                            admitted
+                        }
+                    }
+                }
+            }
+        } finally {
+            synchronized(lock) {
+                current.inboundInFlight.remove(inboundMessage.messageId)
+            }
         }
     }
 
@@ -311,7 +365,18 @@ internal class PluginTransportHostV1Impl(
         )
         val admitted = synchronized(lock) {
             if (!isCurrent(current) || !bindingActive) return
+            val messageId = request.message.messageId
+            if (messageId in current.inboundMessageIds ||
+                messageId in current.inboundInFlight ||
+                messageId in current.outboundMessageIds ||
+                current.inboundMessageIds.size + current.inboundInFlight.size +
+                current.outboundMessageIds.size >= TransportContract.MAX_SESSION_MESSAGES
+            ) {
+                Log.w(TAG, "Transport outbound rejected pkg=$pluginId due to session capacity or duplicate")
+                return
+            }
             current.session.admitOutbound(request, callingUid = expectedPluginUid)
+                .also { if (it.code == TransportResultCode.ACCEPTED) current.outboundMessageIds.add(messageId) }
         }
         if (admitted.code != TransportResultCode.ACCEPTED) {
             Log.w(TAG, "Transport outbound rejected pkg=$pluginId code=${admitted.code}")

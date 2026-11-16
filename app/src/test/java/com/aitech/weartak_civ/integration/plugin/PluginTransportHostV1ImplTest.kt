@@ -25,7 +25,9 @@ import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
 import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,6 +40,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -143,6 +146,144 @@ class PluginTransportHostV1ImplTest {
             host.receiveMessage(sessionId, "satellite", oversized).code,
         )
         assertEquals(2, sink.chats.size)
+    }
+
+    @Test
+    fun failedInboundIngestionCanRetrySameMessageId() {
+        val attempts = AtomicInteger()
+        val host = createHost {
+            if (attempts.incrementAndGet() == 1) throw IllegalStateException("temporary ingress failure")
+            TakServerCotIngestResult.CHAT
+        }
+        val sessionId = register(host, RecordingCallback())
+        val message = inboundMessage("retry-after-ingress-failure")
+
+        assertEquals(
+            TransportResultCode.UNAVAILABLE,
+            host.receiveMessage(sessionId, "satellite", message).code,
+        )
+        assertEquals(
+            TransportResultCode.ACCEPTED,
+            host.receiveMessage(sessionId, "satellite", message).code,
+        )
+        assertEquals(
+            TransportResultCode.DUPLICATE,
+            host.receiveMessage(sessionId, "satellite", message).code,
+        )
+        assertEquals(2, attempts.get())
+    }
+
+    @Test
+    fun failedInboundNormalizationCanRetrySameMessageId() {
+        val host = createHost { TakServerCotIngestResult.CHAT }
+        val sessionId = register(host, RecordingCallback())
+        val invalidChat = TransportMessageParcel(
+            messageId = "retry-after-normalization-failure",
+            payloadKind = TransportPayloadKind.CHAT_UTF8,
+            payload = "Hello".toByteArray(Charsets.UTF_8),
+            senderUid = "remote-1",
+            senderCallsign = "REMOTE",
+        )
+
+        assertEquals(
+            TransportResultCode.INVALID_REQUEST,
+            host.receiveMessage(sessionId, "satellite", invalidChat).code,
+        )
+        val validChat = invalidChat.copy(recipientUid = DEVICE_UID)
+        assertEquals(
+            TransportResultCode.ACCEPTED,
+            host.receiveMessage(sessionId, "satellite", validChat).code,
+        )
+        assertEquals(
+            TransportResultCode.DUPLICATE,
+            host.receiveMessage(sessionId, "satellite", validChat).code,
+        )
+    }
+
+    @Test
+    fun cancelledInboundIngestionReleasesMessageReservation() {
+        val attempts = AtomicInteger()
+        val host = createHost {
+            if (attempts.incrementAndGet() == 1) throw CancellationException("ingress cancelled")
+            TakServerCotIngestResult.CHAT
+        }
+        val sessionId = register(host, RecordingCallback())
+        val message = inboundMessage("retry-after-ingress-cancellation")
+        var cancelled = false
+
+        try {
+            host.receiveMessage(sessionId, "satellite", message)
+        } catch (_: CancellationException) {
+            cancelled = true
+        }
+
+        assertTrue(cancelled)
+        assertEquals(
+            TransportResultCode.ACCEPTED,
+            host.receiveMessage(sessionId, "satellite", message).code,
+        )
+        assertEquals(2, attempts.get())
+    }
+
+    @Test
+    fun concurrentInboundDuplicateIsRejectedUntilOriginalCompletes() {
+        val enteredIngest = CountDownLatch(1)
+        val releaseIngest = CountDownLatch(1)
+        val host = createHost {
+            enteredIngest.countDown()
+            check(releaseIngest.await(3, TimeUnit.SECONDS))
+            TakServerCotIngestResult.CHAT
+        }
+        val sessionId = register(host, RecordingCallback())
+        val message = inboundMessage("concurrent-inbound-message")
+        val executor = Executors.newSingleThreadExecutor()
+
+        try {
+            val first = executor.submit<TransportResultParcel> {
+                host.receiveMessage(sessionId, "satellite", message)
+            }
+            assertTrue(enteredIngest.await(3, TimeUnit.SECONDS))
+            assertEquals(
+                TransportResultCode.DUPLICATE,
+                host.receiveMessage(sessionId, "satellite", message).code,
+            )
+            releaseIngest.countDown()
+            assertEquals(TransportResultCode.ACCEPTED, first.get(3, TimeUnit.SECONDS).code)
+        } finally {
+            releaseIngest.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun unregisterDuringInboundIngestionFencesLateAdmission() {
+        val enteredIngest = CountDownLatch(1)
+        val releaseIngest = CountDownLatch(1)
+        val host = createHost {
+            enteredIngest.countDown()
+            check(releaseIngest.await(3, TimeUnit.SECONDS))
+            TakServerCotIngestResult.CHAT
+        }
+        val sessionId = register(host, RecordingCallback())
+        val message = inboundMessage("inbound-during-unregister")
+        val executor = Executors.newSingleThreadExecutor()
+
+        try {
+            val inFlight = executor.submit<TransportResultParcel> {
+                host.receiveMessage(sessionId, "satellite", message)
+            }
+            assertTrue(enteredIngest.await(3, TimeUnit.SECONDS))
+            assertEquals(TransportResultCode.ACCEPTED, host.unregisterTransport(sessionId).code)
+            releaseIngest.countDown()
+            assertEquals(TransportResultCode.INACTIVE_SESSION, inFlight.get(3, TimeUnit.SECONDS).code)
+            assertEquals(
+                TransportResultCode.INACTIVE_SESSION,
+                host.receiveMessage(sessionId, "satellite", message).code,
+            )
+        } finally {
+            releaseIngest.countDown()
+            executor.shutdownNow()
+        }
     }
 
     @Test
@@ -637,6 +778,13 @@ class PluginTransportHostV1ImplTest {
         runtimeAvailable = true,
         deviceReceipts = true,
         recipientReceipts = true,
+    )
+
+    private fun inboundMessage(messageId: String) = TransportMessageParcel(
+        messageId = messageId,
+        payloadKind = TransportPayloadKind.COT_XML_UTF8,
+        payload = chatXml().toByteArray(Charsets.UTF_8),
+        senderUid = "remote-1",
     )
 
     private open class RecordingCallback : IPluginTransportCallbackV1.Stub() {

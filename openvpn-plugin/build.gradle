@@ -1,0 +1,169 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.jetbrains.kotlin.android)
+    alias(libs.plugins.compose.compiler)
+}
+
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesFile = rootProject.file('signing.properties')
+if (releaseSigningPropertiesFile.isFile()) {
+    releaseSigningPropertiesFile.withInputStream {
+        releaseSigningProperties.load(it)
+    }
+}
+def releaseSigningValue = { String environmentName, String propertyName ->
+    System.getenv(environmentName) ?: releaseSigningProperties.getProperty(propertyName)
+}
+def releaseSigningInputs = [
+        keystoreFile: releaseSigningValue('WEARTAK_RELEASE_KEYSTORE_FILE', 'RELEASE_KEYSTORE_FILE'),
+        storePassword: releaseSigningValue('WEARTAK_RELEASE_STORE_PASSWORD', 'RELEASE_STORE_PASSWORD'),
+        keyAlias: releaseSigningValue('WEARTAK_RELEASE_KEY_ALIAS', 'RELEASE_KEY_ALIAS'),
+        keyPassword: releaseSigningValue('WEARTAK_RELEASE_KEY_PASSWORD', 'RELEASE_KEY_PASSWORD')
+]
+def releaseSigningConfigured = releaseSigningInputs.values().any { value ->
+    value != null && !value.trim().isEmpty()
+}
+
+def emulatorAbi = providers.gradleProperty('weartakEmulatorAbi')
+        .orElse(providers.gradleProperty('weartakDebugAbi')).orNull
+if (emulatorAbi != null && !(emulatorAbi in ['x86_64', 'arm64-v8a'])) {
+    throw new GradleException('OpenVPN plugin emulator ABI must be x86_64 or arm64-v8a')
+}
+
+android {
+    namespace 'com.aitech.weartak_civ'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.aitech.weartak.openvpn'
+        minSdk 34
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        if (emulatorAbi != null) {
+            ndk {
+                abiFilters.clear()
+                abiFilters.add(emulatorAbi)
+            }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (releaseSigningConfigured) {
+                def missingInputs = releaseSigningInputs.findAll { name, value ->
+                    value == null || value.trim().isEmpty()
+                }.keySet()
+                if (!missingInputs.isEmpty()) {
+                    throw new GradleException(
+                            "Incomplete OpenVPN plugin release signing configuration; missing: ${missingInputs.join(', ')}"
+                    )
+                }
+
+                def releaseKeystore = rootProject.file(releaseSigningInputs.keystoreFile)
+                if (!releaseKeystore.isFile()) {
+                    throw new GradleException('Configured OpenVPN plugin release keystore file does not exist.')
+                }
+                storeFile releaseKeystore
+                storePassword releaseSigningInputs.storePassword
+                keyAlias releaseSigningInputs.keyAlias
+                keyPassword releaseSigningInputs.keyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    buildFeatures {
+        aidl true
+        compose true
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+    ndkVersion '27.0.12077973'
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+    packaging {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+    }
+    lint { abortOnError true }
+}
+
+apply from: rootProject.file('gradle/plugin-sdk.gradle')
+
+def nativeThirdPartySource = file('src/main/cpp/third_party')
+def nativeNoticeAssets = layout.buildDirectory.dir('generated/nativeThirdPartyNotices')
+def nativeNoticeFiles = [
+        'README.md',
+        'asio/LICENSE_1_0.txt',
+        'fmt/LICENSE',
+        'lwip/COPYING',
+        'lz4/LICENSE',
+        'lz4/lib/LICENSE',
+        'mbedtls/LICENSE',
+        'mbedtls/framework/LICENSE',
+        'openvpn3/LICENSE.md',
+        'openvpn3/LICENSES/AGPL-3.0-only.txt',
+        'openvpn3/LICENSES/MPL-2.0.txt',
+        'openvpn3/LICENSES/openvpn3-openssl-exception.txt',
+        'openvpn3/openvpn/http/LICENSE_1_0.txt'
+]
+def nativeNotices = tasks.register('generateNativeThirdPartyNotices', Copy) {
+    from(nativeThirdPartySource) {
+        include(nativeNoticeFiles)
+        includeEmptyDirs = false
+        eachFile {
+            path = "licenses/native/${path}"
+        }
+    }
+    into nativeNoticeAssets
+    doFirst {
+        nativeNoticeFiles.each { name ->
+            if (!new File(nativeThirdPartySource, name).isFile()) {
+                throw new GradleException("Missing native dependency notice: ${name}")
+            }
+        }
+    }
+}
+android.sourceSets.main.assets.srcDir(nativeNoticeAssets)
+tasks.named('preBuild').configure {
+    dependsOn nativeNotices
+}
+
+dependencies {
+    implementation platform(libs.compose.bom)
+    implementation libs.ui
+    implementation 'androidx.compose.material:material'
+    implementation libs.ui.tooling.preview
+    implementation libs.compose.material
+    implementation libs.compose.foundation
+    implementation libs.activity.compose
+    implementation 'androidx.wear.compose:compose-material:1.4.1'
+    implementation 'androidx.datastore:datastore-preferences:1.1.1'
+    implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'androidx.core:core-ktx:1.15.0'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1'
+    androidTestImplementation 'androidx.test:core:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+}
