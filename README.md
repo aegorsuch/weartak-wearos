@@ -2170,14 +2170,17 @@ device-wide `VpnService`. OpenVPN3 is licensed under MPL-2.0 for WearTAK;
 embedded HTTP remains BSL-1.0, and other dependency notices are packaged with
 the plugin without relicensing them. TAK.gov release jobs sign the plugin with
 the host's release identity, verify both APK signers, reject a debuggable plugin
-APK, and retain both artifacts.
+APK, and retain both APKs with SHA-256 checksums as CI artifacts. Local release
+builds without signing credentials are intentionally unsigned and are not
+production artifacts; production signature verification requires protected
+TAK.gov CI signing credentials.
 
 Automated tests cover profile parsing, native validation, encrypted credential
 storage and synthetic route/stream lifecycle behavior. Emulator instrumentation
 has exercised JNI, encrypted storage, host-owned TLS identity/trust, Binder
 lifecycle, and stopped/inactive-error cleanup. Real-server profile
-interoperability, VPN connectivity, production release signing, and
-physical-watch validation remain unverified.
+interoperability, VPN connectivity, and physical-watch validation remain
+unverified.
 
 While charging or docked, off-wrist TAK connections stay continuous under the
 existing server, network and Companion gates. Plugging in reconnects immediately
