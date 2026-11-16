@@ -4689,10 +4689,13 @@ class DataRepository(
         val serverId: String? = null,
         val identityEpoch: String? = null,
         val strictServerTrust: Boolean = false,
-        val openVpnProfileId: String? = null
+        val openVpnProfileId: String? = null,
+        val openVpnPluginPackage: String? = null,
     ) {
         override fun toString() = "TakServerItem(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
+
+    enum class OpenVpnRouteUpdateResult { UPDATED, NOT_FOUND, LOCKED, INVALID }
 
     internal enum class ChatEnrollmentStatus { ADDED, UPDATED, LOCKED, MANAGED, CONFLICT }
     internal data class ChatEnrollmentSave(val status: ChatEnrollmentStatus, val serverId: String? = null)
@@ -5170,6 +5173,33 @@ class DataRepository(
             currentList[oldItemIndex] = normalizedItem
             writeTakServerList(currentList, "updateTakServerItem")
             TakServerUpdateResult.UPDATED
+        }
+    }
+
+    suspend fun updateOpenVpnRoute(
+        serverId: String,
+        pluginPackage: String?,
+        profileId: String?,
+    ): OpenVpnRouteUpdateResult {
+        awaitTakServerMigration()
+        if (serverId.isBlank() || (pluginPackage == null) != (profileId == null)) {
+            return OpenVpnRouteUpdateResult.INVALID
+        }
+        return TakServerEndpointIdentity.mutationMutex.withLock {
+            if (chatEnrollmentBlocked()) return@withLock OpenVpnRouteUpdateResult.LOCKED
+            val currentList = readTakServerList()
+            val index = currentList.indexOfFirst { it.serverId == serverId }
+            if (index < 0) return@withLock OpenVpnRouteUpdateResult.NOT_FOUND
+            val updated = currentList[index].copy(
+                openVpnPluginPackage = pluginPackage,
+                openVpnProfileId = profileId,
+            )
+            currentList[index] = normalizeTakServerItem(
+                updated,
+                preferredServerId = currentList[index].serverId,
+            )
+            writeTakServerList(currentList, "updateOpenVpnRoute")
+            OpenVpnRouteUpdateResult.UPDATED
         }
     }
 

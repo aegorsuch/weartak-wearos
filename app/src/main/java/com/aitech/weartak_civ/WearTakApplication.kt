@@ -41,7 +41,6 @@ import com.aitech.weartak_civ.data.secure.sitx.SitxEncryptedDataStore
 import com.aitech.weartak_civ.data.secure.sitx.SitxSecretsRepository
 import com.aitech.weartak_civ.data.secure.takserver.TakServerEncryptedDataStore
 import com.aitech.weartak_civ.data.secure.takserver.TakServerSecretsRepository
-import com.aitech.weartak_civ.data.secure.openvpn.OpenVpnProfileRepository
 import com.aitech.weartak_civ.integration.plugin.PluginRepository
 import com.aitech.weartak_civ.integration.plugin.PluginPackageChangedReceiver
 import com.aitech.weartak_civ.manager.NetworkManager
@@ -79,7 +78,6 @@ class WearTakApplication : Application() {
     lateinit var diagnostics: AppDiagnostics; private set
     lateinit var sitxRepo: SitxSecretsRepository; private set
     lateinit var takServerRepo: TakServerSecretsRepository; private set
-    lateinit var openVpnProfiles: OpenVpnProfileRepository; private set
     lateinit var audioRepo: AudioCaptureRepository; private set
     lateinit var crmRepo: CrmDataRepository; private set
 
@@ -96,6 +94,8 @@ class WearTakApplication : Application() {
     lateinit var pluginRepository: HostPluginRepository
         private set
     lateinit var pluginStateStore: PluginStateStore
+        private set
+    internal lateinit var openVpnProviderRegistry: com.aitech.weartak_civ.integration.plugin.PluginOpenVpnProviderRegistry
         private set
 
     companion object {
@@ -133,7 +133,6 @@ class WearTakApplication : Application() {
         diagnostics = AppDiagnostics.initialize(this)
         MainActivity.device_uid = "WEAROS_" + Secure.getString(this.getContentResolver(), Secure.ANDROID_ID)
         takServerRepo = TakServerSecretsRepository(TakServerEncryptedDataStore(applicationContext))
-        openVpnProfiles = OpenVpnProfileRepository(applicationContext)
         repo = DataRepository(applicationContext)
         diagnostics.bindRepository(repo)
         batteryPowerObserver = BatteryPowerObserver(this, repo).also { it.start() }
@@ -170,6 +169,10 @@ class WearTakApplication : Application() {
         CepProvider.getOrCreateEngine(this)
 
         pluginStateStore = PluginStateStore(applicationContext)
+        openVpnProviderRegistry =
+            com.aitech.weartak_civ.integration.plugin.PluginOpenVpnProviderRegistry {
+                com.aitech.weartak_civ.service.TAKConnectService.onOpenVpnProviderChanged()
+            }
         pluginIngress = PluginIngressPort(this)
         pluginManager = PluginManager(this, pluginIngress, pluginStateStore = pluginStateStore)
         pluginRepository = HostPluginRepository(this, pluginManager, pluginStateStore)

@@ -8,9 +8,10 @@
  */
 package com.aitech.weartak_civ.data.takserver
 
-import com.aitech.weartak_civ.service.openvpn.OpenVpnSocketFactory
 import java.io.IOException
-import java.net.InetSocketAddress
+import java.net.InetAddress
+import java.net.Socket
+import javax.net.SocketFactory
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -20,14 +21,13 @@ class TakHttpSessionOpenVpnTest {
     @Test
     fun selectedOpenVpnRouteFailsClosedWhenProfileIsDisconnected() {
         val session = TakHttpSession(
-            openVpnSocketFactory = OpenVpnSocketFactory("test-profile"),
+            openVpnSocketFactory = DisconnectedOpenVpnSocketFactory(),
             allowed = { true },
         )
-        val socket = session.route(OkHttpClient()).socketFactory.createSocket()
 
         try {
             val error = try {
-                socket.connect(InetSocketAddress("192.0.2.1", 8089), 100)
+                session.route(OkHttpClient()).socketFactory.createSocket()
                 null
             } catch (expected: IOException) {
                 expected
@@ -36,8 +36,19 @@ class TakHttpSessionOpenVpnTest {
             assertNotNull(error)
             assertEquals("Selected OpenVPN profile is not connected", error?.message)
         } finally {
-            socket.close()
             session.cancel()
         }
+    }
+
+    private class DisconnectedOpenVpnSocketFactory : SocketFactory() {
+        override fun createSocket(): Socket =
+            throw IOException("Selected OpenVPN profile is not connected")
+
+        override fun createSocket(host: String, port: Int): Socket = createSocket()
+        override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket =
+            createSocket()
+        override fun createSocket(host: InetAddress, port: Int): Socket = createSocket()
+        override fun createSocket(address: InetAddress, port: Int, localAddress: InetAddress, localPort: Int): Socket =
+            createSocket()
     }
 }

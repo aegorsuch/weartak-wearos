@@ -248,6 +248,7 @@ android {
                     ? "com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureApplication"
                     : "com.aitech.weartak_civ.WearTakApplication"
             manifestPlaceholders.dittoUiDemo = dittoUiDemo.toString()
+            manifestPlaceholders.wearableSharedLibraryRequired = (!dittoUiDemo).toString()
             buildConfigField "boolean", "DITTO_UI_DEMO", dittoUiDemo.toString()
             minifyEnabled false
             shrinkResources false
@@ -292,14 +293,6 @@ android {
         }
     }
     buildToolsVersion '35.0.0'
-    ndkVersion '27.0.12077973'
-
-    externalNativeBuild {
-        cmake {
-            path file("src/main/cpp/CMakeLists.txt")
-            version "3.22.1"
-        }
-    }
     lint {
         abortOnError true
         checkReleaseBuilds true
@@ -338,92 +331,9 @@ android {
     }
 }
 
-def pluginSdkPin = new groovy.json.JsonSlurper().parse(rootProject.file('ci/plugin-sdk.json'))
-def pluginSdkOs = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
-def pluginSdkPlatform = pluginSdkOs.contains('windows') ? 'windows' : pluginSdkOs.contains('linux') ? 'linux' : null
-if (pluginSdkPlatform == null) {
-    throw new GradleException('Plugin SDK has verified source-build hashes only for Windows and Linux')
-}
-def pluginSdkExpectedHash = pluginSdkPin.release_sha256[pluginSdkPlatform]
-if (!pluginSdkExpectedHash) {
-    throw new GradleException("No verified combined plugin SDK artifact hash for ${pluginSdkPlatform}")
-}
-def pluginSdkIdentity = "${pluginSdkPin.commit.take(12)}-${pluginSdkPin.overlay.source_sha256.take(12)}"
-def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
-        .orElse(rootProject.file(".gradle/sdk/${pluginSdkIdentity}/build/outputs/aar/weartak-plugin-sdk-release.aar").absolutePath)
-def sdkNoticeAssets = layout.buildDirectory.dir('generated/pluginSdkNotices')
-def sdkNoticeSource = rootProject.file(".gradle/sdk/${pluginSdkIdentity}")
-def sdkNotices = tasks.register('generatePluginSdkNotices', Copy) {
-    from(sdkNoticeSource) {
-        include 'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'
-        into 'licenses/weartak-plugin-sdk'
-    }
-    into sdkNoticeAssets
-    doFirst {
-        ['LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'].each { name ->
-            if (!new File(sdkNoticeSource, name).isFile()) {
-                throw new GradleException('Missing plugin SDK notices; run python ci/build_plugin_sdk.py')
-            }
-        }
-    }
-}
-android.sourceSets.main.assets.srcDir(sdkNoticeAssets)
-def nativeThirdPartySource = file('src/main/cpp/third_party')
-def nativeNoticeAssets = layout.buildDirectory.dir('generated/nativeThirdPartyNotices')
-def nativeNoticeFiles = [
-        'README.md',
-        'asio/LICENSE_1_0.txt',
-        'fmt/LICENSE',
-        'lwip/COPYING',
-        'lz4/LICENSE',
-        'lz4/lib/LICENSE',
-        'mbedtls/LICENSE',
-        'mbedtls/framework/LICENSE',
-        'openvpn3/LICENSE.md',
-        'openvpn3/LICENSES/AGPL-3.0-only.txt',
-        'openvpn3/LICENSES/MPL-2.0.txt',
-        'openvpn3/LICENSES/openvpn3-openssl-exception.txt',
-        'openvpn3/openvpn/http/LICENSE_1_0.txt'
-]
-def nativeNotices = tasks.register('generateNativeThirdPartyNotices', Copy) {
-    from(nativeThirdPartySource) {
-        include(nativeNoticeFiles)
-        includeEmptyDirs = false
-        eachFile {
-            path = "licenses/native/${path}"
-        }
-    }
-    into nativeNoticeAssets
-    doFirst {
-        nativeNoticeFiles.each { name ->
-            if (!new File(nativeThirdPartySource, name).isFile()) {
-                throw new GradleException("Missing native dependency notice: ${name}")
-            }
-        }
-    }
-}
-android.sourceSets.main.assets.srcDir(nativeNoticeAssets)
-tasks.register('verifyPluginSdk') {
-    inputs.file(pluginSdkAarPath)
-    inputs.property('expectedSha256', pluginSdkExpectedHash)
-    doLast {
-        def aar = file(pluginSdkAarPath.get())
-        if (!aar.isFile()) {
-            throw new GradleException('Missing pinned plugin SDK; run python ci/build_plugin_sdk.py')
-        }
-        def digest = java.security.MessageDigest.getInstance('SHA-256').digest(aar.bytes).encodeHex().toString()
-        if (digest != pluginSdkExpectedHash) {
-            throw new GradleException("Plugin SDK SHA-256 mismatch: ${digest}")
-        }
-    }
-}
-tasks.named('preBuild').configure {
-    dependsOn tasks.named('verifyPluginSdk'), sdkNotices, nativeNotices
-}
+apply from: rootProject.file('gradle/plugin-sdk.gradle')
 
 dependencies {
-    implementation project(':weartak-plugin-host-services-sdk')
-    implementation files(pluginSdkAarPath.get())
     implementation files('libs/samsung-health-sensor-api-1.4.1.aar')
     implementation files('libs/hail-sdk.aar')
 

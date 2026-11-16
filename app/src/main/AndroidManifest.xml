@@ -76,6 +76,9 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
 
     <!-- WEAR-509: bind WearTAK plugins exposing IWearTakPlugin (SDK contract). -->
+    <permission
+        android:name="com.weartak.plugin.permission.BIND_PLUGIN"
+        android:protectionLevel="signature" />
     <uses-permission android:name="com.weartak.plugin.permission.BIND_PLUGIN" />
 
     <!--
@@ -291,12 +294,6 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync"
-            android:stopWithTask="false" />
-        <service
-            android:name=".service.openvpn.OpenVpnService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice"
             android:stopWithTask="false" />
         <service
             android:name=".service.SitxTakService"
