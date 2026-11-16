@@ -3251,7 +3251,7 @@ fun WearTAKSettingsNav(
                     item {
                         WearTAKTitleChip(
                             title = "OpenVPN",
-                            route = "openvpn_settings",
+                            route = "openvpn_plugin",
                             navController = navController
                         )
                     }
@@ -3596,13 +3596,7 @@ fun WearTAKSettingsNav(
                 navController = navController,
             )
         }
-        composable("openvpn_settings") {
-            OpenVpnSettingsPage(
-                navController = navController,
-                settingsVm = settingsVm,
-                servers = takServerList,
-            )
-        }
+        composable("openvpn_plugin") { OpenVpnPluginLaunchPage(navController) }
         composable("data_sync") {
             val serverMissions by dataRepository.takMissions.collectAsState()
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()

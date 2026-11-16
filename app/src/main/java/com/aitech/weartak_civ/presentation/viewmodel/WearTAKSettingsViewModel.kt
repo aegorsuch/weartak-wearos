@@ -698,19 +698,6 @@ class WearTAKSettingsViewModel : ViewModel() {
             }
         }
     }
-    fun setTakServerOpenVpnProfile(serverId: String, profileId: String?) {
-        if (isPhoneManagedSettingsActive() || savedNetworkPreferencesLocked.value) return
-        viewModelScope.launch {
-            val latest = dataRepository.awaitTakServerList()
-            val index = latest.indexOfFirst { it.serverId == serverId }
-            if (index >= 0) {
-                val updated = latest[index].copy(openVpnProfileId = profileId)
-                if (dataRepository.updateTakServerItem(index, updated) == DataRepository.TakServerUpdateResult.UPDATED) {
-                    takServerList = dataRepository.awaitTakServerList()
-                }
-            }
-        }
-    }
     val serverRegistrationState: StateFlow<TakServerRegistration.State> =
         TAKConnectService.serverRegistration.state
     val takServerRuntimeDetails = TAKConnectService.takServerRuntimeDetails

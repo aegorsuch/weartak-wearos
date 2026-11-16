@@ -21,6 +21,7 @@ import com.weartak.plugin.sdk.transport.TransportCloseReason
 import com.weartak.plugin.sdk.transport.TransportContract
 import com.weartak.plugin.sdk.v2.WearTakPluginV2Contract
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
+import com.weartak.plugin.sdk.openvpn.v1.OpenVpnHostContract
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,6 +59,7 @@ class PluginConnection(
     @Volatile private var hostMoppControl: HostMoppPpeControl? = null
     @Volatile private var hostRouteStatusControl: HostRouteStatusControl? = null
     private var hostServicesV1: HostServicesV1Impl? = null
+    @Volatile private var hostOpenVpnServicesV1: HostOpenVpnServicesV1Impl? = null
     private val stateLock = Any()
     @Volatile private var closed = false
     @Volatile private var trustVerified = false
@@ -88,6 +90,7 @@ class PluginConnection(
 
     private val deathRecipient = IBinder.DeathRecipient {
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        hostOpenVpnServicesV1?.close()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
         sessionActive = false
@@ -100,6 +103,7 @@ class PluginConnection(
 
     private fun onBinderDiedInternal() {
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
@@ -302,6 +306,16 @@ class PluginConnection(
             })
         } else null
         val services = HostServicesV1Impl(app, pluginPackage, pluginUid)
+        val openVpnServices = if (pluginPackage == OpenVpnHostContract.PLUGIN_PACKAGE) {
+            HostOpenVpnServicesV1Impl(
+                app,
+                pluginPackage,
+                pluginUid,
+                app.openVpnProviderRegistry,
+                com.aitech.weartak_civ.service.TAKConnectService::onOpenVpnProviderChanged,
+                com.aitech.weartak_civ.service.TAKConnectService::onOpenVpnRouteChanged,
+            )
+        } else null
         val routeStatusControl = HostRouteStatusControl(
             manager.settingsCoordinator.routeStatuses, pluginPackage, pluginUid,
             isBindingActive = { !closed && pluginBinder?.isBinderAlive == true }
@@ -319,6 +333,7 @@ class PluginConnection(
                 moppControl?.close()
                 controlV3?.close()
                 services.close()
+                openVpnServices?.close()
                 transportV1.closeBinding(TransportCloseReason.STOPPED)
                 return
             }
@@ -326,6 +341,7 @@ class PluginConnection(
             hostCallback = callback
             hostPcmControlV3 = controlV3
             hostServicesV1 = services
+            hostOpenVpnServicesV1 = openVpnServices
             hostMoppControl = moppControl
             hostRouteStatusControl = routeStatusControl
             hostTransportV1 = transportV1
@@ -341,6 +357,10 @@ class PluginConnection(
                     com.weartak.plugin.sdk.MainUiActionContract.PRESENTATION_VERSION)
                 putInt(HostServicesContract.EXTRA_VERSION, HostServicesContract.VERSION)
                 putBinder(HostServicesContract.EXTRA_BINDER, services.asBinder())
+                if (openVpnServices != null) {
+                    putInt(OpenVpnHostContract.EXTRA_VERSION, OpenVpnHostContract.API_VERSION)
+                    putBinder(OpenVpnHostContract.EXTRA_BINDER, openVpnServices.asBinder())
+                }
                 putBoolean(HostControlImpl.HOST_EXTRA_COT_ROUTING_V1, true)
                 putBoolean(HostControlImpl.HOST_EXTRA_CHAT_DISPATCH_V1, true)
                 putBoolean(RouteStatusContract.EXTRA_CAPABILITY, true)
@@ -384,6 +404,7 @@ class PluginConnection(
 
     override fun onServiceDisconnected(name: ComponentName?) {
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
@@ -393,6 +414,7 @@ class PluginConnection(
 
     override fun onBindingDied(name: ComponentName?) {
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
+        hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
@@ -427,6 +449,7 @@ class PluginConnection(
             hostMoppControl = null
             mainHandler.removeCallbacks(handshakeTimeout)
             hostServicesV1?.close()
+            hostOpenVpnServicesV1?.close()
             hostPcmControlV3?.close()
             hostTransportV1?.closeBinding(
                 if (reason.contains("disconnect", ignoreCase = true) ||
@@ -453,6 +476,7 @@ class PluginConnection(
             hostCallback = null
             hostPcmControlV3 = null
             hostServicesV1 = null
+            hostOpenVpnServicesV1 = null
             hostTransportV1 = null
             pluginBinder = null
             val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) null else ({

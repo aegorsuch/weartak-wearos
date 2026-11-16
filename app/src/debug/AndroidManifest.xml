@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application android:name="${debugApplication}" tools:replace="android:name">
+        <uses-library
+            android:name="com.google.android.wearable"
+            android:required="${wearableSharedLibraryRequired}"
+            tools:replace="android:required" />
         <activity
             android:name="com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureActivity"
             android:enabled="${dittoUiDemo}"

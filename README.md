@@ -2142,22 +2142,41 @@ TLS handshakes have a 15-second read deadline; connected CoT readers remain bloc
 Sideloaded PKCS12 passwords stay in runtime state rather than changing the saved
 configuration used to decide whether a connection needs replacing.
 
-### App-owned OpenVPN transport (preview)
+### Optional OpenVPN plugin (preview)
 
-**Plugins > OpenVPN** imports bounded, self-contained `.ovpn` profiles and stores
-profiles and username/password credentials encrypted on the watch. External
-certificate/key file references, static challenges, encrypted private keys and
-external-PKI profiles are not supported; embed certificate/key material in the
-profile. One app-owned tunnel can be active at a time. Assign its profile to a
-TAK server to route that server's CoT TLS and session-backed HTTPS traffic
-(channels, missions and packages) through the tunnel. A selected route fails
-closed while its profile is disconnected; it does not fall back to direct
-traffic. This does not install device-wide VPN routes or tunnel other app traffic.
+OpenVPN runtime, profile parser and encrypted profile storage, and profile
+controls ship in the separately installable `:openvpn-plugin` APK. Profiles and
+credentials are encrypted with an app-private Android Keystore key; host-stored
+profiles are not migrated. Re-import profiles in the plugin and explicitly
+clear old host-stored profiles if desired. External certificate/key file
+references, static challenges, encrypted private keys, and external-PKI
+profiles are unsupported; embed certificate/key material in the profile.
 
-TAK endpoint names resolve through Android's selected network, outside the VPN
-tunnel, and the TAK endpoint must resolve to IPv4. Automated tests cover profile parsing, native validation, encrypted credential
-storage and fail-closed routing; emulator instrumentation exercises JNI and
-encrypted storage. Real-server profile interoperability, VPN connectivity, and
+An operator must explicitly select an imported plugin profile for each
+configured TAK server. Plugin discovery or its package-signing pin alone never
+grants route authority. The versioned v1 host-services API exposes only server
+identity and selection metadata; a separate raw-TCP provider carries bounded
+streams (4 active streams, 16 KiB I/O chunks, 60-second I/O timeouts) scoped to
+the host-selected server endpoint, port, profile, and connection-attempt
+generation. The first stream can open before CoT is established, avoiding a
+connection bootstrap deadlock. This byte-stream path is separate from plugin
+CoT/chat message transport.
+
+WearTAK retains TAK TLS, client identity, CA trust, SNI/hostname verification,
+and TAK socket ownership. No host private keys are passed to the plugin. Plugin
+absence, unload, process death, stale attempts, and stream errors fail closed;
+there is no direct-connection fallback, arbitrary host/port proxy, or
+device-wide `VpnService`. OpenVPN3 is licensed under MPL-2.0 for WearTAK;
+embedded HTTP remains BSL-1.0, and other dependency notices are packaged with
+the plugin without relicensing them. TAK.gov release jobs sign the plugin with
+the host's release identity, verify both APK signers, reject a debuggable plugin
+APK, and retain both artifacts.
+
+Automated tests cover profile parsing, native validation, encrypted credential
+storage and synthetic route/stream lifecycle behavior. Emulator instrumentation
+has exercised JNI, encrypted storage, host-owned TLS identity/trust, Binder
+lifecycle, and stopped/inactive-error cleanup. Real-server profile
+interoperability, VPN connectivity, production release signing, and
 physical-watch validation remain unverified.
 
 While charging or docked, off-wrist TAK connections stay continuous under the

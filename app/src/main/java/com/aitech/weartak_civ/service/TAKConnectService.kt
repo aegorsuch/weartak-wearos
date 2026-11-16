@@ -85,9 +85,7 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.tabletCommandE
 import com.aitech.weartak_civ.presentation.requestStatusIconsComplicationUpdate
 import com.aitech.weartak_civ.service.CotDispatchService.Companion.esriGeojsonMsg
 import com.aitech.weartak_civ.service.CotDispatchService.Companion.tabletCommandJsonMsg
-import com.aitech.weartak_civ.service.openvpn.OpenVpnService
-import com.aitech.weartak_civ.service.openvpn.OpenVpnSocketFactory
-import com.aitech.weartak_civ.service.openvpn.OpenVpnStatus
+import com.weartak.plugin.sdk.openvpn.v1.OpenVpnHostContract
 import com.aitech.weartak_civ.service.LicenseManager.isLicenseValid
 import com.aitech.weartak_civ.data.takserver.TakEnrollment
 import com.aitech.weartak_civ.data.takserver.TakEnrollmentStage
@@ -240,6 +238,7 @@ class TAKConnectService: Service() {
         var identityEpoch: String? = null,
         var strictServerTrust: Boolean = false,
         var openVpnProfileId: String? = null,
+        var openVpnPluginPackage: String? = null,
     ) {
         override fun toString() = "TakServerDetail(serverId=$serverId, enabled=$isEnabled, p12=$isP12Cert)"
     }
@@ -280,23 +279,6 @@ class TAKConnectService: Service() {
         updateOffBodyPolicy()
         setFromDatastore()
         updateOffBodyPolicy()
-        scope.launch {
-            var previous = OpenVpnService.runtimeState.value
-            OpenVpnService.runtimeState.collect { state ->
-                if (state != previous) {
-                    val routedServersExist = takServerDetails.any { it.openVpnProfileId != null }
-                    if (routedServersExist &&
-                        (previous.status == OpenVpnStatus.CONNECTED || state.status == OpenVpnStatus.CONNECTED)) {
-                        closeTakServerSockets()
-                        resetTakServerConnectionDetails()
-                        if (state.status == OpenVpnStatus.CONNECTED && isNetworkConnected) {
-                            connectToTakServers()
-                        }
-                    }
-                    previous = state
-                }
-            }
-        }
         scope.launch(Dispatchers.Main.immediate) {
             var previousNetwork: android.net.Network? = null
             var routeInitialized = false
@@ -539,6 +521,7 @@ class TAKConnectService: Service() {
         identityEpoch = identityEpoch,
         strictServerTrust = strictServerTrust,
         openVpnProfileId = openVpnProfileId,
+        openVpnPluginPackage = openVpnPluginPackage,
         numConnAttempts = 0
     )
 
@@ -552,7 +535,8 @@ class TAKConnectService: Service() {
             p12Cert.orEmpty() == item.p12Cert &&
             p12CertPassword.orEmpty() == item.p12CertPassword &&
             identityEpoch == item.identityEpoch && strictServerTrust == item.strictServerTrust &&
-            openVpnProfileId == item.openVpnProfileId
+            openVpnProfileId == item.openVpnProfileId &&
+            openVpnPluginPackage == item.openVpnPluginPackage
 
     private fun TakServerDetail.hasChangedCredentialMaterial(item: TakServerItem): Boolean =
         address != item.address.trim() ||
@@ -933,6 +917,50 @@ class TAKConnectService: Service() {
         private val channelTraceSequence = AtomicInteger(0)
         private val dataPackageSlot = java.util.concurrent.Semaphore(1)
         @Volatile private var activeMulticastSource: Pair<Network, String>? = null
+
+        @JvmStatic
+        fun onOpenVpnProviderChanged() {
+            val service = activeService ?: return
+            val routedServers = takServerDetails.filter {
+                it.openVpnProfileId != null || it.openVpnPluginPackage != null
+            }
+            if (routedServers.isEmpty()) return
+            routedServers.forEach(::invalidateConnection)
+            setIsAnyNetworkConnected()
+            setIsAnyNetworkConnecting()
+            connectionScope.launch {
+                try {
+                    service.reloadProvisionedTakServers()
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.e(TAG, "Unable to reconcile OpenVPN provider change", error)
+                    routedServers.forEach(::invalidateConnection)
+                    setIsAnyNetworkConnected()
+                    setIsAnyNetworkConnecting()
+                }
+            }
+        }
+
+        @JvmStatic
+        fun onOpenVpnRouteChanged(serverId: String) {
+            val service = activeService ?: return
+            takServerDetailsById[serverId]?.let(::invalidateConnection)
+            setIsAnyNetworkConnected()
+            setIsAnyNetworkConnecting()
+            connectionScope.launch {
+                try {
+                    service.reloadProvisionedTakServers()
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.e(TAG, "Unable to reconcile selected OpenVPN route", error)
+                    takServerDetailsById[serverId]?.let(::invalidateConnection)
+                    setIsAnyNetworkConnected()
+                    setIsAnyNetworkConnecting()
+                }
+            }
+        }
 
         private fun receiveDataPackage(offer: TakDataPackageRequest, envelope: TakServerCotEnvelope) {
             if (envelope.sourcePeerAddress != null) {
@@ -2622,25 +2650,30 @@ class TAKConnectService: Service() {
         private fun beginConnectionAttempt(detail: TakServerDetail): ConnectionAttempt? {
             if (com.aitech.weartak_civ.data.takserver.ReviewedServerRuntimeGate.blocked(detail.address, detail.port)) return null
             val vpnProfileId = detail.openVpnProfileId
-            if (vpnProfileId != null) {
-                val vpn = OpenVpnService.runtimeState.value
-                if (vpn.status != OpenVpnStatus.CONNECTED || vpn.profileId != vpnProfileId) {
-                    detail.connectionStatusLiveData.postValue("OpenVPN not connected")
+            val vpnPluginPackage = detail.openVpnPluginPackage
+            val vpnRouteSelected = vpnProfileId != null || vpnPluginPackage != null
+            val providerRegistry = (activeService?.application as? WearTakApplication)?.openVpnProviderRegistry
+            if (vpnRouteSelected) {
+                if (vpnProfileId.isNullOrBlank() || vpnPluginPackage != OpenVpnHostContract.PLUGIN_PACKAGE) {
+                    detail.connectionStatusLiveData.postValue("OpenVPN route needs profile re-selection")
+                    return null
+                }
+                if (providerRegistry?.isConnected(vpnPluginPackage, vpnProfileId) != true) {
+                    detail.connectionStatusLiveData.postValue("OpenVPN plugin or profile unavailable")
                     return null
                 }
             }
             val oldSockets: MutableList<java.net.Socket> = mutableListOf()
-            val attempt: ConnectionAttempt
-            synchronized(detail.runtime.lock) {
+            val attempt = synchronized(detail.runtime.lock) {
                 if (!offBodyAllowsConnection() || !takEndpointEnabled || serviceStopping || detail.runtime.terminated ||
                     !detail.isEnabled || !isNetworkConnected ||
                     detail.duplicateEndpointSuppressed) {
                     recordConnection(detail, ConnectionTransition.SKIPPED, connectionGateReason(detail))
-                    return null
+                    return@synchronized null
                 }
                 if (hasActiveConnection(detail)) {
                     recordConnection(detail, ConnectionTransition.SKIPPED, ConnectionReason.ACTIVE_ATTEMPT)
-                    return null
+                    return@synchronized null
                 }
                 detail.runtime.connectJob?.cancel()
                 detail.runtime.readerJob?.cancel()
@@ -2653,18 +2686,41 @@ class TAKConnectService: Service() {
                 detail.runtime.connectingSocket = null
                 detail.secureSocket = null
                 detail.runtime.generation++
-                attempt = ConnectionAttempt(detail.runtime.generation)
+                val attempt = ConnectionAttempt(detail.runtime.generation)
                 detail.runtime.currentAttempt = attempt
                 detail.connectionFailureLiveData.postValue(null)
+                val network = activeService?.takNetworkPreference?.network?.value
+                val vpnFactory = if (vpnRouteSelected) {
+                    providerRegistry?.socketFactory(
+                        pluginPackage = requireNotNull(vpnPluginPackage),
+                        serverId = detail.serverId,
+                        profileId = requireNotNull(vpnProfileId),
+                        serverAddress = detail.address,
+                        serverPort = detail.port,
+                        allowedPorts = setOf(detail.port, 8443, 8446),
+                        network = network,
+                        connectionGeneration = attempt.generation,
+                    ) {
+                        isCurrent(detail, attempt) &&
+                            detail.openVpnPluginPackage == vpnPluginPackage &&
+                            detail.openVpnProfileId == vpnProfileId
+                    }
+                } else null
+                if (vpnRouteSelected && vpnFactory == null) {
+                    detail.runtime.currentAttempt = null
+                    detail.connectionStatusLiveData.postValue("OpenVPN plugin unavailable")
+                    return@synchronized null
+                }
                 attempt.httpSession = TakHttpSession(
-                    network = activeService?.takNetworkPreference?.network?.value,
-                    openVpnSocketFactory = vpnProfileId?.let(::OpenVpnSocketFactory),
+                    network = network,
+                    openVpnSocketFactory = vpnFactory,
                 ) { isCurrent(detail, attempt) }
                 detail.runtime.connectJob = null
                 detail.runtime.readerJob = null
                 detail.connectionStatus.set(TAK_SERVER_OBTAINING_CLIENT_CERT)
                 detail.connectionStatusLiveData.postValue(TAK_SERVER_CONNECTING_STRING)
                 recordConnection(detail, ConnectionTransition.START, generation = attempt.generation)
+                attempt
             }
             TakConnectionCloser.close(oldSockets)
             return attempt

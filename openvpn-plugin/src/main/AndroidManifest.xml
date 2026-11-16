@@ -1,0 +1,51 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.aitech.weartak_civ" />
+        <package android:name="com.aitech.weartak_civ.dev" />
+        <package android:name="com.aitech.weartak_civ.nearbyfixture" />
+        <package android:name="com.aitech.weartak_civ.ditto.diagnostics.fixture" />
+    </queries>
+    <uses-feature android:name="android.hardware.type.watch" android:required="false" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="com.weartak.plugin.permission.BIND_PLUGIN" />
+
+    <application
+        android:name=".OpenVpnPluginApplication"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:label="WearTAK OpenVPN"
+        android:icon="@android:drawable/ic_lock_lock"
+        android:theme="@android:style/Theme.DeviceDefault">
+        <activity
+            android:name=".OpenVpnMainActivity"
+            android:exported="true"
+            android:label="OpenVPN">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".OpenVpnPluginService"
+            android:exported="true"
+            android:permission="com.weartak.plugin.permission.BIND_PLUGIN"
+            android:stopWithTask="false">
+            <intent-filter>
+                <action android:name="com.weartak.plugin.action.PLUGIN_SERVICE" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".service.openvpn.OpenVpnService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started OpenVPN tunnel for selected WearTAK server routing" />
+        </service>
+    </application>
+</manifest>
