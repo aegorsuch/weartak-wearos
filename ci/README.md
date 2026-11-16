@@ -1,5 +1,139 @@
 # Rolling GitHub pipeline release
 
+## Host and plugin version synchronization
+
+Root [`wear-version.properties`](../wear-version.properties) is the authoritative
+host version: `versionName=5.8.4` and `baseVersionCode=584`. Update this file,
+not Gradle literals. Host Gradle and changelog verification consume it directly.
+Versions have three or four numeric components, without leading zeros.
+CI compares numeric components (missing fourth component means zero), rejects
+version/code decreases, and requires a strictly greater base code for a greater
+version. An unchanged version may retain or increase its base code. The first
+migration compares against the previous commit's legacy host Gradle definitions;
+later comparisons require the manifest, with no malformed-file fallback.
+
+Run `python ci/wear_version.py validate` locally against HEAD, or add
+`--base <commit>` for another ancestral baseline. CI uses full Git history:
+MR target/diff-base SHA, previous push SHA, first-parent tag/manual-main baseline,
+or the main merge-base for a new non-main branch. Missing/non-ancestral ranges and
+checkout/source mismatches fail closed. `wear_version_check` blocks builds.
+The Python regression suite runs in the existing `release_publisher_tests` job.
+
+Plugin CI codes are `baseVersionCode * 10000 + CI_PIPELINE_IID`. Each plugin
+uses its own project IID, **1..9999**, never the host IID. Base codes **1..209999**
+reserve the entire IID range below Android's `2100000000` maximum. Reject IID
+10000; do not wrap, truncate or reset it. Before a project exhausts its IID
+range, a separate reviewed version-code scheme migration is required.
+Local host builds retain their base-only code; CI host names/codes retain their
+existing `-p<IID>+<sha>` / base-times-10000 format.
+
+### Protected-main fan-out and consumer contract
+
+`wear_version_fan_out` runs only on protected canonical project **6739** `main`
+**push** pipelines where this manifest changed, after existing build, publication
+and draft stages succeed. Branches, MRs, tags, web/API/scheduled/downstream
+pipelines and ordinary main code changes cannot fan out. The script rechecks
+identity, checkout, ancestral comparison, manifest change and version bounds.
+Its 12 independent matrix jobs POST
+`/api/v4/projects/<target-id>/trigger/pipeline` using their ephemeral
+`CI_JOB_TOKEN`, creating native linked multi-project pipelines. No PAT or
+pipeline-trigger token is used. Each job targets exactly one approved ref:
+
+| Plugin | Project ID | Ref |
+| --- | --- | --- |
+| OpenVPN | 7025 | `main` |
+| Aster | 6988 | `main` |
+| Lattice | 6952 | `main` |
+| Nearby Drop | 6948 | `main` |
+| TAK-CAD | 6942 | `main` |
+| goTenna | 6941 | `main` |
+| MOPP | 6933 | `main` |
+| LACE | 6912 | `main` |
+| Sextant | 6910 | `main` |
+| Edge Scout | 6890 | `master` |
+| Ditto | 6786 | `aegorsuch-weartak-313-ditto-plugin-extraction` |
+| Somewear | 6737 | `main` |
+
+Forwarded variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `WEARTAK_VERSION_NAME` | Manifest `versionName` |
+| `WEARTAK_BASE_VERSION_CODE` | Manifest `baseVersionCode` |
+| `WEARTAK_VERSION_SOURCE_PROJECT_ID` | Exactly `6739` |
+| `WEARTAK_VERSION_SOURCE_SHA` | Exact full host commit SHA, not floating `main` |
+| `WEARTAK_VERSION_ATTESTATION` | Short-lived GitLab-signed OIDC ID token |
+
+Forwarded variables and `CI_PIPELINE_SOURCE=pipeline` alone are **not**
+upstream authentication. Before building/signing, consumers must verify the
+attestation's **RS256 signature** with GitLab's trusted JWKS, `iss` exactly
+`https://git.tak.gov`, `aud` exactly
+`https://git.tak.gov/weartak/version-sync`, and required `exp`, `nbf`, `iat`.
+Require signed `project_id`/`job_project_id=6739`, matching
+`project_path`/`job_project_path=core/weartak-core/wearos-tak-civ`,
+`ref=main`, `ref_type=branch`, `ref_path=refs/heads/main`,
+`ref_protected=true`, `pipeline_source=push`, and
+`sha=WEARTAK_VERSION_SOURCE_SHA`. Do not trust decoded-but-unverified claims or
+token-supplied key URLs. Missing/invalid/expired claims must fail closed, never
+fall back to an unsigned/default version for a triggered release.
+
+Then fetch
+`GET https://git.tak.gov/api/v4/projects/6739/repository/files/wear-version.properties/raw?ref=<verified-source-sha>`
+using the **consumer's own** job token, parse strictly, compare both manifest
+values to the forwarded values, and validate base/IID bounds before Gradle.
+Do not pass the host job token downstream. This authenticates a host version
+release request, not plugin source compatibility; existing tests, signing,
+release and destination/ref gates remain required.
+
+The trigger job declares `id_tokens` and `timeout: 1h`, setting token lifetime
+to one hour. Validate early in the downstream pipeline; long queue delays or
+retries after expiry must fail, requiring a newly authorized upstream job.
+Keep tokens out of logs, artifacts and shell tracing. The ID token is sent
+only in the POST body; GitLab stores forwarded pipeline variables, so restrict
+pipeline visibility to authorized members. It can be replayed until expiry;
+consumers should retain their normal stale-release/serialization safeguards.
+Matrix jobs do not wait for downstream completion: success means creation,
+not successful plugin builds. Inspect linked downstream status separately.
+No automatic trigger retry is configured; on an ambiguous timeout inspect the
+pipeline graph before retrying that target to avoid duplicate builds.
+
+### External setup blockers (not configured by this change)
+
+Maintainers must review these prerequisites before enabling production use:
+
+- In **each target's Settings > CI/CD > Job token permissions**, explicitly add
+  host project **6739** to its inbound allowlist; do not allow every project or
+  expand access to a whole group. The triggering user must also have permission
+  to create target pipelines, supply pipeline variables (currently Developer
+  minimum on all 12), and run the chosen protected ref/release jobs. Allowlisting
+  does not grant those user permissions.
+- In host project **6739**, permit each consumer's inbound job token to read
+  the pinned manifest. Restrict any fine-grained permissions to the necessary
+  repository-read and pipeline-trigger operations supported by the instance.
+- Land consumer validation and downstream pipeline/release rules before host
+  activation; targets must admit authenticated `pipeline` source builds on the
+  exact approved refs without weakening protected signing/publication rules.
+
+Read-only inspection on 2026-11-16 found protected host `main`, self-only
+direct project allowlists on all 12 targets, and host inbound project entries
+`6739`, `6786`, `7025`. Target group allowlists/enforcement and effective user
+permissions still require maintainer review; a missing direct entry alone is
+not proof that no inherited/group access exists. No allowlists, permissions,
+protection or project settings were changed.
+
+TAK.gov reports GitLab **19.5.3**. Public discovery at
+[`/.well-known/openid-configuration`](https://git.tak.gov/.well-known/openid-configuration)
+reports issuer `https://git.tak.gov` and
+[`/oauth/discovery/keys`](https://git.tak.gov/oauth/discovery/keys), with RSA
+RS256 keys. This verifies discovery/key availability and documented feature
+support, not successful job-token authorization or issuance of a live CI ID
+token. An authorized protected-main pipeline remains the end-to-end gate;
+no pipeline was created to test it.
+
+References: [job-token allowlists and user permissions](https://docs.gitlab.com/ci/jobs/ci_job_token/),
+[native API downstream pipelines](https://docs.gitlab.com/ci/pipelines/downstream_pipelines/#trigger-a-multi-project-pipeline-by-using-the-api),
+[GitLab ID-token claims](https://docs.gitlab.com/ci/secrets/id_token_authentication/).
+
 ## Immutable plugin SDK source
 
 Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
