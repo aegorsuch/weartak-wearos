@@ -106,7 +106,9 @@ class ReleaseMemoryTests(unittest.TestCase):
             command.group(1),
             "./gradlew --no-daemon --max-workers=2 "
             "-Pkotlin.compiler.execution.strategy=in-process "
-            "-PbatdokAcceptance=true clean assembleRelease",
+            "-PbatdokAcceptance=true clean :app:assembleRelease "
+            ":openvpn-plugin:assembleRelease "
+            ":weartak-plugin-host-services-sdk:assembleRelease",
         )
         self.assertIn('KUBERNETES_MEMORY_LIMIT: "8Gi"', ci)
         properties = (ROOT / "gradle.properties").read_text()
@@ -115,7 +117,15 @@ class ReleaseMemoryTests(unittest.TestCase):
         release_type = build.split("minifyEnabled true", 1)[1]
         self.assertIn("shrinkResources true", release_type)
         self.assertIn("Release signing verified.", release)
+        self.assertIn("OpenVPN plugin release signing verified.", release)
+        self.assertIn("PLUGIN_DEBUGGABLE", release)
+        self.assertIn("verified-plugin-apk.sha256", release)
         self.assertIn("verified-apk.sha256", release)
+        self.assertIn('chmod 600 "$CI_PROJECT_DIR/signing.properties"', release)
+        self.assertIn(
+            'rm -f "$CI_PROJECT_DIR/signing.properties" "$CI_PROJECT_DIR/app/weartak.keystore"',
+            release,
+        )
 
     def test_signed_trial_is_scoped_manual_and_does_not_publish(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()

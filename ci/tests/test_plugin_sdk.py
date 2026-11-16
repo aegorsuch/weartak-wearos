@@ -47,11 +47,23 @@ class PluginSdkTests(unittest.TestCase):
         self.assertEqual({"windows", "linux"}, pin["release_sha256"].keys())
         for expected in pin["release_sha256"].values():
             self.assertRegex(expected, r"^[0-9a-f]{64}$")
-        gradle = (ROOT / "app" / "build.gradle").read_text()
-        self.assertIn('pluginSdkPin.commit', gradle)
-        self.assertNotIn("rootProject.file('weartak-plugin-sdk-release.aar')", gradle)
-        self.assertIn("dependsOn tasks.named('verifyPluginSdk'), sdkNotices", gradle)
-        self.assertIn("include 'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'", gradle)
+        app_gradle = (ROOT / "app" / "build.gradle").read_text()
+        plugin_gradle = (ROOT / "openvpn-plugin" / "build.gradle").read_text()
+        sdk_gradle = (ROOT / "gradle" / "plugin-sdk.gradle").read_text()
+        self.assertIn("apply from: rootProject.file('gradle/plugin-sdk.gradle')", app_gradle)
+        self.assertIn("apply from: rootProject.file('gradle/plugin-sdk.gradle')", plugin_gradle)
+        self.assertIn("pluginSdkPin.commit.take(12)", sdk_gradle)
+        self.assertIn("pluginSdkPin.overlay.source_sha256.take(12)", sdk_gradle)
+        self.assertIn(
+            '".gradle/sdk/${pluginSdkIdentity}/build/outputs/aar/weartak-plugin-sdk-release.aar"',
+            sdk_gradle,
+        )
+        self.assertNotIn("weartak-plugin-sdk-release.aar", app_gradle)
+        self.assertNotIn("weartak-plugin-sdk-release.aar", plugin_gradle)
+        self.assertNotIn("rootProject.file('weartak-plugin-sdk-release.aar')", sdk_gradle)
+        self.assertIn("dependsOn tasks.named('verifyPluginSdk'), sdkNotices", sdk_gradle)
+        self.assertIn("'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'", sdk_gradle)
+        self.assertIn("implementation files(pluginSdkAarPath.get())", sdk_gradle)
         overlay = pin["overlay"]
         SDK.verify_hash(ROOT / overlay["archive"], overlay["archive_sha256"])
         SDK.verify_hash(ROOT / overlay["inventory"], overlay["source_sha256"])
