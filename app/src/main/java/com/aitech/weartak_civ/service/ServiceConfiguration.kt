@@ -100,9 +100,10 @@ class ServiceConfiguration(
 
         // Keep direct transports stopped briefly after a Companion drop to absorb reconnect flaps.
         ServiceType.DITTO -> combine(
-            dataRepository.getEnableDittoService, dataRepository.watchTransportSuppressed, DittoService.isReconfiguring
-        ) { enabled, suppressed, reconfiguring ->
-            enabled && !suppressed && !reconfiguring
+            dataRepository.getEnableDittoService, dataRepository.watchTransportSuppressed,
+            DittoService.isReconfiguring, DittoService.shutdownFailed
+        ) { enabled, suppressed, reconfiguring, shutdownFailed ->
+            enabled && !suppressed && !reconfiguring && !shutdownFailed
         }.distinctUntilChanged()
         ServiceType.HAIL -> dataRepository.getEnableHailService.distinctUntilChanged()
         ServiceType.CHAT  -> dataRepository.getEnableChatService.distinctUntilChanged()

@@ -105,6 +105,7 @@ class DittoService : Service() {
     private val transportLock = Any()
     private val trackGate = DittoTrackPublicationGate()
     @Volatile private var peerStopped = false
+    private var peerStopSucceeded = false
     private var companionHandoff = false
     @Volatile private var lastSelfTrackDocument: Map<String, Any?>? = null
 
@@ -134,8 +135,9 @@ class DittoService : Service() {
         dataRepository = application.repo
         liveStatusSession = liveStatusStore.begin()
         activeService.value = this
-        if (reconfiguring.value || dataRepository.shouldSuppressWatchTransportNow()) {
-            Log.i(TAG, "Ditto startup suppressed: identity changing or Companion handoff active")
+        if (reconfiguring.value || shutdownFailureState.value ||
+            dataRepository.shouldSuppressWatchTransportNow()) {
+            Log.i(TAG, "Ditto startup suppressed: identity changing, shutdown failed, or Companion handoff active")
             recordDittoLifecycle(DittoDiagnosticPhase.START, false)
             stopSelf()
             return
@@ -243,7 +245,8 @@ class DittoService : Service() {
     }
 
     internal fun startPeerSync(): Boolean = synchronized(peerLock) {
-        if (peerStopped || dataRepository.shouldSuppressWatchTransportNow()) return@synchronized false
+        if (peerStopped || reconfiguring.value || shutdownFailureState.value ||
+            dataRepository.shouldSuppressWatchTransportNow()) return@synchronized false
         val reason = powerPolicy.suppressionReason(powerState, android.os.SystemClock.elapsedRealtime())
         if (reason != null) {
             setPowerSuppression(reason)
@@ -258,7 +261,8 @@ class DittoService : Service() {
 
     internal fun onPowerStateChanged(state: DittoPowerState) = synchronized(peerLock) {
         powerState = state
-        if (peerStopped || !ownsDitto || dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
+        if (peerStopped || !ownsDitto || reconfiguring.value || shutdownFailureState.value ||
+            dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
         val reason = powerPolicy.suppressionReason(state, android.os.SystemClock.elapsedRealtime())
         val suppressed = reason != null
         if (suppressed == powerSuppressedState.value && syncActiveState.value == !suppressed) {
@@ -291,7 +295,8 @@ class DittoService : Service() {
     }
 
     internal fun resumeForAlert() = synchronized(peerLock) {
-        if (peerStopped || dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
+        if (peerStopped || reconfiguring.value || shutdownFailureState.value ||
+            dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
         powerPolicy.resumeForAlert(android.os.SystemClock.elapsedRealtime())
         onPowerStateChanged(powerState)
         alertGraceJob?.cancel()
@@ -343,37 +348,58 @@ class DittoService : Service() {
     private fun stopPeer() = synchronized(peerLock) {
         if (peerStopped) return@synchronized
         peerStopped = true
-        liveStatusSession?.close()
-        if (ownsDitto) {
-            try {
-                getDittoInstance()?.stopSync()
-                recordDittoLifecycle(DittoDiagnosticPhase.STOP, true)
-                Log.i(TAG, "Watch Ditto sync stopped (all peer transports)")
-            } catch (error: DittoError) {
-                recordDittoLifecycle(DittoDiagnosticPhase.STOP, false)
-                Log.e(TAG, "Error stopping Ditto sync", error)
+        var syncStopped = !ownsDitto
+        try {
+            liveStatusSession?.close()
+            if (ownsDitto) {
+                try {
+                    val instance = getDittoInstance()
+                    if (instance == null) {
+                        recordDittoLifecycle(DittoDiagnosticPhase.STOP, false)
+                        Log.e(TAG, "Owned Ditto instance missing during shutdown")
+                    } else {
+                        // This acknowledges the SDK call, not native transport quiescence.
+                        instance.stopSync()
+                        syncStopped = true
+                        recordDittoLifecycle(DittoDiagnosticPhase.STOP, true)
+                        Log.i(TAG, "Watch Ditto stopSync returned")
+                    }
+                } catch (error: DittoError) {
+                    recordDittoLifecycle(DittoDiagnosticPhase.STOP, false)
+                    Log.e(TAG, "Error stopping Ditto sync", error)
+                }
+            }
+            setSyncActive(false)
+            setPowerSuppression(null)
+            networkMonitor?.close()
+            networkMonitor = null
+            powerMonitor?.close()
+            powerMonitor = null
+            publicationRetry?.close()
+            publicationRetry = null
+            dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
+            dittoUpdateThread?.quitSafely()
+            dittoUpdateHandler = null
+            dittoUpdateThread = null
+            storeObservers?.close()
+            storeObservers = null
+            bleDiscovery?.close()
+            bleDiscovery = null
+            ioScope.cancel()
+            unSubscribeToCollections()
+            dataRepository.setEndpointDisconnected(DataRepository.Endpoint.DITTO)
+            if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this)
+            peerStopSucceeded = syncStopped
+        } finally {
+            if (ownsDitto && !peerStopSucceeded) {
+                shutdownFailureState.value = true
+                Log.e(TAG, "Ditto shutdown unacknowledged; blocking restart and identity replacement")
             }
         }
-        setSyncActive(false)
-        setPowerSuppression(null)
-        networkMonitor?.close()
-        networkMonitor = null
-        powerMonitor?.close()
-        powerMonitor = null
-        publicationRetry?.close()
-        publicationRetry = null
-        dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
-        dittoUpdateThread?.quitSafely()
-        dittoUpdateHandler = null
-        dittoUpdateThread = null
-        storeObservers?.close()
-        storeObservers = null
-        bleDiscovery?.close()
-        bleDiscovery = null
-        ioScope.cancel()
-        unSubscribeToCollections()
-        dataRepository.setEndpointDisconnected(DataRepository.Endpoint.DITTO)
-        if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this)
+    }
+
+    private fun didStopPeerSuccessfully(): Boolean = synchronized(peerLock) {
+        peerStopped && peerStopSucceeded
     }
 
     private fun subscribeToCollections() {
@@ -964,6 +990,8 @@ class DittoService : Service() {
 
         private val DITTO_SERVICE_NOTIFICATION_ID = 3333
         val isRunning: AtomicBoolean = AtomicBoolean(false)
+        private val shutdownFailureState = MutableStateFlow(false)
+        internal val shutdownFailed = shutdownFailureState.asStateFlow()
         private val syncActiveState = MutableStateFlow(false)
         private val liveStatusStore = DittoLiveStatusStore()
         internal val liveStatus = liveStatusStore.state
@@ -1016,13 +1044,29 @@ class DittoService : Service() {
             identityMutex.withLock {
                 if (repo.phoneManagedSettingsLocked.first() || repo.getNetworkPreferencesLocked.first()) return@withLock false
                 val before = repo.getEnableDittoService.first()
+                var previous: DittoService? = null
+                var previousThread: HandlerThread? = null
+                var shutdownRequested = false
+                var shutdownAcknowledged = false
                 try {
+                    check(!shutdownFailureState.value) { "Previous Ditto shutdown failed" }
+                    if (!enabled) {
+                        previous = activeService.value
+                        previousThread = previous?.dittoUpdateThread
+                        shutdownRequested = true
+                        reconfiguring.value = true
+                    }
                     if (enabled && !isRunning.get()) startupResult.value = null
                     repo.storeEnableDittoService(enabled)
                     if (repo.getEnableDittoService.first() != enabled) return@withLock false
                     if (!enabled) {
                         withContext(Dispatchers.Main) { context.stopService(Intent(context, DittoService::class.java)) }
-                        withTimeout(15_000) { activeService.first { it == null } }
+                        awaitStoppedWorkers(previous, previousThread)
+                        check(previous == null || previous.didStopPeerSuccessfully()) {
+                            "Ditto shutdown was not acknowledged"
+                        }
+                        check(!shutdownFailureState.value) { "Ditto shutdown failed" }
+                        shutdownAcknowledged = true
                         true
                     } else {
                         val app = context.applicationContext as WearTakApplication
@@ -1046,27 +1090,48 @@ class DittoService : Service() {
                     repo.storeEnableDittoService(before)
                     Log.e(TAG, "Ditto enable update failed")
                     false
+                } finally {
+                    if (!enabled) {
+                        if (shutdownRequested && previous != null && !shutdownAcknowledged) {
+                            shutdownFailureState.value = true
+                            Log.e(TAG, "Ditto shutdown incomplete; blocking restart and identity replacement")
+                        }
+                        reconfiguring.value = false
+                    }
                 }
             }
 
+        private suspend fun awaitStoppedWorkers(previous: DittoService?, thread: HandlerThread?) {
+            withTimeout(15_000) {
+                activeService.first { it == null }
+                // Cancellation is not completion: wait for store writes/observers before restart or JNI close.
+                previous?.ioScope?.coroutineContext?.get(Job)?.join()
+                if (thread != null) withContext(Dispatchers.IO) { thread.join(10_000) }
+                check(thread?.isAlive != true) { "Ditto worker did not stop" }
+            }
+        }
+
         suspend fun applySelectedIdentity(context: Context, repo: DataRepository): Boolean =
             identityMutex.withLock {
+                val previous = activeService.value
+                val thread = previous?.dittoUpdateThread
                 reconfiguring.value = true
+                var shutdownRequested = false
+                var shutdownAcknowledged = false
                 try {
-                    val previous = activeService.value
-                    val thread = previous?.dittoUpdateThread
+                    check(!shutdownFailureState.value) { "Previous Ditto shutdown failed" }
+                    shutdownRequested = true
                     withContext(Dispatchers.Main) {
                         context.stopService(Intent(context, DittoService::class.java))
                     }
-                    withTimeout(15_000) {
-                        activeService.first { it == null }
-                        // Cancellation is not completion: wait for store writes/observers before closing JNI.
-                        previous?.ioScope?.coroutineContext?.get(Job)?.join()
-                        if (thread != null) withContext(Dispatchers.IO) { thread.join(10_000) }
-                        check(thread?.isAlive != true) { "Ditto worker did not stop" }
+                    awaitStoppedWorkers(previous, thread)
+                    check(previous == null || previous.didStopPeerSuccessfully()) {
+                        "Ditto shutdown was not acknowledged"
                     }
+                    check(!shutdownFailureState.value) { "Ditto shutdown failed" }
+                    shutdownAcknowledged = true
                     withContext(Dispatchers.Main) {
-                        dittoInstance?.close()
+                        dittoInstance?.let(::closeNativeDitto)
                         dittoInstance = null
                         check(initializeDitto(context, repo)) { "Ditto identity could not be applied" }
                     }
@@ -1080,6 +1145,10 @@ class DittoService : Service() {
                     Log.e(TAG, "Ditto identity apply failed: ${error.javaClass.simpleName}")
                     return@withLock false
                 } finally {
+                    if (shutdownRequested && !shutdownAcknowledged) {
+                        shutdownFailureState.value = true
+                        Log.e(TAG, "Ditto shutdown incomplete; blocking restart and identity replacement")
+                    }
                     reconfiguring.value = false
                 }
                 val app = context.applicationContext as WearTakApplication
@@ -1100,6 +1169,19 @@ class DittoService : Service() {
                     false
                 }
             }
+
+        internal fun closeNativeDitto(instance: Ditto) {
+            var closed = false
+            try {
+                instance.close()
+                closed = true
+            } finally {
+                if (!closed) {
+                    shutdownFailureState.value = true
+                    Log.e(TAG, "Ditto native close failed; blocking restart and identity replacement")
+                }
+            }
+        }
 
         private fun initializeDitto(
             applicationContext: Context,
@@ -1170,7 +1252,7 @@ class DittoService : Service() {
                 true
             } catch (error: Exception) {
                 recordDittoLifecycle(DittoDiagnosticPhase.INITIALIZE, false)
-                candidate?.close()
+                candidate?.let(::closeNativeDitto)
                 Log.e(TAG, "Failed to initialize Ditto")
                 Toast.makeText(applicationContext, "Ditto failed to start", Toast.LENGTH_LONG).show()
                 false

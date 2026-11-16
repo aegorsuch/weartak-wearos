@@ -12,6 +12,7 @@ import com.aitech.weartak_civ.cep.engine.config.ParserException
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import com.weartak.plugin.sdk.WearTakPluginContract
 import com.weartak.plugin.sdk.host.v1.HostServicesContract
+import com.weartak.plugin.sdk.community.v1.CommunityIdentityContract
 import com.weartak.plugin.sdk.aidl.IWearTakPlugin
 import com.weartak.plugin.sdk.model.PluginInitParcel
 import com.weartak.plugin.sdk.model.PluginInfoParcel
@@ -58,6 +59,7 @@ class PluginConnection(
     @Volatile private var hostTransportV1: PluginTransportHostV1Impl? = null
     @Volatile private var hostMoppControl: HostMoppPpeControl? = null
     @Volatile private var hostRouteStatusControl: HostRouteStatusControl? = null
+    @Volatile private var communityIdentityControl: HostCommunityIdentityControl? = null
     private var hostServicesV1: HostServicesV1Impl? = null
     @Volatile private var hostOpenVpnServicesV1: HostOpenVpnServicesV1Impl? = null
     private val stateLock = Any()
@@ -93,6 +95,7 @@ class PluginConnection(
         hostOpenVpnServicesV1?.close()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
+        communityIdentityControl?.close()
         sessionActive = false
         certificateImport?.close()
         serverPackages?.close()
@@ -107,6 +110,7 @@ class PluginConnection(
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
+        communityIdentityControl?.close()
         PluginDiagnostics.recordBinderDeath(pluginPackage)
         manager.onConnectionDied(this)
     }
@@ -175,8 +179,8 @@ class PluginConnection(
             pluginBinder = service
             plugin = iface
         }
-        runCatching { service.linkToDeath(deathRecipient, 0) }
-            .onFailure { Log.w(TAG, "linkToDeath failed pkg=$pluginPackage", it) }
+        val deathLinked = runCatching { service.linkToDeath(deathRecipient, 0) }
+            .onFailure { Log.w(TAG, "linkToDeath failed pkg=$pluginPackage", it) }.isSuccess
 
         val info = runCatching { iface.pluginInfo }.getOrElse { t ->
             Log.e(TAG, "getPluginInfo failed", t)
@@ -306,6 +310,18 @@ class PluginConnection(
             })
         } else null
         val services = HostServicesV1Impl(app, pluginPackage, pluginUid)
+        val communityControl = if (pluginPackage == TrustedCommunityPlugin.PACKAGE && deathLinked) {
+            HostCommunityIdentityControl(
+                expectedUid = pluginUid,
+                bindingActive = {
+                    !closed && service.isBinderAlive && manager.connectionFor(pluginPackage) === this
+                },
+                authorize = { TrustedCommunityPlugin.verify(app, pluginUid) },
+                // A cross-process native-quiescence lease does not exist yet.
+                ownershipConfirmed = { false },
+                communityIdentity = { app.repo.communityDittoPdl() },
+            )
+        } else null
         val openVpnServices = if (pluginPackage == OpenVpnHostContract.PLUGIN_PACKAGE) {
             HostOpenVpnServicesV1Impl(
                 app,
@@ -331,6 +347,7 @@ class PluginConnection(
                 revokeCertificateSessions()
                 routeStatusControl.close()
                 moppControl?.close()
+                communityControl?.close()
                 controlV3?.close()
                 services.close()
                 openVpnServices?.close()
@@ -343,6 +360,7 @@ class PluginConnection(
             hostServicesV1 = services
             hostOpenVpnServicesV1 = openVpnServices
             hostMoppControl = moppControl
+            communityIdentityControl = communityControl
             hostRouteStatusControl = routeStatusControl
             hostTransportV1 = transportV1
             manager.settingsCoordinator.registerTransportHost(pluginPackage, transportV1)
@@ -371,6 +389,10 @@ class PluginConnection(
                     putBoolean(MoppPpeContract.EXTRA_CAPABILITY, true)
                     putBinder(MoppPpeContract.EXTRA_CONTROL, moppControl)
                 }
+                if (communityControl != null) {
+                    putInt(CommunityIdentityContract.EXTRA_VERSION, CommunityIdentityContract.VERSION)
+                    putBinder(CommunityIdentityContract.EXTRA_CONTROL, communityControl)
+                }
             },
         )
         try {
@@ -397,6 +419,7 @@ class PluginConnection(
                 PluginDiagnostics.markConnected(pluginPackage)
                 moppControl?.ready()
                 routeStatusControl.ready()
+                communityControl?.ready()
                 Log.i(TAG, "initialized plugin pkg=$pluginPackage api=$api")
             }
         }
@@ -408,6 +431,7 @@ class PluginConnection(
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
+        communityIdentityControl?.close()
         Log.w(TAG, "onServiceDisconnected pkg=$pluginPackage")
         manager.onConnectionLost(this@PluginConnection)
     }
@@ -418,6 +442,7 @@ class PluginConnection(
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
         hostMoppControl?.close()
+        communityIdentityControl?.close()
         Log.w(TAG, "onBindingDied pkg=$pluginPackage")
         manager.onConnectionLost(this)
     }
@@ -447,6 +472,8 @@ class PluginConnection(
             hostRouteStatusControl = null
             hostMoppControl?.close()
             hostMoppControl = null
+            communityIdentityControl?.close()
+            communityIdentityControl = null
             mainHandler.removeCallbacks(handshakeTimeout)
             hostServicesV1?.close()
             hostOpenVpnServicesV1?.close()
