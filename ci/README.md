@@ -65,7 +65,26 @@ Forwarded variables:
 | `WEARTAK_VERSION_ATTESTATION` | Short-lived GitLab-signed OIDC ID token |
 
 Forwarded variables and `CI_PIPELINE_SOURCE=pipeline` alone are **not**
-upstream authentication. Before building/signing, consumers must verify the
+upstream authentication. The host JWT proves a protected-main host job; it
+does **not** uniquely bind that job to a particular downstream pipeline.
+Before building/signing, consumers must authenticate
+`GET https://git.tak.gov/api/v4/job` with their **own** `CI_JOB_TOKEN` in the
+`JOB-TOKEN` header. Require the returned `pipeline.source` to equal `pipeline`,
+the pipeline's project ID to equal the expected consumer project, matching job
+and pipeline refs, and a branch rather than a tag. Do not substitute forwarded
+variables or unverified environment values for this server-returned identity.
+Missing fields or an unavailable endpoint must fail closed.
+
+Consumers must also verify from job-token-authorized GitLab branch metadata
+that this actual target ref is both **protected** and the project's **default
+branch**, and matches its approved ref above. The job endpoint alone does not
+establish branch protection/default status. The approved Ditto extraction ref
+must remain blocked from signing if it does not satisfy this gate; reconciling
+that ref with the protected-default-branch requirement needs separate review,
+not an implicit exception or a host-side ref change.
+
+Together with the exclusive external-initiator allowlist below, consumers must
+verify the
 attestation's **RS256 signature** with GitLab's trusted JWKS, `iss` exactly
 `https://git.tak.gov`, `aud` exactly
 `https://git.tak.gov/weartak/version-sync`, and required `exp`, `nbf`, `iat`.
@@ -89,9 +108,17 @@ The trigger job declares `id_tokens` and `timeout: 1h`, setting token lifetime
 to one hour. Validate early in the downstream pipeline; long queue delays or
 retries after expiry must fail, requiring a newly authorized upstream job.
 Keep tokens out of logs, artifacts and shell tracing. The ID token is sent
-only in the POST body; GitLab stores forwarded pipeline variables, so restrict
-pipeline visibility to authorized members. It can be replayed until expiry;
-consumers should retain their normal stale-release/serialization safeguards.
+only in the downstream trigger POST body; the host helper does not write it
+to disk, commit it or publish it as an artifact. This is **not zero-persistence**:
+GitLab may retain the assertion in downstream pipeline metadata until normal
+retention cleanup; this contract permits that retention. Restrict pipeline
+visibility to authorized members. Retention does not extend the token's
+one-hour validity: consumers must fail closed on expiry, even while metadata
+remains available. The token can be replayed until expiry;
+neither the JWT nor the job endpoint by itself proves a unique upstream-to-
+downstream relationship. Consumers must retain their normal stale-release/
+serialization safeguards, and signing must remain blocked until the external
+initiator restrictions and a live host trigger are verified.
 Matrix jobs do not wait for downstream completion: success means creation,
 not successful plugin builds. Inspect linked downstream status separately.
 No automatic trigger retry is configured; on an ambiguous timeout inspect the
@@ -101,9 +128,19 @@ pipeline graph before retrying that target to avoid duplicate builds.
 
 Maintainers must review these prerequisites before enabling production use:
 
+- Verify the host manifest and version-sync implementation have landed on
+  canonical project **6739** protected **main**. A local host commit or branch
+  pipeline is not activation evidence; consumers must verify the exact signed
+  source SHA and pinned manifest from canonical main.
 - In **each target's Settings > CI/CD > Job token permissions**, explicitly add
-  host project **6739** to its inbound allowlist; do not allow every project or
-  expand access to a whole group. The triggering user must also have permission
+  host project **6739** as its **only external project initiator**. The target's
+  own inherent project entry is not an external initiator. Verify the complete
+  project allowlist and **all group-level allowlist entries**: no other external
+  project or group may provide an alternate initiation path. Keep inbound
+  allowlist enforcement enabled; do not allow every project or rely on a
+  permissive public/internal-project setting. This requires review of effective
+  permissions, not merely finding project 6739 in a partial list.
+  The triggering user must also have permission
   to create target pipelines, supply pipeline variables (currently Developer
   minimum on all 12), and run the chosen protected ref/release jobs. Allowlisting
   does not grant those user permissions.
@@ -111,8 +148,14 @@ Maintainers must review these prerequisites before enabling production use:
   the pinned manifest. Restrict any fine-grained permissions to the necessary
   repository-read and pipeline-trigger operations supported by the instance.
 - Land consumer validation and downstream pipeline/release rules before host
-  activation; targets must admit authenticated `pipeline` source builds on the
+  activation; verify the consumer's own `/api/v4/job` response, protected default
+  target branch metadata, and the signed host claims/SHA before allowing any
+  signing. Targets must admit authenticated `pipeline` source builds on the
   exact approved refs without weakening protected signing/publication rules.
+- **Do not enable or claim downstream signing is enabled** until every target's
+  exclusive external-initiator policy (including absence of alternate group
+  entries), effective user/ref permissions, and a live authorized host trigger
+  with successful consumer provenance validation have been verified.
 
 Read-only inspection on 2026-11-16 found protected host `main`, self-only
 direct project allowlists on all 12 targets, and host inbound project entries
