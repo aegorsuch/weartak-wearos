@@ -1,6 +1,8 @@
 package com.aitech.weartak_civ.cot
 
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.integration.plugin.HandlerExertion
+import com.aitech.weartak_civ.service.LegacyPliPayloadBuilder
 import com.aitech.weartak_civ.service.BatteryPowerObserver.DockType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -13,6 +15,35 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.xml.sax.InputSource
 
 class CotMessageBuilderTest {
+    @Test fun handlerOverrideChangesOnlyOutboundExertion() {
+        val native = pliSnapshot().copy(monitoredPhysio = physio().data)
+        val replaced = HandlerExertion.pli(native, 0.75)
+        val options = CotMessageBuilder.PliOptions("EAGLE", "Medic", "Blue", false, "")
+        assertTrue(CotMessageBuilder.pli(replaced, options).contains("<exert>0.75</exert>"))
+        assertTrue(CotDetailBuilder.dittoTrack(replaced.monitoredPhysio, 80, "EAGLE", "Medic", "Blue",
+            "watch-1", 0f, 0f, dittoA = "peer", dittoVersion = "1", dittoDeviceName = "watch")
+            .contains("<exert>0.75</exert>"))
+        assertEquals(native.monitoredPhysio!!.copy(exertion = 0.75), replaced.monitoredPhysio)
+        assertEquals(native.physioData, replaced.physioData)
+        val legacy = LegacyPliPayloadBuilder.build(replaced,
+            LegacyPliPayloadBuilder.Options("EAGLE", "Medic", "Blue", false, true, true))
+        assertTrue(legacy.esriGeoJson!!.contains("\"exertion\":0.75"))
+        assertTrue(legacy.tabletCommandJson!!.contains("\"exertion\":0.75"))
+        assertEquals(.25, native.monitoredPhysio!!.exertion!!, 0.0)
+        assertEquals(native, HandlerExertion.pli(native, null))
+        assertEquals(native.copy(monitoredPhysio = null),
+            HandlerExertion.pli(native.copy(monitoredPhysio = null), 0.75))
+        val noExertion = native.copy(monitoredPhysio = native.monitoredPhysio!!.copy(exertion = null))
+        assertEquals(noExertion, HandlerExertion.pli(noExertion, 0.75))
+
+        val emergency = emergencySnapshot(DataRepository.AlertState.ALERT)
+        assertTrue(CotMessageBuilder.emergency(HandlerExertion.emergency(emergency, 0.75))
+            .contains("<exert>0.75</exert>"))
+        assertEquals(emergency, HandlerExertion.emergency(emergency, null))
+        val noEmergencyScore = emergency.copy(physio = emergency.physio!!.copy(
+            data = emergency.physio.data.copy(exertion = null)))
+        assertEquals(noEmergencyScore, HandlerExertion.emergency(noEmergencyScore, 0.75))
+    }
     @Test fun pliPreservesWatchUidAndHumanCallsignWithAtakStyleDittoDeviceName() {
         val base = pliSnapshot()
         val uid = "WEAROS_056b9ca33004b318"

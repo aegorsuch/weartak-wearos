@@ -23,6 +23,8 @@ import com.weartak.plugin.sdk.transport.model.TransportResultParcel
 import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -37,6 +39,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.runBlocking
+import android.os.Bundle
+import com.weartak.plugin.sdk.model.PluginLifecycleState
+import com.weartak.plugin.sdk.model.PluginStatusParcel
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -173,6 +179,7 @@ class PluginConnectionBindTrustTest {
             plugin = FakeWearTakPlugin(pluginPkg)
             conn.onServiceConnected(intent.component!!, plugin.asBinder())
         }
+
         val ingress = mockk<PluginIngressPort>(relaxed = true)
         every { ingress.packagesForUid(any(), any()) } returns setOf(pluginPkg)
         val trust = mockk<PluginTrust>()
@@ -204,6 +211,110 @@ class PluginConnectionBindTrustTest {
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
         assertEquals(3, bindFlags.size)
         assertEquals(Context.BIND_AUTO_CREATE, bindFlags.last())
+    }
+
+    @Test
+    fun handlerStatusIsReadOnlyFromReadyTrustedConnectionAndStopsOnUnbind() {
+        val handler = HandlerExertion.PACKAGE
+        var status = PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0,
+            Bundle().apply { putDouble("handler_exertion_fraction", 0.72) })
+        val plugin = object : FakeWearTakPlugin(handler) {
+            override fun getStatus() = status
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(handler))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(handler)
+        val mgr = PluginManager(app, ingress, mockk<PluginTrust>(relaxed = true))
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        mgr.refreshBindings()
+        awaitPluginLifecycle(handler)
+        assertEquals(0.72, runBlocking { HandlerExertion.read(mgr) }!!, 0.0)
+        status = PluginStatusParcel(PluginLifecycleState.RUNNING)
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        status = PluginStatusParcel(PluginLifecycleState.STOPPED, "", 0,
+            Bundle().apply { putDouble("handler_exertion_fraction", 0.9) })
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        mgr.unbindPackage(handler)
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        awaitPluginLifecycle(handler)
+    }
+
+    @Test
+    fun handlerStatusRejectsWrongTypeAndOutOfRangeValues() {
+        fun status(extras: Bundle) = PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0, extras)
+        for (invalid in listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.01, 1.01)) {
+            assertEquals(null, HandlerExertion.value(status(Bundle().apply {
+                putDouble("handler_exertion_fraction", invalid)
+            })))
+        }
+        assertEquals(null, HandlerExertion.value(status(Bundle().apply {
+            putFloat("handler_exertion_fraction", 0.5f)
+        })))
+        for (valid in listOf(0.0, 1.0)) {
+            assertEquals(valid, HandlerExertion.value(status(Bundle().apply {
+                putDouble("handler_exertion_fraction", valid)
+            }))!!, 0.0)
+        }
+    }
+
+    @Test
+    fun otherConnectedPluginCannotSupplyHandlerExertion() {
+        var calls = 0
+        val plugin = object : FakeWearTakPlugin(pluginPkg) {
+            override fun getStatus(): PluginStatusParcel {
+                calls++
+                return PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0,
+                    Bundle().apply { putDouble("handler_exertion_fraction", 0.8) })
+            }
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(pluginPkg))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(pluginPkg)
+        val mgr = PluginManager(app, ingress, mockk<PluginTrust>(relaxed = true))
+        mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        assertEquals(0, calls)
+        mgr.unbindPackage(pluginPkg)
+        awaitPluginLifecycle(pluginPkg)
+    }
+
+    @Test
+    fun handlerStatusTimeoutDoesNotReuseLateResultOrBlockUnbind() {
+        val handler = HandlerExertion.PACKAGE
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val returned = CountDownLatch(1)
+        val plugin = object : FakeWearTakPlugin(handler) {
+            override fun getStatus(): PluginStatusParcel {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                return PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0,
+                    Bundle().apply { putDouble("handler_exertion_fraction", 0.9) }).also { returned.countDown() }
+            }
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(handler))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(handler)
+        val mgr = PluginManager(app, ingress, mockk<PluginTrust>(relaxed = true))
+        mgr.refreshBindings()
+        awaitPluginLifecycle(handler)
+        try {
+            assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            mgr.unbindPackage(handler)
+            assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        } finally {
+            release.countDown()
+            assertTrue(returned.await(5, TimeUnit.SECONDS))
+            awaitPluginLifecycle(handler)
+        }
     }
 
     @Test

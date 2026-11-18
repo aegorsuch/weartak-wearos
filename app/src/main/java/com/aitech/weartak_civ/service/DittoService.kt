@@ -820,7 +820,12 @@ class DittoService : Service() {
             Log.i(TAG, "Skipping Ditto track: awaiting first valid location fix")
             return
         }
-        val pliSnapshot = freshSnapshot ?: dataRepository.snapshotPli()
+        val pliSnapshot = com.aitech.weartak_civ.integration.plugin.HandlerExertion.pli(
+            freshSnapshot ?: dataRepository.snapshotPli(),
+            com.aitech.weartak_civ.integration.plugin.HandlerExertion.read(
+                (applicationContext as WearTakApplication).pluginManager,
+            ),
+        )
         val battery = freshSnapshot?.systemData?.batteryPercent ?: dataRepository.latestBatteryPercentage.value ?: -1
         val callsign = freshSnapshot?.systemData?.callsign ?: MainActivity.callsign
         val role = freshSnapshot?.systemData?.role ?: MainActivity.role
