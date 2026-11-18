@@ -302,32 +302,6 @@ agp_resolution_diagnostic:
     - sha256sum "$PLUGIN_APK" > openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
     - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
 
-batdok_signed_trial:
-  extends: .release_build
-  environment:
-    name: battak-trial
-    action: prepare
-  artifacts:
-    when: on_success
-    expire_in: 7 days
-    access: developer
-    paths:
-      - app/build/outputs/apk/release/*.apk
-      - app/build/outputs/apk/release/verified-apk.sha256
-      - app/build/outputs/apk/release/output-metadata.json
-      - openvpn-plugin/build/outputs/apk/release/*.apk
-      - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
-  rules:
-    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
-      when: manual
-      allow_failure: true
-    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_PIPELINE_SOURCE == "merge_request_event"'
-      when: manual
-      allow_failure: true
-    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE == "push"'
-      when: manual
-      allow_failure: true
-
 # Protected, developer-only ARM64 qualification. The job deliberately has no
 # publication dependency or access to the release publisher's artifacts.
 arm64_qualification:

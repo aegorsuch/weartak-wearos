@@ -3343,18 +3343,10 @@ fail all builds. Unrelated ordinary builds with neither input remain buildable b
 show that BATTAK configuration is absent; they are not acceptance candidates.
 Private CI must set both inputs in the appropriate authorized scope and use the
 acceptance flag; no remote CI variables are created by this change.
-The shared CI release job enforces this flag for main, official and manual
-`batdok_signed_trial` builds. The trial is opt-in on canonical branch/MR pipelines,
-reuses existing production signing checks, and does not publish. Successful trial
-APK artifacts expire after seven days and require Developer access. Existing
-protected-variable permissions are unchanged: an authorized maintainer must
-ensure interoperability and signing inputs are available to the selected job;
-otherwise it fails visibly. Do not weaken variable protection to run a trial.
-The dedicated `battak-trial` environment uses preparation only, not deployment.
-A new web pipeline on the exact protected `aegorsuch-batdok-patient-sharing`
-candidate branch runs ordinary Android, lint and publisher tests before the
-manual trial becomes available. Trial-only compatibility variables must use
-environment scope `battak-trial`; earlier unprotected pipelines are not candidates.
+The shared CI release job enforces this flag for main and official builds.
+Existing protected-variable permissions are unchanged: authorized maintainers
+must ensure interoperability and signing inputs are available to each selected
+job; otherwise, it fails visibly. Do not weaken variable protection.
 Main releases use the separate `battak-release` preparation environment; their
 compatibility inputs must be scoped only to `battak-release`.
 Build validation checks presence/encoding, not receiver-compatible values.

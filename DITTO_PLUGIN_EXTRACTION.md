@@ -88,11 +88,6 @@ SDK AAR contents against pinned hashes. Offline debug and release builds and
 117 tests per variant passed using the pinned SDKs; the local release was
 unsigned. CI for these uncommitted changes and device-level Binder
 interoperability remain unverified.
-Core pipeline 1859540 passed host lint and publisher tests, but its manual
-signed trial failed because the signing keystore variable was unavailable.
-The trial ran on an unprotected branch; existing protected-variable
-permissions must not be weakened to run it. No signed core trial APK resulted.
-
 ### Coexistence and handoff
 
 `CotDispatchPolicy` currently routes standalone chat, marker, and emergency
