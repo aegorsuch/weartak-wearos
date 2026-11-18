@@ -146,7 +146,7 @@ Robolectric's separate Android runtime resolver receives the same approved
 repository and credentials when both are available; no static credentials
 or token values are committed or printed.
 
-`android_mopp_check` runs debug assembly and focused host/plugin regression
+`android_host_regression` runs debug assembly and focused host/plugin regression
 tests on merge requests and main pushes without production signing setup.
 Main release jobs still wait for successful test-stage jobs. Existing release
 lint checks remain enabled. Full `lintDebug` is not a new blocking gate: the

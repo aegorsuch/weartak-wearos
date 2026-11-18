@@ -12,7 +12,7 @@ Output: `build\outputs\aar\weartak-plugin-host-services-sdk-release.aar` inside 
 Canonical source is `https://git.tak.gov/core/weartak-core/wearos-tak-civ`;
 the normal main pipeline mirrors it to `https://github.com/aegorsuch/weartak-wearos`.
 Pin a full source commit SHA,
-not a moving branch. The `android_mopp_check` MR job publishes the AAR for integration;
+not a moving branch. The `android_host_regression` MR job publishes the AAR for integration;
 `main_release` publishes it alongside `verified-sdk.sha256` and the signed host APK.
 
 For consumer CI, this module also builds standalone without configuring the host

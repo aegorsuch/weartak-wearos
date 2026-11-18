@@ -224,35 +224,36 @@ class TAKConnectServiceLifecycleTest {
             TakEnrollmentException(TakConnectionFailure(
                 TakEnrollmentStage.CONFIG, TakFailureCategory.AUTHENTICATION, 401))
 
+        // Close each subsequent gate before reopening the previous one; live collectors can reconnect asynchronously.
         // No network still blocks admission.
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        TAKConnectService.isNetworkConnected = true
         detail.isEnabled = false
+        TAKConnectService.isNetworkConnected = true
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        detail.isEnabled = true
         TAKConnectService.takEndpointEnabled = false
+        detail.isEnabled = true
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        TAKConnectService.takEndpointEnabled = true
         companionConnected.value = true
+        TAKConnectService.takEndpointEnabled = true
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        companionConnected.value = false
         companionGraceActive.value = true
+        companionConnected.value = false
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        companionGraceActive.value = false
         detail.runtime.terminated = true
+        companionGraceActive.value = false
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        detail.runtime.terminated = false
         detail.duplicateEndpointSuppressed = true
+        detail.runtime.terminated = false
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        detail.duplicateEndpointSuppressed = false
         controller.destroy()
+        detail.duplicateEndpointSuppressed = false
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
         verify(exactly = 0) { TAKConnectService.fetchAndParseCertificateConfig(any(), any()) }
