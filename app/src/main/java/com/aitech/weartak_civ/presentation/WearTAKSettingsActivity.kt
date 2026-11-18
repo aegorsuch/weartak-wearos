@@ -3250,6 +3250,13 @@ fun WearTAKSettingsNav(
                 columnContent = {
                     item {
                         WearTAKTitleChip(
+                            icon = {
+                                Image(
+                                    painter = painterResource(id = R.drawable.takwerx_market),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            },
                             title = stringResource(R.string.takwerx_market_title),
                             route = "takwerx_market",
                             navController = navController

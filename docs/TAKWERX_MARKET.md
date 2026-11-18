@@ -5,6 +5,10 @@ catalog selected at build time; it does not accept user-entered repositories.
 Builds without catalog configuration show Market as unavailable and make no
 catalog request.
 
+The Plugins-menu icon is the TAKwerx Market ATAK plugin launcher icon, used
+with permission: [source](https://github.com/takwerx/takwerx-market/blob/main/app/src/main/res/drawable/ic_launcher.png).
+The source repository is licensed under AGPL-3.0.
+
 ## Configure a build
 
 Provide both catalog values as Gradle properties or environment variables:
