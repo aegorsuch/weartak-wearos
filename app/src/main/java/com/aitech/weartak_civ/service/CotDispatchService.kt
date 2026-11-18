@@ -1149,7 +1149,13 @@ class CotDispatchService : Service() {
         val ce: Float // Horizontal Error
     )
 
-    private suspend fun buildPliCot(snapshot: DataRepository.PliSnapshot): String {
+    private suspend fun buildPliCot(nativeSnapshot: DataRepository.PliSnapshot): String {
+        val snapshot = com.aitech.weartak_civ.integration.plugin.HandlerExertion.pli(
+            nativeSnapshot,
+            com.aitech.weartak_civ.integration.plugin.HandlerExertion.read(
+                (applicationContext as WearTakApplication).pluginManager,
+            ),
+        )
         val callsign = snapshot.systemData.callsign
         val role = snapshot.systemData.role
         val teamValue = snapshot.systemData.team
@@ -1491,7 +1497,13 @@ class CotDispatchService : Service() {
             Log.w(TAG, "Emergency uid=${alert.uuid} has no valid fix; chat accepted=$accepted, positional alert awaits GPS")
             return accepted && alert.alertState == DataRepository.AlertState.CANCEL
         }
-        val xml = CotMessageBuilder.emergency(snapshotForDispatch)
+        val outboundSnapshot = com.aitech.weartak_civ.integration.plugin.HandlerExertion.emergency(
+            snapshotForDispatch,
+            com.aitech.weartak_civ.integration.plugin.HandlerExertion.read(
+                (applicationContext as WearTakApplication).pluginManager,
+            ),
+        )
+        val xml = CotMessageBuilder.emergency(outboundSnapshot)
 
         val sent = dispatch(
             CotOutboundMessage(xml, CotMessageKind.EMERGENCY, CotCompanionPayload.Emergency(snapshotForDispatch)),
