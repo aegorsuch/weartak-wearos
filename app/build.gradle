@@ -419,8 +419,14 @@ dependencies {
 
     // bouncycastle for CSR generation
     implementation 'org.bouncycastle:bcprov-lts8on:2.73.7'
-    implementation 'org.bouncycastle:bcpkix-lts8on:2.73.7'
-    runtimeOnly 'org.bouncycastle:bcutil-lts8on:2.73.7'
+    // Keep BC's version-ranged transitives pinned to versions already used by the app.
+    implementation('org.bouncycastle:bcpkix-lts8on:2.73.7') {
+        exclude group: 'org.bouncycastle', module: 'bcprov-lts8on'
+        exclude group: 'org.bouncycastle', module: 'bcutil-lts8on'
+    }
+    implementation('org.bouncycastle:bcutil-lts8on:2.73.7') {
+        exclude group: 'org.bouncycastle', module: 'bcprov-lts8on'
+    }
     implementation 'com.fasterxml.jackson.core:jackson-core:2.18.2'
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.18.2'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
