@@ -554,4 +554,31 @@
         <item quantity="many">%1$d/%2$d serveurs</item>
     </plurals>
     <string name="openvpn_service_running">Tunnel OpenVPN actif</string>
+    <string name="takwerx_market_title">Marché TAKwerx</string>
+    <string name="market_intro">Parcourez les plugins WearTAK signés. Android demandera une confirmation avant l’installation sur cette montre.</string>
+    <string name="market_not_configured">Aucun catalogue signé n’est configuré pour cette version.</string>
+    <string name="market_refresh">Actualiser le catalogue</string>
+    <string name="market_loading">Chargement du catalogue…</string>
+    <string name="market_empty">Aucun plugin n’est publié actuellement.</string>
+    <string name="market_catalog_error">Impossible de charger le catalogue. Vérifiez la connexion et réessayez.</string>
+    <string name="market_publisher_version">%1$s · %2$s · version %3$s</string>
+    <string name="market_official">Officiel</string>
+    <string name="market_community">Communauté</string>
+    <string name="market_source">Code source</string>
+    <string name="market_source_unavailable">Aucune application ne peut ouvrir ce lien vers le code source.</string>
+    <string name="market_compatible">Compatible avec cette version de WearTAK</string>
+    <string name="market_incompatible">Incompatible avec cette version de WearTAK</string>
+    <string name="market_installed_version">Installé : %1$s</string>
+    <string name="market_install">Installer</string>
+    <string name="market_update">Mettre à jour</string>
+    <string name="market_up_to_date">À jour</string>
+    <string name="market_newer_installed">Une version plus récente est déjà installée</string>
+    <string name="market_signer_mismatch">Le signataire installé diffère de celui du catalogue</string>
+    <string name="market_play_managed">Google Play gère les mises à jour de WearTAK</string>
+    <string name="market_package_unavailable">Impossible de vérifier le package installé</string>
+    <string name="market_permission_needed">Autorisez les installations depuis WearTAK, puis revenez et réessayez</string>
+    <string name="market_permission_settings_error">Impossible d’ouvrir les paramètres d’autorisation d’installation d’Android.</string>
+    <string name="market_download_verifying">Téléchargement et vérification…</string>
+    <string name="market_installer_confirmation">Confirmez l’installation dans l’installateur Android.</string>
+    <string name="market_install_error">Impossible de préparer le package pour l’installation.</string>
 </resources>

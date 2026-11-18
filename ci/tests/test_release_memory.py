@@ -145,7 +145,7 @@ class ReleaseMemoryTests(unittest.TestCase):
         self.assertIn("- main_release", publisher)
         self.assertNotIn("batdok_signed_trial", publisher)
         self.assertIn('$CI_PIPELINE_SOURCE == "push"', publisher)
-        android = ci.split("\nandroid_mopp_check:", 1)[1].split("\nrelease_publisher_tests:", 1)[0]
+        android = ci.split("\nandroid_host_regression:", 1)[1].split("\nrelease_publisher_tests:", 1)[0]
         self.assertIn('CI_PIPELINE_SOURCE == "web"', android)
         self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', android)
 

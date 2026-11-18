@@ -551,4 +551,31 @@
         <item quantity="other">%1$d/%2$d Sunucu</item>
     </plurals>
     <string name="openvpn_service_running">OpenVPN tüneli etkin</string>
+    <string name="takwerx_market_title">TAKwerx Pazarı</string>
+    <string name="market_intro">İmzalı WearTAK eklentilerine göz atın. Bu saate yüklemeden önce Android onay ister.</string>
+    <string name="market_not_configured">Bu derleme için imzalı katalog yapılandırılmamış.</string>
+    <string name="market_refresh">Kataloğu yenile</string>
+    <string name="market_loading">Katalog yükleniyor…</string>
+    <string name="market_empty">Şu anda yayımlanmış eklenti yok.</string>
+    <string name="market_catalog_error">Katalog yüklenemedi. Bağlantıyı kontrol edip yeniden deneyin.</string>
+    <string name="market_publisher_version">%1$s · %2$s · sürüm %3$s</string>
+    <string name="market_official">Resmi</string>
+    <string name="market_community">Topluluk</string>
+    <string name="market_source">Kaynak kodu</string>
+    <string name="market_source_unavailable">Bu kaynak bağlantısını açabilecek bir uygulama yok.</string>
+    <string name="market_compatible">Bu WearTAK sürümüyle uyumlu</string>
+    <string name="market_incompatible">Bu WearTAK sürümüyle uyumlu değil</string>
+    <string name="market_installed_version">Yüklü: %1$s</string>
+    <string name="market_install">Yükle</string>
+    <string name="market_update">Güncelle</string>
+    <string name="market_up_to_date">Güncel</string>
+    <string name="market_newer_installed">Daha yeni bir sürüm zaten yüklü</string>
+    <string name="market_signer_mismatch">Yüklü imzalayan katalogdakinden farklı</string>
+    <string name="market_play_managed">WearTAK güncellemelerini Google Play yönetiyor</string>
+    <string name="market_package_unavailable">Yüklü paket doğrulanamıyor</string>
+    <string name="market_permission_needed">WearTAK üzerinden yüklemelere izin verin, sonra dönüp yeniden deneyin</string>
+    <string name="market_permission_settings_error">Android yükleme izni ayarları açılamadı.</string>
+    <string name="market_download_verifying">İndiriliyor ve doğrulanıyor…</string>
+    <string name="market_installer_confirmation">Yüklemeyi Android yükleyicisinde onaylayın.</string>
+    <string name="market_install_error">Paket yükleme için hazırlanamadı.</string>
 </resources>

@@ -52,6 +52,22 @@ internal fun TakwerxMarketPage(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val catalogErrorFallback = stringResource(R.string.market_catalog_error)
+    val permissionNeeded = stringResource(R.string.market_permission_needed)
+    val permissionSettingsError = stringResource(R.string.market_permission_settings_error)
+    val downloadVerifying = stringResource(R.string.market_download_verifying)
+    val installerConfirmation = stringResource(R.string.market_installer_confirmation)
+    val installError = stringResource(R.string.market_install_error)
+    val installStateMessages = mapOf(
+        MarketInstallState.INSTALL to stringResource(R.string.market_install),
+        MarketInstallState.UPDATE to stringResource(R.string.market_update),
+        MarketInstallState.UP_TO_DATE to stringResource(R.string.market_up_to_date),
+        MarketInstallState.NEWER_VERSION_INSTALLED to stringResource(R.string.market_newer_installed),
+        MarketInstallState.INCOMPATIBLE to stringResource(R.string.market_incompatible),
+        MarketInstallState.SIGNER_MISMATCH to stringResource(R.string.market_signer_mismatch),
+        MarketInstallState.PLAY_MANAGED_HOST to stringResource(R.string.market_play_managed),
+        MarketInstallState.PACKAGE_QUERY_FAILED to stringResource(R.string.market_package_unavailable),
+    )
     val configuration = remember { MarketConfiguration.fromBuildConfig() }
     val catalogRepository = remember(configuration) { MarketCatalogRepository(configuration) }
     val installer = remember(catalogRepository) { MarketInstallCoordinator(context, catalogRepository) }
@@ -92,7 +108,7 @@ internal fun TakwerxMarketPage(
                 catalog = catalogRepository.fetchCatalog(context.packageName)
             } catch (error: Exception) {
                 Log.e(TAG, "Could not load signed plugin catalog", error)
-                catalogError = error.message ?: context.getString(R.string.market_catalog_error)
+                catalogError = error.message ?: catalogErrorFallback
                 catalog = null
             } finally {
                 loading = false
@@ -120,50 +136,39 @@ internal fun TakwerxMarketPage(
             operationMessage = null
             MarketInstallStatusReceiver.clearStatus(context, plugin.packageName)
             if (!installer.canInstallPackages()) {
-                operationMessage = context.getString(R.string.market_permission_needed)
+                operationMessage = permissionNeeded
                 try {
                     context.startActivity(installer.installPermissionIntent())
                 } catch (error: Exception) {
                     Log.e(TAG, "Cannot open unknown-source install settings", error)
-                    operationMessage = context.getString(R.string.market_permission_settings_error)
+                    operationMessage = permissionSettingsError
                 }
                 return@launch
             }
 
             activePackage = plugin.packageName
-            operationMessage = context.getString(R.string.market_download_verifying)
+            operationMessage = downloadVerifying
             try {
                 when (val result = installer.install(plugin)) {
                     is MarketInstallResult.Submitted -> {
-                        operationMessage = context.getString(R.string.market_installer_confirmation)
+                        operationMessage = installerConfirmation
                     }
                     MarketInstallResult.PermissionRequired -> {
-                        operationMessage = context.getString(R.string.market_permission_needed)
+                        operationMessage = permissionNeeded
                         try {
                             context.startActivity(installer.installPermissionIntent())
                         } catch (error: Exception) {
                             Log.e(TAG, "Cannot open unknown-source install settings", error)
-                            operationMessage = context.getString(R.string.market_permission_settings_error)
+                            operationMessage = permissionSettingsError
                         }
                     }
                     is MarketInstallResult.Blocked -> {
-                        operationMessage = context.getString(
-                            when (result.state) {
-                                MarketInstallState.INSTALL -> R.string.market_install
-                                MarketInstallState.UPDATE -> R.string.market_update
-                                MarketInstallState.UP_TO_DATE -> R.string.market_up_to_date
-                                MarketInstallState.NEWER_VERSION_INSTALLED -> R.string.market_newer_installed
-                                MarketInstallState.INCOMPATIBLE -> R.string.market_incompatible
-                                MarketInstallState.SIGNER_MISMATCH -> R.string.market_signer_mismatch
-                                MarketInstallState.PLAY_MANAGED_HOST -> R.string.market_play_managed
-                                MarketInstallState.PACKAGE_QUERY_FAILED -> R.string.market_package_unavailable
-                            }
-                        )
+                        operationMessage = installStateMessages.getValue(result.state)
                     }
                 }
             } catch (error: Exception) {
                 Log.e(TAG, "Plugin install failed: ${plugin.packageName}", error)
-                operationMessage = error.message ?: context.getString(R.string.market_install_error)
+                operationMessage = error.message ?: installError
             } finally {
                 activePackage = null
                 installedRevision++
