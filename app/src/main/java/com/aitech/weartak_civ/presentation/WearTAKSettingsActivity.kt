@@ -3250,6 +3250,13 @@ fun WearTAKSettingsNav(
                 columnContent = {
                     item {
                         WearTAKTitleChip(
+                            title = stringResource(R.string.takwerx_market_title),
+                            route = "takwerx_market",
+                            navController = navController
+                        )
+                    }
+                    item {
+                        WearTAKTitleChip(
                             title = "OpenVPN",
                             route = "openvpn_plugin",
                             navController = navController
@@ -3686,6 +3693,12 @@ fun WearTAKSettingsNav(
                     }
                 },
                 navController,
+            )
+        }
+        composable("takwerx_market") {
+            TakwerxMarketPage(
+                navController = navController,
+                pluginViewModel = pluginVm,
             )
         }
         //Admin Preferences ^^^

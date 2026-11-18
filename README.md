@@ -106,6 +106,10 @@ of production persistence.
 - Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
 - Provides optional audio detection pipelines for gunshot and UAS events, and optional CRM inference.
 - Hosts supported WearTAK plugins through the included plugin SDK contract.
+- Provides the optional watch-native TAKwerx Market for signed, curated
+  first-party and approved community plugin releases. See
+  [`docs/TAKWERX_MARKET.md`](docs/TAKWERX_MARKET.md) for catalog configuration
+  and publishing requirements.
 
 Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
 
