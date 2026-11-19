@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
@@ -21,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -29,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
@@ -57,7 +61,6 @@ internal fun TakwerxMarketPage(
     val snapshot by updateMonitor.snapshot.collectAsStateWithLifecycle()
     val permissionNeeded = stringResource(R.string.market_permission_needed)
     val permissionSettingsError = stringResource(R.string.market_permission_settings_error)
-    val downloadVerifying = stringResource(R.string.market_download_verifying)
     val installerConfirmation = stringResource(R.string.market_installer_confirmation)
     val installError = stringResource(R.string.market_install_error)
     val installStateMessages = mapOf(
@@ -76,6 +79,7 @@ internal fun TakwerxMarketPage(
     val catalog = snapshot.catalog
     val loading = snapshot.status == MarketRefreshStatus.CHECKING
     var operationMessage by remember { mutableStateOf<String?>(null) }
+    var operationPackage by remember { mutableStateOf<String?>(null) }
     var activePackage by remember { mutableStateOf<String?>(null) }
     var installedRevision by remember { mutableIntStateOf(0) }
     val displayPlugins = remember(catalog, installedRevision) {
@@ -119,7 +123,9 @@ internal fun TakwerxMarketPage(
     fun install(plugin: MarketPlugin) {
         scope.launch {
             operationMessage = null
+            operationPackage = plugin.packageName
             MarketInstallStatusReceiver.clearStatus(context, plugin.packageName)
+            installedRevision++
             if (!installer.canInstallPackages()) {
                 operationMessage = permissionNeeded
                 try {
@@ -132,7 +138,6 @@ internal fun TakwerxMarketPage(
             }
 
             activePackage = plugin.packageName
-            operationMessage = downloadVerifying
             try {
                 when (val result = installer.install(plugin)) {
                     is MarketInstallResult.Submitted -> {
@@ -198,22 +203,18 @@ internal fun TakwerxMarketPage(
                 }
             }
 
-            operationMessage?.let { message ->
-                item {
-                    Text(
-                        message,
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        color = MaterialTheme.colors.onSurface,
-                    )
-                }
-            }
             displayPlugins.forEach { display ->
                 item {
                     MarketPluginEntry(
                         plugin = display.plugin,
                         installState = display.installState,
                         canStartInstall = activePackage == null,
-                        installResult = display.lastResult?.second,
+                        installing = activePackage == display.plugin.packageName,
+                        installResult = if (operationPackage == display.plugin.packageName) {
+                            display.lastResult?.second ?: operationMessage
+                        } else {
+                            display.lastResult?.second
+                        },
                         onInstall = { install(display.plugin) },
                     )
                 }
@@ -231,10 +232,11 @@ private data class MarketPluginDisplay(
 )
 
 @Composable
-private fun MarketPluginEntry(
+internal fun MarketPluginEntry(
     plugin: MarketPlugin,
     installState: MarketInstallState,
     canStartInstall: Boolean,
+    installing: Boolean,
     installResult: String?,
     onInstall: () -> Unit,
 ) {
@@ -253,7 +255,12 @@ private fun MarketPluginEntry(
             MarketInstallState.PACKAGE_QUERY_FAILED -> R.string.market_package_unavailable
         },
     )
-    val detail = if (!download && !current) statusText else installResult
+    val detail = when {
+        installing -> null
+        !download && !current -> statusText
+        else -> installResult
+    }
+    val progressDescription = stringResource(R.string.market_download_verifying)
     Chip(
         onClick = onInstall,
         enabled = canStartInstall && download,
@@ -269,7 +276,13 @@ private fun MarketPluginEntry(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (download) {
+                if (installing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp).semantics {
+                            contentDescription = progressDescription
+                        },
+                    )
+                } else if (download) {
                     Icon(painterResource(R.drawable.ic_market_download), contentDescription = statusText)
                 } else if (current) {
                     Icon(Icons.Filled.Check, contentDescription = statusText)
