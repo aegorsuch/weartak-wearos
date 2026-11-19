@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -26,6 +27,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -150,30 +152,53 @@ class DittoBleRecoveryUiTest {
         }
     }
 
-    @Test fun marketUpdateWarningUsesYellowWarningPatternAndOpensMarketAction() {
-        var opened = false
+    @Test fun marketUpdateWarningOpensSettingsMarketInsteadOfHomeNavigation() =
+        verifyMarketUpdateNavigation(viaPicker = false)
+
+    @Test fun marketUpdateWarningPickerOpensSettingsMarketAndDismissesPicker() =
+        verifyMarketUpdateNavigation(viaPicker = true)
+
+    private fun verifyMarketUpdateNavigation(viaPicker: Boolean) {
+        var reviewed = false
         compose.setContent {
+            val activityContext = LocalContext.current
             WearTAKCIVTheme {
-                HomeTopMetricCard(
-                    "HR",
-                    "72bpm",
-                    TopDisplayMetric.HEART_RATE,
-                    R.drawable.heart_rate,
-                    Utils.AlertChipState.None,
-                    null,
-                    {},
-                    listOf(HomeStatusWarning(
-                        "market-update",
-                        TopMetricAlertSource.MARKET_UPDATE,
-                        context.getString(R.string.market_update_available),
-                        Utils.AlertChipState.Warning,
-                    ) { opened = true }),
-                )
+                HomeWarningReviewHost(
+                    gunshotPending = null,
+                    uasPending = null,
+                    findEvent = { _, _ -> null },
+                    emitFeedback = { _, _ -> true },
+                    dittoWarning = if (viaPicker) BleLinkWarning.DISCONNECTED else BleLinkWarning.NONE,
+                    marketUpdateAvailable = true,
+                    onMarketUpdate = { openMarketUpdates(activityContext) { reviewed = true } },
+                ) { warnings, onReviewWarnings ->
+                    HomeTopMetricCard(
+                        "HR",
+                        "72bpm",
+                        TopDisplayMetric.HEART_RATE,
+                        R.drawable.heart_rate,
+                        Utils.AlertChipState.None,
+                        null,
+                        {},
+                        warnings,
+                        onReviewWarnings,
+                    )
+                }
             }
         }
 
-        compose.onNodeWithTag("market-update-warning").assertExists().performClick()
-        assertTrue(opened)
+        if (viaPicker) {
+            compose.onNodeWithTag("home-secondary-warnings").performClick()
+            compose.onNodeWithTag("home-warning-market-update").performClick()
+            compose.onNodeWithTag("home-warning-picker").assertDoesNotExist()
+        } else {
+            compose.onNodeWithTag("market-update-warning").assertExists().performClick()
+        }
+        val intent = shadowOf(context).nextStartedActivity
+        assertEquals(WearTAKSettingsActivity::class.java.name, intent.component!!.className)
+        assertEquals("takwerx_market", settingsShortcutRoute(intent))
+        assertTrue(reviewed)
+        assertNull(shadowOf(context).nextStartedActivity)
     }
 
     @Test fun topMetricWarningFitsAtFontScale13WithTouchTarget() {
