@@ -10,7 +10,8 @@ validated internet connectivity. A transient transport failure gets one retry
 while connected. Returning to the WearTAK home activity also retries an
 interrupted check when online. WearTAK compares only compatible releases already
 present in that catalog with installed package versions and signers. The yellow
-home warning opens the Market for review; it is not a startup dialog. APK
+home warning opens the Settings activity directly to Market for review, whether
+tapped alone or selected from the warning picker; it is not a startup dialog. APK
 verification and Android's installer confirmation remain required.
 Opening Market with updates available hides the warning for the current home
 activity session. When WearTAK Home starts again, the warning returns if

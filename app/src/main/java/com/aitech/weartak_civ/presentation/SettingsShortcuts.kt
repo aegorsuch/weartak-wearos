@@ -17,7 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.Icon
 import com.aitech.weartak_civ.R
 
-private val settingsShortcutPages = setOf("environmental_alerts", "physiological_alerts", "reporting_strategy")
+private val settingsShortcutPages = setOf(
+    "environmental_alerts", "physiological_alerts", "reporting_strategy", "takwerx_market"
+)
 
 internal fun settingsShortcutIntent(context: Context, route: String): Intent {
     require(route in settingsShortcutPages)
@@ -27,6 +29,11 @@ internal fun settingsShortcutIntent(context: Context, route: String): Intent {
 
 internal fun settingsShortcutRoute(intent: Intent): String? =
     intent.getStringExtra(WearTAKSettingsActivity.EXTRA_OPEN_SETTINGS_PAGE)?.takeIf { it in settingsShortcutPages }
+
+internal fun openMarketUpdates(context: Context, onReviewed: () -> Unit) {
+    context.startActivity(settingsShortcutIntent(context, "takwerx_market"))
+    onReviewed()
+}
 
 internal fun homeMetricIntent(context: Context): Intent =
     Intent(context, PhysioAlertsActivity::class.java)

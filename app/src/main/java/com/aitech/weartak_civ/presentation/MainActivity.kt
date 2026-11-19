@@ -2568,8 +2568,9 @@ fun MainScreen(
             },
             marketUpdateAvailable = marketUpdateSnapshot.showUpdateWarning,
             onMarketUpdate = {
-                marketUpdateMonitor?.markUpdatesReviewed()
-                navController.navigate("takwerx_market")
+                openMarketUpdates(context) {
+                    marketUpdateMonitor?.markUpdatesReviewed()
+                }
             },
         ) { warnings, onReviewWarnings ->
         SwipeToDismissBox(
