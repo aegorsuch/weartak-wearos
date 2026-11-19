@@ -558,6 +558,11 @@
     <string name="market_loading">Katalog wird geladen…</string>
     <string name="market_empty">Derzeit sind keine Plugins veröffentlicht.</string>
     <string name="market_catalog_error">Katalog konnte nicht geladen werden. Verbindung prüfen und erneut versuchen.</string>
+    <string name="market_offline">Keine Internetverbindung. Der Katalog wird aktualisiert, sobald die Verbindung wiederhergestellt ist.</string>
+    <string name="market_catalog_invalid">Signatur oder Format des signierten Katalogs konnte nicht überprüft werden.</string>
+    <string name="market_catalog_unavailable">Updates konnten nicht geprüft werden. Erneut versuchen.</string>
+    <string name="market_no_updates">Keine neueren kompatiblen WearTAK- oder freigegebenen Plugin-Versionen.</string>
+    <string name="market_update_available">Update verfügbar</string>
     <string name="market_publisher_version">%1$s · %2$s · Version %3$s</string>
     <string name="market_official">Offiziell</string>
     <string name="market_community">Community</string>

@@ -5,6 +5,37 @@ catalog selected at build time; it does not accept user-entered repositories.
 Builds without catalog configuration show Market as unavailable and make no
 catalog request.
 
+WearTAK checks the signed catalog at process startup and when Android reports
+validated internet connectivity. It compares only compatible releases already
+present in that catalog with installed package versions and signers. A warning
+opens the Market for review; APK verification and Android's installer
+confirmation remain required.
+
+The client does not scan GitHub or discover repositories. The separate
+`market-publisher` job in this GitHub mirror checks only repositories in
+[`approved-repositories.json`](../market-publisher/approved-repositories.json)
+and publishes the signed catalog to GitHub Pages hourly. The initial allowlist
+contains WearTAK and seven personal `weartak-plugin-*` repositories with
+verified stable APKs; SDK and template repositories are excluded. Six other
+personal plugin repositories are listed as pending until they publish stable
+APKs and their package/signer metadata is reviewed. GitHub's latest-release
+API omits drafts and pre-releases, so evaluation and development releases are
+not offered.
+
+The publisher inspects each selected APK's package, version, and signing
+certificate, computes its SHA-256, and signs the catalog with Ed25519. New
+repositories require a maintainer-reviewed change to the allowlist. Do not add
+a repository based only on its name or source link. Community plugin entries
+are limited to WearTAK host version code 5840000 and newer; revise their
+compatibility bounds when release metadata has been reviewed for another host
+range. Unchanged release metadata is reused only from the previously
+signature-verified catalog, avoiding repeated APK downloads during hourly
+checks.
+
+This workflow runs from the GitHub mirror, not TAK.gov's canonical build
+pipeline. Catalog signing and release build configuration still need one-time
+setup before watches can receive updates.
+
 The Plugins-menu icon is the TAKwerx Market ATAK plugin launcher icon, used
 with permission: [source](https://github.com/takwerx/takwerx-market/blob/main/app/src/main/res/drawable/ic_launcher.png).
 The source repository is licensed under AGPL-3.0.
@@ -29,7 +60,7 @@ The configured catalog URL must be HTTPS, without user information or a
 fragment. Catalog envelopes and APK URLs use HTTPS, verified platform TLS, and
 no HTTPS-to-HTTP redirects. HTTPS redirects are supported for publisher release
 hosts (including GitHub release assets). Catalog and APK downloads have
-independent byte limits; APKs are capped at 100 MiB.
+independent byte limits; APKs are capped at 250 MiB.
 
 ## Signed catalog format
 
@@ -77,14 +108,57 @@ bounds are positive Android version codes. Set the optional maximum host code
 to `null` for no upper bound. `sourceUrl` is optional and, when present, must
 be HTTPS.
 
+## Configure the publisher
+
+Create an Ed25519 key pair outside the repository. Add the PEM private key as
+the GitHub repository secret `MARKET_CATALOG_SIGNING_KEY` and the Base64
+X.509 DER public key as repository variable `MARKET_CATALOG_PUBLIC_KEY`. The
+publisher verifies that the two keys match before publishing. Never commit or
+log the private key. From a trusted local shell with OpenSSL:
+
+```text
+openssl genpkey -algorithm ED25519 -out market-signing-private.pem
+openssl pkey -in market-signing-private.pem -pubout -outform DER -out market-signing-public.der
+openssl base64 -A -in market-signing-public.der
+```
+
+Paste the PEM private key into
+[repository Actions secrets](https://github.com/aegorsuch/weartak-wearos/settings/secrets/actions)
+and the final command's output into
+[repository Actions variables](https://github.com/aegorsuch/weartak-wearos/settings/variables/actions)
+as `MARKET_CATALOG_PUBLIC_KEY`. See GitHub's [encrypted secrets
+guide](https://docs.github.com/actions/security-guides/using-secrets-in-github-actions)
+and [repository variables guide](https://docs.github.com/actions/learn-github-actions/variables).
+
+The catalog URL is:
+
+```text
+https://aegorsuch.github.io/weartak-wearos/catalog.json
+```
+
+The workflow enables/deploys GitHub Pages on its first successful run. Set
+`WEARTAK_MARKET_CATALOG_URL` and `WEARTAK_MARKET_CATALOG_PUBLIC_KEY` in the
+TAK.gov release-build environment to the URL and same public key. These are
+public values; the private key stays in the GitHub Actions secret. The existing
+Gradle build also accepts the corresponding `weartakMarketCatalogUrl` and
+`weartakMarketCatalogPublicKey` properties. Until these values are configured,
+Market remains unavailable and makes no catalog request.
+
 ## Publisher and curation flow
 
 Plugin maintainers publish their signed plugin APK and source on their own
-release host. The WearTAK catalog maintainer reviews the plugin and its
-publisher, then adds a catalog entry pointing directly at the release APK.
-First-party and approved community plugins use the same release path; their
-publisher type is explicitly identified. An entry cannot be added by a wearer
-or discovered from arbitrary repositories.
+GitHub release. The WearTAK catalog maintainer reviews the repository, APK
+package, release asset pattern, and compatibility range before adding an
+allowlist entry, including package name, signer digest, asset pattern, and
+host compatibility range. The hourly publisher selects the latest stable APK
+from that approved repository. First-party and approved community plugins use
+the same release path; their publisher type is explicitly identified. An
+entry cannot be added by a wearer or discovered from arbitrary repositories.
+
+APK assets must fit WearTAK's 250 MiB download limit. The current WearTAK
+release APK is about 204 MiB, leaving roughly 46 MiB of headroom. This ceiling
+accommodates the host APK while features move into plugins over time; APK
+downloads remain bounded, checksummed, and user-confirmed.
 
 Before handing an APK to Android's user-confirmed package installer, WearTAK
 checks the download size and SHA-256, package name, version code, and signing
@@ -99,6 +173,6 @@ Android handles unknown-source approval and final install confirmation. After
 package replacement, WearTAK's existing package-change handling refreshes
 plugin discovery and bindings without changing the plugin's enabled state.
 
-Catalog signing, publisher review, release hosting, and catalog deployment are
-operational responsibilities outside this client repository. No production
-catalog URL or signing key is checked in by default.
+The publisher never installs APKs. WearTAK still verifies the signed catalog,
+APK checksum, signer, package, and host compatibility, then requires Android's
+user-confirmed installer flow.

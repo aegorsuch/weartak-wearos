@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import androidx.wear.compose.material.Chip
@@ -31,15 +32,14 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.BuildConfig
+import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.integration.plugin.PluginViewModel
-import com.aitech.weartak_civ.market.MarketCatalog
 import com.aitech.weartak_civ.market.MarketCatalogException
-import com.aitech.weartak_civ.market.MarketCatalogRepository
-import com.aitech.weartak_civ.market.MarketConfiguration
 import com.aitech.weartak_civ.market.MarketInstallCoordinator
 import com.aitech.weartak_civ.market.MarketInstallResult
 import com.aitech.weartak_civ.market.MarketInstallState
 import com.aitech.weartak_civ.market.MarketInstallStatusReceiver
+import com.aitech.weartak_civ.market.MarketRefreshStatus
 import com.aitech.weartak_civ.market.MarketPlugin
 import com.aitech.weartak_civ.market.MarketPublisherType
 import com.aitech.weartak_civ.market.MarketSecurityPolicy
@@ -52,7 +52,10 @@ internal fun TakwerxMarketPage(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val catalogErrorFallback = stringResource(R.string.market_catalog_error)
+    val updateMonitor = remember(context.applicationContext) {
+        (context.applicationContext as WearTakApplication).marketUpdateMonitor
+    }
+    val snapshot by updateMonitor.snapshot.collectAsStateWithLifecycle()
     val permissionNeeded = stringResource(R.string.market_permission_needed)
     val permissionSettingsError = stringResource(R.string.market_permission_settings_error)
     val downloadVerifying = stringResource(R.string.market_download_verifying)
@@ -68,13 +71,11 @@ internal fun TakwerxMarketPage(
         MarketInstallState.PLAY_MANAGED_HOST to stringResource(R.string.market_play_managed),
         MarketInstallState.PACKAGE_QUERY_FAILED to stringResource(R.string.market_package_unavailable),
     )
-    val configuration = remember { MarketConfiguration.fromBuildConfig() }
-    val catalogRepository = remember(configuration) { MarketCatalogRepository(configuration) }
+    val catalogRepository = updateMonitor.catalogRepository
     val installer = remember(catalogRepository) { MarketInstallCoordinator(context, catalogRepository) }
     val scope = rememberCoroutineScope()
-    var catalog by remember { mutableStateOf<MarketCatalog?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    var catalogError by remember { mutableStateOf<String?>(null) }
+    val catalog = snapshot.catalog
+    val loading = snapshot.status == MarketRefreshStatus.CHECKING
     var operationMessage by remember { mutableStateOf<String?>(null) }
     var activePackage by remember { mutableStateOf<String?>(null) }
     var installedRevision by remember { mutableIntStateOf(0) }
@@ -100,24 +101,11 @@ internal fun TakwerxMarketPage(
     }
 
     fun refreshCatalog() {
-        if (!configuration.isConfigured) return
-        scope.launch {
-            loading = true
-            catalogError = null
-            try {
-                catalog = catalogRepository.fetchCatalog(context.packageName)
-            } catch (error: Exception) {
-                Log.e(TAG, "Could not load signed plugin catalog", error)
-                catalogError = error.message ?: catalogErrorFallback
-                catalog = null
-            } finally {
-                loading = false
-            }
-        }
+        updateMonitor.refresh()
     }
 
-    LaunchedEffect(configuration) {
-        refreshCatalog()
+    LaunchedEffect(snapshot.availableUpdates) {
+        if (snapshot.availableUpdates.isNotEmpty()) updateMonitor.markUpdatesReviewed()
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -189,33 +177,35 @@ internal fun TakwerxMarketPage(
             item {
                 Chip(
                     onClick = ::refreshCatalog,
-                    enabled = configuration.isConfigured && !loading,
+                    enabled = updateMonitor.isConfigured && !loading,
                     label = {
                         Text(stringResource(if (loading) R.string.market_loading else R.string.market_refresh))
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            if (!configuration.isConfigured) {
+            val statusMessage = when (snapshot.status) {
+                MarketRefreshStatus.NOT_CONFIGURED -> R.string.market_not_configured
+                MarketRefreshStatus.OFFLINE -> R.string.market_offline
+                MarketRefreshStatus.CHECKING -> if (catalog == null) R.string.market_loading else null
+                MarketRefreshStatus.INVALID_CATALOG -> R.string.market_catalog_invalid
+                MarketRefreshStatus.UNAVAILABLE -> R.string.market_catalog_unavailable
+                MarketRefreshStatus.READY -> when {
+                    snapshot.availableUpdates.isNotEmpty() -> R.string.market_update_available
+                    catalog?.plugins.isNullOrEmpty() -> R.string.market_empty
+                    else -> R.string.market_no_updates
+                }
+            }
+            statusMessage?.let { message ->
                 item {
                     Text(
-                        stringResource(R.string.market_not_configured),
+                        stringResource(message),
                         modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        color = MaterialTheme.colors.onSurface,
+                        color = if (snapshot.status == MarketRefreshStatus.INVALID_CATALOG ||
+                            snapshot.status == MarketRefreshStatus.UNAVAILABLE
+                        ) MaterialTheme.colors.error else MaterialTheme.colors.onSurface,
                     )
                 }
-            } else if (loading && catalog == null) {
-                item { Text(stringResource(R.string.market_loading), modifier = Modifier.padding(8.dp)) }
-            } else if (catalogError != null) {
-                item {
-                    Text(
-                        catalogError.orEmpty(),
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        color = MaterialTheme.colors.error,
-                    )
-                }
-            } else if (catalog?.plugins.isNullOrEmpty()) {
-                item { Text(stringResource(R.string.market_empty), modifier = Modifier.padding(8.dp)) }
             }
 
             operationMessage?.let { message ->

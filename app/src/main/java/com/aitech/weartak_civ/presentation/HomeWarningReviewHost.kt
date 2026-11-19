@@ -41,6 +41,8 @@ internal fun HomeWarningReviewHost(
     physioWarning: HomeStatusWarning? = null,
     dittoWarning: BleLinkWarning = BleLinkWarning.NONE,
     onDittoRetry: () -> Unit = {},
+    marketUpdateAvailable: Boolean = false,
+    onMarketUpdate: () -> Unit = {},
     content: @Composable (warnings: List<HomeStatusWarning>, onReviewWarnings: () -> Unit) -> Unit
 ) {
     val pending = listOfNotNull(gunshotPending, uasPending)
@@ -93,6 +95,15 @@ internal fun HomeWarningReviewHost(
             selectedDetector = "ditto"
             selectedUid = null
         })
+    }
+    if (marketUpdateAvailable) {
+        warnings.add(HomeStatusWarning(
+            "market-update",
+            TopMetricAlertSource.MARKET_UPDATE,
+            stringResource(R.string.market_update_available),
+            Utils.AlertChipState.Warning,
+            onMarketUpdate,
+        ))
     }
     content(warnings) {
         if (warnings.size == 1) warnings.first().onReview() else if (warnings.isNotEmpty()) selectedDetector = "picker"

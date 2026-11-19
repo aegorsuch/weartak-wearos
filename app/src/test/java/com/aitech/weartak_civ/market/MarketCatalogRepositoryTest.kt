@@ -8,6 +8,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Rule
 import org.junit.Test
@@ -41,6 +42,7 @@ class MarketCatalogRepositoryTest {
 
     @Test
     fun rejectsWrongDigestAndOversizedResponse() = runBlocking {
+        assertEquals(250L * 1024 * 1024, MarketCatalogRepository.MAX_APK_BYTES)
         withTlsServer { server, client ->
             server.enqueue(MockResponse().setBody("tampered"))
             val badDigest = plugin(server.url("/wrong.apk").toString(), "0".repeat(64))
@@ -94,6 +96,22 @@ class MarketCatalogRepositoryTest {
                 }
             }
             assertEquals(3, server.requestCount)
+        }
+    }
+
+    @Test
+    fun catalogHttpFailureIsUnavailableRatherThanInvalidlySigned() = runBlocking {
+        withTlsServer { server, client ->
+            server.enqueue(MockResponse().setResponseCode(503))
+            val repository = MarketCatalogRepository(
+                MarketConfiguration(server.url("/catalog.json").toString(), "unused"),
+                client,
+            )
+            val error = assertThrows(MarketCatalogException::class.java) {
+                runBlocking { repository.fetchCatalog("com.aitech.weartak_civ") }
+            }
+
+            assertFalse(error.invalidCatalog)
         }
     }
 
