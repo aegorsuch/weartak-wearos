@@ -627,6 +627,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        (application as? WearTakApplication)?.marketUpdateMonitor?.resetUpdateReview()
         com.aitech.weartak_civ.service.DebugStayAwakeService.restoreIfEnabled(this)
         try { registerReceiver(restrictionReceiver, IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED)) } catch (_: Exception) {}
         Log.i(TAG, "MainActivity onStart()")
@@ -639,6 +640,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        (application as? WearTakApplication)?.marketUpdateMonitor?.retryInterruptedRefresh()
         Log.i(TAG, "MainActivity onResume()")
     }
 

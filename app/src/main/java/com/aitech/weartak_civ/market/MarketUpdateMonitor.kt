@@ -11,11 +11,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.IOException
+import javax.net.ssl.SSLException
 
 internal enum class MarketRefreshStatus {
     NOT_CONFIGURED,
@@ -33,13 +35,36 @@ internal data class MarketUpdateSnapshot(
     val showUpdateWarning: Boolean = false,
 )
 
-internal object MarketUpdatePolicy {
-    fun releaseKey(updates: Collection<MarketPlugin>): String =
+internal class MarketUpdateReview {
+    private var reviewedReleaseKey: String? = null
+
+    fun markReviewed(updates: Collection<MarketPlugin>) {
+        reviewedReleaseKey = releaseKey(updates)
+    }
+
+    fun reset() {
+        reviewedReleaseKey = null
+    }
+
+    fun shouldShowWarning(updates: Collection<MarketPlugin>): Boolean =
+        updates.isNotEmpty() && releaseKey(updates) != reviewedReleaseKey
+
+    private fun releaseKey(updates: Collection<MarketPlugin>): String =
         updates.sortedBy { it.packageName }
             .joinToString("|") { "${it.packageName}:${it.versionCode}" }
+}
 
-    fun shouldShowWarning(updates: Collection<MarketPlugin>, reviewedReleaseKey: String?): Boolean =
-        updates.isNotEmpty() && releaseKey(updates) != reviewedReleaseKey
+internal suspend fun <T> retryMarketCatalogFetch(
+    waitForRetry: suspend () -> Unit,
+    hasInternet: () -> Boolean,
+    fetch: suspend () -> T,
+): T = try {
+    fetch()
+} catch (error: IOException) {
+    if (error is SSLException) throw error
+    waitForRetry()
+    if (!hasInternet()) throw error
+    fetch()
 }
 
 internal class MarketUpdateMonitor(
@@ -50,12 +75,12 @@ internal class MarketUpdateMonitor(
     private val appContext = context.applicationContext
     private val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
     private val installer = MarketInstallCoordinator(appContext, catalogRepository)
-    private val preferences = appContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private var started = false
     private var internetAvailable = false
     private var refreshJob: Job? = null
+    private val updateReview = MarketUpdateReview()
 
     private val _snapshot = MutableStateFlow(
         MarketUpdateSnapshot(
@@ -113,19 +138,39 @@ internal class MarketUpdateMonitor(
         }
     }
 
+    fun retryInterruptedRefresh() {
+        when (_snapshot.value.status) {
+            MarketRefreshStatus.OFFLINE, MarketRefreshStatus.UNAVAILABLE ->
+                setInternetAvailable(hasValidatedInternet(), retryIfUnchanged = true)
+            else -> Unit
+        }
+    }
+
     fun markUpdatesReviewed() {
         synchronized(lock) {
             val current = _snapshot.value
-            val releaseKey = MarketUpdatePolicy.releaseKey(current.availableUpdates)
-            if (releaseKey.isEmpty()) return
-            preferences.edit().putString(REVIEWED_RELEASE_KEY, releaseKey).apply()
+            if (current.availableUpdates.isEmpty()) return
+            updateReview.markReviewed(current.availableUpdates)
             _snapshot.value = current.copy(showUpdateWarning = false)
+        }
+    }
+
+    fun resetUpdateReview() {
+        synchronized(lock) {
+            updateReview.reset()
+            val current = _snapshot.value
+            _snapshot.value = current.copy(showUpdateWarning = updateReview.shouldShowWarning(current.availableUpdates))
         }
     }
 
     private suspend fun refreshCatalog() {
         try {
-            val catalog = catalogRepository.fetchCatalog(appContext.packageName)
+            val catalog = retryMarketCatalogFetch(
+                waitForRetry = { delay(CATALOG_RETRY_DELAY_MS) },
+                hasInternet = ::hasValidatedInternet,
+            ) {
+                catalogRepository.fetchCatalog(appContext.packageName)
+            }
             val updates = mutableListOf<MarketPlugin>()
             var verificationFailed = false
             catalog.plugins.forEach { plugin ->
@@ -138,13 +183,14 @@ internal class MarketUpdateMonitor(
                     Log.e(TAG, "Cannot verify installed package for Market update: ${plugin.packageName}", error)
                 }
             }
-            val reviewedKey = preferences.getString(REVIEWED_RELEASE_KEY, null)
-            _snapshot.value = MarketUpdateSnapshot(
-                status = if (verificationFailed) MarketRefreshStatus.UNAVAILABLE else MarketRefreshStatus.READY,
-                catalog = catalog,
-                availableUpdates = updates,
-                showUpdateWarning = MarketUpdatePolicy.shouldShowWarning(updates, reviewedKey),
-            )
+            synchronized(lock) {
+                _snapshot.value = MarketUpdateSnapshot(
+                    status = if (verificationFailed) MarketRefreshStatus.UNAVAILABLE else MarketRefreshStatus.READY,
+                    catalog = catalog,
+                    availableUpdates = updates,
+                    showUpdateWarning = updateReview.shouldShowWarning(updates),
+                )
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: MarketCatalogException) {
@@ -155,24 +201,25 @@ internal class MarketUpdateMonitor(
                 _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.UNAVAILABLE)
             }
         } catch (error: IOException) {
-            Log.i(TAG, "Market catalog unavailable without internet access", error)
-            _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.OFFLINE)
+            Log.i(TAG, "Market catalog transport failed", error)
+            val status = if (hasValidatedInternet()) MarketRefreshStatus.UNAVAILABLE else MarketRefreshStatus.OFFLINE
+            _snapshot.value = _snapshot.value.copy(status = status)
         } catch (error: Exception) {
             Log.e(TAG, "Could not check signed Market catalog", error)
             _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.UNAVAILABLE)
         }
     }
 
-    private fun setInternetAvailable(available: Boolean) {
-        val becameAvailable = synchronized(lock) {
-            val changed = !internetAvailable && available
+    private fun setInternetAvailable(available: Boolean, retryIfUnchanged: Boolean = false) {
+        val shouldRefresh = synchronized(lock) {
+            val shouldRefresh = available && (!internetAvailable || retryIfUnchanged)
             internetAvailable = available
             if (!available && _snapshot.value.status != MarketRefreshStatus.NOT_CONFIGURED) {
                 _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.OFFLINE)
             }
-            changed
+            shouldRefresh
         }
-        if (becameAvailable) refresh()
+        if (shouldRefresh) refresh()
     }
 
     private fun hasValidatedInternet(): Boolean {
@@ -192,8 +239,7 @@ internal class MarketUpdateMonitor(
     }
 
     private companion object {
-        const val PREFERENCES = "takwerx_market_updates"
-        const val REVIEWED_RELEASE_KEY = "reviewed_release_key"
+        const val CATALOG_RETRY_DELAY_MS = 2_000L
         const val TAG = "TakwerxMarket"
     }
 }

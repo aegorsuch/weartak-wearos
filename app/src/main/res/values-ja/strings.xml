@@ -549,7 +549,6 @@
     </plurals>
     <string name="openvpn_service_running">OpenVPN トンネルが有効です</string>
     <string name="takwerx_market_title">TAKwerxマーケット</string>
-    <string name="market_intro">署名済みWearTAKプラグインを閲覧できます。このウォッチへのインストール前にAndroidが確認を求めます。</string>
     <string name="market_not_configured">このビルドには署名済みカタログが設定されていません。</string>
     <string name="market_refresh">カタログを更新</string>
     <string name="market_loading">カタログを読み込み中…</string>
@@ -560,12 +559,11 @@
     <string name="market_catalog_unavailable">更新を確認できませんでした。再試行してください。</string>
     <string name="market_no_updates">互換性のあるWearTAKまたは承認済みプラグインの新しいバージョンはありません。</string>
     <string name="market_update_available">更新があります</string>
-    <string name="market_publisher_version">%1$s · %2$s · バージョン%3$s</string>
+    <string name="market_plugin_by_publisher">%1$s（提供: %2$s）</string>
     <string name="market_official">公式</string>
     <string name="market_community">コミュニティ</string>
     <string name="market_source">ソースコード</string>
     <string name="market_source_unavailable">このソースリンクを開けるアプリがありません。</string>
-    <string name="market_compatible">このWearTAKバージョンに対応</string>
     <string name="market_incompatible">このWearTAKバージョンに非対応</string>
     <string name="market_installed_version">インストール済み: %1$s</string>
     <string name="market_install">インストール</string>

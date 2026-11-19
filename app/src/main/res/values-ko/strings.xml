@@ -549,7 +549,6 @@
     </plurals>
     <string name="openvpn_service_running">OpenVPN 터널 활성화됨</string>
     <string name="takwerx_market_title">TAKwerx 마켓</string>
-    <string name="market_intro">서명된 WearTAK 플러그인을 둘러보세요. 이 시계에 설치하기 전에 Android에서 확인을 요청합니다.</string>
     <string name="market_not_configured">이 빌드에는 서명된 카탈로그가 구성되지 않았습니다.</string>
     <string name="market_refresh">카탈로그 새로고침</string>
     <string name="market_loading">카탈로그 로드 중…</string>
@@ -560,12 +559,11 @@
     <string name="market_catalog_unavailable">업데이트를 확인할 수 없습니다. 다시 시도하세요.</string>
     <string name="market_no_updates">호환되는 WearTAK 또는 승인된 플러그인의 최신 버전이 없습니다.</string>
     <string name="market_update_available">업데이트 가능</string>
-    <string name="market_publisher_version">%1$s · %2$s · 버전 %3$s</string>
+    <string name="market_plugin_by_publisher">%1$s (제공: %2$s)</string>
     <string name="market_official">공식</string>
     <string name="market_community">커뮤니티</string>
     <string name="market_source">소스 코드</string>
     <string name="market_source_unavailable">이 소스 링크를 열 수 있는 앱이 없습니다.</string>
-    <string name="market_compatible">이 WearTAK 버전과 호환됨</string>
     <string name="market_incompatible">이 WearTAK 버전과 호환되지 않음</string>
     <string name="market_installed_version">설치됨: %1$s</string>
     <string name="market_install">설치</string>

@@ -47,16 +47,19 @@ class MarketSecurityPolicyTest {
     }
 
     @Test
-    fun warningReviewKeyIsStableAndChangesWithReleaseSet() {
+    fun reviewedUpdatesReturnOnNextHomeSessionWithoutRepeatedWarningsInCurrentSession() {
         val first = plugin()
         val second = plugin(id = "another", packageName = "org.example.another")
-        val key = MarketUpdatePolicy.releaseKey(listOf(first, second))
+        val updates = listOf(first, second)
+        val review = MarketUpdateReview()
 
-        assertEquals(key, MarketUpdatePolicy.releaseKey(listOf(second, first)))
-        assertTrue(MarketUpdatePolicy.shouldShowWarning(listOf(first, second), null))
-        assertFalse(MarketUpdatePolicy.shouldShowWarning(listOf(second, first), key))
-        assertFalse(MarketUpdatePolicy.shouldShowWarning(emptyList(), null))
-        assertTrue(MarketUpdatePolicy.shouldShowWarning(listOf(first.copy(versionCode = 6)), key))
+        assertTrue(review.shouldShowWarning(updates))
+        review.markReviewed(updates)
+        assertFalse(review.shouldShowWarning(updates.reversed()))
+        assertTrue(review.shouldShowWarning(listOf(first.copy(versionCode = 6), second)))
+        review.reset()
+        assertTrue(review.shouldShowWarning(updates))
+        assertFalse(review.shouldShowWarning(emptyList()))
     }
 
     @Test

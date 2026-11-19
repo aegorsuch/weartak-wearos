@@ -552,7 +552,6 @@
     </plurals>
     <string name="openvpn_service_running">OpenVPN-Tunnel aktiv</string>
     <string name="takwerx_market_title">TAKwerx-Markt</string>
-    <string name="market_intro">Signierte WearTAK-Plugins durchsuchen. Android fragt vor der Installation auf dieser Uhr nach einer Bestätigung.</string>
     <string name="market_not_configured">Für diesen Build ist kein signierter Katalog konfiguriert.</string>
     <string name="market_refresh">Katalog aktualisieren</string>
     <string name="market_loading">Katalog wird geladen…</string>
@@ -563,12 +562,11 @@
     <string name="market_catalog_unavailable">Updates konnten nicht geprüft werden. Erneut versuchen.</string>
     <string name="market_no_updates">Keine neueren kompatiblen WearTAK- oder freigegebenen Plugin-Versionen.</string>
     <string name="market_update_available">Update verfügbar</string>
-    <string name="market_publisher_version">%1$s · %2$s · Version %3$s</string>
+    <string name="market_plugin_by_publisher">%1$s von %2$s</string>
     <string name="market_official">Offiziell</string>
     <string name="market_community">Community</string>
     <string name="market_source">Quellcode</string>
     <string name="market_source_unavailable">Keine App kann diesen Quellcode-Link öffnen.</string>
-    <string name="market_compatible">Mit dieser WearTAK-Version kompatibel</string>
     <string name="market_incompatible">Mit dieser WearTAK-Version nicht kompatibel</string>
     <string name="market_installed_version">Installiert: %1$s</string>
     <string name="market_install">Installieren</string>

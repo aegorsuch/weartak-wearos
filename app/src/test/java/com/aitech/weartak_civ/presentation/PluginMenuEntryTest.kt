@@ -27,12 +27,13 @@ class PluginMenuEntryTest {
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, "Data Sync"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, "Tablet Command"),
+            PluginMenuEntry.Market("TAKwerx Market"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, "ESRI"),
             installed("com.weartak.plugin.mopp", "MOPP"),
         )
 
         assertEquals(
-            listOf("alpha", "BATTAK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "ESRI", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "Tablet Command", "zulu"),
+            listOf("alpha", "BATTAK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "ESRI", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "Tablet Command", "TAKwerx Market", "zulu"),
             entries.alphabetizedPluginEntries().map { it.title },
         )
         assertEquals("Somewear Labs", entries.first().title)
@@ -109,6 +110,19 @@ class PluginMenuEntryTest {
             listOf("org.example.telemetry", "org.example.fieldtools"),
             entries.map { (it as PluginMenuEntry.Installed).plugin.pluginId },
         )
+    }
+
+    @Test
+    fun handlerSortsByItsShortMenuNameWithoutRenamingOtherPackages() {
+        val handler = pluginUi("handler-id", "WearTAK Handler")
+            .copy(packageName = "com.weartak.plugin.handler")
+        val other = pluginUi("com.weartak.plugin.handler", "WearTAK Handler")
+            .copy(packageName = "org.example.handler")
+        val entries = listOf(other, pluginUi("mopp", "MOPP"), handler)
+            .installedPluginMenuEntries().alphabetizedPluginEntries()
+
+        assertEquals(listOf("Handler", "MOPP", "WearTAK Handler"), entries.map { it.title })
+        assertEquals("installed:handler-id", entries.first().key)
     }
 
     @Test

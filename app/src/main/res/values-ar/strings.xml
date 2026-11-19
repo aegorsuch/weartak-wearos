@@ -564,7 +564,6 @@
     </plurals>
     <string name="openvpn_service_running">نفق OpenVPN نشط</string>
     <string name="takwerx_market_title">سوق TAKwerx</string>
-    <string name="market_intro">تصفّح إضافات WearTAK الموقّعة. سيطلب Android تأكيدك قبل التثبيت على هذه الساعة.</string>
     <string name="market_not_configured">لم يتم إعداد كتالوج موقّع لهذا الإصدار.</string>
     <string name="market_refresh">تحديث الكتالوج</string>
     <string name="market_loading">جارٍ تحميل الكتالوج…</string>
@@ -575,12 +574,11 @@
     <string name="market_catalog_unavailable">تعذّر التحقق من التحديثات. أعد المحاولة.</string>
     <string name="market_no_updates">لا توجد إصدارات أحدث متوافقة من WearTAK أو الإضافات المعتمدة.</string>
     <string name="market_update_available">يتوفر تحديث</string>
-    <string name="market_publisher_version">%1$s · %2$s · الإصدار %3$s</string>
+    <string name="market_plugin_by_publisher">%1$s من %2$s</string>
     <string name="market_official">رسمي</string>
     <string name="market_community">مجتمعي</string>
     <string name="market_source">شفرة المصدر</string>
     <string name="market_source_unavailable">لا يوجد تطبيق يمكنه فتح رابط المصدر هذا.</string>
-    <string name="market_compatible">متوافق مع إصدار WearTAK هذا</string>
     <string name="market_incompatible">غير متوافق مع إصدار WearTAK هذا</string>
     <string name="market_installed_version">المثبّت: %1$s</string>
     <string name="market_install">تثبيت</string>
