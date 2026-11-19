@@ -1,6 +1,8 @@
 package com.aitech.weartak_civ.market
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -20,6 +22,10 @@ internal class MarketCatalogRepository(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.SECONDS)
+        .build()
+
+    private val downloadClient = this.client.newBuilder()
+        .callTimeout(15, TimeUnit.MINUTES)
         .build()
 
     suspend fun fetchCatalog(hostPackage: String): MarketCatalog = withContext(Dispatchers.IO) {
@@ -66,7 +72,7 @@ internal class MarketCatalogRepository(
             val request = Request.Builder().url(url).get().build()
             val file = File.createTempFile("takwerx-market-", ".apk", cacheDirectory)
             try {
-                client.newCall(request).execute().use { response ->
+                downloadClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw MarketCatalogException("Plugin download failed (HTTP ${response.code}).")
                     }
@@ -80,6 +86,7 @@ internal class MarketCatalogRepository(
                         FileOutputStream(file).use { output ->
                             val buffer = ByteArray(32 * 1024)
                             while (true) {
+                                currentCoroutineContext().ensureActive()
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 total += count
@@ -98,6 +105,7 @@ internal class MarketCatalogRepository(
                         throw MarketCatalogException("Plugin APK checksum does not match catalog.")
                     }
                 }
+                currentCoroutineContext().ensureActive()
                 file
             } catch (error: Exception) {
                 file.delete()

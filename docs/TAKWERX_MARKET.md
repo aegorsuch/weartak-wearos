@@ -18,6 +18,9 @@ eligible updates remain.
 Market rows show the release name and publisher, with a check for current
 installs or a download action for eligible installs and updates. Blocked
 releases show why they cannot be installed.
+While downloading and verifying an APK, its row shows a spinner and disables
+install actions. Preparation errors and Android confirmation guidance appear
+in that row rather than above the list.
 
 The client does not scan GitHub or discover repositories. Publisher code and
 approvals are maintained in the
@@ -75,6 +78,11 @@ fragment. Catalog envelopes and APK URLs use HTTPS, verified platform TLS, and
 no HTTPS-to-HTTP redirects. HTTPS redirects are supported for publisher release
 hosts (including GitHub release assets). Catalog and APK downloads have
 independent byte limits; APKs are capped at 250 MiB.
+Catalog requests retain a 45-second total deadline. APK transfers have a
+separate 15-minute total deadline so larger verified releases can finish on
+watch connections; the 30-second stalled-read and 15-second connect limits
+remain in effect. Failed transfers delete the incomplete APK and do not open
+the installer.
 
 ## Signed catalog format
 

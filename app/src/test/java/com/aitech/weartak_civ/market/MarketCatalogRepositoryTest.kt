@@ -1,5 +1,8 @@
 package com.aitech.weartak_civ.market
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.tls.HandshakeCertificates
@@ -9,11 +12,13 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLHandshakeException
 
 class MarketCatalogRepositoryTest {
@@ -39,6 +44,44 @@ class MarketCatalogRepositoryTest {
                         .downloadVerified(plugin("http://example.com/plugin.apk", sha256(bytes)), temp.root)
                 }
             }
+        }
+    }
+
+    @Test(timeout = 75_000)
+    fun apkDownloadCanOutlastCatalogDeadline() = runBlocking {
+        withTlsServer { server, client ->
+            val bytes = ByteArray(48) { it.toByte() }
+            server.enqueue(
+                MockResponse()
+                    .setBody(okio.Buffer().write(bytes))
+                    .throttleBody(1, 1, TimeUnit.SECONDS),
+            )
+            val file = MarketCatalogRepository(MarketConfiguration("", ""), client)
+                .downloadVerified(plugin(server.url("/slow.apk").toString(), sha256(bytes)), temp.root)
+
+            assertArrayEquals(bytes, file.readBytes())
+            assertEquals(1, server.requestCount)
+            file.delete()
+        }
+    }
+
+    @Test(timeout = 10_000)
+    fun cancellingDownloadRemovesPartialFile() = runBlocking {
+        withTlsServer { server, client ->
+            val bytes = ByteArray(20) { it.toByte() }
+            server.enqueue(
+                MockResponse()
+                    .setBody(okio.Buffer().write(bytes))
+                    .throttleBody(1, 50, TimeUnit.MILLISECONDS),
+            )
+            val download = async(Dispatchers.IO) {
+                MarketCatalogRepository(MarketConfiguration("", ""), client)
+                    .downloadVerified(plugin(server.url("/cancel.apk").toString(), sha256(bytes)), temp.root)
+            }
+            assertNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+            download.cancelAndJoin()
+
+            assertEquals(0, temp.root.listFiles()?.size ?: 0)
         }
     }
 
@@ -105,9 +148,13 @@ class MarketCatalogRepositoryTest {
     fun catalogHttpFailureIsUnavailableRatherThanInvalidlySigned() = runBlocking {
         withTlsServer { server, client ->
             server.enqueue(MockResponse().setResponseCode(503))
+            val catalogClient = client.newBuilder().addInterceptor { chain ->
+                assertEquals(TimeUnit.SECONDS.toNanos(45), chain.call().timeout().timeoutNanos())
+                chain.proceed(chain.request())
+            }.build()
             val repository = MarketCatalogRepository(
                 MarketConfiguration(server.url("/catalog.json").toString(), "unused"),
-                client,
+                catalogClient,
             )
             val error = assertThrows(MarketCatalogException::class.java) {
                 runBlocking { repository.fetchCatalog("com.aitech.weartak_civ") }
