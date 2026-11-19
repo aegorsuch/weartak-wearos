@@ -558,6 +558,11 @@
     <string name="market_loading">Katalog yükleniyor…</string>
     <string name="market_empty">Şu anda yayımlanmış eklenti yok.</string>
     <string name="market_catalog_error">Katalog yüklenemedi. Bağlantıyı kontrol edip yeniden deneyin.</string>
+    <string name="market_offline">İnternet bağlantısı yok. Bağlantı gelince katalog yenilenecek.</string>
+    <string name="market_catalog_invalid">İmzalı kataloğun imzası veya biçimi doğrulanamadı.</string>
+    <string name="market_catalog_unavailable">Güncellemeler denetlenemedi. Yeniden deneyin.</string>
+    <string name="market_no_updates">Daha yeni uyumlu WearTAK veya onaylı eklenti sürümü yok.</string>
+    <string name="market_update_available">Güncelleme mevcut</string>
     <string name="market_publisher_version">%1$s · %2$s · sürüm %3$s</string>
     <string name="market_official">Resmi</string>
     <string name="market_community">Topluluk</string>

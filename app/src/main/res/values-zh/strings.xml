@@ -555,6 +555,11 @@
     <string name="market_loading">正在加载目录…</string>
     <string name="market_empty">目前没有已发布的插件。</string>
     <string name="market_catalog_error">无法加载目录。请检查连接并重试。</string>
+    <string name="market_offline">没有互联网连接。连接恢复后将刷新目录。</string>
+    <string name="market_catalog_invalid">无法验证已签名目录的签名或格式。</string>
+    <string name="market_catalog_unavailable">无法检查更新。请重试。</string>
+    <string name="market_no_updates">没有兼容的 WearTAK 或已批准插件新版本。</string>
+    <string name="market_update_available">有可用更新</string>
     <string name="market_publisher_version">%1$s · %2$s · 版本 %3$s</string>
     <string name="market_official">官方</string>
     <string name="market_community">社区</string>

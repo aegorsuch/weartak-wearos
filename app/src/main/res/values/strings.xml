@@ -1032,6 +1032,11 @@
     <string name="market_loading">Loading catalog…</string>
     <string name="market_empty">No plugins are currently published.</string>
     <string name="market_catalog_error">Catalog could not be loaded. Check connection and retry.</string>
+    <string name="market_offline">No internet connection. Catalog will refresh when connection returns.</string>
+    <string name="market_catalog_invalid">Signed catalog failed signature or format verification.</string>
+    <string name="market_catalog_unavailable">Could not check for updates. Try again.</string>
+    <string name="market_no_updates">No newer compatible WearTAK or approved-plugin releases.</string>
+    <string name="market_update_available">Update available</string>
     <string name="market_publisher_version">%1$s · %2$s · version %3$s</string>
     <string name="market_official">Official</string>
     <string name="market_community">Community</string>

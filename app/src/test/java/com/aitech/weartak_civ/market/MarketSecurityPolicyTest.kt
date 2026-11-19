@@ -47,6 +47,19 @@ class MarketSecurityPolicyTest {
     }
 
     @Test
+    fun warningReviewKeyIsStableAndChangesWithReleaseSet() {
+        val first = plugin()
+        val second = plugin(id = "another", packageName = "org.example.another")
+        val key = MarketUpdatePolicy.releaseKey(listOf(first, second))
+
+        assertEquals(key, MarketUpdatePolicy.releaseKey(listOf(second, first)))
+        assertTrue(MarketUpdatePolicy.shouldShowWarning(listOf(first, second), null))
+        assertFalse(MarketUpdatePolicy.shouldShowWarning(listOf(second, first), key))
+        assertFalse(MarketUpdatePolicy.shouldShowWarning(emptyList(), null))
+        assertTrue(MarketUpdatePolicy.shouldShowWarning(listOf(first.copy(versionCode = 6)), key))
+    }
+
+    @Test
     fun archiveMustMatchCatalogPackageVersionAndSigner() {
         val release = plugin()
         assertTrue(MarketSecurityPolicy.archiveMatches(release, release.packageName, 5, setOf(signer)))
@@ -64,10 +77,11 @@ class MarketSecurityPolicyTest {
     }
 
     private fun plugin(
+        id: String = "weather",
         packageName: String = "org.example.weather",
         hostUpdate: Boolean = false,
     ) = MarketPlugin(
-        id = "weather",
+        id = id,
         name = "Weather",
         description = "Field weather",
         publisher = "Community",

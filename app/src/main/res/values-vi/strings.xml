@@ -555,6 +555,11 @@
     <string name="market_loading">Đang tải danh mục…</string>
     <string name="market_empty">Hiện chưa có plugin nào được phát hành.</string>
     <string name="market_catalog_error">Không thể tải danh mục. Hãy kiểm tra kết nối rồi thử lại.</string>
+    <string name="market_offline">Không có kết nối Internet. Danh mục sẽ được làm mới khi có kết nối trở lại.</string>
+    <string name="market_catalog_invalid">Không thể xác minh chữ ký hoặc định dạng của danh mục đã ký.</string>
+    <string name="market_catalog_unavailable">Không thể kiểm tra bản cập nhật. Hãy thử lại.</string>
+    <string name="market_no_updates">Không có phiên bản WearTAK hoặc plugin được phê duyệt mới hơn tương thích.</string>
+    <string name="market_update_available">Có bản cập nhật</string>
     <string name="market_publisher_version">%1$s · %2$s · phiên bản %3$s</string>
     <string name="market_official">Chính thức</string>
     <string name="market_community">Cộng đồng</string>

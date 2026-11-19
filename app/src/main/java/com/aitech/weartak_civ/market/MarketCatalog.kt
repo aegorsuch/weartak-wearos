@@ -46,7 +46,11 @@ internal data class MarketPlugin(
 
 internal data class MarketCatalog(val plugins: List<MarketPlugin>)
 
-internal class MarketCatalogException(message: String, cause: Throwable? = null) : Exception(message, cause)
+internal class MarketCatalogException(
+    message: String,
+    cause: Throwable? = null,
+    val invalidCatalog: Boolean = true,
+) : Exception(message, cause)
 
 internal object MarketCatalogParser {
     const val MAX_CATALOG_BYTES = 512 * 1024

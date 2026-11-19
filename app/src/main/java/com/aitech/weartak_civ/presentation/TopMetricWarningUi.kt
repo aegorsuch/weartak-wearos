@@ -38,13 +38,14 @@ import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.Utils.AlertChipState
 import com.aitech.weartak_civ.data.CrmDisplayState
 
-internal enum class TopMetricAlertSource { NONE, PHYSIO, DETECTION, CRM, DITTO_BLE }
+internal enum class TopMetricAlertSource { NONE, PHYSIO, DETECTION, CRM, DITTO_BLE, MARKET_UPDATE }
 
 internal fun resolveTopMetricAlert(
     physioState: AlertChipState,
     detectionPending: Boolean,
     crmStatus: CrmDisplayState?,
-    dittoWarning: Boolean = false
+    dittoWarning: Boolean = false,
+    marketUpdateAvailable: Boolean = false,
 ): TopMetricAlertSource = when {
     physioState == AlertChipState.Emergency -> TopMetricAlertSource.PHYSIO
     crmStatus == CrmDisplayState.POOR -> TopMetricAlertSource.CRM
@@ -52,6 +53,7 @@ internal fun resolveTopMetricAlert(
     detectionPending -> TopMetricAlertSource.DETECTION
     crmStatus == CrmDisplayState.MODERATE -> TopMetricAlertSource.CRM
     dittoWarning -> TopMetricAlertSource.DITTO_BLE
+    marketUpdateAvailable -> TopMetricAlertSource.MARKET_UPDATE
     else -> TopMetricAlertSource.NONE
 }
 

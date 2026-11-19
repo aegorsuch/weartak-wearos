@@ -570,6 +570,11 @@
     <string name="market_loading">جارٍ تحميل الكتالوج…</string>
     <string name="market_empty">لا توجد إضافات منشورة حاليًا.</string>
     <string name="market_catalog_error">تعذّر تحميل الكتالوج. تحقّق من الاتصال ثم أعد المحاولة.</string>
+    <string name="market_offline">لا يوجد اتصال بالإنترنت. سيتم تحديث الكتالوج عند عودة الاتصال.</string>
+    <string name="market_catalog_invalid">تعذّر التحقق من توقيع الكتالوج أو تنسيقه.</string>
+    <string name="market_catalog_unavailable">تعذّر التحقق من التحديثات. أعد المحاولة.</string>
+    <string name="market_no_updates">لا توجد إصدارات أحدث متوافقة من WearTAK أو الإضافات المعتمدة.</string>
+    <string name="market_update_available">يتوفر تحديث</string>
     <string name="market_publisher_version">%1$s · %2$s · الإصدار %3$s</string>
     <string name="market_official">رسمي</string>
     <string name="market_community">مجتمعي</string>

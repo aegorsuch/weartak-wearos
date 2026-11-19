@@ -30,9 +30,15 @@ internal class MarketCatalogRepository(
         val request = Request.Builder().url(url).get().build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw MarketCatalogException("Catalog request failed (HTTP ${response.code}).")
+                throw MarketCatalogException(
+                    "Catalog request failed (HTTP ${response.code}).",
+                    invalidCatalog = false,
+                )
             }
-            val body = response.body ?: throw MarketCatalogException("Catalog response is empty.")
+            val body = response.body ?: throw MarketCatalogException(
+                "Catalog response is empty.",
+                invalidCatalog = false,
+            )
             if (body.contentLength() > MarketCatalogParser.MAX_CATALOG_BYTES) {
                 throw MarketCatalogException("Catalog exceeds size limit.")
             }
@@ -100,6 +106,6 @@ internal class MarketCatalogRepository(
         }
 
     companion object {
-        const val MAX_APK_BYTES = 100L * 1024 * 1024
+        const val MAX_APK_BYTES = 250L * 1024 * 1024
     }
 }

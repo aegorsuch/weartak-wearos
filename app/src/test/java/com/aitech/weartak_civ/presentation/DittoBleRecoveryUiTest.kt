@@ -121,6 +121,7 @@ class DittoBleRecoveryUiTest {
                             TopMetricAlertSource.CRM -> compose.onNodeWithTag("crm-warning-indicator")
                             TopMetricAlertSource.DETECTION -> compose.onNodeWithTag("audio-detection-warning")
                             TopMetricAlertSource.DITTO_BLE -> compose.onNodeWithTag("ditto_ble_warning_indicator")
+                            TopMetricAlertSource.MARKET_UPDATE -> compose.onNodeWithTag("market-update-warning")
                             TopMetricAlertSource.PHYSIO -> compose.onNodeWithText("Physio")
                             TopMetricAlertSource.NONE -> compose.onNodeWithText("72bpm")
                         }
@@ -130,6 +131,7 @@ class DittoBleRecoveryUiTest {
                             TopMetricAlertSource.CRM -> "crm"
                             TopMetricAlertSource.DITTO_BLE -> "ditto"
                             TopMetricAlertSource.DETECTION -> if (count == 2) "picker" else "detection"
+                            TopMetricAlertSource.MARKET_UPDATE -> "market"
                         }
                         assertEquals("$p/$count/$c/$d", listOf(expected), actions)
                         val sources = buildSet {
@@ -146,6 +148,32 @@ class DittoBleRecoveryUiTest {
                 }
             }
         }
+    }
+
+    @Test fun marketUpdateWarningUsesYellowWarningPatternAndOpensMarketAction() {
+        var opened = false
+        compose.setContent {
+            WearTAKCIVTheme {
+                HomeTopMetricCard(
+                    "HR",
+                    "72bpm",
+                    TopDisplayMetric.HEART_RATE,
+                    R.drawable.heart_rate,
+                    Utils.AlertChipState.None,
+                    null,
+                    {},
+                    listOf(HomeStatusWarning(
+                        "market-update",
+                        TopMetricAlertSource.MARKET_UPDATE,
+                        context.getString(R.string.market_update_available),
+                        Utils.AlertChipState.Warning,
+                    ) { opened = true }),
+                )
+            }
+        }
+
+        compose.onNodeWithTag("market-update-warning").assertExists().performClick()
+        assertTrue(opened)
     }
 
     @Test fun topMetricWarningFitsAtFontScale13WithTouchTarget() {
