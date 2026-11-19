@@ -9,7 +9,9 @@ WearTAK checks the signed catalog at process startup and when Android reports
 validated internet connectivity. A transient transport failure gets one retry
 while connected. Returning to the WearTAK home activity also retries an
 interrupted check when online. WearTAK compares only compatible releases already
-present in that catalog with installed package versions and signers. The yellow
+present in that catalog with installed package versions and signers. New,
+uninstalled plugins remain discoverable in Market but do not trigger an update
+warning. The yellow
 home warning, labeled **Update**, opens the Settings activity directly to Market
 for review, whether tapped alone or selected from the warning picker; it is not a startup dialog. APK
 verification and Android's installer confirmation remain required.
