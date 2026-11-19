@@ -100,7 +100,7 @@ internal fun HomeWarningReviewHost(
         warnings.add(HomeStatusWarning(
             "market-update",
             TopMetricAlertSource.MARKET_UPDATE,
-            stringResource(R.string.market_update_available),
+            stringResource(R.string.market_update),
             Utils.AlertChipState.Warning,
             onMarketUpdate,
         ))

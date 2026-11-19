@@ -47,7 +47,7 @@ class MarketSecurityPolicyTest {
     }
 
     @Test
-    fun reviewedUpdatesReturnOnNextHomeSessionWithoutRepeatedWarningsInCurrentSession() {
+    fun reviewedUpdatesStayHiddenThroughCatalogChangesUntilProcessRestart() {
         val first = plugin()
         val second = plugin(id = "another", packageName = "org.example.another")
         val updates = listOf(first, second)
@@ -56,10 +56,21 @@ class MarketSecurityPolicyTest {
         assertTrue(review.shouldShowWarning(updates))
         review.markReviewed(updates)
         assertFalse(review.shouldShowWarning(updates.reversed()))
-        assertTrue(review.shouldShowWarning(listOf(first.copy(versionCode = 6), second)))
-        review.reset()
-        assertTrue(review.shouldShowWarning(updates))
+        assertFalse(review.shouldShowWarning(listOf(first.copy(versionCode = 6), second)))
+        assertFalse(review.shouldShowWarning(listOf(second)))
         assertFalse(review.shouldShowWarning(emptyList()))
+        assertFalse(review.shouldShowWarning(updates))
+
+        val restartedProcessReview = MarketUpdateReview()
+        assertTrue(restartedProcessReview.shouldShowWarning(updates))
+    }
+
+    @Test
+    fun openingMarketWithoutUpdatesDoesNotSuppressLaterWarning() {
+        val review = MarketUpdateReview()
+        assertFalse(review.shouldShowWarning(emptyList()))
+        review.markReviewed(emptyList())
+        assertTrue(review.shouldShowWarning(listOf(plugin())))
     }
 
     @Test

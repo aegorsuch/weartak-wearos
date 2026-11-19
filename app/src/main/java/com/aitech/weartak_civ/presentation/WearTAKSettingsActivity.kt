@@ -512,6 +512,7 @@ fun WearTAKSettingsNav(
         startDestination = "settings_screen"
     ) {
         composable("settings_screen") {
+            val entries = mainPreferenceEntries(context)
             val rootSwipeState = rememberSwipeToDismissBoxState()
             LaunchedEffect(rootSwipeState.currentValue) {
                 if (rootSwipeState.currentValue == SwipeToDismissValue.Dismissed) {
@@ -524,40 +525,10 @@ fun WearTAKSettingsNav(
                     WearTAKPageWithBackArrow(
                         stringResource(R.string.weartak_preferences),
                         {
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.admin_preferences),
-                                    route = "admin_preferences",
-                                    enabled = isDevMode,
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.developer_preferences),
-                                    route = "debug_tools",
-                                    enabled = isDevMode,
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.alerting_preferences),
-                                    route = "alerting_preferences",
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.callsign_and_device_preferences),
-                                    route = "callsign_and_device_preferences",
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                if (networkPreferencesLocked) {
+                            itemsIndexed(entries) { _, (route, title) ->
+                                if (route == "network_preferences" && networkPreferencesLocked) {
                                     WearTAKLockedTitleChip(
-                                        title = stringResource(R.string.network_preferences),
+                                        title = title,
                                         lockedState = stringResource(R.string.locked),
                                         onClick = {
                                             Toast.makeText(
@@ -571,18 +542,12 @@ fun WearTAKSettingsNav(
                                     )
                                 } else {
                                     WearTAKTitleChip(
-                                        title = stringResource(R.string.network_preferences),
-                                        route = "network_preferences",
+                                        title = title,
+                                        route = route,
+                                        enabled = if (route == "admin_preferences" || route == "debug_tools") isDevMode else true,
                                         navController = navController
                                     )
                                 }
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.tool_preferences),
-                                    route = "tool_preferences",
-                                    navController = navController
-                                )
                             }
                             item {
                                 WearTAKDebugVersionText(

@@ -38,6 +38,16 @@ internal fun openMarketUpdates(context: Context, onReviewed: () -> Unit) {
 internal fun homeMetricIntent(context: Context): Intent =
     Intent(context, PhysioAlertsActivity::class.java)
 
+internal fun mainPreferenceEntries(context: Context): List<Pair<String, String>> =
+    localizedPreferenceEntries(context, listOf(
+        "admin_preferences" to R.string.admin_preferences,
+        "alerting_preferences" to R.string.alerting_preferences,
+        "callsign_and_device_preferences" to R.string.callsign_and_device_preferences,
+        "debug_tools" to R.string.developer_preferences,
+        "network_preferences" to R.string.network_preferences,
+        "tool_preferences" to R.string.tool_preferences,
+    ))
+
 internal fun alertPreferenceEntries(context: Context, page: String): List<Pair<String, String>> {
     val entries = when (page) {
         "alerting_preferences" -> listOf(
@@ -55,6 +65,10 @@ internal fun alertPreferenceEntries(context: Context, page: String): List<Pair<S
         )
         else -> error("Unsupported alert preference page: $page")
     }
+    return localizedPreferenceEntries(context, entries)
+}
+
+private fun localizedPreferenceEntries(context: Context, entries: List<Pair<String, Int>>): List<Pair<String, String>> {
     val collator = java.text.Collator.getInstance(context.resources.configuration.locales[0])
     return entries.map { (route, label) -> route to context.getString(label) }
         .sortedWith { left, right -> collator.compare(left.second, right.second) }

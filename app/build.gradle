@@ -397,6 +397,7 @@ dependencies {
     ksp "androidx.room:room-compiler:$room_version"
 
     implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'net.i2p.crypto:eddsa:0.3.0'
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0"
 
     implementation "live.ditto:ditto:4.14.6"
