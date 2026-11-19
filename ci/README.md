@@ -321,6 +321,33 @@ not reported as a successful upload. The script also enforces the source gates.
 
 ## Personal destination and source synchronization
 
+### Immediate Market catalog refresh
+
+After verifying the uploaded stable APK and published release, removing older
+owned assets, and saving the publication receipt, the publisher requests a Market
+catalog refresh on `aegorsuch/weartak-wearos` `main`. It does not notify for
+source-only synchronization, draft generation, superseded pipelines, or failed
+publication. Dispatch queues the existing GitHub Actions workflow; it does not
+mean catalog deployment has completed. Hourly refresh remains the recovery path.
+
+Create a separate [fine-grained token](https://github.com/settings/personal-access-tokens/new)
+restricted to `aegorsuch/weartak-wearos`, with **Actions: read and write** only
+(plus implicit metadata read). Do not broaden or reuse the source-publishing
+token or local CLI credentials. Store it as `MARKET_CATALOG_DISPATCH_TOKEN` in
+the [canonical project's CI/CD variables](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/settings/ci_cd):
+masked, protected, hidden if supported, with expansion disabled and scope matching
+the publish job. Provision it before merging this hook.
+
+Missing credentials, transport failures, denied access, redirects, or any result
+other than HTTP 204 fail the publish job explicitly **after** the verified APK
+is published; the release is not rolled back. Retry the latest authorized
+publisher job to reverify the same APK and request refresh without uploading it
+again, or [run the catalog workflow manually](https://github.com/aegorsuch/weartak-wearos/actions/workflows/publish-market-catalog.yml).
+No APKs are installed automatically. Catalog membership, HTTPS, signature,
+package, signer, checksum, and host compatibility checks remain unchanged.
+
+### Source synchronization
+
 `publish_personal_github_main` is the only publisher job. It uses the protected
 canonical `main` push gate, waits for all earlier stages, downloads the same-pipeline
 `main_release` artifact, and is noninterruptible. It keeps the existing
