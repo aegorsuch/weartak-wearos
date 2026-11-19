@@ -9,68 +9,34 @@ on:
       - main
     paths:
       - ".github/workflows/publish-market-catalog.yml"
-      - "market-publisher/**"
   pull_request:
     paths:
       - ".github/workflows/publish-market-catalog.yml"
-      - "market-publisher/**"
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  test-publisher:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
+          repository: aegorsuch/weartak-takwerx-market
+          ref: b1e97ed35f402cc1898722776b4efb363dd3e9b1
           persist-credentials: false
-      - name: Test catalog publisher
-        run: node --test market-publisher/tests/publish_catalog.test.mjs
+      - run: node --test market-publisher/tests/publish_catalog.test.mjs
 
   publish:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: test
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name)
     permissions:
       contents: read
       pages: write
       id-token: write
-    concurrency:
-      group: takwerx-market-catalog
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-        with:
-          persist-credentials: false
-      - name: Install Android APK inspection tools
-        shell: bash
-        run: |
-          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [[ ! -x "$sdkmanager" ]]; then
-            echo "Android SDK command-line tools are unavailable." >&2
-            exit 1
-          fi
-          python3 -c 'import subprocess,sys; result=subprocess.run([sys.argv[1],"--licenses"],input=b"y\n"*100,stdout=subprocess.DEVNULL); sys.exit(result.returncode)' "$sdkmanager"
-          "$sdkmanager" "build-tools;35.0.0"
-          echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
-      - name: Build signed catalog
-        env:
-          MARKET_CATALOG_SIGNING_KEY: ${{ secrets.MARKET_CATALOG_SIGNING_KEY }}
-          MARKET_CATALOG_PUBLIC_KEY: ${{ vars.MARKET_CATALOG_PUBLIC_KEY }}
-          MARKET_OUTPUT_DIR: market-publisher/site
-        run: node market-publisher/publish_catalog.mjs
-
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
-
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
-        with:
-          path: market-publisher/site
-
-      - id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+    uses: aegorsuch/weartak-takwerx-market/.github/workflows/publish-market-catalog.yml@b1e97ed35f402cc1898722776b4efb363dd3e9b1
+    with:
+      publisher_ref: b1e97ed35f402cc1898722776b4efb363dd3e9b1
+      market_catalog_public_key: ${{ vars.MARKET_CATALOG_PUBLIC_KEY }}
+    secrets:
+      catalog_signing_key: ${{ secrets.MARKET_CATALOG_SIGNING_KEY }}

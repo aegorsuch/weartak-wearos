@@ -1026,7 +1026,6 @@
     <string name="bloodhound_compass">Bloodhound</string>
     <string name="plugins">Plugins</string>
     <string name="takwerx_market_title">TAKwerx Market</string>
-    <string name="market_intro">Browse signed WearTAK plugins. Android asks before installing on this watch.</string>
     <string name="market_not_configured">No signed catalog is configured for this build.</string>
     <string name="market_refresh">Refresh catalog</string>
     <string name="market_loading">Loading catalog…</string>
@@ -1037,12 +1036,11 @@
     <string name="market_catalog_unavailable">Could not check for updates. Try again.</string>
     <string name="market_no_updates">No newer compatible WearTAK or approved-plugin releases.</string>
     <string name="market_update_available">Update available</string>
-    <string name="market_publisher_version">%1$s · %2$s · version %3$s</string>
+    <string name="market_plugin_by_publisher">%1$s by %2$s</string>
     <string name="market_official">Official</string>
     <string name="market_community">Community</string>
     <string name="market_source">Source code</string>
     <string name="market_source_unavailable">No app can open this source link.</string>
-    <string name="market_compatible">Compatible with this WearTAK version</string>
     <string name="market_incompatible">Not compatible with this WearTAK version</string>
     <string name="market_installed_version">Installed: %1$s</string>
     <string name="market_install">Install</string>

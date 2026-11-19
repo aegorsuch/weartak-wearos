@@ -6,16 +6,28 @@ Builds without catalog configuration show Market as unavailable and make no
 catalog request.
 
 WearTAK checks the signed catalog at process startup and when Android reports
-validated internet connectivity. It compares only compatible releases already
-present in that catalog with installed package versions and signers. A warning
-opens the Market for review; APK verification and Android's installer
-confirmation remain required.
+validated internet connectivity. A transient transport failure gets one retry
+while connected. Returning to the WearTAK home activity also retries an
+interrupted check when online. WearTAK compares only compatible releases already
+present in that catalog with installed package versions and signers. The yellow
+home warning opens the Market for review; it is not a startup dialog. APK
+verification and Android's installer confirmation remain required.
+Opening Market with updates available hides the warning for the current home
+activity session. When WearTAK Home starts again, the warning returns if
+eligible updates remain.
+Market rows show the release name and publisher, with a check for current
+installs or a download action for eligible installs and updates. Blocked
+releases show why they cannot be installed.
 
-The client does not scan GitHub or discover repositories. The separate
-`market-publisher` job in this GitHub mirror checks only repositories in
-[`approved-repositories.json`](../market-publisher/approved-repositories.json)
-and publishes the signed catalog to GitHub Pages hourly. The initial allowlist
-contains WearTAK and seven personal `weartak-plugin-*` repositories with
+The client does not scan GitHub or discover repositories. Publisher code and
+approvals are maintained in the
+[canonical TAK.gov Market project](https://git.tak.gov/weartak-plugins/weartak-takwerx-market)
+and mirrored to [GitHub](https://github.com/aegorsuch/weartak-takwerx-market).
+The WearTAK GitHub mirror calls the standalone publisher at a reviewed commit
+SHA. It checks only repositories in
+[`approved-repositories.json`](https://github.com/aegorsuch/weartak-takwerx-market/blob/main/market-publisher/approved-repositories.json)
+and publishes the signed catalog to the existing WearTAK Pages site hourly.
+The initial allowlist contains WearTAK and seven personal `weartak-plugin-*` repositories with
 verified stable APKs; SDK and template repositories are excluded. Six other
 personal plugin repositories are listed as pending until they publish stable
 APKs and their package/signer metadata is reviewed. GitHub's latest-release
@@ -32,9 +44,11 @@ range. Unchanged release metadata is reused only from the previously
 signature-verified catalog, avoiding repeated APK downloads during hourly
 checks.
 
-This workflow runs from the GitHub mirror, not TAK.gov's canonical build
-pipeline. Catalog signing and release build configuration still need one-time
-setup before watches can receive updates.
+Only the WearTAK mirror deploys the catalog; the standalone workflow does
+not deploy on its own. When adopting a publisher change, review the mirrored
+commit and update the reusable workflow reference, `publisher_ref`, the
+pull-request test checkout, and the mirror's Actions allowlist to that same
+SHA. Only trusted `main` publishing runs receive the signing key.
 
 The Plugins-menu icon is the TAKwerx Market ATAK plugin launcher icon, used
 with permission: [source](https://github.com/takwerx/takwerx-market/blob/main/app/src/main/res/drawable/ic_launcher.png).
@@ -136,7 +150,9 @@ The catalog URL is:
 https://aegorsuch.github.io/weartak-wearos/catalog.json
 ```
 
-The workflow enables/deploys GitHub Pages on its first successful run. Set
+Configure GitHub Pages on the WearTAK mirror to deploy from GitHub Actions.
+Do not rotate the signing key or change the Pages URL just to update the
+publisher: deployed watches already trust that URL and key. Set
 `WEARTAK_MARKET_CATALOG_URL` and `WEARTAK_MARKET_CATALOG_PUBLIC_KEY` in the
 TAK.gov release-build environment to the URL and same public key. These are
 public values; the private key stays in the GitHub Actions secret. The existing

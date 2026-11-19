@@ -2302,7 +2302,8 @@ independent Samsung Health waste or a measured battery saving.
 ### Persistent developer menus and Logging
 
 Tap the version eight times in **Preferences** to unlock **Admin Preferences**
-and **Developer Preferences**. Repeat the same eight-tap gesture to hide them.
+and **Developer Preferences**, the first two entries in the menu. Repeat the
+same eight-tap gesture to lock them again.
 This local UI preference now survives navigation, process restart, reboot and
 in-place updates until explicitly disabled. It is not an authenticated admin
 session: phone-managed restrictions, network locking, licensing, platform

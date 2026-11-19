@@ -552,7 +552,6 @@
     </plurals>
     <string name="openvpn_service_running">OpenVPN tüneli etkin</string>
     <string name="takwerx_market_title">TAKwerx Pazarı</string>
-    <string name="market_intro">İmzalı WearTAK eklentilerine göz atın. Bu saate yüklemeden önce Android onay ister.</string>
     <string name="market_not_configured">Bu derleme için imzalı katalog yapılandırılmamış.</string>
     <string name="market_refresh">Kataloğu yenile</string>
     <string name="market_loading">Katalog yükleniyor…</string>
@@ -563,12 +562,11 @@
     <string name="market_catalog_unavailable">Güncellemeler denetlenemedi. Yeniden deneyin.</string>
     <string name="market_no_updates">Daha yeni uyumlu WearTAK veya onaylı eklenti sürümü yok.</string>
     <string name="market_update_available">Güncelleme mevcut</string>
-    <string name="market_publisher_version">%1$s · %2$s · sürüm %3$s</string>
+    <string name="market_plugin_by_publisher">%1$s (%2$s tarafından)</string>
     <string name="market_official">Resmi</string>
     <string name="market_community">Topluluk</string>
     <string name="market_source">Kaynak kodu</string>
     <string name="market_source_unavailable">Bu kaynak bağlantısını açabilecek bir uygulama yok.</string>
-    <string name="market_compatible">Bu WearTAK sürümüyle uyumlu</string>
     <string name="market_incompatible">Bu WearTAK sürümüyle uyumlu değil</string>
     <string name="market_installed_version">Yüklü: %1$s</string>
     <string name="market_install">Yükle</string>

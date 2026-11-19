@@ -13,6 +13,8 @@ import org.junit.Assert.assertThrows
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.IOException
+import javax.net.ssl.SSLHandshakeException
 
 class MarketCatalogRepositoryTest {
     @Rule
@@ -112,6 +114,49 @@ class MarketCatalogRepositoryTest {
             }
 
             assertFalse(error.invalidCatalog)
+        }
+    }
+
+    @Test
+    fun catalogTransportFailureRetriesOnceWhileOnline() = runBlocking {
+        var requests = 0
+        val result = retryMarketCatalogFetch(waitForRetry = {}, hasInternet = { true }) {
+            if (++requests == 1) throw IOException("network changed")
+            "verified catalog"
+        }
+        assertEquals("verified catalog", result)
+        assertEquals(2, requests)
+
+        requests = 0
+        assertThrows(IOException::class.java) {
+            runBlocking {
+                retryMarketCatalogFetch(waitForRetry = {}, hasInternet = { true }) {
+                    requests++
+                    throw IOException("persistent network failure")
+                }
+            }
+        }
+        assertEquals(2, requests)
+    }
+
+    @Test
+    fun catalogFetchDoesNotRetryOfflineOrOnTrustFailure() {
+        val failures = listOf(
+            IOException("offline") to false,
+            SSLHandshakeException("untrusted certificate") to true,
+            MarketCatalogException("invalid catalog signature") to true,
+        )
+        for ((failure, online) in failures) {
+            var requests = 0
+            assertThrows(failure.javaClass) {
+                runBlocking {
+                    retryMarketCatalogFetch(waitForRetry = {}, hasInternet = { online }) {
+                        requests++
+                        throw failure
+                    }
+                }
+            }
+            assertEquals(1, requests)
         }
     }
 

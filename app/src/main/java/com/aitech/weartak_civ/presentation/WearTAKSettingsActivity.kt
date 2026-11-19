@@ -526,6 +526,29 @@ fun WearTAKSettingsNav(
                         {
                             item {
                                 WearTAKTitleChip(
+                                    title = stringResource(R.string.admin_preferences),
+                                    route = "admin_preferences",
+                                    enabled = isDevMode,
+                                    navController = navController
+                                )
+                            }
+                            item {
+                                WearTAKTitleChip(
+                                    title = stringResource(R.string.developer_preferences),
+                                    route = "debug_tools",
+                                    enabled = isDevMode,
+                                    navController = navController
+                                )
+                            }
+                            item {
+                                WearTAKTitleChip(
+                                    title = stringResource(R.string.alerting_preferences),
+                                    route = "alerting_preferences",
+                                    navController = navController
+                                )
+                            }
+                            item {
+                                WearTAKTitleChip(
                                     title = stringResource(R.string.callsign_and_device_preferences),
                                     route = "callsign_and_device_preferences",
                                     navController = navController
@@ -556,31 +579,8 @@ fun WearTAKSettingsNav(
                             }
                             item {
                                 WearTAKTitleChip(
-                                    title = stringResource(R.string.alerting_preferences),
-                                    route = "alerting_preferences",
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
                                     title = stringResource(R.string.tool_preferences),
                                     route = "tool_preferences",
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.admin_preferences),
-                                    route = "admin_preferences",
-                                    enabled = isDevMode,
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.developer_preferences),
-                                    route = "debug_tools",
-                                    enabled = isDevMode,
                                     navController = navController
                                 )
                             }
@@ -3216,6 +3216,7 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SENSOR_MANAGER, stringResource(R.string.sensor_manager)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, stringResource(R.string.somewear_labs)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, stringResource(R.string.tablet_command)),
+                    PluginMenuEntry.Market(stringResource(R.string.takwerx_market_title)),
                 ) + pluginList.installedPluginMenuEntries()
             ).withoutSomewearPlaceholder().alphabetizedPluginEntries()
             val lifecycleOwner = LocalLifecycleOwner.current
@@ -3250,20 +3251,6 @@ fun WearTAKSettingsNav(
                 columnContent = {
                     item {
                         WearTAKTitleChip(
-                            icon = {
-                                Image(
-                                    painter = painterResource(id = R.drawable.takwerx_market),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            },
-                            title = stringResource(R.string.takwerx_market_title),
-                            route = "takwerx_market",
-                            navController = navController
-                        )
-                    }
-                    item {
-                        WearTAKTitleChip(
                             title = "OpenVPN",
                             route = "openvpn_plugin",
                             navController = navController
@@ -3271,6 +3258,18 @@ fun WearTAKSettingsNav(
                     }
                     itemsIndexed(items = menuEntries, key = { _, entry -> entry.key }) { _, entry ->
                         when (entry) {
+                            is PluginMenuEntry.Market -> WearTAKTitleChip(
+                                icon = {
+                                    Image(
+                                        painter = painterResource(R.drawable.takwerx_market),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                title = entry.title,
+                                route = "takwerx_market",
+                                navController = navController,
+                            )
                             is PluginMenuEntry.BuiltIn -> when (entry.kind) {
                                 BuiltInPlugin.BATDOK -> {
                                     BatdokPatientToggle(
@@ -3428,7 +3427,7 @@ fun WearTAKSettingsNav(
                                                     )
                                                 }
                                             },
-                                            title = item.title,
+                                            title = entry.title,
                                             label = menuLabel,
                                             modifier = Modifier.semantics {
                                                 if (menuLabel == null && item.desc.isNotBlank()) {

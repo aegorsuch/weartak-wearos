@@ -549,7 +549,6 @@
     </plurals>
     <string name="openvpn_service_running">Đường hầm OpenVPN đang hoạt động</string>
     <string name="takwerx_market_title">Chợ TAKwerx</string>
-    <string name="market_intro">Duyệt các plugin WearTAK đã ký. Android sẽ yêu cầu xác nhận trước khi cài đặt trên đồng hồ này.</string>
     <string name="market_not_configured">Bản dựng này chưa được cấu hình danh mục đã ký.</string>
     <string name="market_refresh">Làm mới danh mục</string>
     <string name="market_loading">Đang tải danh mục…</string>
@@ -560,12 +559,11 @@
     <string name="market_catalog_unavailable">Không thể kiểm tra bản cập nhật. Hãy thử lại.</string>
     <string name="market_no_updates">Không có phiên bản WearTAK hoặc plugin được phê duyệt mới hơn tương thích.</string>
     <string name="market_update_available">Có bản cập nhật</string>
-    <string name="market_publisher_version">%1$s · %2$s · phiên bản %3$s</string>
+    <string name="market_plugin_by_publisher">%1$s của %2$s</string>
     <string name="market_official">Chính thức</string>
     <string name="market_community">Cộng đồng</string>
     <string name="market_source">Mã nguồn</string>
     <string name="market_source_unavailable">Không có ứng dụng nào mở được liên kết mã nguồn này.</string>
-    <string name="market_compatible">Tương thích với phiên bản WearTAK này</string>
     <string name="market_incompatible">Không tương thích với phiên bản WearTAK này</string>
     <string name="market_installed_version">Đã cài đặt: %1$s</string>
     <string name="market_install">Cài đặt</string>

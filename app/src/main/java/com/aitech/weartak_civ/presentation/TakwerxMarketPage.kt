@@ -1,13 +1,12 @@
 package com.aitech.weartak_civ.presentation
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
 import android.util.Log
-import android.widget.Toast
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -17,8 +16,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,10 +29,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
 import com.aitech.weartak_civ.R
-import com.aitech.weartak_civ.BuildConfig
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.integration.plugin.PluginViewModel
 import com.aitech.weartak_civ.market.MarketCatalogException
@@ -41,8 +42,6 @@ import com.aitech.weartak_civ.market.MarketInstallState
 import com.aitech.weartak_civ.market.MarketInstallStatusReceiver
 import com.aitech.weartak_civ.market.MarketRefreshStatus
 import com.aitech.weartak_civ.market.MarketPlugin
-import com.aitech.weartak_civ.market.MarketPublisherType
-import com.aitech.weartak_civ.market.MarketSecurityPolicy
 import kotlinx.coroutines.launch
 
 @Composable
@@ -84,7 +83,6 @@ internal fun TakwerxMarketPage(
             try {
                 MarketPluginDisplay(
                     plugin = plugin,
-                    installed = installer.installedPackage(plugin.packageName),
                     installState = installer.installState(plugin),
                     lastResult = MarketInstallStatusReceiver.lastStatus(context, plugin.packageName),
                 )
@@ -92,7 +90,6 @@ internal fun TakwerxMarketPage(
                 Log.e(TAG, "Cannot verify installed plugin state: ${plugin.packageName}", error)
                 MarketPluginDisplay(
                     plugin = plugin,
-                    installed = null,
                     installState = MarketInstallState.PACKAGE_QUERY_FAILED,
                     lastResult = null,
                 )
@@ -168,13 +165,6 @@ internal fun TakwerxMarketPage(
         title = stringResource(R.string.takwerx_market_title),
         columnContent = {
             item {
-                Text(
-                    stringResource(R.string.market_intro),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                    color = MaterialTheme.colors.onSurface,
-                )
-            }
-            item {
                 Chip(
                     onClick = ::refreshCatalog,
                     enabled = updateMonitor.isConfigured && !loading,
@@ -191,7 +181,7 @@ internal fun TakwerxMarketPage(
                 MarketRefreshStatus.INVALID_CATALOG -> R.string.market_catalog_invalid
                 MarketRefreshStatus.UNAVAILABLE -> R.string.market_catalog_unavailable
                 MarketRefreshStatus.READY -> when {
-                    snapshot.availableUpdates.isNotEmpty() -> R.string.market_update_available
+                    snapshot.availableUpdates.isNotEmpty() -> null
                     catalog?.plugins.isNullOrEmpty() -> R.string.market_empty
                     else -> R.string.market_no_updates
                 }
@@ -221,11 +211,8 @@ internal fun TakwerxMarketPage(
                 item {
                     MarketPluginEntry(
                         plugin = display.plugin,
-                        installedVersionName = display.installed?.versionName
-                            ?: display.installed?.versionCode?.toString(),
                         installState = display.installState,
-                        installerPermission = installer.canInstallPackages(),
-                        busy = activePackage == display.plugin.packageName,
+                        canStartInstall = activePackage == null,
                         installResult = display.lastResult?.second,
                         onInstall = { install(display.plugin) },
                     )
@@ -239,7 +226,6 @@ internal fun TakwerxMarketPage(
 
 private data class MarketPluginDisplay(
     val plugin: MarketPlugin,
-    val installed: com.aitech.weartak_civ.market.InstalledMarketPackage?,
     val installState: MarketInstallState,
     val lastResult: Pair<String, String>?,
 )
@@ -247,104 +233,52 @@ private data class MarketPluginDisplay(
 @Composable
 private fun MarketPluginEntry(
     plugin: MarketPlugin,
-    installedVersionName: String?,
     installState: MarketInstallState,
-    installerPermission: Boolean,
-    busy: Boolean,
+    canStartInstall: Boolean,
     installResult: String?,
     onInstall: () -> Unit,
 ) {
-    val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-        Text(
-            plugin.name,
-            style = MaterialTheme.typography.title3,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colors.onSurface,
-        )
-        Text(
-            stringResource(
-                R.string.market_publisher_version,
-                stringResource(
-                    if (plugin.publisherType == MarketPublisherType.OFFICIAL) {
-                        R.string.market_official
-                    } else {
-                        R.string.market_community
-                    },
-                ),
-                plugin.publisher,
-                plugin.versionName,
-            ),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colors.onSurface,
-        )
-        plugin.sourceUrl?.let { sourceUrl ->
-            val sourceHost = Uri.parse(sourceUrl).host.orEmpty()
-            Chip(
-                onClick = {
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(sourceUrl)))
-                    } catch (error: ActivityNotFoundException) {
-                        Log.w(TAG, "No app can open plugin source link", error)
-                        Toast.makeText(context, R.string.market_source_unavailable, Toast.LENGTH_LONG).show()
-                    }
-                },
-                label = { Text(stringResource(R.string.market_source)) },
-                secondaryLabel = { Text(sourceHost, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+    val download = installState == MarketInstallState.INSTALL || installState == MarketInstallState.UPDATE
+    val current = installState == MarketInstallState.UP_TO_DATE ||
+        installState == MarketInstallState.NEWER_VERSION_INSTALLED
+    val statusText = stringResource(
+        when (installState) {
+            MarketInstallState.INSTALL -> R.string.market_install
+            MarketInstallState.UPDATE -> R.string.market_update
+            MarketInstallState.UP_TO_DATE -> R.string.market_up_to_date
+            MarketInstallState.NEWER_VERSION_INSTALLED -> R.string.market_newer_installed
+            MarketInstallState.INCOMPATIBLE -> R.string.market_incompatible
+            MarketInstallState.SIGNER_MISMATCH -> R.string.market_signer_mismatch
+            MarketInstallState.PLAY_MANAGED_HOST -> R.string.market_play_managed
+            MarketInstallState.PACKAGE_QUERY_FAILED -> R.string.market_package_unavailable
+        },
+    )
+    val detail = if (!download && !current) statusText else installResult
+    Chip(
+        onClick = onInstall,
+        enabled = canStartInstall && download,
+        label = {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        Text(
-            plugin.description,
-            maxLines = 4,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colors.onSurface,
-        )
-        Text(
-            stringResource(
-                if (MarketSecurityPolicy.hostCompatible(plugin, BuildConfig.VERSION_CODE.toLong())) {
-                    R.string.market_compatible
-                } else {
-                    R.string.market_incompatible
-                },
-            ),
-            color = if (installState == MarketInstallState.INCOMPATIBLE) {
-                MaterialTheme.colors.error
-            } else {
-                MaterialTheme.colors.onSurface
-            },
-        )
-        if (installedVersionName != null) {
-            Text(
-                stringResource(R.string.market_installed_version, installedVersionName),
-                color = MaterialTheme.colors.onSurface,
-            )
-        }
-        if (installResult != null) {
-            Text(installResult, color = MaterialTheme.colors.onSurface)
-        }
-        val actionText = stringResource(
-            when (installState) {
-                MarketInstallState.INSTALL -> if (installerPermission) R.string.market_install else R.string.market_permission_needed
-                MarketInstallState.UPDATE -> if (installerPermission) R.string.market_update else R.string.market_permission_needed
-                MarketInstallState.UP_TO_DATE -> R.string.market_up_to_date
-                MarketInstallState.NEWER_VERSION_INSTALLED -> R.string.market_newer_installed
-                MarketInstallState.INCOMPATIBLE -> R.string.market_incompatible
-                MarketInstallState.SIGNER_MISMATCH -> R.string.market_signer_mismatch
-                MarketInstallState.PLAY_MANAGED_HOST -> R.string.market_play_managed
-                MarketInstallState.PACKAGE_QUERY_FAILED -> R.string.market_package_unavailable
-            },
-        )
-        Chip(
-            onClick = onInstall,
-            enabled = !busy && (installState == MarketInstallState.INSTALL ||
-                installState == MarketInstallState.UPDATE),
-            label = { Text(if (busy) stringResource(R.string.market_download_verifying) else actionText) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.market_plugin_by_publisher, plugin.name, plugin.publisher),
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (download) {
+                    Icon(painterResource(R.drawable.ic_market_download), contentDescription = statusText)
+                } else if (current) {
+                    Icon(Icons.Filled.Check, contentDescription = statusText)
+                }
+            }
+        },
+        secondaryLabel = detail?.let { message -> { Text(message) } },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 private const val TAG = "TakwerxMarketPage"
