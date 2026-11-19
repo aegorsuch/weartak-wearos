@@ -2,6 +2,7 @@ package com.aitech.weartak_civ.market
 
 import android.util.Base64
 import com.aitech.weartak_civ.BuildConfig
+import net.i2p.crypto.eddsa.EdDSASecurityProvider
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
 import java.security.KeyFactory
@@ -72,9 +73,10 @@ internal object MarketCatalogParser {
             val payload = Base64.decode(envelope.getString("payload"), Base64.DEFAULT)
             val signatureBytes = Base64.decode(envelope.getString("signature"), Base64.DEFAULT)
             val publicKeyBytes = Base64.decode(publicKeyBase64, Base64.DEFAULT)
-            val publicKey = KeyFactory.getInstance("Ed25519")
+            val provider = EdDSASecurityProvider()
+            val publicKey = KeyFactory.getInstance("EdDSA", provider)
                 .generatePublic(X509EncodedKeySpec(publicKeyBytes))
-            val verifier = Signature.getInstance("Ed25519")
+            val verifier = Signature.getInstance("NONEwithEdDSA", provider)
             verifier.initVerify(publicKey)
             verifier.update(payload)
             if (!verifier.verify(signatureBytes)) {

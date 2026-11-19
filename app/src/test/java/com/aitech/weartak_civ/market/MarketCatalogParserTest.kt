@@ -12,7 +12,15 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.security.KeyPair
 import java.security.KeyPairGenerator
+import java.security.Key
+import java.security.KeyFactorySpi
+import java.security.PrivateKey
+import java.security.Provider
+import java.security.PublicKey
+import java.security.Security
 import java.security.Signature
+import java.security.SignatureSpi
+import java.security.spec.KeySpec
 
 @RunWith(RobolectricTestRunner::class)
 class MarketCatalogParserTest {
@@ -34,6 +42,51 @@ class MarketCatalogParserTest {
         assertThrows(MarketCatalogException::class.java) {
             parse(signedPluginCatalog(pluginRecord(), keys), newKeyPair())
         }
+    }
+
+    @Test
+    fun bypassesPlatformKeyFactoryEvenWhenItAdvertisesEdDsaFirst() =
+        acceptsWithConflictingProvider("KeyFactory", RejectingKeyFactory::class.java.name, "Ed25519", "EdDSA")
+
+    @Test
+    fun bypassesPlatformSignatureEvenWhenItAdvertisesEdDsaFirst() =
+        acceptsWithConflictingProvider("Signature", RejectingSignature::class.java.name, "Ed25519", "NONEwithEdDSA")
+
+    private fun acceptsWithConflictingProvider(service: String, implementation: String, vararg algorithms: String) {
+        val keys = newKeyPair()
+        val envelope = signedPluginCatalog(pluginRecord(), keys)
+        val provider = object : Provider("ConflictingMarketProvider", 1.0, "Rejects platform EdDSA lookup") {
+            init {
+                algorithms.forEach { put("$service.$it", implementation) }
+            }
+        }
+        assertEquals(1, Security.insertProviderAt(provider, 1))
+        try {
+            assertEquals(1, parse(envelope, keys).plugins.size)
+        } finally {
+            Security.removeProvider(provider.name)
+        }
+    }
+
+    class RejectingKeyFactory : KeyFactorySpi() {
+        override fun engineGeneratePublic(keySpec: KeySpec): PublicKey =
+            throw AssertionError("Platform key factory must not decode Market keys")
+        override fun engineGeneratePrivate(keySpec: KeySpec): PrivateKey = throw AssertionError()
+        override fun <T : KeySpec> engineGetKeySpec(key: Key, keySpec: Class<T>): T = throw AssertionError()
+        override fun engineTranslateKey(key: Key): Key = throw AssertionError()
+    }
+
+    class RejectingSignature : SignatureSpi() {
+        override fun engineInitVerify(publicKey: PublicKey) {
+            throw AssertionError("Platform signature must not verify Market catalogs")
+        }
+        override fun engineInitSign(privateKey: PrivateKey) { throw AssertionError() }
+        override fun engineUpdate(value: Byte) { throw AssertionError() }
+        override fun engineUpdate(bytes: ByteArray, offset: Int, length: Int) { throw AssertionError() }
+        override fun engineSign(): ByteArray = throw AssertionError()
+        override fun engineVerify(signature: ByteArray): Boolean = throw AssertionError()
+        override fun engineSetParameter(parameter: String, value: Any) { throw AssertionError() }
+        override fun engineGetParameter(parameter: String): Any = throw AssertionError()
     }
 
     @Test
@@ -60,6 +113,18 @@ class MarketCatalogParserTest {
 
         assertEquals(hostPackage, catalog.plugins.single().packageName)
         assertTrue(catalog.plugins.single().hostUpdate)
+    }
+
+    @Test
+    fun rejectsOfficialHostUpdateForAnotherApplication() {
+        val keys = newKeyPair()
+        val record = pluginRecord().apply {
+            put("publisherType", "official")
+            put("hostUpdate", true)
+        }
+        assertThrows(MarketCatalogException::class.java) {
+            parse(signedPluginCatalog(record, keys), keys)
+        }
     }
 
     @Test

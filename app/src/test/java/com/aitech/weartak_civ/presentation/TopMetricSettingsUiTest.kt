@@ -32,6 +32,27 @@ import org.robolectric.annotation.GraphicsMode
 class TopMetricSettingsUiTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun mainPreferencesSortDisplayedLabelsWithoutChangingRoutes() {
+        val app = RuntimeEnvironment.getApplication()
+        val associations = listOf(
+            "admin_preferences" to R.string.admin_preferences,
+            "alerting_preferences" to R.string.alerting_preferences,
+            "callsign_and_device_preferences" to R.string.callsign_and_device_preferences,
+            "debug_tools" to R.string.developer_preferences,
+            "network_preferences" to R.string.network_preferences,
+            "tool_preferences" to R.string.tool_preferences,
+        )
+        for (locale in listOf(java.util.Locale.US, java.util.Locale.GERMAN, java.util.Locale.FRENCH)) {
+            val config = android.content.res.Configuration(app.resources.configuration).apply { setLocale(locale) }
+            val localized = app.createConfigurationContext(config)
+            val entries = mainPreferenceEntries(localized)
+            val collator = java.text.Collator.getInstance(locale)
+            assertEquals(associations.associate { it.first to localized.getString(it.second) }, entries.toMap())
+            assertTrue(entries.zipWithNext().all { (left, right) -> collator.compare(left.second, right.second) <= 0 })
+        }
+        assertEquals(associations.map { it.first }, mainPreferenceEntries(app).map { it.first })
+    }
+
     @Test fun alertMenusSortLocalizedLabelsWithoutChangingEntryAssociations() {
         val app = RuntimeEnvironment.getApplication()
         val expected = mapOf(

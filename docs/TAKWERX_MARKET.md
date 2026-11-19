@@ -9,15 +9,19 @@ WearTAK checks the signed catalog at process startup and when Android reports
 validated internet connectivity. A transient transport failure gets one retry
 while connected. Returning to the WearTAK home activity also retries an
 interrupted check when online. WearTAK compares only compatible releases already
-present in that catalog with installed package versions and signers. The yellow
-home warning opens the Settings activity directly to Market for review, whether
-tapped alone or selected from the warning picker; it is not a startup dialog. APK
+present in that catalog with installed package versions and signers. New,
+uninstalled plugins remain discoverable in Market but do not trigger an update
+warning. The yellow
+home warning, labeled **Update**, opens the Settings activity directly to Market
+for review, whether tapped alone or selected from the warning picker; it is not a startup dialog. APK
 verification and Android's installer confirmation remain required.
-Opening Market with updates available hides the warning for the current home
-activity session. When WearTAK Home starts again, the warning returns if
-eligible updates remain.
-Market rows show the release name and publisher, with a check for current
-installs or a download action for eligible installs and updates. Blocked
+Opening Market with updates available acknowledges the warning for the entire
+WearTAK process. Returning Home, recreating activities, reconnecting, or refreshing
+the catalog (even with newer releases) does not show it again. Restarting the
+WearTAK process permits the warning again if eligible updates remain.
+The verified WearTAK host-update row displays **WearTAK-WearOS**, without redundant
+author text. Plugin rows keep the signed release name and publisher, with a check
+for current installs or a download action for eligible installs and updates. Blocked
 releases show why they cannot be installed.
 While downloading and verifying an APK, its row shows a spinner and disables
 install actions. Preparation errors and Android confirmation guidance appear
@@ -90,7 +94,8 @@ the installer.
 The response is a JSON envelope. `payload` is Base64 of the exact UTF-8 bytes
 of the catalog JSON; `signature` is Base64 of an Ed25519 signature over those
 bytes. The configured public key verifies the envelope before any entries are
-parsed.
+parsed. Key decoding and verification explicitly use the bundled EdDSA provider,
+not Android's provider ordering or AndroidKeyStore, including in minified builds.
 
 ```json
 {

@@ -33,23 +33,7 @@ class MarketPluginEntryTest {
         val installing = mutableStateOf(true)
         val result = mutableStateOf<String?>(null)
         var retries = 0
-        val plugin = MarketPlugin(
-            id = "weartak",
-            name = "WearTAK",
-            description = "",
-            publisher = "WearTAK",
-            publisherType = MarketPublisherType.OFFICIAL,
-            packageName = "com.aitech.weartak_civ",
-            versionName = "5.8.4-p727",
-            versionCode = 5840727,
-            minHostVersionCode = 1,
-            maxHostVersionCode = null,
-            apkUrl = "https://example.org/release.apk",
-            apkSha256 = "a".repeat(64),
-            signerSha256 = "b".repeat(64),
-            sourceUrl = null,
-            hostUpdate = true,
-        )
+        val plugin = hostPlugin()
         compose.setContent {
             WearTAKCIVTheme {
                 MarketPluginEntry(
@@ -66,7 +50,8 @@ class MarketPluginEntryTest {
         compose.onNodeWithContentDescription("Downloading and verifying…", useUnmergedTree = true)
             .assertIsDisplayed()
         compose.onNodeWithText("Downloading and verifying…").assertDoesNotExist()
-        compose.onNodeWithText("WearTAK by WearTAK").assertIsNotEnabled()
+        compose.onNodeWithText("WearTAK-WearOS").assertIsNotEnabled()
+        compose.onNodeWithText("WearTAK by WearTAK").assertDoesNotExist()
         compose.onNodeWithContentDescription("Update", useUnmergedTree = true).assertDoesNotExist()
 
         compose.runOnIdle {
@@ -78,7 +63,46 @@ class MarketPluginEntryTest {
             .assertDoesNotExist()
         compose.onNodeWithText("Download timed out.").assertIsDisplayed()
         compose.onNodeWithContentDescription("Update", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("WearTAK by WearTAK").assertIsEnabled().performClick()
+        compose.onNodeWithText("WearTAK-WearOS").assertIsEnabled().performClick()
         assertEquals(1, retries)
     }
+
+    @Test
+    fun pluginRowsKeepPublisherAttributionEvenWhenNamedWearTak() {
+        compose.setContent {
+            WearTAKCIVTheme {
+                MarketPluginEntry(
+                    plugin = hostPlugin().copy(
+                        packageName = "org.example.plugin",
+                        hostUpdate = false,
+                    ),
+                    installState = MarketInstallState.INSTALL,
+                    canStartInstall = true,
+                    installing = false,
+                    installResult = null,
+                    onInstall = {},
+                )
+            }
+        }
+        compose.onNodeWithText("WearTAK by WearTAK").assertIsDisplayed()
+        compose.onNodeWithText("WearTAK-WearOS").assertDoesNotExist()
+    }
+
+    private fun hostPlugin() = MarketPlugin(
+        id = "weartak",
+        name = "WearTAK",
+        description = "",
+        publisher = "WearTAK",
+        publisherType = MarketPublisherType.OFFICIAL,
+        packageName = "com.aitech.weartak_civ",
+        versionName = "5.8.4-p727",
+        versionCode = 5840727,
+        minHostVersionCode = 1,
+        maxHostVersionCode = null,
+        apkUrl = "https://example.org/release.apk",
+        apkSha256 = "a".repeat(64),
+        signerSha256 = "b".repeat(64),
+        sourceUrl = null,
+        hostUpdate = true,
+    )
 }

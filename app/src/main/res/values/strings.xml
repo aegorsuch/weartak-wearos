@@ -1037,6 +1037,7 @@
     <string name="market_no_updates">No newer compatible WearTAK or approved-plugin releases.</string>
     <string name="market_update_available">Update available</string>
     <string name="market_plugin_by_publisher">%1$s by %2$s</string>
+    <string name="market_host_name" translatable="false">WearTAK-WearOS</string>
     <string name="market_official">Official</string>
     <string name="market_community">Community</string>
     <string name="market_source">Source code</string>

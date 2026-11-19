@@ -189,9 +189,13 @@ class DittoBleRecoveryUiTest {
 
         if (viaPicker) {
             compose.onNodeWithTag("home-secondary-warnings").performClick()
+            compose.onNodeWithText("Update").assertExists()
+            compose.onNodeWithText("Update available").assertDoesNotExist()
             compose.onNodeWithTag("home-warning-market-update").performClick()
             compose.onNodeWithTag("home-warning-picker").assertDoesNotExist()
         } else {
+            compose.onNodeWithText("Update").assertExists()
+            compose.onNodeWithText("Update available").assertDoesNotExist()
             compose.onNodeWithTag("market-update-warning").assertExists().performClick()
         }
         val intent = shadowOf(context).nextStartedActivity

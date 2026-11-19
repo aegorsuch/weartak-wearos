@@ -36,22 +36,14 @@ internal data class MarketUpdateSnapshot(
 )
 
 internal class MarketUpdateReview {
-    private var reviewedReleaseKey: String? = null
+    private var reviewed = false
 
     fun markReviewed(updates: Collection<MarketPlugin>) {
-        reviewedReleaseKey = releaseKey(updates)
-    }
-
-    fun reset() {
-        reviewedReleaseKey = null
+        if (updates.isNotEmpty()) reviewed = true
     }
 
     fun shouldShowWarning(updates: Collection<MarketPlugin>): Boolean =
-        updates.isNotEmpty() && releaseKey(updates) != reviewedReleaseKey
-
-    private fun releaseKey(updates: Collection<MarketPlugin>): String =
-        updates.sortedBy { it.packageName }
-            .joinToString("|") { "${it.packageName}:${it.versionCode}" }
+        updates.isNotEmpty() && !reviewed
 }
 
 internal suspend fun <T> retryMarketCatalogFetch(
@@ -152,14 +144,6 @@ internal class MarketUpdateMonitor(
             if (current.availableUpdates.isEmpty()) return
             updateReview.markReviewed(current.availableUpdates)
             _snapshot.value = current.copy(showUpdateWarning = false)
-        }
-    }
-
-    fun resetUpdateReview() {
-        synchronized(lock) {
-            updateReview.reset()
-            val current = _snapshot.value
-            _snapshot.value = current.copy(showUpdateWarning = updateReview.shouldShowWarning(current.availableUpdates))
         }
     }
 
