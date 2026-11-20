@@ -4,7 +4,6 @@ import kotlin.math.roundToInt
 import com.aitech.weartak_civ.ui.formatter.UnitFormatter
 import com.aitech.weartak_civ.ui.formatter.UnitPrefs
 import android.content.Context
-import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -6091,14 +6090,13 @@ fun WearTAKMultipleSelectionPagePreview() {
 }
 
 @Composable
-private fun TakGovLinkPage(
+internal fun TakGovLinkPage(
     navController: NavController,
     state: TakGovLinkUiState,
     onStartLinking: () -> Unit,
     onCancelLinking: () -> Unit,
     onRemoveLink: () -> Unit,
 ) {
-    val context = LocalContext.current
     var confirmRemove by rememberSaveable { mutableStateOf(false) }
 
     if (confirmRemove) {
@@ -6126,13 +6124,6 @@ private fun TakGovLinkPage(
         title = stringResource(R.string.my_takgov_link),
         navController = navController,
         columnContent = {
-            item {
-                Text(
-                    text = stringResource(R.string.takgov_link_instructions),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                )
-            }
             if (state.linked == true) {
                 item {
                     Text(
@@ -6176,24 +6167,13 @@ private fun TakGovLinkPage(
                         )
                     }
                     item {
-                        TakGovActionChip(
-                            title = stringResource(R.string.takgov_link_open),
-                            onClick = {
-                                try {
-                                    context.startActivity(
-                                        Intent(
-                                            Intent.ACTION_VIEW,
-                                            Uri.parse(TakGovDeviceAuthorizationRepository.REGISTER_DEVICE_URL),
-                                        )
-                                    )
-                                } catch (_: ActivityNotFoundException) {
-                                    Toast.makeText(
-                                        context,
-                                        R.string.takgov_link_browser_error,
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                }
-                            },
+                        Text(
+                            text = TakGovDeviceAuthorizationRepository.REGISTER_DEVICE_URL,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .testTag("takgov_registration_url"),
                         )
                     }
                     item {
