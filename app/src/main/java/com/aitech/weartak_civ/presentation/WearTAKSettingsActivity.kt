@@ -4,6 +4,7 @@ import kotlin.math.roundToInt
 import com.aitech.weartak_civ.ui.formatter.UnitFormatter
 import com.aitech.weartak_civ.ui.formatter.UnitPrefs
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -173,6 +174,8 @@ import com.aitech.weartak_civ.data.takserver.SideloadedClientCert
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.DataRepository.SitxGroupStatus
 import com.aitech.weartak_civ.events.MessageEvent
+import com.aitech.weartak_civ.data.takgov.TakGovDeviceAuthorizationRepository
+import com.aitech.weartak_civ.data.takgov.TakGovAccessLevel
 import com.aitech.weartak_civ.data.takserver.TakServerRegistration
 import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_REMOVED
 import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_TOGGLED
@@ -206,6 +209,8 @@ import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.sex
 import com.aitech.weartak_civ.data.ProfileUnit
 import com.aitech.weartak_civ.presentation.theme.WearTAKCIVTheme
 import com.aitech.weartak_civ.presentation.viewmodel.SitxViewModel
+import com.aitech.weartak_civ.presentation.viewmodel.TakGovLinkPhase
+import com.aitech.weartak_civ.presentation.viewmodel.TakGovLinkUiState
 import com.aitech.weartak_civ.presentation.viewmodel.WearTAKSettingsViewModel
 import com.aitech.weartak_civ.service.SitxTakService
 import com.aitech.weartak_civ.service.TAKConnectService
@@ -339,6 +344,7 @@ fun WearTAKSettingsNav(
     val savedCallsign by settingsVm.savedCallsign.collectAsState()
     val savedTeam by settingsVm.savedTeam.collectAsState()
     val savedRole by settingsVm.savedRole.collectAsState()
+    val takGovLinkState by settingsVm.takGovLinkState.collectAsState()
     val phoneManagedSettings by settingsVm.savedPhoneManagedSettings.collectAsState()
     val selectedLocationInput by dataRepository.getLocationInput.collectAsState(initial = null)
     val locationInputStatus by dataRepository.locationInputStatus.collectAsState()
@@ -601,22 +607,6 @@ fun WearTAKSettingsNav(
                     item {
                         if (phoneManagedSettings) {
                             WearTAKLockedTitleChip(
-                                title = stringResource(R.string.my_team),
-                                lockedState = "${savedTeam} • ${stringResource(R.string.phone_managed)}",
-                                onClick = showPhoneManagedNotice
-                            )
-                        } else {
-                            WearTAKTitleChipWithState(
-                                route = "my_team",
-                                title = stringResource(R.string.my_team),
-                                state = savedTeam,
-                                navController = navController
-                            )
-                        }
-                    }
-                    item {
-                        if (phoneManagedSettings) {
-                            WearTAKLockedTitleChip(
                                 title = stringResource(R.string.my_role),
                                 lockedState = "${savedRole} • ${stringResource(R.string.phone_managed)}",
                                 onClick = showPhoneManagedNotice
@@ -626,6 +616,44 @@ fun WearTAKSettingsNav(
                                 route = "my_role",
                                 title = stringResource(R.string.my_role),
                                 state = savedRole,
+                                navController = navController
+                            )
+                        }
+                    }
+                    item {
+                        WearTAKTitleChipWithState(
+                            route = "my_takgov_link",
+                            title = stringResource(R.string.my_takgov_link),
+                            state = takGovLinkState.linked,
+                            formatState = { linked ->
+                                val statusString = when {
+                                    linked == true &&
+                                        takGovLinkState.accessLevel == TakGovAccessLevel.MIL ->
+                                        R.string.takgov_linked_mil
+                                    linked == true &&
+                                        takGovLinkState.accessLevel == TakGovAccessLevel.CIV ->
+                                        R.string.takgov_linked_civ
+                                    linked == true -> R.string.takgov_linked
+                                    linked == false -> R.string.takgov_unlinked
+                                    else -> R.string.takgov_link_checking
+                                }
+                                stringResource(statusString)
+                            },
+                            navController = navController
+                        )
+                    }
+                    item {
+                        if (phoneManagedSettings) {
+                            WearTAKLockedTitleChip(
+                                title = stringResource(R.string.my_team),
+                                lockedState = "${savedTeam} • ${stringResource(R.string.phone_managed)}",
+                                onClick = showPhoneManagedNotice
+                            )
+                        } else {
+                            WearTAKTitleChipWithState(
+                                route = "my_team",
+                                title = stringResource(R.string.my_team),
+                                state = savedTeam,
                                 navController = navController
                             )
                         }
@@ -761,6 +789,15 @@ fun WearTAKSettingsNav(
                     navController,
                 )
             }
+        }
+        composable("my_takgov_link") {
+            TakGovLinkPage(
+                navController = navController,
+                state = takGovLinkState,
+                onStartLinking = settingsVm::beginTakGovLink,
+                onCancelLinking = settingsVm::cancelTakGovLink,
+                onRemoveLink = settingsVm::removeTakGovLink,
+            )
         }
         composable(
             "role_category_screen/{index}",
@@ -6050,5 +6087,204 @@ fun WearTAKMultipleSelectionPagePreview() {
         repoList = listOf("Item 1", "Item 2", "Item 3"),
         nameList = listOf("Item 1", "Item 2", "Item 3"),
         confirmFunction = {  }
+    )
+}
+
+@Composable
+private fun TakGovLinkPage(
+    navController: NavController,
+    state: TakGovLinkUiState,
+    onStartLinking: () -> Unit,
+    onCancelLinking: () -> Unit,
+    onRemoveLink: () -> Unit,
+) {
+    val context = LocalContext.current
+    var confirmRemove by rememberSaveable { mutableStateOf(false) }
+
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text(stringResource(R.string.takgov_link_remove_title)) },
+            text = { Text(stringResource(R.string.takgov_link_remove_message)) },
+            confirmButton = {
+                Button(onClick = {
+                    confirmRemove = false
+                    onRemoveLink()
+                }) {
+                    Text(stringResource(R.string.takgov_link_remove_confirm))
+                }
+            },
+            dismissButton = {
+                Button(onClick = { confirmRemove = false }) {
+                    Text(stringResource(R.string.takgov_link_cancel))
+                }
+            },
+        )
+    }
+
+    WearTAKPageWithBackArrow(
+        title = stringResource(R.string.my_takgov_link),
+        navController = navController,
+        columnContent = {
+            item {
+                Text(
+                    text = stringResource(R.string.takgov_link_instructions),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                )
+            }
+            if (state.linked == true) {
+                item {
+                    Text(
+                        text = stringResource(
+                            when (state.accessLevel) {
+                                TakGovAccessLevel.MIL -> R.string.takgov_linked_mil
+                                TakGovAccessLevel.CIV -> R.string.takgov_linked_civ
+                                null -> R.string.takgov_linked
+                            }
+                        ),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    )
+                }
+                item {
+                    TakGovActionChip(
+                        title = stringResource(R.string.takgov_link_remove),
+                        onClick = { confirmRemove = true },
+                    )
+                }
+            } else if (state.linked == false) {
+                if (state.storageError) {
+                    item {
+                        TakGovActionChip(
+                            title = stringResource(R.string.takgov_link_remove),
+                            onClick = { confirmRemove = true },
+                        )
+                    }
+                }
+                state.userCode?.let { code ->
+                    item {
+                        Text(
+                            text = code,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .testTag("takgov_user_code"),
+                        )
+                    }
+                    item {
+                        TakGovActionChip(
+                            title = stringResource(R.string.takgov_link_open),
+                            onClick = {
+                                try {
+                                    context.startActivity(
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse(TakGovDeviceAuthorizationRepository.REGISTER_DEVICE_URL),
+                                        )
+                                    )
+                                } catch (_: ActivityNotFoundException) {
+                                    Toast.makeText(
+                                        context,
+                                        R.string.takgov_link_browser_error,
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            },
+                        )
+                    }
+                    item {
+                        Text(
+                            text = stringResource(R.string.takgov_link_waiting),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
+                    item {
+                        TakGovActionChip(
+                            title = stringResource(R.string.takgov_link_cancel),
+                            onClick = onCancelLinking,
+                        )
+                    }
+                } ?: item {
+                    TakGovActionChip(
+                        title = stringResource(R.string.takgov_link_start),
+                        onClick = onStartLinking,
+                        enabled = !state.isBusy && !state.storageError,
+                    )
+                }
+                if (state.isBusy && state.userCode == null) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.takgov_link_requesting),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
+                }
+                val statusMessage = when {
+                    state.storageError -> R.string.takgov_link_storage_error
+                    state.actionError -> R.string.takgov_link_error
+                    state.phase == TakGovLinkPhase.DENIED -> R.string.takgov_link_denied
+                    state.phase == TakGovLinkPhase.EXPIRED -> R.string.takgov_link_expired
+                    else -> null
+                }
+                statusMessage?.let { message ->
+                    item {
+                        Text(
+                            text = stringResource(message),
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colors.error,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
+                }
+            } else {
+                if (state.storageError) {
+                    item {
+                        TakGovActionChip(
+                            title = stringResource(R.string.takgov_link_remove),
+                            onClick = { confirmRemove = true },
+                        )
+                    }
+                }
+                item {
+                    Text(
+                        text = stringResource(
+                            if (state.storageError) {
+                                R.string.takgov_link_storage_error
+                            } else {
+                                R.string.takgov_link_checking
+                            }
+                        ),
+                        textAlign = TextAlign.Center,
+                        color = if (state.storageError) MaterialTheme.colors.error else MaterialTheme.colors.onSurface,
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    )
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun TakGovActionChip(
+    title: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    Chip(
+        onClick = onClick,
+        enabled = enabled,
+        label = { Text(title) },
+        colors = ChipDefaults.chipColors(
+            backgroundColor = Color.DarkGray,
+            contentColor = Color.White,
+            secondaryContentColor = Color.LightGray,
+        ),
+        modifier = Modifier.fillMaxWidth(),
     )
 }
