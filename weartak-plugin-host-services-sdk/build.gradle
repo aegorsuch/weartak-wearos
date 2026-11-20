@@ -13,6 +13,10 @@ android {
         minSdk 30
         consumerProguardFiles 'consumer-rules.pro'
     }
+
+    dependencies {
+        testImplementation 'junit:junit:4.13.2'
+    }
     buildFeatures { aidl true }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
