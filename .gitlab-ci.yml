@@ -58,6 +58,7 @@ android_host_regression:
       --tests '*RouteDetailsViewTest' --tests '*RoutePointDetailsViewTest'
       --tests '*TakServerCaTrustTest' --tests '*TakServerCaStorageTest'
       --tests '*ServerCaTrustEditorTest' --tests '*TakEnrollmentTest'
+      --tests '*TakGovDeviceAuthorizationRepositoryTest' --tests '*TakGovUserInfoTest'
       --tests '*TakTransientRecoveryTest' --tests '*TakServerRegistrationServiceTest'
       --tests '*TakServerRegistrationTest' --tests '*ChatEnrollmentSaveTest'
       --tests '*HostRouteStatusControlTest' --tests '*ConnectionStatusPreferencesTest'

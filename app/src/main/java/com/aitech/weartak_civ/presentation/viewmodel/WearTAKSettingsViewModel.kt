@@ -79,6 +79,12 @@ import com.aitech.weartak_civ.data.DataRepository.SitxGroupStatus
 import com.aitech.weartak_civ.data.DataRepository.SmsNumber
 import com.aitech.weartak_civ.data.DataRepository.TakServerItem
 import com.aitech.weartak_civ.data.DataRepository.WifiSsidItem
+import com.aitech.weartak_civ.data.secure.crypto.EncryptedSerializer.DecryptResult
+import com.aitech.weartak_civ.data.secure.takgov.TakGovLinkEncryptedDataStore
+import com.aitech.weartak_civ.data.takgov.TakGovAccessLevel
+import com.aitech.weartak_civ.data.takgov.TakGovDeviceAuthorizationPoll
+import com.aitech.weartak_civ.data.takgov.TakGovDeviceAuthorizationRepository
+import com.aitech.weartak_civ.data.takgov.isTakGovAccessLevelCheckDue
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.TAG
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.allergyList
@@ -168,12 +174,37 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.update
 import kotlin.Int
 import kotlin.String
+import java.io.IOException
+
+enum class TakGovLinkPhase {
+    IDLE,
+    AWAITING_APPROVAL,
+    DENIED,
+    EXPIRED,
+    LINKED,
+}
+
+data class TakGovLinkUiState(
+    val linked: Boolean? = null,
+    val accessLevel: TakGovAccessLevel? = null,
+    val isBusy: Boolean = false,
+    val userCode: String? = null,
+    val phase: TakGovLinkPhase = TakGovLinkPhase.IDLE,
+    val storageError: Boolean = false,
+    val actionError: Boolean = false,
+)
 
 internal suspend fun updateCompanionServiceSetting(repository: DataRepository, enabled: Boolean) {
     if (repository.getNetworkPreferencesLocked.first()) {
@@ -189,6 +220,227 @@ internal suspend fun updateCompanionServiceSetting(repository: DataRepository, e
 }
 
 class WearTAKSettingsViewModel : ViewModel() {
+    private val takGovLinkStore by lazy {
+        TakGovLinkEncryptedDataStore(WearTakApplication.AppCtx.app.applicationContext)
+    }
+    private val takGovAuthorizationRepository by lazy {
+        TakGovDeviceAuthorizationRepository()
+    }
+    private val _takGovLinkState = MutableStateFlow(TakGovLinkUiState())
+    val takGovLinkState: StateFlow<TakGovLinkUiState> = _takGovLinkState.asStateFlow()
+    private var takGovLinkJob: Job? = null
+    private var takGovAccessLevelJob: Job? = null
+    private var lastScheduledAccessCheckAtMillis: Long? = null
+
+    init {
+        viewModelScope.launch {
+            try {
+                combine(
+                    takGovLinkStore.refreshTokenResult(),
+                    takGovLinkStore.displayAccessLevelResult(),
+                    takGovLinkStore.accessLevelCheckedAtMillis(),
+                ) { tokenResult, levelResult, checkedAtMillis ->
+                    val refreshToken = when (tokenResult) {
+                        null -> null
+                        is DecryptResult.Success -> tokenResult.plaintext.takeIf(String::isNotBlank)
+                            ?: throw IOException("Saved TAK.gov refresh token is blank.")
+                        is DecryptResult.Failure ->
+                            throw IOException("Saved TAK.gov link could not be decrypted.", tokenResult.error)
+                    }
+                    val accessLevel = when (levelResult) {
+                        null -> null
+                        is DecryptResult.Success -> when (levelResult.plaintext) {
+                            TakGovAccessLevel.CIV.name -> TakGovAccessLevel.CIV
+                            TakGovAccessLevel.MIL.name -> TakGovAccessLevel.MIL
+                            else -> null
+                        }
+                        is DecryptResult.Failure -> null
+                    }
+                    SavedTakGovLink(
+                        refreshToken = refreshToken,
+                        accessLevel = if (refreshToken == null) null else accessLevel,
+                        checkedAtMillis = checkedAtMillis,
+                    )
+                }.collect { saved ->
+                    _takGovLinkState.update {
+                        it.copy(
+                            linked = saved.refreshToken != null,
+                            accessLevel = saved.accessLevel,
+                            storageError = false,
+                        )
+                    }
+                    if (saved.refreshToken != null &&
+                        isTakGovAccessLevelCheckDue(saved.checkedAtMillis, System.currentTimeMillis())
+                    ) {
+                        _takGovLinkState.update { it.copy(accessLevel = null) }
+                        scheduleTakGovAccessLevelRefresh(
+                            saved.refreshToken,
+                            saved.checkedAtMillis,
+                        )
+                    } else if (saved.refreshToken == null) {
+                        lastScheduledAccessCheckAtMillis = null
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not read saved TAK.gov link", error)
+                _takGovLinkState.update { it.copy(linked = null, storageError = true) }
+            }
+        }
+    }
+
+    fun beginTakGovLink() {
+        if (_takGovLinkState.value.linked != false || takGovLinkJob?.isActive == true) return
+        takGovLinkJob = viewModelScope.launch {
+            _takGovLinkState.update {
+                it.copy(
+                    isBusy = true,
+                    userCode = null,
+                    phase = TakGovLinkPhase.IDLE,
+                    actionError = false,
+                )
+            }
+            try {
+                val authorization = takGovAuthorizationRepository.requestDeviceAuthorization()
+                _takGovLinkState.update {
+                    it.copy(
+                        userCode = authorization.userCode,
+                        phase = TakGovLinkPhase.AWAITING_APPROVAL,
+                    )
+                }
+                val expiresAtMillis =
+                    System.currentTimeMillis() + authorization.expiresInSeconds * 1_000L
+                var intervalSeconds = authorization.intervalSeconds
+                while (currentCoroutineContext().isActive) {
+                    val remainingMillis = expiresAtMillis - System.currentTimeMillis()
+                    if (remainingMillis <= 0L) {
+                        _takGovLinkState.update {
+                            it.copy(isBusy = false, userCode = null, phase = TakGovLinkPhase.EXPIRED)
+                        }
+                        return@launch
+                    }
+                    delay(minOf(intervalSeconds * 1_000L, remainingMillis))
+                    when (val result = takGovAuthorizationRepository.pollForAuthorization(
+                        authorization.deviceCode
+                    )) {
+                        TakGovDeviceAuthorizationPoll.Pending -> Unit
+                        TakGovDeviceAuthorizationPoll.SlowDown -> intervalSeconds += 5L
+                        TakGovDeviceAuthorizationPoll.Denied -> {
+                            _takGovLinkState.update {
+                                it.copy(isBusy = false, userCode = null, phase = TakGovLinkPhase.DENIED)
+                            }
+                            return@launch
+                        }
+                        TakGovDeviceAuthorizationPoll.Expired -> {
+                            _takGovLinkState.update {
+                                it.copy(isBusy = false, userCode = null, phase = TakGovLinkPhase.EXPIRED)
+                            }
+                            return@launch
+                        }
+                        is TakGovDeviceAuthorizationPoll.Approved -> {
+                            takGovLinkStore.saveNewLink(
+                                result.refreshToken,
+                                System.currentTimeMillis(),
+                            )
+                            _takGovLinkState.update {
+                                it.copy(
+                                    linked = true,
+                                    accessLevel = null,
+                                    isBusy = false,
+                                    userCode = null,
+                                    phase = TakGovLinkPhase.LINKED,
+                                    actionError = false,
+                                )
+                            }
+                            result.accessToken?.let { updateTakGovAccessLevel(it) }
+                            return@launch
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "TAK.gov EUD linking failed", error)
+                _takGovLinkState.update {
+                    it.copy(isBusy = false, userCode = null, actionError = true)
+                }
+            }
+        }
+    }
+
+    private fun scheduleTakGovAccessLevelRefresh(
+        refreshToken: String,
+        checkedAtMillis: Long,
+    ) {
+        if (takGovAccessLevelJob?.isActive == true ||
+            lastScheduledAccessCheckAtMillis == checkedAtMillis
+        ) return
+        lastScheduledAccessCheckAtMillis = checkedAtMillis
+        takGovAccessLevelJob = viewModelScope.launch {
+            try {
+                takGovLinkStore.startAccessLevelCheck(System.currentTimeMillis())
+                val refreshed = takGovAuthorizationRepository.refreshAccessToken(refreshToken)
+                refreshed.refreshToken?.let { takGovLinkStore.setRefreshToken(it) }
+                refreshed.accessToken?.let { updateTakGovAccessLevel(it) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w(TAG, "TAK.gov access-level refresh failed; retaining plain Linked state", error)
+            }
+        }
+    }
+
+    private suspend fun updateTakGovAccessLevel(accessToken: String) {
+        try {
+            takGovAuthorizationRepository.getUserAccessLevel(accessToken)?.let { accessLevel ->
+                takGovLinkStore.setDisplayAccessLevel(accessLevel.name)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(TAG, "TAK.gov UserInfo lookup failed; retaining plain Linked state", error)
+        }
+    }
+
+    fun cancelTakGovLink() {
+        takGovLinkJob?.cancel()
+        _takGovLinkState.update {
+            it.copy(isBusy = false, userCode = null, phase = TakGovLinkPhase.IDLE)
+        }
+    }
+
+    fun removeTakGovLink() {
+        takGovLinkJob?.cancel()
+        takGovAccessLevelJob?.cancel()
+        lastScheduledAccessCheckAtMillis = null
+        takGovLinkJob = viewModelScope.launch {
+            try {
+                takGovLinkStore.clearLink()
+                _takGovLinkState.update {
+                    it.copy(
+                        linked = false,
+                        accessLevel = null,
+                        isBusy = false,
+                        userCode = null,
+                        phase = TakGovLinkPhase.IDLE,
+                        actionError = false,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not remove saved TAK.gov link", error)
+                _takGovLinkState.update { it.copy(isBusy = false, actionError = true) }
+            }
+        }
+    }
+
+    private data class SavedTakGovLink(
+        val refreshToken: String?,
+        val accessLevel: TakGovAccessLevel?,
+        val checkedAtMillis: Long,
+    )
 
     private suspend fun refreshPhysioCepRuntime(reloadSustainOverrides: Boolean = false) {
         if (reloadSustainOverrides) {
