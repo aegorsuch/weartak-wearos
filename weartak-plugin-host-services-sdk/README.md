@@ -3,7 +3,8 @@
 Optional **extension protocol version 1**, independent of the pinned WearTAK plugin
 SDK lifecycle APIs 1, 2 and 3. Keep your existing `getApiVersion()`. Add this AAR
 alongside the existing SDK; it does not duplicate or replace existing SDK classes.
-No new permissions, certificate trust exceptions, or plugin signature rules.
+The existing host-services extension adds no permissions, certificate trust
+exceptions, or plugin signature rules.
 The library supports Android API 30+ and emits Kotlin 2.0 metadata, compatible
 with consumers on Kotlin 2.0.21; the host app's Kotlin 2.2 compiler is not required.
 
@@ -25,6 +26,68 @@ application or requiring its signing configuration:
 Linux CI: `./gradlew -p weartak-plugin-host-services-sdk assembleRelease`.
 Use JDK 17, Android SDK 35 and the checked-in Gradle wrapper/catalog from that
 same pinned source commit. The resulting Kotlin metadata targets 2.0.
+
+## Draft Ditto discovery and ownership V1
+
+**Unpublished and unavailable.** This draft does not change the existing
+WearOS endpoint, Community identity V1, plugin lifecycle API, or enable mesh.
+The same versioned AIDL types are intended for both hosts; the future WearOS
+discovery route is not defined here. Tracker retains its bundled engine on
+API 30. No source revision or artifact containing this draft is released.
+
+The proposed Tracker API 31+ endpoint is explicit-only: package
+`com.weartak.plugin.ditto`, class
+`com.weartak.plugin.ditto.tracker.TrackerDittoServiceV1`, action
+`com.weartak.plugin.ditto.action.TRACKER_DITTO_V1`, and plugin-owned
+permission `com.weartak.plugin.ditto.permission.BIND_TRACKER_DITTO_V1`.
+It must have no discovery intent filter. The plugin must check action and API
+level at bind and exact Binder UID, Tracker package and approved current signer
+on every call. A signature-level `knownSigner` permission must allow only
+approved host certificates, with no permissive fallback. Authenticate the
+plugin and each host callback reciprocally; signing lineage alone is not
+current-signer verification. Platform grant/deny and installation-order tests
+on devices are required before enabling this endpoint.
+
+`IDittoDiscoveryV1.getStatus()` returns `DittoStatusV1`: protocol version `1`
+and availability `AVAILABILITY_UNAVAILABLE` or `AVAILABILITY_AVAILABLE`.
+`getOwnership()` returns nullable `IDittoOwnershipV1`; discovery-only state
+must be unavailable and return null. Neither discovery nor status grants a
+lease, proves quiescence, exposes identity or authorizes host commands.
+Unknown versions or values must fail closed.
+
+`IDittoOwnershipV1.acquire(session, host)` returns `DittoLeaseResultV1`.
+The authenticated, live Binder `session` identifies one lease; `host` is a
+reciprocally authenticated `IDittoHostControlV1` callback. Its
+`quiesceBundledEngine()` returns true only after positive host engine shutdown,
+not merely after requesting it. Authentication must precede callback invocation,
+and callback failure, death or timeout is not quiescence. Acquire may return
+`LEASE_ACQUIRED` with a positive generation only after both host and plugin
+engines are positively quiescent and every rollout gate is met. `LEASE_BUSY`
+and `LEASE_UNAVAILABLE` grant no lease.
+
+`release(session, generation)` fences the lease before requesting plugin
+shutdown. `LEASE_STOPPED` permits fallback only after positive plugin
+quiescence; `LEASE_STOPPING` and `LEASE_UNCERTAIN` do not. `LEASE_STALE`
+denies old or mismatched sessions/generations. Repeated release for the same
+session and generation reports the ongoing stop or confirmed stop; it must
+not create a lease. A failed or timed-out call,
+Binder death or disconnect never permits fallback. Non-acquired results carry
+generation zero except stop-related results, which carry the fenced generation.
+All AIDL calls are synchronous; use worker threads and do not hold state locks
+across callbacks. Host commands remain host-authorized and host-executed;
+these DTOs carry no Ditto SDK objects, credentials or identity.
+
+`FencedOwnership` is an engine-neutral, process-local state machine, not an
+authorization mechanism or shutdown proof. Its trusted local adapter must
+use a single gate per Android user, map Binder sessions to stable local identity
+objects, serialize checks with engine operations, verify quiescence before calling
+`acquire`, and call `confirmPluginStopped` only on positive shutdown evidence.
+Death or timeout must call `markUncertain`. Persisted, monotonic fencing across
+process restarts is not provided. A single plugin lease does not prevent a
+second host's bundled engine from running. Cross-host exclusion, migration,
+rollback, persistence/crash recovery and on-device parity remain unresolved;
+keep availability false and ownership null until those gates are independently
+established and reviewed.
 
 ## Discovery
 
