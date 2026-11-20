@@ -117,7 +117,7 @@ class PluginSdkTests(unittest.TestCase):
 
     def test_build_sign_and_lint_paths_prepare_verified_sdk(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
-        for job, end in (("android_mopp_check:", "release_publisher_tests:"),
+        for job, end in (("android_host_regression:", "release_publisher_tests:"),
                          ("host_lint_debug:", "agp_resolution_diagnostic:"),
                          (".release_build:", "main_release:")):
             section = ci.split("\n" + job, 1)[1].split("\n" + end, 1)[0]

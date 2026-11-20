@@ -2,30 +2,13 @@
 
 ## Host and plugin version synchronization
 
-Root [`wear-version.properties`](../wear-version.properties) is the authoritative
-host version: `versionName=5.8.4` and `baseVersionCode=584`. Update this file,
-not Gradle literals. Host Gradle and changelog verification consume it directly.
-Versions have three or four numeric components, without leading zeros.
-CI compares numeric components (missing fourth component means zero), rejects
-version/code decreases, and requires a strictly greater base code for a greater
-version. An unchanged version may retain or increase its base code. The first
-migration compares against the previous commit's legacy host Gradle definitions;
-later comparisons require the manifest, with no malformed-file fallback.
-
-Run `python ci/wear_version.py validate` locally against HEAD, or add
-`--base <commit>` for another ancestral baseline. CI uses full Git history:
-MR target/diff-base SHA, previous push SHA, first-parent tag/manual-main baseline,
-or the main merge-base for a new non-main branch. Missing/non-ancestral ranges and
-checkout/source mismatches fail closed. `wear_version_check` blocks builds.
-The Python regression suite runs in the existing `release_publisher_tests` job.
-
-Plugin CI codes are `baseVersionCode * 10000 + CI_PIPELINE_IID`. Each plugin
+Plugin CI codes use `baseVersionCode` from
+[`wear-version.properties`](../wear-version.properties):
+`baseVersionCode * 10000 + CI_PIPELINE_IID`. Each plugin
 uses its own project IID, **1..9999**, never the host IID. Base codes **1..209999**
 reserve the entire IID range below Android's `2100000000` maximum. Reject IID
 10000; do not wrap, truncate or reset it. Before a project exhausts its IID
 range, a separate reviewed version-code scheme migration is required.
-Local host builds retain their base-only code; CI host names/codes retain their
-existing `-p<IID>+<sha>` / base-times-10000 format.
 
 ### Protected-main fan-out and consumer contract
 
@@ -258,6 +241,12 @@ options and official release behavior are unchanged.
 
 ## Host full-lint quality gate
 
+`wear_version_check` validates the root `wear-version.properties` against the
+pipeline's base revision. Update that file for host version changes: a higher
+`versionName` requires a higher `baseVersionCode`, and neither may decrease.
+Gradle and changelog verification both read the manifest. To check a proposed
+edit locally, run `python ci/wear_version.py validate --base HEAD` before committing.
+
 `host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.
 It uses the shared ephemeral Artifactory credential bootstrap, like other Android jobs.
 Lint errors fail the job; warnings remain visible but are not promoted to errors.
@@ -323,7 +312,7 @@ Robolectric's separate Android runtime resolver receives the same approved
 repository and credentials when both are available; no static credentials
 or token values are committed or printed.
 
-`android_mopp_check` runs debug assembly and focused host/plugin regression
+`android_host_regression` runs debug assembly and focused host/plugin regression
 tests on merge requests and main pushes without production signing setup.
 Main release jobs still wait for successful test-stage jobs. Existing release
 lint checks remain enabled. Full `lintDebug` is not a new blocking gate: the
@@ -497,6 +486,33 @@ fails. An unprotected pipeline is intentionally excluded from publication by rul
 not reported as a successful upload. The script also enforces the source gates.
 
 ## Personal destination and source synchronization
+
+### Immediate Market catalog refresh
+
+After verifying the uploaded stable APK and published release, removing older
+owned assets, and saving the publication receipt, the publisher requests a Market
+catalog refresh on `aegorsuch/weartak-wearos` `main`. It does not notify for
+source-only synchronization, draft generation, superseded pipelines, or failed
+publication. Dispatch queues the existing GitHub Actions workflow; it does not
+mean catalog deployment has completed. Hourly refresh remains the recovery path.
+
+Create a separate [fine-grained token](https://github.com/settings/personal-access-tokens/new)
+restricted to `aegorsuch/weartak-wearos`, with **Actions: read and write** only
+(plus implicit metadata read). Do not broaden or reuse the source-publishing
+token or local CLI credentials. Store it as `MARKET_CATALOG_DISPATCH_TOKEN` in
+the [canonical project's CI/CD variables](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/settings/ci_cd):
+masked, protected, hidden if supported, with expansion disabled and scope matching
+the publish job. Provision it before merging this hook.
+
+Missing credentials, transport failures, denied access, redirects, or any result
+other than HTTP 204 fail the publish job explicitly **after** the verified APK
+is published; the release is not rolled back. Retry the latest authorized
+publisher job to reverify the same APK and request refresh without uploading it
+again, or [run the catalog workflow manually](https://github.com/aegorsuch/weartak-wearos/actions/workflows/publish-market-catalog.yml).
+No APKs are installed automatically. Catalog membership, HTTPS, signature,
+package, signer, checksum, and host compatibility checks remain unchanged.
+
+### Source synchronization
 
 `publish_personal_github_main` is the only publisher job. It uses the protected
 canonical `main` push gate, waits for all earlier stages, downloads the same-pipeline

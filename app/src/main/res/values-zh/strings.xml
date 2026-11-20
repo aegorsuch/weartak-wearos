@@ -548,4 +548,34 @@
         <item quantity="other">%1$d/%2$d 个服务器</item>
     </plurals>
     <string name="openvpn_service_running">OpenVPN 隧道已启用</string>
+    <string name="takwerx_market_title">TAKwerx 市场</string>
+    <string name="market_not_configured">此构建未配置已签名的目录。</string>
+    <string name="market_refresh">刷新目录</string>
+    <string name="market_loading">正在加载目录…</string>
+    <string name="market_empty">目前没有已发布的插件。</string>
+    <string name="market_catalog_error">无法加载目录。请检查连接并重试。</string>
+    <string name="market_offline">没有互联网连接。连接恢复后将刷新目录。</string>
+    <string name="market_catalog_invalid">无法验证已签名目录的签名或格式。</string>
+    <string name="market_catalog_unavailable">无法检查更新。请重试。</string>
+    <string name="market_no_updates">没有兼容的 WearTAK 或已批准插件新版本。</string>
+    <string name="market_update_available">有可用更新</string>
+    <string name="market_plugin_by_publisher">%1$s（由 %2$s 提供）</string>
+    <string name="market_official">官方</string>
+    <string name="market_community">社区</string>
+    <string name="market_source">源代码</string>
+    <string name="market_source_unavailable">没有应用可以打开此源代码链接。</string>
+    <string name="market_incompatible">与此 WearTAK 版本不兼容</string>
+    <string name="market_installed_version">已安装：%1$s</string>
+    <string name="market_install">安装</string>
+    <string name="market_update">更新</string>
+    <string name="market_up_to_date">已是最新版本</string>
+    <string name="market_newer_installed">已安装更新的版本</string>
+    <string name="market_signer_mismatch">已安装的签名者与目录不匹配</string>
+    <string name="market_play_managed">WearTAK 更新由 Google Play 管理</string>
+    <string name="market_package_unavailable">无法验证已安装的软件包</string>
+    <string name="market_permission_needed">允许从 WearTAK 安装，然后返回并重试</string>
+    <string name="market_permission_settings_error">无法打开 Android 安装权限设置。</string>
+    <string name="market_download_verifying">正在下载并验证…</string>
+    <string name="market_installer_confirmation">请在 Android 安装程序中确认安装。</string>
+    <string name="market_install_error">无法准备要安装的软件包。</string>
 </resources>

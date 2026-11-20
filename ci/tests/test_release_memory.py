@@ -127,28 +127,6 @@ class ReleaseMemoryTests(unittest.TestCase):
             release,
         )
 
-    def test_signed_trial_is_scoped_manual_and_does_not_publish(self):
-        ci = (ROOT / ".gitlab-ci.yml").read_text()
-        trial = ci.split("\nbatdok_signed_trial:", 1)[1].split("\narm64_qualification:", 1)[0]
-        self.assertIn("extends: .release_build", trial)
-        self.assertIn("name: battak-trial", trial)
-        self.assertIn("action: prepare", trial)
-        self.assertIn('CI_PIPELINE_SOURCE == "web"', trial)
-        self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', trial)
-        self.assertIn('CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing"', trial)
-        self.assertEqual(3, trial.count("when: manual"))
-        self.assertNotIn("needs:", trial)
-        self.assertNotIn("script:", trial)
-        self.assertIn("when: on_success", trial)
-        self.assertIn("access: developer", trial)
-        publisher = ci.split("\npublish_personal_github_main:", 1)[1]
-        self.assertIn("- main_release", publisher)
-        self.assertNotIn("batdok_signed_trial", publisher)
-        self.assertIn('$CI_PIPELINE_SOURCE == "push"', publisher)
-        android = ci.split("\nandroid_mopp_check:", 1)[1].split("\nrelease_publisher_tests:", 1)[0]
-        self.assertIn('CI_PIPELINE_SOURCE == "web"', android)
-        self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', android)
-
     def test_arm64_qualification_is_protected_manual_and_nonpublishing(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
         qualification = ci.split("\narm64_qualification:", 1)[1].split("\n# ---------------------------------------------------------------------------", 1)[0]

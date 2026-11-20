@@ -1,0 +1,42 @@
+name: Publish TAKwerx Market catalog
+
+on:
+  schedule:
+    - cron: "19 * * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-market-catalog.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/publish-market-catalog.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-publisher:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: aegorsuch/weartak-takwerx-market
+          ref: b1e97ed35f402cc1898722776b4efb363dd3e9b1
+          persist-credentials: false
+      - run: node --test market-publisher/tests/publish_catalog.test.mjs
+
+  publish:
+    if: github.ref == 'refs/heads/main' && contains(fromJSON('["schedule", "workflow_dispatch", "push"]'), github.event_name)
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: aegorsuch/weartak-takwerx-market/.github/workflows/publish-market-catalog.yml@b1e97ed35f402cc1898722776b4efb363dd3e9b1
+    with:
+      publisher_ref: b1e97ed35f402cc1898722776b4efb363dd3e9b1
+      market_catalog_public_key: ${{ vars.MARKET_CATALOG_PUBLIC_KEY }}
+    secrets:
+      catalog_signing_key: ${{ secrets.MARKET_CATALOG_SIGNING_KEY }}

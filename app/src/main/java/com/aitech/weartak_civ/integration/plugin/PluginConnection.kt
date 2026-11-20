@@ -65,6 +65,7 @@ class PluginConnection(
     private val stateLock = Any()
     @Volatile private var closed = false
     @Volatile private var trustVerified = false
+    @Volatile private var ready = false
     internal val hasVerifiedTrust: Boolean get() = trustVerified && !closed
     private var initializing = false
     private var pendingRemoteCleanup: (() -> Unit)? = null
@@ -91,6 +92,7 @@ class PluginConnection(
     }
 
     private val deathRecipient = IBinder.DeathRecipient {
+        ready = false
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         hostRouteStatusControl?.close()
@@ -415,6 +417,7 @@ class PluginConnection(
         }
         mainHandler.post {
             if (!closed && manager.onConnectionReady(this)) {
+                ready = true
                 mainHandler.removeCallbacks(handshakeTimeout)
                 PluginDiagnostics.markConnected(pluginPackage)
                 moppControl?.ready()
@@ -426,6 +429,7 @@ class PluginConnection(
     }
 
     override fun onServiceDisconnected(name: ComponentName?) {
+        ready = false
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
@@ -437,6 +441,7 @@ class PluginConnection(
     }
 
     override fun onBindingDied(name: ComponentName?) {
+        ready = false
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
@@ -460,6 +465,7 @@ class PluginConnection(
     }
 
     fun tearDownBinder(reason: String) {
+        ready = false
         revokeCertificateSessions()
         Log.i(TAG, "tearDownBinder pkg=$pluginPackage reason=$reason")
         val cleanup = synchronized(stateLock) {
@@ -526,6 +532,19 @@ class PluginConnection(
     }
 
     internal fun pluginInfoSnapshot(): PluginInfoParcel? = pluginInfoSnapshot
+
+    internal fun handlerStatus(): com.weartak.plugin.sdk.model.PluginStatusParcel? {
+        val iface = synchronized(stateLock) {
+            if (!ready || !hasVerifiedTrust || pluginBinder?.isBinderAlive != true) null else plugin
+        } ?: return null
+        val status = iface.status
+        return synchronized(stateLock) {
+            status.takeIf {
+                ready && hasVerifiedTrust && plugin === iface && pluginBinder?.isBinderAlive == true &&
+                    manager.connectionFor(pluginPackage) === this
+            }
+        }
+    }
 
     internal fun apiVersionSnapshot(): Int = apiVersionSnapshot
 

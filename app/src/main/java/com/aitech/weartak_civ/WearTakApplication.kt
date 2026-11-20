@@ -44,6 +44,7 @@ import com.aitech.weartak_civ.data.secure.takserver.TakServerSecretsRepository
 import com.aitech.weartak_civ.integration.plugin.PluginRepository
 import com.aitech.weartak_civ.integration.plugin.PluginPackageChangedReceiver
 import com.aitech.weartak_civ.manager.NetworkManager
+import com.aitech.weartak_civ.market.MarketUpdateMonitor
 import com.aitech.weartak_civ.presentation.ChatActivity
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.presentation.PhysioAlertsActivity
@@ -68,6 +69,7 @@ class WearTakApplication : Application() {
 
     private val takServerMigrationReady = CompletableDeferred<Result<Unit>>()
     private val pluginPackageChangedReceiver = PluginPackageChangedReceiver()
+    internal val marketUpdateMonitor by lazy { MarketUpdateMonitor(applicationContext) }
 
     lateinit var repo: DataRepository; private set
     private lateinit var batteryPowerObserver: BatteryPowerObserver
@@ -127,6 +129,7 @@ class WearTakApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        marketUpdateMonitor.start()
         ChargingWirelessDebugging.restorePending(this)
         com.aitech.weartak_civ.command.SensitiveEnrollment.purgeNotifications(this)
         com.aitech.weartak_civ.service.RoutineServiceNotification.reconcileProcessStart(this)

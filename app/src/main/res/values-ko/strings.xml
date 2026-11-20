@@ -548,4 +548,34 @@
         <item quantity="other">서버 %1$d/%2$d개</item>
     </plurals>
     <string name="openvpn_service_running">OpenVPN 터널 활성화됨</string>
+    <string name="takwerx_market_title">TAKwerx 마켓</string>
+    <string name="market_not_configured">이 빌드에는 서명된 카탈로그가 구성되지 않았습니다.</string>
+    <string name="market_refresh">카탈로그 새로고침</string>
+    <string name="market_loading">카탈로그 로드 중…</string>
+    <string name="market_empty">현재 게시된 플러그인이 없습니다.</string>
+    <string name="market_catalog_error">카탈로그를 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요.</string>
+    <string name="market_offline">인터넷에 연결되어 있지 않습니다. 연결이 복구되면 카탈로그를 새로고침합니다.</string>
+    <string name="market_catalog_invalid">서명된 카탈로그의 서명 또는 형식을 확인할 수 없습니다.</string>
+    <string name="market_catalog_unavailable">업데이트를 확인할 수 없습니다. 다시 시도하세요.</string>
+    <string name="market_no_updates">호환되는 WearTAK 또는 승인된 플러그인의 최신 버전이 없습니다.</string>
+    <string name="market_update_available">업데이트 가능</string>
+    <string name="market_plugin_by_publisher">%1$s (제공: %2$s)</string>
+    <string name="market_official">공식</string>
+    <string name="market_community">커뮤니티</string>
+    <string name="market_source">소스 코드</string>
+    <string name="market_source_unavailable">이 소스 링크를 열 수 있는 앱이 없습니다.</string>
+    <string name="market_incompatible">이 WearTAK 버전과 호환되지 않음</string>
+    <string name="market_installed_version">설치됨: %1$s</string>
+    <string name="market_install">설치</string>
+    <string name="market_update">업데이트</string>
+    <string name="market_up_to_date">최신 상태</string>
+    <string name="market_newer_installed">더 최신 버전이 이미 설치되어 있습니다</string>
+    <string name="market_signer_mismatch">설치된 서명자가 카탈로그와 다릅니다</string>
+    <string name="market_play_managed">WearTAK 업데이트는 Google Play에서 관리합니다</string>
+    <string name="market_package_unavailable">설치된 패키지를 확인할 수 없습니다</string>
+    <string name="market_permission_needed">WearTAK에서 설치를 허용한 뒤 돌아와 다시 시도하세요</string>
+    <string name="market_permission_settings_error">Android 설치 권한 설정을 열 수 없습니다.</string>
+    <string name="market_download_verifying">다운로드 및 확인 중…</string>
+    <string name="market_installer_confirmation">Android 설치 프로그램에서 설치를 확인하세요.</string>
+    <string name="market_install_error">설치할 패키지를 준비하지 못했습니다.</string>
 </resources>

@@ -21,6 +21,11 @@ else:
 
 PERSONAL_REPO = "aegorsuch/weartak-wearos"
 TOKEN_VARIABLE = "WEARTAK_PERSONAL_GITHUB_TOKEN"
+MARKET_TOKEN_VARIABLE = "MARKET_CATALOG_DISPATCH_TOKEN"
+MARKET_DISPATCH_URL = (
+    "https://api.github.com/repos/aegorsuch/weartak-wearos/"
+    "actions/workflows/publish-market-catalog.yml/dispatches"
+)
 # Git tags cannot contain spaces or "/", so the tag is the title in tag-safe form.
 TAG = "TAK.gov-Forge-CI-CD-Pipeline-Release"
 TITLE = "TAK.gov Forge CI/CD Pipeline Release"
@@ -35,6 +40,11 @@ OUTPUT = Path("app/build/outputs/apk/release")
 
 class PublishError(Exception):
     pass
+
+
+class NoMarketRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -53,6 +63,41 @@ class GitHub:
         self.token = token
         self.repository_name = PERSONAL_REPO
         self.opener = urllib.request.build_opener(SafeRedirect())
+
+    def notify_market(self):
+        recovery = (
+            "The verified APK remains published. Configure protected "
+            f"{MARKET_TOKEN_VARIABLE} with Actions: write only on aegorsuch/weartak-wearos, "
+            "then retry this publisher or manually run the catalog workflow. "
+            "Hourly catalog refresh remains available."
+        )
+        token = os.environ.get(MARKET_TOKEN_VARIABLE, "").strip()
+        if not token:
+            raise PublishError(f"Market refresh not requested: missing {MARKET_TOKEN_VARIABLE}. {recovery}")
+        if token == self.token:
+            raise PublishError(f"Market refresh requires a separate dispatch credential. {recovery}")
+        request = urllib.request.Request(
+            MARKET_DISPATCH_URL,
+            data=json.dumps({"ref": "main"}).encode(),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json",
+                "User-Agent": "WearTAK-GitLab-market-refresh",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.build_opener(NoMarketRedirect()).open(request, timeout=30) as response:
+                status = response.status
+        except urllib.error.HTTPError as error:
+            raise PublishError(f"Market refresh dispatch failed (HTTP {error.code}). {recovery}") from None
+        except (urllib.error.URLError, OSError):
+            raise PublishError(f"Market refresh dispatch transport failed. {recovery}") from None
+        if status != 204:
+            raise PublishError(f"Market refresh dispatch returned unexpected HTTP {status}. {recovery}")
+        print("Market catalog refresh queued on main; completion depends on GitHub Actions.")
 
     def request(self, method, path, data=None, *, binary=False, missing_ok=False):
         host = "https://uploads.github.com" if binary else "https://api.github.com"
@@ -546,6 +591,7 @@ def publish(api, state, apk, digest, version, code, *, receipt_root=None):
             json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8"
         )
     print(f"Published {title}: version {version} ({code}), SHA256 {digest}")
+    api.notify_market()
 
 
 def main(argv=()):

@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -26,6 +27,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -121,6 +123,7 @@ class DittoBleRecoveryUiTest {
                             TopMetricAlertSource.CRM -> compose.onNodeWithTag("crm-warning-indicator")
                             TopMetricAlertSource.DETECTION -> compose.onNodeWithTag("audio-detection-warning")
                             TopMetricAlertSource.DITTO_BLE -> compose.onNodeWithTag("ditto_ble_warning_indicator")
+                            TopMetricAlertSource.MARKET_UPDATE -> compose.onNodeWithTag("market-update-warning")
                             TopMetricAlertSource.PHYSIO -> compose.onNodeWithText("Physio")
                             TopMetricAlertSource.NONE -> compose.onNodeWithText("72bpm")
                         }
@@ -130,6 +133,7 @@ class DittoBleRecoveryUiTest {
                             TopMetricAlertSource.CRM -> "crm"
                             TopMetricAlertSource.DITTO_BLE -> "ditto"
                             TopMetricAlertSource.DETECTION -> if (count == 2) "picker" else "detection"
+                            TopMetricAlertSource.MARKET_UPDATE -> "market"
                         }
                         assertEquals("$p/$count/$c/$d", listOf(expected), actions)
                         val sources = buildSet {
@@ -146,6 +150,59 @@ class DittoBleRecoveryUiTest {
                 }
             }
         }
+    }
+
+    @Test fun marketUpdateWarningOpensSettingsMarketInsteadOfHomeNavigation() =
+        verifyMarketUpdateNavigation(viaPicker = false)
+
+    @Test fun marketUpdateWarningPickerOpensSettingsMarketAndDismissesPicker() =
+        verifyMarketUpdateNavigation(viaPicker = true)
+
+    private fun verifyMarketUpdateNavigation(viaPicker: Boolean) {
+        var reviewed = false
+        compose.setContent {
+            val activityContext = LocalContext.current
+            WearTAKCIVTheme {
+                HomeWarningReviewHost(
+                    gunshotPending = null,
+                    uasPending = null,
+                    findEvent = { _, _ -> null },
+                    emitFeedback = { _, _ -> true },
+                    dittoWarning = if (viaPicker) BleLinkWarning.DISCONNECTED else BleLinkWarning.NONE,
+                    marketUpdateAvailable = true,
+                    onMarketUpdate = { openMarketUpdates(activityContext) { reviewed = true } },
+                ) { warnings, onReviewWarnings ->
+                    HomeTopMetricCard(
+                        "HR",
+                        "72bpm",
+                        TopDisplayMetric.HEART_RATE,
+                        R.drawable.heart_rate,
+                        Utils.AlertChipState.None,
+                        null,
+                        {},
+                        warnings,
+                        onReviewWarnings,
+                    )
+                }
+            }
+        }
+
+        if (viaPicker) {
+            compose.onNodeWithTag("home-secondary-warnings").performClick()
+            compose.onNodeWithText("Update").assertExists()
+            compose.onNodeWithText("Update available").assertDoesNotExist()
+            compose.onNodeWithTag("home-warning-market-update").performClick()
+            compose.onNodeWithTag("home-warning-picker").assertDoesNotExist()
+        } else {
+            compose.onNodeWithText("Update").assertExists()
+            compose.onNodeWithText("Update available").assertDoesNotExist()
+            compose.onNodeWithTag("market-update-warning").assertExists().performClick()
+        }
+        val intent = shadowOf(context).nextStartedActivity
+        assertEquals(WearTAKSettingsActivity::class.java.name, intent.component!!.className)
+        assertEquals("takwerx_market", settingsShortcutRoute(intent))
+        assertTrue(reviewed)
+        assertNull(shadowOf(context).nextStartedActivity)
     }
 
     @Test fun topMetricWarningFitsAtFontScale13WithTouchTarget() {

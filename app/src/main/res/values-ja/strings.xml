@@ -548,4 +548,34 @@
         <item quantity="other">%1$d/%2$dサーバー</item>
     </plurals>
     <string name="openvpn_service_running">OpenVPN トンネルが有効です</string>
+    <string name="takwerx_market_title">TAKwerxマーケット</string>
+    <string name="market_not_configured">このビルドには署名済みカタログが設定されていません。</string>
+    <string name="market_refresh">カタログを更新</string>
+    <string name="market_loading">カタログを読み込み中…</string>
+    <string name="market_empty">現在公開されているプラグインはありません。</string>
+    <string name="market_catalog_error">カタログを読み込めませんでした。接続を確認して再試行してください。</string>
+    <string name="market_offline">インターネットに接続されていません。接続が戻るとカタログを更新します。</string>
+    <string name="market_catalog_invalid">署名済みカタログの署名または形式を検証できませんでした。</string>
+    <string name="market_catalog_unavailable">更新を確認できませんでした。再試行してください。</string>
+    <string name="market_no_updates">互換性のあるWearTAKまたは承認済みプラグインの新しいバージョンはありません。</string>
+    <string name="market_update_available">更新があります</string>
+    <string name="market_plugin_by_publisher">%1$s（提供: %2$s）</string>
+    <string name="market_official">公式</string>
+    <string name="market_community">コミュニティ</string>
+    <string name="market_source">ソースコード</string>
+    <string name="market_source_unavailable">このソースリンクを開けるアプリがありません。</string>
+    <string name="market_incompatible">このWearTAKバージョンに非対応</string>
+    <string name="market_installed_version">インストール済み: %1$s</string>
+    <string name="market_install">インストール</string>
+    <string name="market_update">更新</string>
+    <string name="market_up_to_date">最新です</string>
+    <string name="market_newer_installed">より新しいバージョンがすでにインストールされています</string>
+    <string name="market_signer_mismatch">インストール済みの署名者がカタログと異なります</string>
+    <string name="market_play_managed">WearTAKの更新はGoogle Playで管理されています</string>
+    <string name="market_package_unavailable">インストール済みパッケージを確認できません</string>
+    <string name="market_permission_needed">WearTAKからのインストールを許可し、戻って再試行してください</string>
+    <string name="market_permission_settings_error">Androidのインストール権限設定を開けませんでした。</string>
+    <string name="market_download_verifying">ダウンロードと検証中…</string>
+    <string name="market_installer_confirmation">Androidインストーラーでインストールを確認してください。</string>
+    <string name="market_install_error">インストール用にパッケージを準備できませんでした。</string>
 </resources>

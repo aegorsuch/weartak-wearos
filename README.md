@@ -106,6 +106,10 @@ of production persistence.
 - Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
 - Provides optional audio detection pipelines for gunshot and UAS events, and optional CRM inference.
 - Hosts supported WearTAK plugins through the included plugin SDK contract.
+- Provides the optional watch-native TAKwerx Market for signed, curated
+  first-party and approved community plugin releases. See
+  [`docs/TAKWERX_MARKET.md`](docs/TAKWERX_MARKET.md) for catalog configuration
+  and publishing requirements.
 
 Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
 
@@ -2298,7 +2302,8 @@ independent Samsung Health waste or a measured battery saving.
 ### Persistent developer menus and Logging
 
 Tap the version eight times in **Preferences** to unlock **Admin Preferences**
-and **Developer Preferences**. Repeat the same eight-tap gesture to hide them.
+and **Developer Preferences**, the first two entries in the menu. Repeat the
+same eight-tap gesture to lock them again.
 This local UI preference now survives navigation, process restart, reboot and
 in-place updates until explicitly disabled. It is not an authenticated admin
 session: phone-managed restrictions, network locking, licensing, platform
@@ -3339,18 +3344,10 @@ fail all builds. Unrelated ordinary builds with neither input remain buildable b
 show that BATTAK configuration is absent; they are not acceptance candidates.
 Private CI must set both inputs in the appropriate authorized scope and use the
 acceptance flag; no remote CI variables are created by this change.
-The shared CI release job enforces this flag for main, official and manual
-`batdok_signed_trial` builds. The trial is opt-in on canonical branch/MR pipelines,
-reuses existing production signing checks, and does not publish. Successful trial
-APK artifacts expire after seven days and require Developer access. Existing
-protected-variable permissions are unchanged: an authorized maintainer must
-ensure interoperability and signing inputs are available to the selected job;
-otherwise it fails visibly. Do not weaken variable protection to run a trial.
-The dedicated `battak-trial` environment uses preparation only, not deployment.
-A new web pipeline on the exact protected `aegorsuch-batdok-patient-sharing`
-candidate branch runs ordinary Android, lint and publisher tests before the
-manual trial becomes available. Trial-only compatibility variables must use
-environment scope `battak-trial`; earlier unprotected pipelines are not candidates.
+The shared CI release job enforces this flag for main and official builds.
+Existing protected-variable permissions are unchanged: authorized maintainers
+must ensure interoperability and signing inputs are available to each selected
+job; otherwise, it fails visibly. Do not weaken variable protection.
 Main releases use the separate `battak-release` preparation environment; their
 compatibility inputs must be scoped only to `battak-release`.
 Build validation checks presence/encoding, not receiver-compatible values.

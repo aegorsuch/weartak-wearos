@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.MoppStatus
+import com.aitech.weartak_civ.integration.plugin.HandlerExertion
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 
@@ -62,9 +63,13 @@ internal sealed interface PluginMenuEntry {
         override val key = "builtin:${kind.name}"
     }
 
+    data class Market(override val title: String) : PluginMenuEntry {
+        override val key = "market"
+    }
+
     data class Installed(val plugin: PluginUI) : PluginMenuEntry {
         override val key = "installed:${plugin.pluginId}"
-        override val title = plugin.title
+        override val title = if (plugin.packageName == HandlerExertion.PACKAGE) "Handler" else plugin.title
     }
 }
 

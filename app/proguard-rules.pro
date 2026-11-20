@@ -67,3 +67,8 @@
 # Apache Commons Lang optional MethodHandle support
 -dontwarn java.lang.invoke.MethodHandleProxies
 -dontwarn org.apache.commons.lang3.function.MethodInvokers
+
+# Market's explicit EdDSA provider instantiates these services by class name.
+-keep class net.i2p.crypto.eddsa.KeyFactory { *; }
+-keep class net.i2p.crypto.eddsa.EdDSAEngine { *; }
+-dontwarn sun.security.x509.X509Key

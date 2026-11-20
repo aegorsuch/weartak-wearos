@@ -143,6 +143,47 @@ android {
                 "DITTO_COMMUNITY_IDENTITY",
                 dittoCommunityIdentity
         )
+
+        def marketCatalogUrl = (
+                System.getenv("WEARTAK_MARKET_CATALOG_URL") ?:
+                        providers.gradleProperty("weartakMarketCatalogUrl").orElse("").get()
+        ).trim()
+        def marketCatalogPublicKey = (
+                System.getenv("WEARTAK_MARKET_CATALOG_PUBLIC_KEY") ?:
+                        providers.gradleProperty("weartakMarketCatalogPublicKey").orElse("").get()
+        ).trim()
+        if (marketCatalogUrl.isEmpty() != marketCatalogPublicKey.isEmpty()) {
+            throw new GradleException(
+                    "TAKwerx Market requires both WEARTAK_MARKET_CATALOG_URL and WEARTAK_MARKET_CATALOG_PUBLIC_KEY."
+            )
+        }
+        if (!marketCatalogUrl.isEmpty()) {
+            try {
+                def catalogUri = new java.net.URI(marketCatalogUrl)
+                if (!"https".equalsIgnoreCase(catalogUri.scheme) || !catalogUri.host ||
+                        catalogUri.userInfo != null || catalogUri.fragment != null) {
+                    throw new IllegalArgumentException()
+                }
+                def publicKeyBytes = java.util.Base64.decoder.decode(marketCatalogPublicKey)
+                java.security.KeyFactory.getInstance("Ed25519").generatePublic(
+                        new java.security.spec.X509EncodedKeySpec(publicKeyBytes)
+                )
+            } catch (IllegalArgumentException | java.net.URISyntaxException ignored) {
+                throw new GradleException(
+                        "TAKwerx Market catalog URL must be HTTPS and its Ed25519 public key must be Base64 X.509 data."
+                )
+            }
+        }
+        buildConfigField(
+                "String",
+                "TAKWERX_MARKET_CATALOG_URL",
+                groovy.json.JsonOutput.toJson(marketCatalogUrl)
+        )
+        buildConfigField(
+                "String",
+                "TAKWERX_MARKET_CATALOG_PUBLIC_KEY",
+                groovy.json.JsonOutput.toJson(marketCatalogPublicKey)
+        )
     }
 
     // Grab android key vars, prioritize Gitlab env vars, fall back on local signing.properties
@@ -368,6 +409,7 @@ dependencies {
     ksp "androidx.room:room-compiler:$room_version"
 
     implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'net.i2p.crypto:eddsa:0.3.0'
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0"
 
     implementation "live.ditto:ditto:4.14.6"
@@ -390,8 +432,14 @@ dependencies {
 
     // bouncycastle for CSR generation
     implementation 'org.bouncycastle:bcprov-lts8on:2.73.7'
-    implementation 'org.bouncycastle:bcpkix-lts8on:2.73.7'
-    runtimeOnly 'org.bouncycastle:bcutil-lts8on:2.73.7'
+    // Keep BC's version-ranged transitives pinned to versions already used by the app.
+    implementation('org.bouncycastle:bcpkix-lts8on:2.73.7') {
+        exclude group: 'org.bouncycastle', module: 'bcprov-lts8on'
+        exclude group: 'org.bouncycastle', module: 'bcutil-lts8on'
+    }
+    implementation('org.bouncycastle:bcutil-lts8on:2.73.7') {
+        exclude group: 'org.bouncycastle', module: 'bcprov-lts8on'
+    }
     implementation 'com.fasterxml.jackson.core:jackson-core:2.18.2'
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.18.2'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'

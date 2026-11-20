@@ -548,4 +548,34 @@
         <item quantity="other">%1$d/%2$d máy chủ</item>
     </plurals>
     <string name="openvpn_service_running">Đường hầm OpenVPN đang hoạt động</string>
+    <string name="takwerx_market_title">Chợ TAKwerx</string>
+    <string name="market_not_configured">Bản dựng này chưa được cấu hình danh mục đã ký.</string>
+    <string name="market_refresh">Làm mới danh mục</string>
+    <string name="market_loading">Đang tải danh mục…</string>
+    <string name="market_empty">Hiện chưa có plugin nào được phát hành.</string>
+    <string name="market_catalog_error">Không thể tải danh mục. Hãy kiểm tra kết nối rồi thử lại.</string>
+    <string name="market_offline">Không có kết nối Internet. Danh mục sẽ được làm mới khi có kết nối trở lại.</string>
+    <string name="market_catalog_invalid">Không thể xác minh chữ ký hoặc định dạng của danh mục đã ký.</string>
+    <string name="market_catalog_unavailable">Không thể kiểm tra bản cập nhật. Hãy thử lại.</string>
+    <string name="market_no_updates">Không có phiên bản WearTAK hoặc plugin được phê duyệt mới hơn tương thích.</string>
+    <string name="market_update_available">Có bản cập nhật</string>
+    <string name="market_plugin_by_publisher">%1$s của %2$s</string>
+    <string name="market_official">Chính thức</string>
+    <string name="market_community">Cộng đồng</string>
+    <string name="market_source">Mã nguồn</string>
+    <string name="market_source_unavailable">Không có ứng dụng nào mở được liên kết mã nguồn này.</string>
+    <string name="market_incompatible">Không tương thích với phiên bản WearTAK này</string>
+    <string name="market_installed_version">Đã cài đặt: %1$s</string>
+    <string name="market_install">Cài đặt</string>
+    <string name="market_update">Cập nhật</string>
+    <string name="market_up_to_date">Đã cập nhật</string>
+    <string name="market_newer_installed">Phiên bản mới hơn đã được cài đặt</string>
+    <string name="market_signer_mismatch">Chữ ký đã cài đặt không khớp với danh mục</string>
+    <string name="market_play_managed">Google Play quản lý các bản cập nhật WearTAK</string>
+    <string name="market_package_unavailable">Không thể xác minh gói đã cài đặt</string>
+    <string name="market_permission_needed">Cho phép cài đặt từ WearTAK, sau đó quay lại và thử lại</string>
+    <string name="market_permission_settings_error">Không thể mở cài đặt quyền cài đặt của Android.</string>
+    <string name="market_download_verifying">Đang tải xuống và xác minh…</string>
+    <string name="market_installer_confirmation">Xác nhận cài đặt trong trình cài đặt Android.</string>
+    <string name="market_install_error">Không thể chuẩn bị gói để cài đặt.</string>
 </resources>

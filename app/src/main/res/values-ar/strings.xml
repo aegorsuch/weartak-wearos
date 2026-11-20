@@ -563,4 +563,34 @@
         <item quantity="other">%1$d/%2$d خادم</item>
     </plurals>
     <string name="openvpn_service_running">نفق OpenVPN نشط</string>
+    <string name="takwerx_market_title">سوق TAKwerx</string>
+    <string name="market_not_configured">لم يتم إعداد كتالوج موقّع لهذا الإصدار.</string>
+    <string name="market_refresh">تحديث الكتالوج</string>
+    <string name="market_loading">جارٍ تحميل الكتالوج…</string>
+    <string name="market_empty">لا توجد إضافات منشورة حاليًا.</string>
+    <string name="market_catalog_error">تعذّر تحميل الكتالوج. تحقّق من الاتصال ثم أعد المحاولة.</string>
+    <string name="market_offline">لا يوجد اتصال بالإنترنت. سيتم تحديث الكتالوج عند عودة الاتصال.</string>
+    <string name="market_catalog_invalid">تعذّر التحقق من توقيع الكتالوج أو تنسيقه.</string>
+    <string name="market_catalog_unavailable">تعذّر التحقق من التحديثات. أعد المحاولة.</string>
+    <string name="market_no_updates">لا توجد إصدارات أحدث متوافقة من WearTAK أو الإضافات المعتمدة.</string>
+    <string name="market_update_available">يتوفر تحديث</string>
+    <string name="market_plugin_by_publisher">%1$s من %2$s</string>
+    <string name="market_official">رسمي</string>
+    <string name="market_community">مجتمعي</string>
+    <string name="market_source">شفرة المصدر</string>
+    <string name="market_source_unavailable">لا يوجد تطبيق يمكنه فتح رابط المصدر هذا.</string>
+    <string name="market_incompatible">غير متوافق مع إصدار WearTAK هذا</string>
+    <string name="market_installed_version">المثبّت: %1$s</string>
+    <string name="market_install">تثبيت</string>
+    <string name="market_update">تحديث</string>
+    <string name="market_up_to_date">محدّث</string>
+    <string name="market_newer_installed">الإصدار المثبّت أحدث بالفعل</string>
+    <string name="market_signer_mismatch">الموقّع المثبّت يختلف عن موقّع الكتالوج</string>
+    <string name="market_play_managed">تدير Google Play تحديثات WearTAK</string>
+    <string name="market_package_unavailable">تعذّر التحقق من الحزمة المثبّتة</string>
+    <string name="market_permission_needed">اسمح بالتثبيت من WearTAK، ثم عُد وأعد المحاولة</string>
+    <string name="market_permission_settings_error">تعذّر فتح إعدادات إذن التثبيت في Android.</string>
+    <string name="market_download_verifying">جارٍ التنزيل والتحقق…</string>
+    <string name="market_installer_confirmation">أكّد التثبيت في أداة تثبيت Android.</string>
+    <string name="market_install_error">تعذّر تجهيز الحزمة للتثبيت.</string>
 </resources>

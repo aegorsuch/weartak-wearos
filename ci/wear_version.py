@@ -211,7 +211,7 @@ def main(argv=None):
         else:
             base = ci_base(root, os.environ) if args.ci else (args.base or "HEAD")
             name, code = validate(root, base)
-            print(f"WearTAK version {name}; base code {code}; plugin IID range 1..9999 verified.")
+            print(f"WearTAK version {name}; base code {code}; pipeline IID range 1..9999 verified.")
     except (VersionError, OSError, UnicodeError, ValueError) as error:
         if isinstance(error, VersionError):
             print(f"ERROR: {error}", file=sys.stderr)

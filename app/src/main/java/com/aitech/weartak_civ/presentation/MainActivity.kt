@@ -266,6 +266,8 @@ import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
 import com.aitech.weartak_civ.Utils.getNullableBoolean
 import com.aitech.weartak_civ.Utils.setAirplaneMode
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.market.MarketRefreshStatus
+import com.aitech.weartak_civ.market.MarketUpdateSnapshot
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.BloodhoundRepository
@@ -637,6 +639,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        (application as? WearTakApplication)?.marketUpdateMonitor?.retryInterruptedRefresh()
         Log.i(TAG, "MainActivity onResume()")
     }
 
@@ -2519,6 +2522,13 @@ fun MainScreen(
     val crmEnabled by settingsVm.savedEnableCrmService.collectAsStateWithLifecycle()
     val worn by dataRepository.latestIsDeviceWorn.collectAsStateWithLifecycle()
     val crmWarning = rememberCrmHomeWarning(crmInference, crmThresholds, crmEnabled, worn)
+    val marketUpdateMonitor = remember(context.applicationContext) {
+        (context.applicationContext as? WearTakApplication)?.marketUpdateMonitor
+    }
+    val marketUpdateSnapshot by marketUpdateMonitor?.snapshot?.collectAsStateWithLifecycle()
+        ?: remember {
+            mutableStateOf(MarketUpdateSnapshot(status = MarketRefreshStatus.NOT_CONFIGURED))
+        }
     val physioEnabled by settingsVm.savedEnablePhysiologicalServices.collectAsStateWithLifecycle()
     val physioAlertsEnabled by settingsVm.savedEnablePhysiologicalAlerts.collectAsStateWithLifecycle()
     val physioAlerts by dataRepository.physioAndAutoGenAlertList.collectAsStateWithLifecycle()
@@ -2554,7 +2564,13 @@ fun MainScreen(
             dittoWarning = dittoWarning,
             onDittoRetry = {
                 dataRepository.requestDittoBleRecovery(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
-            }
+            },
+            marketUpdateAvailable = marketUpdateSnapshot.showUpdateWarning,
+            onMarketUpdate = {
+                openMarketUpdates(context) {
+                    marketUpdateMonitor?.markUpdatesReviewed()
+                }
+            },
         ) { warnings, onReviewWarnings ->
         SwipeToDismissBox(
             state = dismissState,
@@ -2851,7 +2867,8 @@ internal fun HomeTopMetricCard(
         warnings.any { it.source == TopMetricAlertSource.DETECTION },
         crm?.let { if (it.chipState == Utils.AlertChipState.Emergency)
             com.aitech.weartak_civ.data.CrmDisplayState.POOR else com.aitech.weartak_civ.data.CrmDisplayState.MODERATE },
-        warnings.any { it.source == TopMetricAlertSource.DITTO_BLE }
+        warnings.any { it.source == TopMetricAlertSource.DITTO_BLE },
+        warnings.any { it.source == TopMetricAlertSource.MARKET_UPDATE },
     )
     val primary = warnings.firstOrNull { it.source == source && it.source != TopMetricAlertSource.PHYSIO }
     val detectionCount = warnings.count { it.source == TopMetricAlertSource.DETECTION }
@@ -2883,6 +2900,7 @@ internal fun HomeTopMetricCard(
                     TopMetricAlertSource.DETECTION -> "audio-detection-warning"
                     TopMetricAlertSource.CRM -> "crm-warning-indicator"
                     TopMetricAlertSource.DITTO_BLE -> "ditto_ble_warning_indicator"
+                    TopMetricAlertSource.MARKET_UPDATE -> "market-update-warning"
                     else -> error("Primary warning must have a review domain")
                 })
                 else if (metric.physiological || containsAlert) Modifier
