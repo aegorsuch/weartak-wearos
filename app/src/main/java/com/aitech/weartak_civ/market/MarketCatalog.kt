@@ -47,6 +47,16 @@ internal data class MarketPlugin(
 
 internal data class MarketCatalog(val plugins: List<MarketPlugin>)
 
+internal object MarketHostIdentity {
+    const val PRODUCT_ID = "weartak-wearos"
+    const val EDITION_ID = "civ"
+}
+
+private data class HostVersionRange(
+    val min: Long,
+    val max: Long?,
+)
+
 internal class MarketCatalogException(
     message: String,
     cause: Throwable? = null,
@@ -57,6 +67,15 @@ internal object MarketCatalogParser {
     const val MAX_CATALOG_BYTES = 512 * 1024
     private const val MAX_PLUGINS = 200
     private val packagePattern = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
+    private val catalogIdPattern = Regex("[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+    private val knownProductIds = setOf(MarketHostIdentity.PRODUCT_ID, "weartak-tracker")
+    private val knownEditionIds = setOf(MarketHostIdentity.EDITION_ID, "mil")
+    private val hostVersionTargetFields = setOf(
+        "productId",
+        "editionIds",
+        "minHostVersionCode",
+        "maxHostVersionCode",
+    )
     private val digestPattern = Regex("[0-9a-f]{64}")
 
     fun parse(
@@ -84,7 +103,8 @@ internal object MarketCatalogParser {
             }
 
             val catalog = JSONObject(payload.toString(Charsets.UTF_8))
-            if (catalog.getInt("schemaVersion") != 1) {
+            val schemaVersion = catalog.getInt("schemaVersion")
+            if (schemaVersion != 1 && schemaVersion != 2) {
                 throw MarketCatalogException("Catalog schema is not supported.")
             }
             val records = catalog.getJSONArray("plugins")
@@ -93,8 +113,8 @@ internal object MarketCatalogParser {
             }
 
             val plugins = (0 until records.length()).map { index ->
-                parsePlugin(records.getJSONObject(index), hostPackage)
-            }
+                parsePlugin(records.getJSONObject(index), hostPackage, schemaVersion)
+            }.filterNotNull()
             if (plugins.map { it.id }.distinct().size != plugins.size ||
                 plugins.map { it.packageName }.distinct().size != plugins.size
             ) {
@@ -108,7 +128,11 @@ internal object MarketCatalogParser {
         }
     }
 
-    private fun parsePlugin(record: JSONObject, hostPackage: String): MarketPlugin {
+    private fun parsePlugin(
+        record: JSONObject,
+        hostPackage: String,
+        schemaVersion: Int,
+    ): MarketPlugin? {
         val publisherType = when (record.getString("publisherType")) {
             "official" -> MarketPublisherType.OFFICIAL
             "community" -> MarketPublisherType.COMMUNITY
@@ -119,21 +143,19 @@ internal object MarketCatalogParser {
             throw MarketCatalogException("Catalog package name is invalid.")
         }
         val hostUpdate = record.getBoolean("hostUpdate")
-        if (packageName == hostPackage) {
-            if (publisherType != MarketPublisherType.OFFICIAL || !hostUpdate) {
-                throw MarketCatalogException("Only official host updates may target WearTAK.")
-            }
-        } else if (hostUpdate) {
-            throw MarketCatalogException("Host update entry does not target WearTAK.")
-        }
 
         val versionCode = record.getLong("versionCode")
-        val minHostVersionCode = record.getLong("minHostVersionCode")
-        val maxHostVersionCode = if (record.isNull("maxHostVersionCode")) null
-        else record.getLong("maxHostVersionCode")
-        if (versionCode <= 0 || minHostVersionCode <= 0 ||
-            (maxHostVersionCode != null && maxHostVersionCode < minHostVersionCode)
-        ) {
+        val hostVersionRange = when (schemaVersion) {
+            1 -> parseHostVersionRange(record)
+            2 -> {
+                if (record.has("minHostVersionCode") || record.has("maxHostVersionCode")) {
+                    throw MarketCatalogException("Schema v2 entries cannot use legacy host version fields.")
+                }
+                parseHostVersionTarget(record)
+            }
+            else -> throw MarketCatalogException("Catalog schema is not supported.")
+        }
+        if (versionCode <= 0) {
             throw MarketCatalogException("Catalog version range is invalid.")
         }
 
@@ -143,26 +165,120 @@ internal object MarketCatalogParser {
             throw MarketCatalogException("Catalog digest is invalid.")
         }
 
+        val id = requiredText(record, "id", 100)
+        val name = requiredText(record, "name", 100)
+        val description = requiredText(record, "description", 1000)
+        val publisher = requiredText(record, "publisher", 100)
+        val versionName = requiredText(record, "versionName", 80)
+        val apkUrl = requireHttpsUrl(record.getString("apkUrl"), "APK URL")
         val sourceUrl = record.optString("sourceUrl").takeIf { it.isNotBlank() }
             ?.also { requireHttpsUrl(it, "source URL") }
 
+        if (hostVersionRange == null) return null
+        if (packageName == hostPackage) {
+            if (publisherType != MarketPublisherType.OFFICIAL || !hostUpdate) {
+                throw MarketCatalogException("Only official host updates may target WearTAK.")
+            }
+        } else if (hostUpdate) {
+            throw MarketCatalogException("Host update entry does not target WearTAK.")
+        }
+
         return MarketPlugin(
-            id = requiredText(record, "id", 100),
-            name = requiredText(record, "name", 100),
-            description = requiredText(record, "description", 1000),
-            publisher = requiredText(record, "publisher", 100),
+            id = id,
+            name = name,
+            description = description,
+            publisher = publisher,
             publisherType = publisherType,
             packageName = packageName,
-            versionName = requiredText(record, "versionName", 80),
+            versionName = versionName,
             versionCode = versionCode,
-            minHostVersionCode = minHostVersionCode,
-            maxHostVersionCode = maxHostVersionCode,
-            apkUrl = requireHttpsUrl(record.getString("apkUrl"), "APK URL"),
+            minHostVersionCode = hostVersionRange.min,
+            maxHostVersionCode = hostVersionRange.max,
+            apkUrl = apkUrl,
             apkSha256 = apkSha256,
             signerSha256 = signerSha256,
             sourceUrl = sourceUrl,
             hostUpdate = hostUpdate,
         )
+    }
+
+    private fun parseHostVersionRange(record: JSONObject): HostVersionRange {
+        val minHostVersionCode = record.getLong("minHostVersionCode")
+        val maxHostVersionCode = if (record.isNull("maxHostVersionCode")) null
+        else record.getLong("maxHostVersionCode")
+        if (minHostVersionCode <= 0 ||
+            (maxHostVersionCode != null && maxHostVersionCode < minHostVersionCode)
+        ) {
+            throw MarketCatalogException("Catalog version range is invalid.")
+        }
+        return HostVersionRange(minHostVersionCode, maxHostVersionCode)
+    }
+
+    private fun parseHostVersionTarget(record: JSONObject): HostVersionRange? {
+        val targets = record.getJSONArray("targets")
+        if (targets.length() == 0 || targets.length() > knownProductIds.size) {
+            throw MarketCatalogException("Catalog targets are invalid.")
+        }
+
+        val productIds = mutableSetOf<String>()
+        var hostVersionRange: HostVersionRange? = null
+        for (index in 0 until targets.length()) {
+            val target = targets.getJSONObject(index)
+            if (target.keys().asSequence().toSet() != hostVersionTargetFields) {
+                throw MarketCatalogException("Catalog target fields are invalid.")
+            }
+            val productId = requiredIdentifier(target, "productId")
+            if (productId !in knownProductIds || !productIds.add(productId)) {
+                throw MarketCatalogException("Catalog target product is invalid or duplicated.")
+            }
+            val editionIds = requiredIdentifiers(target, "editionIds", knownEditionIds)
+            if (!target.has("minHostVersionCode") || !target.has("maxHostVersionCode")) {
+                throw MarketCatalogException("Catalog host version range is incomplete.")
+            }
+            val range = parseHostVersionRange(target)
+            if (productId == MarketHostIdentity.PRODUCT_ID &&
+                MarketHostIdentity.EDITION_ID in editionIds
+            ) {
+                hostVersionRange = range
+            }
+        }
+        return hostVersionRange
+    }
+
+    private fun requiredIdentifiers(
+        record: JSONObject,
+        field: String,
+        allowedValues: Set<String>,
+    ): List<String> {
+        val identifiers = record.getJSONArray(field)
+        if (identifiers.length() == 0 || identifiers.length() > MAX_PLUGINS) {
+            throw MarketCatalogException("Catalog field '$field' is invalid.")
+        }
+        val values = (0 until identifiers.length()).map { index ->
+            val value = identifiers.get(index) as? String
+                ?: throw MarketCatalogException("Catalog field '$field' is invalid.")
+            if (value.isBlank() || value.length > 100 || value != value.trim() ||
+                !catalogIdPattern.matches(value) || value !in allowedValues
+            ) {
+                throw MarketCatalogException("Catalog field '$field' is invalid.")
+            }
+            value
+        }
+        if (values.distinct().size != values.size) {
+            throw MarketCatalogException("Catalog field '$field' contains duplicate identifiers.")
+        }
+        return values
+    }
+
+    private fun requiredIdentifier(record: JSONObject, field: String): String {
+        val value = record.get(field) as? String
+            ?: throw MarketCatalogException("Catalog field '$field' is invalid.")
+        if (value.isBlank() || value.length > 100 || value != value.trim() ||
+            !catalogIdPattern.matches(value)
+        ) {
+            throw MarketCatalogException("Catalog field '$field' is invalid.")
+        }
+        return value
     }
 
     private fun requiredText(record: JSONObject, key: String, maxLength: Int): String {

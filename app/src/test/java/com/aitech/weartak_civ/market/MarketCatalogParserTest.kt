@@ -37,6 +37,109 @@ class MarketCatalogParserTest {
     }
 
     @Test
+    fun acceptsSchemaV2ForWearTakCivUsingItsTargetRange() {
+        val keys = newKeyPair()
+        val record = pluginRecordV2(
+            JSONArray()
+                .put(target("weartak-wearos", JSONArray().put("civ"), 10, 20))
+                .put(target("weartak-tracker", JSONArray().put("mil"), 900, 1000)),
+        )
+
+        val plugin = parse(signedV2PluginCatalog(record, keys), keys).plugins.single()
+
+        assertEquals(10L, plugin.minHostVersionCode)
+        assertEquals(20L, plugin.maxHostVersionCode)
+        assertEquals(
+            MarketInstallState.INCOMPATIBLE,
+            MarketSecurityPolicy.installState(plugin, hostPackage, 9, null, null, false),
+        )
+        assertEquals(
+            MarketInstallState.INSTALL,
+            MarketSecurityPolicy.installState(plugin, hostPackage, 10, null, null, false),
+        )
+        assertEquals(
+            MarketInstallState.INCOMPATIBLE,
+            MarketSecurityPolicy.installState(plugin, hostPackage, 21, null, null, false),
+        )
+    }
+
+    @Test
+    fun filtersOtherProductsAndUnsupportedEditions() {
+        val keys = newKeyPair()
+        val trackerOnly = pluginRecordV2(
+            JSONArray().put(target("weartak-tracker", JSONArray().put("civ"))),
+        )
+        val milOnly = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray().put("mil"))),
+        )
+
+        assertTrue(parse(signedV2PluginCatalog(trackerOnly, keys), keys).plugins.isEmpty())
+        assertTrue(parse(signedV2PluginCatalog(milOnly, keys), keys).plugins.isEmpty())
+    }
+
+    @Test
+    fun rejectsMalformedSchemaV2Targets() {
+        val keys = newKeyPair()
+        val missingTargets = pluginRecordV2(JSONArray()).apply { remove("targets") }
+        val duplicateProduct = pluginRecordV2(
+            JSONArray()
+                .put(target("weartak-wearos", JSONArray().put("civ")))
+                .put(target("weartak-wearos", JSONArray().put("mil"))),
+        )
+        val unknownProduct = pluginRecordV2(
+            JSONArray().put(target("weartak-companion", JSONArray().put("civ"))),
+        )
+        val missingProduct = target("weartak-wearos", JSONArray().put("civ")).apply {
+            remove("productId")
+        }
+        val missingProductId = pluginRecordV2(JSONArray().put(missingProduct))
+        val unknownEdition = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray().put("civilian"))),
+        )
+        val invalidRange = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray().put("civ"), 20, 10)),
+        )
+        val missingMax = target("weartak-wearos", JSONArray().put("civ")).apply {
+            remove("maxHostVersionCode")
+        }
+        val incompleteRange = pluginRecordV2(JSONArray().put(missingMax))
+        val emptyEditions = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray())),
+        )
+        val unknownTargetField = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray().put("civ")).put("extra", true)),
+        )
+        val legacyMinOnly = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray().put("civ"))),
+        ).put("minHostVersionCode", 10)
+        val legacyMaxOnly = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray().put("civ"))),
+        ).put("maxHostVersionCode", JSONObject.NULL)
+        val legacyRange = pluginRecordV2(
+            JSONArray().put(target("weartak-wearos", JSONArray().put("civ"))),
+        ).put("minHostVersionCode", 10).put("maxHostVersionCode", JSONObject.NULL)
+
+        listOf(
+            missingTargets,
+            duplicateProduct,
+            unknownProduct,
+            missingProductId,
+            unknownEdition,
+            invalidRange,
+            incompleteRange,
+            emptyEditions,
+            unknownTargetField,
+            legacyMinOnly,
+            legacyMaxOnly,
+            legacyRange,
+        ).forEach { record ->
+            assertThrows(MarketCatalogException::class.java) {
+                parse(signedV2PluginCatalog(record, keys), keys)
+            }
+        }
+    }
+
+    @Test
     fun rejectsCatalogSignedByUnexpectedKey() {
         val keys = newKeyPair()
         assertThrows(MarketCatalogException::class.java) {
@@ -160,6 +263,9 @@ class MarketCatalogParserTest {
     private fun signedPluginCatalog(payload: JSONObject, keys: KeyPair): ByteArray =
         signedEnvelope(JSONObject().put("schemaVersion", 1).put("plugins", JSONArray().put(payload)), keys)
 
+    private fun signedV2PluginCatalog(payload: JSONObject, keys: KeyPair): ByteArray =
+        signedEnvelope(JSONObject().put("schemaVersion", 2).put("plugins", JSONArray().put(payload)), keys)
+
     private fun signedEnvelope(payload: JSONObject, keys: KeyPair): ByteArray {
         val bytes = payload.toString().toByteArray(Charsets.UTF_8)
         val signer = Signature.getInstance("Ed25519")
@@ -174,6 +280,23 @@ class MarketCatalogParserTest {
 
     private fun newKeyPair(): KeyPair =
         KeyPairGenerator.getInstance("Ed25519").generateKeyPair()
+
+    private fun pluginRecordV2(targets: JSONArray) = pluginRecord().apply {
+        remove("minHostVersionCode")
+        remove("maxHostVersionCode")
+        put("targets", targets)
+    }
+
+    private fun target(
+        productId: String,
+        editionIds: JSONArray,
+        minHostVersionCode: Long = 1,
+        maxHostVersionCode: Any = JSONObject.NULL,
+    ) = JSONObject()
+        .put("productId", productId)
+        .put("editionIds", editionIds)
+        .put("minHostVersionCode", minHostVersionCode)
+        .put("maxHostVersionCode", maxHostVersionCode)
 
     private fun pluginRecord() = JSONObject()
         .put("id", "community-weather")
