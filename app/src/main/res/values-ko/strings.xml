@@ -276,10 +276,8 @@
     <string name="takgov_linked_mil">Linked (Mil)</string>
     <string name="takgov_unlinked">Unlinked</string>
     <string name="takgov_link_checking">Checking</string>
-    <string name="takgov_link_instructions">Open the registration page and enter this code to link your account.</string>
     <string name="takgov_link_start">Link TAK.gov account</string>
     <string name="takgov_link_requesting">Requesting device code</string>
-    <string name="takgov_link_open">Open TAK.gov registration</string>
     <string name="takgov_link_waiting">Waiting for approval</string>
     <string name="takgov_link_cancel">Cancel linking</string>
     <string name="takgov_link_remove">Remove link</string>
@@ -290,7 +288,6 @@
     <string name="takgov_link_expired">Authorization expired. Start again to retry.</string>
     <string name="takgov_link_error">Could not link to TAK.gov. Check connection and try again.</string>
     <string name="takgov_link_storage_error">Saved link is unavailable. Link TAK.gov again.</string>
-    <string name="takgov_link_browser_error">No browser available to open TAK.gov.</string>
     <string name="my_team">My Team</string>
     <string name="my_user_metrics">My User Metrics</string>
     <string name="reporting_strategy">Reporting Strategy</string>
