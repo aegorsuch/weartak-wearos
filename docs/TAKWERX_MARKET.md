@@ -104,11 +104,13 @@ not Android's provider ordering or AndroidKeyStore, including in minified builds
 }
 ```
 
-The signed payload has `schemaVersion: 1` and a `plugins` array:
+Schema version 1 remains supported during rollout; it uses the legacy
+`minHostVersionCode` and `maxHostVersionCode` fields on each plugin entry.
+Schema version 2 scopes compatibility by product and edition:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "plugins": [
     {
       "id": "weather",
@@ -119,8 +121,14 @@ The signed payload has `schemaVersion: 1` and a `plugins` array:
       "packageName": "org.example.weartak.weather",
       "versionName": "1.2.0",
       "versionCode": 12,
-      "minHostVersionCode": 5840000,
-      "maxHostVersionCode": null,
+      "targets": [
+        {
+          "productId": "weartak-wearos",
+          "editionIds": ["civ"],
+          "minHostVersionCode": 5840000,
+          "maxHostVersionCode": null
+        }
+      ],
       "apkUrl": "https://github.com/example/weather/releases/download/v1.2.0/weather.apk",
       "apkSha256": "<64 lowercase hexadecimal characters>",
       "signerSha256": "<SHA-256 of APK signing certificate DER>",
@@ -131,10 +139,15 @@ The signed payload has `schemaVersion: 1` and a `plugins` array:
 }
 ```
 
-`publisherType` is `official` or `community`. `versionCode` and host version
-bounds are positive Android version codes. Set the optional maximum host code
-to `null` for no upper bound. `sourceUrl` is optional and, when present, must
-be HTTPS.
+Each schema v2 target names one known product (`weartak-wearos` or
+`weartak-tracker`), a non-empty list of known editions (`civ` or `mil`), and
+that product's version bounds. Products must not repeat. Set
+`maxHostVersionCode` to `null` for no upper bound. WearTAK WearOS currently
+builds only the `weartak-wearos` / `civ` target; its Gradle configuration has
+no MIL flavor. It ignores valid targets for other products or editions and
+rejects malformed target metadata. `publisherType` is `official` or
+`community`; `versionCode` and host version bounds are positive Android
+version codes. `sourceUrl` is optional and, when present, must be HTTPS.
 
 ## Configure the publisher
 
