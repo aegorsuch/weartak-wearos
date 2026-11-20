@@ -23,6 +23,17 @@ def signingValue = { String environmentName, String propertyName ->
     System.getenv(environmentName) ?: signingProperties.getProperty(propertyName)
 }
 
+def wearVersion = new Properties()
+rootProject.file("wear-version.properties").withInputStream { wearVersion.load(it) }
+def wearVersionName = wearVersion.getProperty("versionName", "")
+def wearBaseCode = wearVersion.getProperty("baseVersionCode", "")
+if (wearVersion.stringPropertyNames() != ["versionName", "baseVersionCode"].toSet() ||
+        !(wearVersionName ==~ /(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*))?/) ||
+        !(wearBaseCode ==~ /[1-9][0-9]*/) || !wearBaseCode.isLong() ||
+        wearBaseCode.toLong() > 209999L) {
+    throw new GradleException("Invalid wear-version.properties: numeric 3/4-part versionName and baseVersionCode 1..209999 required.")
+}
+
 android {
     namespace 'com.aitech.weartak_civ'
     compileSdk 35
@@ -35,8 +46,8 @@ android {
         applicationId "com.aitech.weartak_civ"
         minSdk 34
         targetSdk 34
-        def baseVersionCode = 584
-        def baseVersionName = "5.8.4"
+        def baseVersionCode = wearBaseCode.toInteger()
+        def baseVersionName = wearVersionName
 
         def buildGitUrl = gitUrl() ?: "unknown"
         def buildGitBranch = gitBranch() ?: "unknown"
@@ -46,11 +57,12 @@ android {
 
         // CI builds get a unique, increasing versionCode per GitLab pipeline so MDMs such as
         // Knox Manage accept each upload, and a versionName that identifies the pipeline/commit.
-        def ciPipelineIid = System.getenv("CI_PIPELINE_IID")?.isInteger() ? System.getenv("CI_PIPELINE_IID").toInteger() : null
+        def rawPipelineIid = System.getenv("CI_PIPELINE_IID")
+        if (rawPipelineIid != null && !(rawPipelineIid ==~ /[1-9][0-9]{0,3}/)) {
+            throw new GradleException("CI_PIPELINE_IID must be in the versionCode pipeline range (1-9999).")
+        }
+        def ciPipelineIid = rawPipelineIid?.toInteger()
         if (ciPipelineIid != null) {
-            if (ciPipelineIid >= 10000) {
-                throw new GradleException("CI_PIPELINE_IID ${ciPipelineIid} exceeds the versionCode pipeline range (0-9999).")
-            }
             versionCode baseVersionCode * 10000 + ciPipelineIid
             versionName "${baseVersionName}-p${ciPipelineIid}+${(System.getenv('CI_COMMIT_SHORT_SHA') ?: buildGitCommitShort)}"
         } else {

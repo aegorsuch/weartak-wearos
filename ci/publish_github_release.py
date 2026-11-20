@@ -13,6 +13,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+if __package__:
+    from .wear_version import VersionError, read_manifest
+else:
+    from wear_version import VersionError, read_manifest
+
 
 PERSONAL_REPO = "aegorsuch/weartak-wearos"
 TOKEN_VARIABLE = "WEARTAK_PERSONAL_GITHUB_TOKEN"
@@ -430,13 +435,12 @@ def changelog_draft(root, state, previous, version, code):
     if git("rev-parse", "HEAD") != source:
         raise PublishError("Changelog checkout differs from the release source.")
     git("merge-base", "--is-ancestor", base, source)
-    build = (root / "app" / "build.gradle").read_text()
-    base_name = re.search(r'def baseVersionName = "([0-9.]+)"', build)
-    base_code = re.search(r"def baseVersionCode = ([0-9]+)", build)
-    if not base_name or not base_code:
-        raise PublishError("Cannot verify release version definitions at source SHA.")
-    if (version != f"{base_name[1]}-p{state['pipeline_iid']}+{source[:8]}"
-            or code != int(base_code[1]) * 10000 + state["pipeline_iid"]):
+    try:
+        base_name, base_code = read_manifest(root)
+    except (OSError, UnicodeError, VersionError) as error:
+        raise PublishError("Cannot verify release version manifest at source SHA.") from error
+    if (version != f"{base_name}-p{state['pipeline_iid']}+{source[:8]}"
+            or code != base_code * 10000 + state["pipeline_iid"]):
         raise PublishError("Changelog version/code does not match the exact pipeline source.")
     commits = git("rev-list", "--reverse", f"{base}..{source}").splitlines()
     if not commits:

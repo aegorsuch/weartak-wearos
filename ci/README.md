@@ -81,6 +81,12 @@ options and official release behavior are unchanged.
 
 ## Host full-lint quality gate
 
+`wear_version_check` validates the root `wear-version.properties` against the
+pipeline's base revision. Update that file for host version changes: a higher
+`versionName` requires a higher `baseVersionCode`, and neither may decrease.
+Gradle and changelog verification both read the manifest. To check a proposed
+edit locally, run `python ci/wear_version.py validate --base HEAD` before committing.
+
 `host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.
 It uses the shared ephemeral Artifactory credential bootstrap, like other Android jobs.
 Lint errors fail the job; warnings remain visible but are not promoted to errors.
