@@ -1,5 +1,4 @@
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,12 +9,10 @@ from unittest.mock import patch
 
 from test_publish_github_release import FakeGitHub, environment
 from test_diagnose_agp_resolution import find_shell
+from ci import publish_github_release as p
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("draft_publisher", ROOT / "ci/publish_github_release.py")
-p = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(p)
 SH = find_shell()
 
 
@@ -29,8 +26,8 @@ class ChangelogTests(unittest.TestCase):
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("config", "core.autocrlf", "false")
         (self.root / "app").mkdir()
-        (self.root / "app/build.gradle").write_text(
-            'def baseVersionCode = 584\n def baseVersionName = "5.8.4"\n'
+        (self.root / "wear-version.properties").write_text(
+            'versionName=5.8.4\nbaseVersionCode=584\n'
         )
         (self.root / "README.md").write_text("unchanged approved notes\n")
         self.base = self.commit()

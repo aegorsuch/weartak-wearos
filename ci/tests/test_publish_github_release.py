@@ -1,6 +1,5 @@
 import copy
 import hashlib
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -12,11 +11,7 @@ import urllib.parse
 import urllib.request
 
 
-SPEC = importlib.util.spec_from_file_location(
-    "publisher", Path(__file__).resolve().parents[1] / "publish_github_release.py"
-)
-p = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(p)
+from ci import publish_github_release as p
 
 
 def environment():
