@@ -15,6 +15,7 @@ stages:
   - build
   - publish
   - draft
+  - sync
 
 .artifactory_credentials:
   extends: .artifactory_service_create_token_no_depends_bash
@@ -126,6 +127,28 @@ wear_version_check:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
     - if: '$CI_COMMIT_TAG'
+
+wear_version_fan_out:
+  stage: sync
+  image:
+    name: python:3.12-bookworm
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  dependencies: []
+  timeout: 1h
+  id_tokens:
+    WEARTAK_VERSION_ATTESTATION:
+      aud: https://git.tak.gov/weartak/version-sync
+  parallel:
+    matrix:
+      - WEARTAK_TARGET_PROJECT_ID: ["7025", "6988", "6952", "6948", "6942", "6941", "6933", "6912", "6910", "6890", "6786", "6737"]
+  script:
+    - python ci/wear_version.py fan-out --target "$WEARTAK_TARGET_PROJECT_ID"
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - wear-version.properties
 
 host_lint_debug:
   extends: .artifactory_credentials
