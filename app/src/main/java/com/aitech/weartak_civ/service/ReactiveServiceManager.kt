@@ -772,7 +772,6 @@ class ReactiveServiceManager : Service() {
             put(ServiceType.DITTO,                 DittoService.isRunning.get())
             put(ServiceType.CHAT,                  ChatService.isRunning.get())
             put(ServiceType.AUDIO_CAP,             AudioCaptureService.isRunning.get())
-            put(ServiceType.ONNX_GUNSHOT,          GunshotOnnxService.isRunning.get())
             put(ServiceType.ONNX_UAS,              UasOnnxService.isRunning.get())
             put(ServiceType.CRM_INFERENCE,         CrmInferenceService.isRunning.get())
             put(ServiceType.BLE_BEACON,            BleBeaconService.isRunning.get())
@@ -920,7 +919,6 @@ class ReactiveServiceManager : Service() {
         MOVEMENT_DETECTION(true, isKnoxMgdService = false, dependencies = listOf(BLOOD_HOUND)),
         WEATHER(true, dependencies = listOf(LOCATION), isKnoxMgdService = false),
         AUDIO_CAP(true, isKnoxMgdService = false),
-        ONNX_GUNSHOT(true, isKnoxMgdService = false, dependencies = listOf(AUDIO_CAP)),
         ONNX_UAS(true, isKnoxMgdService = false, dependencies = listOf(AUDIO_CAP)),
         CRM_INFERENCE(true, isKnoxMgdService = false, dependencies = listOf(SKIN_TEMP)),
         COMPANION_APP(isForegroundService = true, isKnoxMgdService = false),

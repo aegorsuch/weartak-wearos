@@ -113,17 +113,10 @@ class ServiceConfiguration(
         ServiceType.GEOFENCE  -> dataRepository.getEnableGeofenceService.distinctUntilChanged()
         ServiceType.BLOOD_HOUND -> dataRepository.getEnableBloodhoundCompassService.distinctUntilChanged()
         ServiceType.AUDIO_CAP -> combine(
-            dataRepository.getEnableOnnxGunshotService.distinctUntilChanged(),
             dataRepository.getEnableOnnxUasService.distinctUntilChanged(),
             audioCaptureRepository.activeConsumers,
-        ) { gunshotOn, uasOn, consumers ->
-            gunshotOn || uasOn || consumers.isNotEmpty()
-        }.distinctUntilChanged()
-        ServiceType.ONNX_GUNSHOT -> combine(
-            dataRepository.getEnableOnnxGunshotService,
-            audioDetectionDelegates,
-        ) { enabled, delegates ->
-            enabled && PluginDetectionEventBridge.DART_PACKAGE !in delegates
+        ) { uasOn, consumers ->
+            uasOn || consumers.isNotEmpty()
         }.distinctUntilChanged()
         ServiceType.ONNX_UAS -> combine(
             dataRepository.getEnableOnnxUasService,
@@ -198,9 +191,6 @@ class ServiceConfiguration(
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
         ServiceType.AUDIO_CAP -> listOf(
-            android.Manifest.permission.RECORD_AUDIO
-        )
-        ServiceType.ONNX_GUNSHOT -> listOf(
             android.Manifest.permission.RECORD_AUDIO
         )
         ServiceType.ONNX_UAS -> listOf(

@@ -43,7 +43,7 @@ class AudioCaptureRepository(private val context: Context) {
         val seq: Long,
         val timestampMs: Long,
         val timestampElMs: Long,
-        val sampleRateHz: Int,     // 44100 in current gunshot config
+        val sampleRateHz: Int,
         val channels: Int,         // 1
         val samples: ShortArray    // PCM16 mono little-endian
     )

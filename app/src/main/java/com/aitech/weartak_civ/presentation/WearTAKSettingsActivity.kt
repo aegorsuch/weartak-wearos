@@ -3338,7 +3338,7 @@ fun WearTAKSettingsNav(
                                         kind = entry.kind,
                                         phoneManagedSettings = phoneManagedSettings,
                                         title = entry.title,
-                                        label = stringResource(R.string.unfunded_request),
+                                        label = stringResource(R.string.dart_plugin_required),
                                         checked = enableGunshotDetection,
                                         onCheckedChange = { settingsVm.storeEnableOnnxGunshotService(it) },
                                         onClick = { navController.navigate("gunshot_detection") }

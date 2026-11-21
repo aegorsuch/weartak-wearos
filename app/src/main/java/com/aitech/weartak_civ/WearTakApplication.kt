@@ -34,7 +34,7 @@ import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.CrmDataRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.SavedCustomAlertsStore
-import com.aitech.weartak_civ.data.GunshotOnnxRepository
+import com.aitech.weartak_civ.data.GunshotDetectionRepository
 import com.aitech.weartak_civ.data.UasOnnxRepository
 import com.aitech.weartak_civ.data.secure.migration.TakServerMigration
 import com.aitech.weartak_civ.data.secure.sitx.SitxEncryptedDataStore
@@ -87,7 +87,7 @@ class WearTakApplication : Application() {
     lateinit var audioRepo: AudioCaptureRepository; private set
     lateinit var crmRepo: CrmDataRepository; private set
 
-    lateinit var gunshotOnnxRepo: GunshotOnnxRepository; private set
+    lateinit var gunshotDetectionRepo: GunshotDetectionRepository; private set
     lateinit var uasOnnxRepo: UasOnnxRepository; private set
     val crmCsvLogger: CrmSessionCsvLogger by lazy { CrmSessionCsvLogger(applicationContext) }
     val savedCustomAlerts: SavedCustomAlertsStore by lazy { SavedCustomAlertsStore(applicationContext) }
@@ -156,7 +156,7 @@ class WearTakApplication : Application() {
         locationDiagnostics = BondedLocationDiagnostics(applicationContext)
         audioRepo = AudioCaptureRepository(applicationContext)
         crmRepo = CrmDataRepository(repo)
-        gunshotOnnxRepo = GunshotOnnxRepository(applicationContext)
+        gunshotDetectionRepo = GunshotDetectionRepository(applicationContext)
         uasOnnxRepo = UasOnnxRepository(applicationContext)
         sitxRepo = SitxSecretsRepository(SitxEncryptedDataStore(applicationContext))
         installProcessRepositories(this)
@@ -182,8 +182,8 @@ class WearTakApplication : Application() {
                 )
             }
         }
-        startFeedback("WearTAK-GunshotOnnxService", "GS", "gunshot_debug",
-            gunshotOnnxRepo.gunshotFeedback, gunshotOnnxRepo::getEventFromUid)
+        startFeedback("WearTAK-GunshotDetection", "GS", "gunshot_debug",
+            gunshotDetectionRepo.gunshotFeedback, gunshotDetectionRepo::getEventFromUid)
         startFeedback("WearTAK-UasOnnxService", "UAS", "uas_debug",
             uasOnnxRepo.uasFeedback, uasOnnxRepo::getEventFromUid)
         Log.i(TAG, "WearTakApplication Created")

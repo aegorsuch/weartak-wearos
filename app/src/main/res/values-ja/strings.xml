@@ -267,6 +267,7 @@
     <string name="bloodhound_proximity_intensity_persistent_desc">Repeats until you click NPOS</string>
 	<string name="audio_detection_trigger_threshold">Trigger Threshold</string>
     <string name="gunshot_trigger_threshold">Gunshot Trigger Threshold</string>
+    <string name="dart_plugin_required">DARTプラグインが必要です</string>
     <string name="uas_trigger_threshold">UAS Trigger Threshold</string>
     <string name="group">Group</string>
     <string name="my_callsign">My Callsign</string>

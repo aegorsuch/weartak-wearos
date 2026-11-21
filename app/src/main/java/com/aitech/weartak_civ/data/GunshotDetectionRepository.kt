@@ -14,10 +14,9 @@ import com.aitech.weartak_civ.Utils
 import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
 import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import com.aitech.weartak_civ.data.audio.AudioDetectionStore
-import com.aitech.weartak_civ.data.audio.AudioDetectionUserLabel
 import com.aitech.weartak_civ.WearTakApplication
 
-class GunshotOnnxRepository(private val context: Context) {
+class GunshotDetectionRepository(private val context: Context) {
 
     private val repo by lazy {
         try {
@@ -29,24 +28,6 @@ class GunshotOnnxRepository(private val context: Context) {
 
     private val store by lazy { AudioDetectionStore(DETECTOR_KEY, repo) }
 
-    suspend fun createGunshotEvent(
-        uid: String,
-        confidence: Float,
-        pcmChunk: AudioCaptureRepository.AudioPcmChunk,
-        triggerPcmPath: String?,
-        audioSource: String?,
-        inferStart: Long? = null,
-        inferEnd: Long? = null
-    ): AudioDetectionEvent = store.createEvent(
-        uid = uid,
-        confidence = confidence,
-        pcmChunk = pcmChunk,
-        triggerPcmPath = triggerPcmPath,
-        audioSource = audioSource,
-        inferStart = inferStart,
-        inferEnd = inferEnd
-    )
-
     val gunshotFeedback = store.feedback
     fun tryEmitGunshotFeedback(feedback: AudioDetectionFeedback): Boolean = store.tryEmitFeedback(feedback)
 
@@ -55,7 +36,6 @@ class GunshotOnnxRepository(private val context: Context) {
     val pendingGunshot = store.pendingEvent
 
     fun acceptPluginEvent(event: AudioDetectionEvent): Boolean = store.acceptExternalEvent(event)
-    fun upsertRecentGunshot(event: AudioDetectionEvent) = store.upsertRecent(event)
     fun getEventFromUid(uid: String): AudioDetectionEvent? = store.getEventFromUid(uid)
     fun setGunshotEventAlertLevel(uid: String, level: Utils.AlertChipState): Boolean = store.setEventAlertLevel(uid, level)
     fun removeGunshot(uid: String): Boolean = store.remove(uid)
@@ -65,7 +45,3 @@ class GunshotOnnxRepository(private val context: Context) {
         const val DETECTOR_KEY = "gunshot"
     }
 }
-
-typealias GunshotOnnxEvent = AudioDetectionEvent
-typealias GunshotUserLabel = AudioDetectionUserLabel
-typealias GunshotFeedback = AudioDetectionFeedback

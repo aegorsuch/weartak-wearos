@@ -255,6 +255,7 @@
     <string name="beta_features">Beta Features</string>
     <string name="beta_features_desc">Show settings for beta features</string>
     <string name="gunshot_detection" translatable="false">DART</string>
+    <string name="dart_plugin_required">Requires DART plugin</string>
     <string name="uas_detection" translatable="false">FALCON</string>
     <string name="audio_detection_trigger_threshold">Trigger Threshold</string>
     <string name="gunshot_trigger_threshold">Gunshot Trigger Threshold</string>
