@@ -59,6 +59,31 @@ class EnrollmentCleanupTest {
         assertEquals(1, chat.getUnreadMsgsCount())
     }
 
+    @Test fun onlyNewRemoteMessagesVibrate() {
+        io.mockk.mockkObject(com.aitech.weartak_civ.Utils)
+        every { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) } returns Unit
+        try {
+            val chat = ChatService()
+            ChatService::class.java.getDeclaredField("dataRepository").apply {
+                isAccessible = true
+                set(chat, DataRepository(app))
+            }
+            fun room(vararg m: ChatMessage) = ChatRoom("sender", "SENDER", m.toList(), true, 0L, 0L)
+            val remote = ChatMessage("Hi", "sender", "SENDER", 1L, messageId = "r1")
+            chat.onTakChat(TakChatEvent("", parsedRooms = listOf(room(remote))))
+            io.mockk.verify(exactly = 1) { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) }
+            // Duplicate remote history plus a new local echo stays silent.
+            val echo = ChatMessage("Ack", "watch", "WATCH", 2L, messageId = "l1")
+            chat.onTakChat(TakChatEvent("", parsedRooms = listOf(room(remote, echo))))
+            io.mockk.verify(exactly = 1) { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) }
+            val next = ChatMessage("Again", "sender", "SENDER", 3L, messageId = "r2")
+            chat.onTakChat(TakChatEvent("", parsedRooms = listOf(room(remote, echo, next))))
+            io.mockk.verify(exactly = 2) { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) }
+        } finally {
+            io.mockk.unmockkObject(com.aitech.weartak_civ.Utils)
+        }
+    }
+
     @Test fun notificationCleanupFindsNestedMessagingExtrasWithoutDeletingOtherCards() {
         val manager = app.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("chat-test", "Chat", NotificationManager.IMPORTANCE_DEFAULT))

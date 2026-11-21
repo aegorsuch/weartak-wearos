@@ -216,13 +216,12 @@ class ChatService : Service() {
                 com.aitech.weartak_civ.command.SensitiveEnrollment.isSensitiveText(it.message)
             })
             if (incoming.messageList.isEmpty()) return@forEach
-            val previousCount = chatRoomMap[incoming.uid]?.messageList?.size ?: 0
-            val merged = ChatInboxMerge.merge(chatRoomMap[incoming.uid], incoming)
-            chatRoomMap[incoming.uid] = merged
-            // Duplicate deliveries merge away, so only a grown list holds a new message.
-            if (merged.messageList.size > previousCount &&
-                incoming.messageList.any { it.uid != MainActivity.device_uid }
-            ) hasNewIncomingMessage = true
+            val existing = chatRoomMap[incoming.uid]
+            // Only messages newly added by the merge count; duplicates and local echoes stay silent.
+            if (ChatInboxMerge.addedMessages(existing, incoming).any { it.uid != MainActivity.device_uid }) {
+                hasNewIncomingMessage = true
+            }
+            chatRoomMap[incoming.uid] = ChatInboxMerge.merge(existing, incoming)
         }
 
         // 3) Sort & publish once
