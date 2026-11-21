@@ -74,7 +74,7 @@ class PluginDetectionEventBridge(
         fun forPlugin(app: WearTakApplication, pluginPackage: String): PluginDetectionEventBridge? =
             when (pluginPackage) {
                 DART_PACKAGE -> PluginDetectionEventBridge(pluginPackage, "gunshot") {
-                    app.gunshotOnnxRepo.acceptPluginEvent(it)
+                    app.gunshotDetectionRepo.acceptPluginEvent(it)
                 }
                 FALCON_PACKAGE -> PluginDetectionEventBridge(pluginPackage, "uas") {
                     app.uasOnnxRepo.acceptPluginEvent(it)

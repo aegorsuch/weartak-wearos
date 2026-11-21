@@ -43,7 +43,6 @@ class ServiceRegistry() {
         ServiceType.BLOOD_HOUND to BloodhoundService::class.java,
         ServiceType.COMPANION_APP to CompanionAppService::class.java,
         ServiceType.AUDIO_CAP to AudioCaptureService::class.java,
-        ServiceType.ONNX_GUNSHOT to GunshotOnnxService::class.java,
         ServiceType.ONNX_UAS to UasOnnxService::class.java,
         ServiceType.CRM_INFERENCE to CrmInferenceService::class.java
     ) + if (BuildConfig.CEP_SIMULATION) mapOf(
@@ -72,7 +71,6 @@ class ServiceRegistry() {
         ServiceType.BLOOD_HOUND to BloodhoundService.isRunning,
         ServiceType.COMPANION_APP to CompanionAppService.isRunning,
         ServiceType.AUDIO_CAP to AudioCaptureService.isRunning,
-        ServiceType.ONNX_GUNSHOT to GunshotOnnxService.isRunning,
         ServiceType.ONNX_UAS to UasOnnxService.isRunning,
         ServiceType.CRM_INFERENCE to CrmInferenceService.isRunning
     ) + if (BuildConfig.CEP_SIMULATION) mapOf(

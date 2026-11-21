@@ -271,7 +271,7 @@ import com.aitech.weartak_civ.market.MarketUpdateSnapshot
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.BloodhoundRepository
-import com.aitech.weartak_civ.data.GunshotOnnxRepository
+import com.aitech.weartak_civ.data.GunshotDetectionRepository
 import com.aitech.weartak_civ.data.UasOnnxRepository
 import com.aitech.weartak_civ.data.DataRepository.SitxServerStatus
 import com.aitech.weartak_civ.data.secure.sitx.SitxSecretsRepository
@@ -548,14 +548,6 @@ class MainActivity : ComponentActivity() {
             (applicationContext as WearTakApplication).audioRepo
         } catch (_: Throwable) {
             AudioCaptureRepository(applicationContext)
-        }
-    }
-
-    private val gunshotOnnxRepo by lazy {
-        try {
-            (applicationContext as WearTakApplication).gunshotOnnxRepo
-        } catch (_: Throwable) {
-            GunshotOnnxRepository(applicationContext)
         }
     }
 
@@ -2500,11 +2492,11 @@ fun MainScreen(
 
     // Get the repo for gunshots
     val context = LocalContext.current
-    val gunshotOnnxRepo = remember(context.applicationContext) {
+    val gunshotDetectionRepo = remember(context.applicationContext) {
         try {
-            (context.applicationContext as WearTakApplication).gunshotOnnxRepo
+            (context.applicationContext as WearTakApplication).gunshotDetectionRepo
         } catch (_: Throwable) {
-            GunshotOnnxRepository(context.applicationContext)
+            GunshotDetectionRepository(context.applicationContext)
         }
     }
     val uasRepo = remember(context.applicationContext) {
@@ -2514,7 +2506,7 @@ fun MainScreen(
             UasOnnxRepository(context.applicationContext)
         }
     }
-    val pendingGunshot by gunshotOnnxRepo.pendingGunshot.collectAsStateWithLifecycle()
+    val pendingGunshot by gunshotDetectionRepo.pendingGunshot.collectAsStateWithLifecycle()
     val pendingUas by uasRepo.pendingUas.collectAsStateWithLifecycle()
     val dittoWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
     val crmInference by dataRepository.latestCrmInference.collectAsStateWithLifecycle()
@@ -2549,12 +2541,12 @@ fun MainScreen(
             gunshotPending = pendingGunshot,
             uasPending = pendingUas,
             findEvent = { detectorKey, uid ->
-                if (detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
-                    gunshotOnnxRepo.getEventFromUid(uid) else uasRepo.getEventFromUid(uid)
+                if (detectorKey == GunshotDetectionRepository.DETECTOR_KEY)
+                    gunshotDetectionRepo.getEventFromUid(uid) else uasRepo.getEventFromUid(uid)
             },
             emitFeedback = { event, feedback ->
-                if (event.detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
-                    gunshotOnnxRepo.tryEmitGunshotFeedback(feedback) else uasRepo.tryEmitUasFeedback(feedback)
+                if (event.detectorKey == GunshotDetectionRepository.DETECTOR_KEY)
+                    gunshotDetectionRepo.tryEmitGunshotFeedback(feedback) else uasRepo.tryEmitUasFeedback(feedback)
             },
             crmWarning = crmWarning,
             onCrmDetails = { context.startActivity(Intent(context, CrmReserveActivity::class.java)) },

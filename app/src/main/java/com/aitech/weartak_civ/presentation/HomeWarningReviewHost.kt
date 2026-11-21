@@ -22,7 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxWidth
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.Utils
-import com.aitech.weartak_civ.data.GunshotOnnxRepository
+import com.aitech.weartak_civ.data.GunshotDetectionRepository
 import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
 import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import com.aitech.weartak_civ.data.audio.AudioDetectionUserLabel
@@ -188,7 +188,7 @@ internal fun HomeWarningReviewHost(
 @Composable
 private fun detectionPrompt(event: AudioDetectionEvent): String =
     stringResource(
-        if (event.detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
+        if (event.detectorKey == GunshotDetectionRepository.DETECTOR_KEY)
             R.string.audio_detection_gunshot_question else R.string.audio_detection_uas_question
     )
 

@@ -16,6 +16,7 @@ import org.robolectric.shadows.ShadowLog
 import io.mockk.mockk
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,13 +68,13 @@ class ServiceConfigurationPermissionWarningTest {
         )
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         assertTrue(configuration.permissionsGranted(ServiceType.AUDIO_CAP))
-        assertTrue(configuration.permissionsGranted(ServiceType.ONNX_GUNSHOT))
+        assertTrue(configuration.permissionsGranted(ServiceType.ONNX_UAS))
         ShadowLog.clear()
         shadowOf(app).denyPermissions(Manifest.permission.RECORD_AUDIO)
 
         assertFalse(configuration.permissionsGranted(ServiceType.AUDIO_CAP))
         assertFalse(configuration.permissionsGranted(ServiceType.AUDIO_CAP))
-        assertFalse(configuration.permissionsGranted(ServiceType.ONNX_GUNSHOT))
+        assertFalse(configuration.permissionsGranted(ServiceType.ONNX_UAS))
         assertEquals(
             1,
             ShadowLog.getLogsForTag("WearTAK-ServiceConfig")
@@ -82,7 +83,7 @@ class ServiceConfigurationPermissionWarningTest {
         assertEquals(
             1,
             ShadowLog.getLogsForTag("WearTAK-ServiceConfig")
-                .count { it.msg.contains("Missing permissions for ONNX_GUNSHOT") }
+                .count { it.msg.contains("Missing permissions for ONNX_UAS") }
         )
 
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
@@ -97,36 +98,36 @@ class ServiceConfigurationPermissionWarningTest {
     }
 
     @Test
-    fun audioPluginClaimReplacesLegacyInferenceAndRestoresStandaloneFallback() = runBlocking {
+    fun audioCaptureIgnoresLegacyDartPreferenceButHonorsPluginAndUasDemand() = runBlocking {
         val app = RuntimeEnvironment.getApplication()
         MainActivity.device_uid = "configuration-test-watch"
         val repo = DataRepository(app)
         val delegates = MutableStateFlow<Set<String>>(emptySet())
+        val audio = AudioCaptureRepository(app)
         val configuration = ServiceConfiguration(
             app,
             repo,
-            mockk(relaxed = true),
+            audio,
             audioDetectionDelegates = delegates,
         )
         repo.storeEnableOnnxGunshotService(true)
-        repo.storeEnableOnnxUasService(true)
-
-        assertTrue(configuration.getServiceEnabledFlow(ServiceType.ONNX_GUNSHOT).first())
-        assertTrue(configuration.getServiceEnabledFlow(ServiceType.ONNX_UAS).first())
-
+        repo.storeEnableOnnxUasService(false)
+        assertFalse(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
         delegates.value = setOf(PluginDetectionEventBridge.DART_PACKAGE)
-        assertFalse(configuration.getServiceEnabledFlow(ServiceType.ONNX_GUNSHOT).first())
+        assertFalse(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+        audio.acquireConsumer("plugin:${PluginDetectionEventBridge.DART_PACKAGE}")
+        assertTrue(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+        audio.releaseConsumer("plugin:${PluginDetectionEventBridge.DART_PACKAGE}")
+        assertFalse(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+
+        repo.storeEnableOnnxUasService(true)
+        assertTrue(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
         assertTrue(configuration.getServiceEnabledFlow(ServiceType.ONNX_UAS).first())
 
-        delegates.value = setOf(
-            PluginDetectionEventBridge.DART_PACKAGE,
-            PluginDetectionEventBridge.FALCON_PACKAGE,
-        )
-        assertFalse(configuration.getServiceEnabledFlow(ServiceType.ONNX_GUNSHOT).first())
+        delegates.value = setOf(PluginDetectionEventBridge.FALCON_PACKAGE)
         assertFalse(configuration.getServiceEnabledFlow(ServiceType.ONNX_UAS).first())
 
         delegates.value = emptySet()
-        assertTrue(configuration.getServiceEnabledFlow(ServiceType.ONNX_GUNSHOT).first())
         assertTrue(configuration.getServiceEnabledFlow(ServiceType.ONNX_UAS).first())
     }
 }
