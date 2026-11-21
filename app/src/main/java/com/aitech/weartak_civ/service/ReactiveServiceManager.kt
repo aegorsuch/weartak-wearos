@@ -440,7 +440,10 @@ class ReactiveServiceManager : Service() {
         c.desired &&
                 !c.running &&
                 c.available &&
-                c.depsSatisfied
+                c.depsSatisfied &&
+                (c.type != ServiceType.DITTO ||
+                    (!com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled() &&
+                        !DittoService.isOwnershipFenced(applicationContext)))
 
     private fun isRunnable(t: ServiceType): Boolean =
         runnableServicesList.contains(t)

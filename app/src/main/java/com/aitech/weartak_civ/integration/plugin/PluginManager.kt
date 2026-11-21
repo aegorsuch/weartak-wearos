@@ -224,7 +224,9 @@ open class PluginManager(
             PluginDiagnostics.recordBindFailure(cn.flattenToString(), it)
             return
         }
-        val conn = PluginConnection(app, ingress, cn, uid, this, pluginTrust)
+        val conn = PluginConnection(app, ingress, cn, uid, this, pluginTrust,
+            pluginOnlyEnabled = PluginOnlyDittoHost::enabled,
+            pluginOnlyOwnershipProven = PluginOnlyDittoHost::ownershipProven)
         val intent = Intent(WearTakPluginContract.ACTION_PLUGIN_SERVICE).setComponent(cn)
         connections[cn.packageName] = conn
         conn.startBindingTimeout()

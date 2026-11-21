@@ -185,6 +185,42 @@ class DittoServicePowerTest {
         }
     }
 
+    @Test fun persistedOwnershipFenceSurvivesServiceRecreation() {
+        val preferences = service.getSharedPreferences("ditto-plugin-ownership", android.content.Context.MODE_PRIVATE)
+        assertTrue(preferences.edit().putBoolean("bundled-engine-fenced", true).commit())
+        try {
+            field("dittoInstance").set(null, null)
+            @Suppress("UNCHECKED_CAST")
+            val active = field("activeService").get(null) as MutableStateFlow<DittoService?>
+            active.value = null
+            DittoService.isRunning.set(false)
+            val recreatedService = Robolectric.buildService(DittoService::class.java).get()
+            assertTrue(DittoService.isOwnershipFenced(recreatedService.applicationContext))
+            assertFalse(recreatedService.startPeerSync())
+            verify(exactly = 0) { native.startSync() }
+        } finally {
+            field("dittoInstance").set(null, native)
+            @Suppress("UNCHECKED_CAST")
+            val active = field("activeService").get(null) as MutableStateFlow<DittoService?>
+            active.value = service
+            DittoService.isRunning.set(true)
+            preferences.edit().remove("bundled-engine-fenced").commit()
+        }
+    }
+
+    @Test fun corruptOwnershipFenceFailsClosed() {
+        val preferences = service.getSharedPreferences("ditto-plugin-ownership", android.content.Context.MODE_PRIVATE)
+        assertTrue(preferences.edit().putString("bundled-engine-fenced", "invalid").commit())
+        try {
+            assertTrue(DittoService.isOwnershipFenced(service.applicationContext))
+            service.onPowerStateChanged(healthy)
+            assertFalse(service.startPeerSync())
+            verify(exactly = 0) { native.startSync() }
+        } finally {
+            preferences.edit().remove("bundled-engine-fenced").commit()
+        }
+    }
+
     @Test fun livePeerCountsClearSynchronouslyOnPowerGateAndDestroy() {
         val diagnostics = DittoLiveStatusStore()
         val session = diagnostics.begin()

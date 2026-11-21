@@ -66,6 +66,25 @@ class HostControlImplTest {
     }
 
     @Test
+    fun dittoStatusPreservesExistingTelemetryUntilLeaseIntegrationIsEnabled() {
+        mockkObject(TAKConnectService.Companion)
+        try {
+            every { TAKConnectService.isAnyTakConnected } returns false
+            val repo = deviceStatusRepository()
+            val app = mockk<WearTakApplication>()
+            every { app.repo } returns repo
+            val control = HostControlImpl(app, mockk(relaxed = true),
+                TrustedCommunityPlugin.PACKAGE, Process.myUid())
+            val status = control.deviceStatus
+            assertEquals("WEAROS_0123456789abcdef",
+                status.telemetry.getString(DeviceStatusContract.KEY_TAK_UID))
+            assertEquals("ALPHA", status.telemetry.getString(DeviceStatusContract.KEY_CALLSIGN))
+        } finally {
+            unmockkObject(TAKConnectService.Companion)
+        }
+    }
+
+    @Test
     fun unavailableTakIdentityIsNotAdvertisedAndCallsignReadFailurePropagates() {
         mockkObject(TAKConnectService.Companion)
         try {

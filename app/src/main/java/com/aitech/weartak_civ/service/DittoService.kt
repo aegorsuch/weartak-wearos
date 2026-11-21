@@ -39,6 +39,7 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.callsign
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.role
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.teamValue
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -48,6 +49,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -136,8 +138,10 @@ class DittoService : Service() {
         liveStatusSession = liveStatusStore.begin()
         activeService.value = this
         if (reconfiguring.value || shutdownFailureState.value ||
+            com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled() ||
+            isOwnershipFenced(applicationContext) ||
             dataRepository.shouldSuppressWatchTransportNow()) {
-            Log.i(TAG, "Ditto startup suppressed: identity changing, shutdown failed, or Companion handoff active")
+            Log.i(TAG, "Ditto startup suppressed: identity change, shutdown failure, ownership handoff, or Companion handoff")
             recordDittoLifecycle(DittoDiagnosticPhase.START, false)
             stopSelf()
             return
@@ -246,6 +250,8 @@ class DittoService : Service() {
 
     internal fun startPeerSync(): Boolean = synchronized(peerLock) {
         if (peerStopped || reconfiguring.value || shutdownFailureState.value ||
+            com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled() ||
+            isOwnershipFenced(applicationContext) ||
             dataRepository.shouldSuppressWatchTransportNow()) return@synchronized false
         val reason = powerPolicy.suppressionReason(powerState, android.os.SystemClock.elapsedRealtime())
         if (reason != null) {
@@ -262,6 +268,8 @@ class DittoService : Service() {
     internal fun onPowerStateChanged(state: DittoPowerState) = synchronized(peerLock) {
         powerState = state
         if (peerStopped || !ownsDitto || reconfiguring.value || shutdownFailureState.value ||
+            com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled() ||
+            isOwnershipFenced(applicationContext) ||
             dataRepository.shouldSuppressWatchTransportNow()) return@synchronized
         val reason = powerPolicy.suppressionReason(state, android.os.SystemClock.elapsedRealtime())
         val suppressed = reason != null
@@ -804,35 +812,22 @@ class DittoService : Service() {
             Log.i(TAG, "Skipping outbound Ditto track refresh: route/input unavailable or fix expired")
             return
         }
-        val freshSnapshot = freshLocation?.let { dataRepository.snapshotOutboundAnnouncement(it) }
-        val timeMs = freshLocation?.time ?: System.currentTimeMillis()
-        val interval = CotDispatchService.actualReportingIntervalSecs.coerceAtLeast(1)
-        val standaloneStaleMsOffset = (2L * interval + 15) * 1_000L
-        val staleMsOffset = com.aitech.weartak_civ.cot.SelfPliStalePolicy.offsetMillis(
-            companionBonded = dataRepository.hasCompanionEverBeenReady(),
-            effectiveIntervalSeconds = interval,
-            standaloneOffsetMillis = standaloneStaleMsOffset,
-        )
-        val staleTimeMs = timeMs + staleMsOffset
-        val location = if (freshSnapshot != null) freshSnapshot.loc
-            else dataRepository.snapshotPliLocation()
-        if (location == null) {
+        val trackSnapshot = DittoTrackSnapshot.capture(dataRepository, freshLocation, uuid) {
+            val host = applicationContext as? WearTakApplication
+            if (host == null) Log.w(TAG, "Handler exertion unavailable: WearTAK host not present")
+            host?.let { com.aitech.weartak_civ.integration.plugin.HandlerExertion.read(it.pluginManager) }
+        }
+        if (trackSnapshot == null) {
             Log.i(TAG, "Skipping Ditto track: awaiting first valid location fix")
             return
         }
-        val host = applicationContext as? WearTakApplication
-        if (host == null) Log.w(TAG, "Handler exertion unavailable: WearTAK host not present")
-        val pliSnapshot = com.aitech.weartak_civ.integration.plugin.HandlerExertion.pli(
-            freshSnapshot ?: dataRepository.snapshotPli(),
-            host?.let { com.aitech.weartak_civ.integration.plugin.HandlerExertion.read(it.pluginManager) },
-        )
-        val battery = freshSnapshot?.systemData?.batteryPercent ?: dataRepository.latestBatteryPercentage.value ?: -1
-        val callsign = freshSnapshot?.systemData?.callsign ?: MainActivity.callsign
-        val role = freshSnapshot?.systemData?.role ?: MainActivity.role
-        val teamValue = freshSnapshot?.systemData?.team ?: MainActivity.teamValue
-        val uuid = freshSnapshot?.systemData?.deviceId ?: this@DittoService.uuid
-        val sample = DittoTrackPublicationGate.Sample(location, battery,
-            listOf(callsign, role, teamValue, uuid), pliSnapshot.remarks, pliSnapshot.monitoredPhysio, interval)
+        val location = trackSnapshot.location
+        val callsign = trackSnapshot.callsign
+        val uuid = trackSnapshot.uid
+        val interval = trackSnapshot.intervalSeconds
+        val sample = DittoTrackPublicationGate.Sample(trackSnapshot.location, trackSnapshot.battery,
+            listOf(trackSnapshot.callsign, trackSnapshot.role, trackSnapshot.team, trackSnapshot.uid),
+            trackSnapshot.remarks, trackSnapshot.monitoredPhysio, trackSnapshot.intervalSeconds)
         val latActual = location.lat
         val lonActual = location.lon
         val haeActual = location.hae ?: 0.0
@@ -840,37 +835,18 @@ class DittoService : Service() {
         if (ceActual.isNaN()) ceActual = 9999999.0F
         var leActual: Float = location.le ?: 9999999.0F
         if (leActual.isNaN()) leActual = 9999999.0F
-        val bearingActual = location.course ?: 0.0F
         val speedActual = location.speed ?: 0.0F
         val typeString = "a-f-G-U-C"
         val access = "Undefined"
         val how = "m-g"
 
 
-        // 2) Merged version (original + ditto + remarks/physiology/track)
-        val cotDetail = CotDetailBuilder.dittoTrack(
-            // your original args:
-            monitoredPhysio = pliSnapshot.monitoredPhysio,
-            battery = battery,
-            callsign = callsign,
-            role = role,
-            team = teamValue,
-            uid = uuid,
-            course = bearingActual,
-            speed = speedActual,
-            altitudeSource = location.coordinateSource?.uppercase() ?: "UNKNOWN",
-            geopointSource = location.coordinateSource?.uppercase() ?: "UNKNOWN",
-            // if you need a custom endpoint/phone (these also have defaults):
-            endpoint = "*:-1:stcp",
-            // ditto payload:
-            dittoA = localPeerKeyString,
-            dittoVersion = dittoVersion,
-            dittoDeviceName = dittoDeviceName,
-            remarks = pliSnapshot.remarks,
+        val cotDetail = trackSnapshot.detail(
+            CotDetailBuilder.DittoMetadata(localPeerKeyString, dittoDeviceName, dittoVersion)
         ).let { detail ->
-            if (timeMs - location.timeMillis > 3_000) {
+            if (trackSnapshot.eventTime - trackSnapshot.location.timeMillis > 3_000) {
                 detail.replace("</detail>", CotXml.element("weartak_location",
-                    listOf("timeMillis" to location.timeMillis)) + "</detail>")
+                    listOf("timeMillis" to trackSnapshot.location.timeMillis)) + "</detail>")
             } else detail
         }
 
@@ -887,7 +863,7 @@ class DittoService : Service() {
             "visible" to true,
 
             "a" to localPeerKeyString,
-            "b" to timeMs,
+            "b" to trackSnapshot.eventTime,
             "c" to callsign,
             "d" to uuid,
             "e" to callsign,
@@ -902,8 +878,8 @@ class DittoService : Service() {
             "l" to lonActual,             // LON
 
             // — timing & lifecycle —
-            "n" to timeMs,          // start
-            "o" to staleTimeMs,     // stale
+            "n" to trackSnapshot.eventTime,  // start
+            "o" to trackSnapshot.staleTime,  // stale
 
             // — how/access/detail —
             "p" to how,
@@ -931,7 +907,7 @@ class DittoService : Service() {
             synchronized(peerLock) {
                 if (peerStopped || powerSuppressedState.value) return
                 if (!com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
-                        .isCurrent(pliSnapshot.moppGeneration)) {
+                        .isCurrent(trackSnapshot.moppGeneration)) {
                     Log.i(TAG, "Skipping Ditto track built before a MOPP session change")
                     return
                 }
@@ -995,8 +971,11 @@ class DittoService : Service() {
 
         private val DITTO_SERVICE_NOTIFICATION_ID = 3333
         val isRunning: AtomicBoolean = AtomicBoolean(false)
+        private val engineInitializationAttempted = AtomicBoolean(false)
         private val shutdownFailureState = MutableStateFlow(false)
         internal val shutdownFailed = shutdownFailureState.asStateFlow()
+        private const val OWNERSHIP_PREFS = "ditto-plugin-ownership"
+        private const val OWNERSHIP_FENCED_KEY = "bundled-engine-fenced"
         private val syncActiveState = MutableStateFlow(false)
         private val liveStatusStore = DittoLiveStatusStore()
         internal val liveStatus = liveStatusStore.state
@@ -1021,6 +1000,107 @@ class DittoService : Service() {
         private val identityMutex = Mutex()
 
         fun getDittoInstance(): Ditto? = dittoInstance
+
+        internal fun isOwnershipFenced(context: Context): Boolean {
+            val marker = context.getSharedPreferences(OWNERSHIP_PREFS, Context.MODE_PRIVATE)
+                .all[OWNERSHIP_FENCED_KEY] ?: return false
+            return when (marker) {
+                true -> true
+                false -> false
+                else -> {
+                    Log.e(TAG, "Corrupt Ditto ownership fence; suppressing bundled runtime")
+                    true
+                }
+            }
+        }
+
+        private fun persistOwnershipFence(context: Context): Boolean {
+            val persisted = context.getSharedPreferences(OWNERSHIP_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(OWNERSHIP_FENCED_KEY, true)
+                .commit()
+            if (!persisted) Log.e(TAG, "Could not persist Ditto ownership fence")
+            return persisted
+        }
+
+        internal suspend fun fenceColdStartForPlugin(context: Context): Boolean =
+            identityMutex.withLock {
+                if (isOwnershipFenced(context) || shutdownFailureState.value) return@withLock false
+                if (!persistOwnershipFence(context)) return@withLock false
+                !engineInitializationAttempted.get() && nativeEngineIsQuiescent()
+            }
+
+        internal suspend fun quiesceBundledEngineForPlugin(context: Context): Boolean =
+            identityMutex.withLock {
+                if (shutdownFailureState.value) return@withLock false
+                if (!persistOwnershipFence(context)) return@withLock false
+                if (nativeEngineIsQuiescent()) return@withLock true
+
+                reconfiguring.value = true
+                val previous = activeService.value
+                val previousThread = previous?.dittoUpdateThread
+                var quiescenceCompleted = false
+                try {
+                    if (previous != null) {
+                        withContext(Dispatchers.Main) {
+                            context.stopService(Intent(context, DittoService::class.java))
+                        }
+                        awaitStoppedWorkers(previous, previousThread)
+                        check(previous.didStopPeerSuccessfully()) {
+                            "Ditto shutdown was not acknowledged"
+                        }
+                    } else {
+                        check(!isRunning.get()) { "Ditto service state is uncertain" }
+                    }
+
+                    dittoInstance?.let { instance ->
+                        if (!closeNativeDittoForHandoff(instance)) {
+                            Log.e(TAG, "Ditto handoff native close timed out")
+                            return@withLock false
+                        }
+                        dittoInstance = null
+                    }
+                    nativeEngineIsQuiescent().also { quiescenceCompleted = it }
+                } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+                    if (!kotlinx.coroutines.currentCoroutineContext().isActive) throw error
+                    Log.e(TAG, "Ditto ownership quiescence timed out")
+                    false
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.e(TAG, "Ditto ownership quiescence failed", error)
+                    false
+                } finally {
+                    if (!quiescenceCompleted) {
+                        shutdownFailureState.value = true
+                        Log.e(TAG, "Ditto handoff shutdown incomplete; blocking restart and retry")
+                    }
+                    reconfiguring.value = false
+                }
+            }
+
+        private fun nativeEngineIsQuiescent(): Boolean =
+            activeService.value == null && !isRunning.get() && dittoInstance == null &&
+                !shutdownFailureState.value
+
+        private suspend fun closeNativeDittoForHandoff(instance: Ditto): Boolean {
+            val completion = CompletableDeferred<Unit>()
+            Thread({
+                try {
+                    closeNativeDitto(instance)
+                    completion.complete(Unit)
+                } catch (error: Exception) {
+                    completion.completeExceptionally(error)
+                }
+            }, "ditto-handoff-close").apply {
+                isDaemon = true
+                start()
+            }
+            return withTimeoutOrNull(15_000) {
+                completion.await()
+                true
+            } ?: false
+        }
 
         internal suspend fun currentCotMetadata(): CotDetailBuilder.DittoMetadata? {
             val service = activeService.value ?: return null
@@ -1048,6 +1128,10 @@ class DittoService : Service() {
         internal suspend fun applyEnabled(context: Context, repo: DataRepository, enabled: Boolean): Boolean =
             identityMutex.withLock {
                 if (repo.phoneManagedSettingsLocked.first() || repo.getNetworkPreferencesLocked.first()) return@withLock false
+                if (enabled && isOwnershipFenced(context)) {
+                    repo.storeEnableDittoService(true)
+                    return@withLock true
+                }
                 val before = repo.getEnableDittoService.first()
                 var previous: DittoService? = null
                 var previousThread: HandlerThread? = null
@@ -1118,6 +1202,8 @@ class DittoService : Service() {
 
         suspend fun applySelectedIdentity(context: Context, repo: DataRepository): Boolean =
             identityMutex.withLock {
+                if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) return@withLock false
+                if (isOwnershipFenced(context)) return@withLock false
                 val previous = activeService.value
                 val thread = previous?.dittoUpdateThread
                 reconfiguring.value = true
@@ -1192,6 +1278,8 @@ class DittoService : Service() {
             applicationContext: Context,
             dataRepository: DataRepository
         ): Boolean {
+            if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) return false
+            engineInitializationAttempted.set(true)
             Log.d(TAG, "Initializing Ditto")
 
             // Ditto has already been initialized

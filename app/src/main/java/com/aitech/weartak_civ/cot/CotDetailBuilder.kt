@@ -54,14 +54,17 @@ object CotDetailBuilder {
         speed: Float,
         altitudeSource: String = "GPS",
         geopointSource: String = "GPS",
-        dittoA: String,
+        dittoA: String?,
         dittoIp: String = "0.0.0.0",
-        dittoVersion: String,
-        dittoDeviceName: String,
+        dittoVersion: String?,
+        dittoDeviceName: String?,
         endpoint: String = "*:-1:stcp",
         remarks: String = "",
-    ): String = CotXml.element("detail", content =
-        takv() +
+    ): String {
+        require((dittoA == null && dittoVersion == null && dittoDeviceName == null) ||
+            (dittoA != null && dittoVersion != null && dittoDeviceName != null))
+        return CotXml.element("detail", content =
+            takv() +
             CotXml.element("contact", listOf("endpoint" to CotXml.escape(endpoint), "callsign" to CotXml.escape(callsign))) +
             CotXml.element("uid", listOf("Droid" to CotXml.escape(uid))) +
             CotXml.element("precisionlocation", listOf(
@@ -72,6 +75,8 @@ object CotDetailBuilder {
             "<remarks>${CotXml.escape(remarks)}</remarks>" +
             physiology(uid, monitoredPhysio, battery) +
             CotXml.element("track", listOf("course" to course, "speed" to speed)) +
-            ditto(DittoMetadata(dittoA, dittoDeviceName, dittoVersion), dittoIp),
-    )
+            (if (dittoA != null && dittoDeviceName != null && dittoVersion != null)
+                ditto(DittoMetadata(dittoA, dittoDeviceName, dittoVersion), dittoIp) else ""),
+        )
+    }
 }

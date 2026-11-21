@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <queries>
+        <package android:name="com.weartak.plugin.ditto.syntheticfixture" />
+    </queries>
     <application android:name="${debugApplication}" tools:replace="android:name">
         <uses-library
             android:name="com.google.android.wearable"

@@ -8,6 +8,9 @@ import com.aitech.weartak_civ.data.MoppStatus
 import com.aitech.weartak_civ.data.CompanionSelfStatus
 import com.aitech.weartak_civ.cot.CotMessageBuilder
 import com.aitech.weartak_civ.cot.CotDetailBuilder
+import com.aitech.weartak_civ.cot.CotMessageParser
+import com.aitech.weartak_civ.cot.DittoCotDocument
+import com.aitech.weartak_civ.cot.EmergencyLocationPolicy
 import com.aitech.weartak_civ.events.OutboundDittoTrackRefresh
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
@@ -26,6 +29,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Instant
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
@@ -38,6 +42,137 @@ class DittoTrackLocationTest {
     }
 
     @After fun removeMoppPlugin() { MoppPluginAvailability.release(moppLease) }
+
+    @Test fun hostSnapshotCaptureWorksWithoutRunningDittoService() = runBlocking {
+        MainActivity.device_uid = "fresh-watch"
+        MainActivity.callsign = "SCHEDULED"
+        val repo = DataRepository(RuntimeEnvironment.getApplication())
+        repo.storeCallsign("FRESH")
+        val priorInterval = CotDispatchService.actualReportingIntervalSecs
+        CotDispatchService.actualReportingIntervalSecs = 15
+        val fix = Location("fused").apply {
+            latitude = 41.123456789
+            longitude = -87.123456789
+            altitude = 100.25
+            accuracy = 4f
+            time = System.currentTimeMillis() - 10_000
+            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        }
+        try {
+            assertNull(DittoTrackSnapshot.capture(repo, null, "fallback") { null })
+            val fresh = requireNotNull(DittoTrackSnapshot.capture(repo, fix, "fallback") { null })
+            assertEquals(fix.time, fresh.eventTime)
+            assertEquals(fix.time, fresh.location.timeMillis)
+            assertEquals(fix.time + 45_000, fresh.staleTime)
+            assertEquals("fresh-watch", fresh.uid)
+            assertEquals("FRESH", fresh.callsign)
+            assertEquals(4f, fresh.location.ce!!, 0f)
+
+            repo.storeLatestLocation(fix)
+            val scheduled = requireNotNull(DittoTrackSnapshot.capture(repo, null, "fallback") { null })
+            assertEquals("fallback", scheduled.uid)
+            assertEquals("SCHEDULED", scheduled.callsign)
+            assertEquals(fix.time, scheduled.location.timeMillis)
+            assertTrue(scheduled.eventTime > fix.time)
+            assertTrue(scheduled.location.ce!! > 4f)
+            assertEquals(scheduled.eventTime + 45_000, scheduled.staleTime)
+        } finally {
+            CotDispatchService.actualReportingIntervalSecs = priorInterval
+        }
+    }
+
+    @Test fun capturedTrackDetailUsesRuntimeMetadataWithoutAddingFixTimeExtension() {
+        val snapshot = DittoTrackSnapshot(
+            eventTime = 20_000L,
+            staleTime = 65_000L,
+            location = DataRepository.LocationSnapshot(
+                timeMillis = 10_000L, lat = 41.0, lon = -87.0, hae = 123.0,
+                ce = 5f, le = 8f, course = 90f, speed = 3f, coordinateSource = "fused",
+            ),
+            uid = "watch", callsign = "A&B", role = "Medic", team = "Blue", battery = 80,
+            remarks = "ready", monitoredPhysio = null, moppGeneration = 4L, intervalSeconds = 15,
+        )
+        val detail = snapshot.detail(CotDetailBuilder.DittoMetadata("peer-1", "watch-sdk", "1.2"))
+        assertTrue(detail.contains("callsign='A&amp;B'"))
+        assertTrue(detail.contains("altsrc='FUSED'"))
+        assertTrue(detail.contains("<track course='90.0' speed='3.0'/>"))
+        assertTrue(detail.contains("<ditto a='peer-1' ip='0.0.0.0' version='1.2' deviceName='watch-sdk'/>"))
+        assertFalse(detail.contains("<weartak_location"))
+        assertFalse(detail.contains("<hr>"))
+    }
+
+    @Test fun pluginPliPreservesTrackValuesAndEachOriginalFixTime() {
+        val metadata = CotDetailBuilder.DittoMetadata("peer-1", "watch-sdk", "1.2")
+        val fixTime = 1_700_000_000_123L
+        val originalLocation = DataRepository.LocationSnapshot(
+            timeMillis = fixTime, lat = 41.123456789123, lon = -87.987654321987,
+            hae = 123.456789, ce = 5.123456f, le = 8.654321f,
+            course = 90.75f, speed = 3.125f, coordinateSource = "fused",
+        )
+        for (age in listOf(0L, 2_999L, 3_000L, 3_001L, 60_000L)) {
+            val eventTime = fixTime + age
+            val location = requireNotNull(EmergencyLocationPolicy.forDispatch(originalLocation, eventTime))
+            val snapshot = DittoTrackSnapshot(
+                eventTime, eventTime + 45_000L, location,
+                "watch&1", "A&B\u00e9", "Medic", "Blue", 80,
+                "ready <safe>", null, 4L, 15,
+            )
+            val xml = snapshot.toPluginPli().xml
+            val root = requireNotNull(CotMessageParser.parseDocumentOrNull(xml)).documentElement
+            assertEquals("watch&1", root.getAttribute("uid"))
+            assertEquals(eventTime, Instant.parse(root.getAttribute("time")).toEpochMilli())
+            assertEquals(eventTime, Instant.parse(root.getAttribute("start")).toEpochMilli())
+            assertEquals(eventTime + 45_000L, Instant.parse(root.getAttribute("stale")).toEpochMilli())
+            val point = root.getElementsByTagName("point").item(0) as org.w3c.dom.Element
+            assertEquals(location.lat, point.getAttribute("lat").toDouble(), 0.0)
+            assertEquals(location.lon, point.getAttribute("lon").toDouble(), 0.0)
+            assertEquals(location.hae!!, point.getAttribute("hae").toDouble(), 0.0)
+            assertEquals(location.ce!!.toDouble(), point.getAttribute("ce").toDouble(), 0.0)
+            assertEquals(location.le!!.toDouble(), point.getAttribute("le").toDouble(), 0.0)
+            val marker = "<weartak_location timeMillis='$fixTime'/>"
+            val detail = snapshot.detail(null)
+            assertTrue(xml.endsWith(detail.removeSuffix("</detail>") + marker + "</detail></event>"))
+            assertFalse(xml.contains("<ditto "))
+            assertEquals(1, root.getElementsByTagName("weartak_location").length)
+            assertEquals(snapshot.detail(metadata), detail.replace(
+                "</detail>",
+                CotDetailBuilder.ditto(metadata) + "</detail>",
+            ))
+            assertTrue(detail.contains("callsign='A&amp;B\u00e9'"))
+            assertTrue(detail.contains("<track course='90.75' speed='3.125'/>"))
+            if (age == 60_000L) assertTrue(location.ce!! > originalLocation.ce!!)
+        }
+    }
+
+    @Test fun pluginPliRejectsOversizeAndMalformedPayloads() {
+        val snapshot = DittoTrackSnapshot(
+            eventTime = 20_000L, staleTime = 65_000L,
+            location = DataRepository.LocationSnapshot(timeMillis = 20_000L, lat = 41.0, lon = -87.0,
+                hae = null, ce = Float.NaN, le = null, course = null, speed = null),
+            uid = "watch", callsign = "A", role = "Medic", team = "Blue", battery = 80,
+            remarks = "", monitoredPhysio = null, moppGeneration = null, intervalSeconds = 15,
+        )
+        val point = requireNotNull(CotMessageParser.parseDocumentOrNull(snapshot.toPluginPli().xml))
+            .getElementsByTagName("point").item(0) as org.w3c.dom.Element
+        assertEquals(0.0, point.getAttribute("hae").toDouble(), 0.0)
+        assertEquals(9999999.0, point.getAttribute("ce").toDouble(), 0.0)
+        assertEquals(9999999.0, point.getAttribute("le").toDouble(), 0.0)
+        val remaining = 32_700 - snapshot.toPluginPli().xml.toByteArray(Charsets.UTF_8).size
+        assertEquals(32_700, snapshot.copy(remarks = "x".repeat(remaining)).toPluginPli()
+            .xml.toByteArray(Charsets.UTF_8).size)
+        assertThrows(IllegalArgumentException::class.java) {
+            snapshot.copy(remarks = "x".repeat(remaining) + "\u00e9").toPluginPli()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            snapshot.copy(remarks = "\u0001").toPluginPli()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            snapshot.copy(callsign = "A\tB").toPluginPli()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            snapshot.copy(location = snapshot.location.copy(speed = Float.POSITIVE_INFINITY)).toPluginPli()
+        }
+    }
 
     @Test fun readinessRefreshUsesActualFixCurrentIdentityAndPrivacyWithoutLegacyCacheReplay() = runBlocking {
         MainActivity.device_uid = "fresh-watch"
@@ -101,6 +236,17 @@ class DittoTrackLocationTest {
             assertTrue((document["r"] as String).contains("<remarks>MOPP3</remarks>"))
             assertTrue((document["r"] as String).contains(
                 "<ditto a='test-peer' ip='0.0.0.0' version='test' deviceName='Configured SDK watch'/>"))
+            val decoded = DittoCotDocument.decode(document)
+            val position = requireNotNull(CotMessageParser.parseUserPositionOrNull(decoded.xml))
+            assertEquals("fresh-watch", position.uid)
+            assertEquals("CURRENT", position.detail.markerCallsign)
+            assertEquals("Blue", position.team)
+            assertEquals("Medic", position.role)
+            assertEquals(fix.time, position.time)
+            assertEquals(fix.time + 45_000L, position.stale)
+            assertEquals(fix.latitude, position.point.lat, 0.0)
+            assertEquals(fix.longitude, position.point.lon, 0.0)
+            assertEquals(fix.altitude, position.point.hae, 0.0)
             for (tag in listOf("hr", "skt", "exert")) assertFalse((document["r"] as String).contains("<$tag>"))
             assertEquals("MOPP3", pairedPli.remarks)
             assertNull(repo.latestLocation.value)

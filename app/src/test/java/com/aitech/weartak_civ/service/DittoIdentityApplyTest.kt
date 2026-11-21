@@ -2,6 +2,7 @@ package com.aitech.weartak_civ.service
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.data.DataRepository
 import io.mockk.*
@@ -21,6 +22,8 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -29,17 +32,31 @@ class DittoIdentityApplyTest {
     private val repo = mockk<DataRepository>(relaxed = true)
     private val app = mockk<WearTakApplication>(relaxed = true)
     private val context = mockk<Context>()
+    private val ownershipPreferences = mockk<SharedPreferences>()
+    private val ownershipEditor = mockk<SharedPreferences.Editor>()
     private val old = mockk<Ditto>(relaxed = true)
     private val replacement = mockk<Ditto>(relaxed = true)
     private val enabled = MutableStateFlow(false)
     private val companion = MutableStateFlow(false)
     private val companionGrace = MutableStateFlow(false)
     private var initializeOk = true
+    private var ownershipFenced = false
+    private var fenceCommitOk = true
 
     @Before fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         every { context.applicationContext } returns app
         every { context.packageName } returns "com.aitech.weartak_civ"
+        every { context.getSharedPreferences(any(), any()) } returns ownershipPreferences
+        every { ownershipPreferences.all } answers {
+            if (ownershipFenced) mapOf("bundled-engine-fenced" to true) else emptyMap()
+        }
+        every { ownershipPreferences.edit() } returns ownershipEditor
+        every { ownershipEditor.putBoolean("bundled-engine-fenced", true) } returns ownershipEditor
+        every { ownershipEditor.commit() } answers {
+            if (fenceCommitOk) ownershipFenced = true
+            fenceCommitOk
+        }
         com.aitech.weartak_civ.presentation.MainActivity.device_uid = "test-watch"
         every { context.stopService(any()) } returns false
         every { app.audioRepo } returns mockk(relaxed = true)
@@ -65,12 +82,61 @@ class DittoIdentityApplyTest {
 
     @After fun cleanup() {
         set("dittoInstance", null)
+        initializationAttempted().set(false)
         activeService().value = null
         shutdownFailure().value = false
+        DittoService.isRunning.set(false)
         ReactiveServiceManager.isRunning.set(false)
         unmockkObject(DittoService.Companion)
         unmockkConstructor(ServiceConfiguration::class)
         Dispatchers.resetMain()
+    }
+
+    @Test fun coldPluginFenceRequiresNeverStartedEngineAndRejectsExistingFence() = runTest {
+        set("dittoInstance", null)
+        assertTrue(DittoService.fenceColdStartForPlugin(context))
+        assertTrue(DittoService.isOwnershipFenced(context))
+        // Simulate fresh process-local state while keeping the persisted marker.
+        initializationAttempted().set(false)
+        assertFalse(DittoService.fenceColdStartForPlugin(context))
+        verify(exactly = 0) { context.stopService(any()); old.close() }
+    }
+
+    @Test fun pluginOnlyModeDoesNotInitializeBundledEngineWhenIdentityChanges() = runTest {
+        val mode = com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost
+        mockkObject(mode)
+        try {
+            every { mode.enabled() } returns true
+            assertFalse(DittoService.applySelectedIdentity(context, repo))
+            verify(exactly = 0) { old.close(); context.stopService(any()) }
+        } finally {
+            unmockkObject(mode)
+        }
+    }
+
+    @Test fun coldPluginFenceRejectsActiveOrPreviouslyAttemptedEngine() = runTest {
+        assertFalse(DittoService.fenceColdStartForPlugin(context))
+        assertTrue(DittoService.isOwnershipFenced(context))
+        verify(exactly = 0) { context.stopService(any()); old.close() }
+
+        ownershipFenced = false
+        set("dittoInstance", null)
+        initializationAttempted().set(true)
+        assertFalse(DittoService.fenceColdStartForPlugin(context))
+        assertTrue(DittoService.isOwnershipFenced(context))
+
+        ownershipFenced = false
+        initializationAttempted().set(false)
+        activeService().value = runningService()
+        assertFalse(DittoService.fenceColdStartForPlugin(context))
+        assertTrue(DittoService.isOwnershipFenced(context))
+    }
+
+    @Test fun coldPluginFenceRejectsPersistenceFailure() = runTest {
+        set("dittoInstance", null)
+        fenceCommitOk = false
+        assertFalse(DittoService.fenceColdStartForPlugin(context))
+        verify(exactly = 0) { context.stopService(any()); old.close() }
     }
 
     @Test fun changingDisabledIdentityClosesOldInstanceAndAppliesNewWithoutSync() = runTest {
@@ -79,6 +145,207 @@ class DittoIdentityApplyTest {
         assertSame(replacement, DittoService.getDittoInstance())
         assertFalse(DittoService.isReconfiguring.value)
         verify(exactly = 0) { replacement.startSync() }
+    }
+
+    @Test fun ownershipQuiescenceStopsWorkersAndClosesBeforeSuccess() = runTest {
+        val service = runningService()
+        DittoService.isRunning.set(true)
+        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        DittoService::class.java.getDeclaredField("ioScope").apply {
+            isAccessible = true
+            set(service, scope)
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        val closeCalled = CountDownLatch(1)
+        every { old.close() } answers { closeCalled.countDown() }
+        val handoff = async(UnconfinedTestDispatcher(testScheduler)) {
+            DittoService.quiesceBundledEngineForPlugin(context)
+        }
+        try {
+            assertTrue(ownershipFenced)
+            assertFalse(handoff.isCompleted)
+            verify(exactly = 0) { old.close() }
+            releaseWorker.complete(Unit)
+            worker.join()
+            assertTrue(closeCalled.await(5, TimeUnit.SECONDS))
+            assertTrue(handoff.await())
+            assertNull(DittoService.getDittoInstance())
+            assertTrue(DittoService.isOwnershipFenced(context))
+            verifyOrder { old.stopSync(); old.close() }
+            assertFalse(service.startPeerSync())
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
+    }
+
+    @Test fun hungNativeCloseTimesOutAndBlocksRetryEvenIfItLaterReturns() = runTest {
+        val closeStarted = CountDownLatch(1)
+        val releaseClose = CountDownLatch(1)
+        val closeReturned = CountDownLatch(1)
+        every { old.close() } answers {
+            closeStarted.countDown()
+            releaseClose.await()
+            closeReturned.countDown()
+        }
+        val handoff = async(UnconfinedTestDispatcher(testScheduler)) {
+            DittoService.quiesceBundledEngineForPlugin(context)
+        }
+        try {
+            assertTrue(closeStarted.await(5, TimeUnit.SECONDS))
+            advanceTimeBy(15_001)
+            runCurrent()
+            assertFalse(handoff.await())
+            assertTrue(DittoService.shutdownFailed.value)
+            assertTrue(DittoService.isOwnershipFenced(context))
+            assertSame(old, DittoService.getDittoInstance())
+            assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+        } finally {
+            releaseClose.countDown()
+            assertTrue(closeReturned.await(5, TimeUnit.SECONDS))
+        }
+        assertTrue(DittoService.shutdownFailed.value)
+        assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+        verify(exactly = 1) { old.close() }
+    }
+
+    @Test fun cancelledNativeHandoffCloseKeepsFenceAfterCloseReturns() = runTest {
+        val closeStarted = CountDownLatch(1)
+        val releaseClose = CountDownLatch(1)
+        val closeReturned = CountDownLatch(1)
+        every { old.close() } answers {
+            closeStarted.countDown()
+            releaseClose.await()
+            closeReturned.countDown()
+        }
+        val handoff = async(UnconfinedTestDispatcher(testScheduler)) {
+            DittoService.quiesceBundledEngineForPlugin(context)
+        }
+        try {
+            assertTrue(closeStarted.await(5, TimeUnit.SECONDS))
+            handoff.cancelAndJoin()
+            assertTrue(DittoService.shutdownFailed.value)
+            assertTrue(DittoService.isOwnershipFenced(context))
+        } finally {
+            releaseClose.countDown()
+            assertTrue(closeReturned.await(5, TimeUnit.SECONDS))
+        }
+        assertSame(old, DittoService.getDittoInstance())
+        assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+        verify(exactly = 1) { old.close() }
+    }
+
+    @Test fun ownershipQuiescenceDoesNotStopEngineWhenFenceCannotBePersisted() = runTest {
+        fenceCommitOk = false
+        val service = runningService()
+        DittoService.isRunning.set(true)
+
+        assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+        assertSame(service, activeService().value)
+        assertSame(old, DittoService.getDittoInstance())
+        verify(exactly = 0) { context.stopService(any()); old.stopSync(); old.close() }
+    }
+
+    @Test fun ownershipQuiescenceRefusesFailedShutdownAndKeepsFence() = runTest {
+        val service = runningService()
+        DittoService.isRunning.set(true)
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        every { old.stopSync() } throws mockk<DittoError>(relaxed = true)
+
+        assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+        assertTrue(DittoService.isOwnershipFenced(context))
+        assertTrue(DittoService.shutdownFailed.value)
+        assertSame(old, DittoService.getDittoInstance())
+        verify(exactly = 0) { old.close() }
+        assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+    }
+
+    @Test fun ownershipQuiescenceRefusesWhileCancelledWorkerRemainsActive() = runTest {
+        val service = runningService()
+        DittoService.isRunning.set(true)
+        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        DittoService::class.java.getDeclaredField("ioScope").apply {
+            isAccessible = true
+            set(service, scope)
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        try {
+            assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+            assertTrue(DittoService.isOwnershipFenced(context))
+            assertTrue(DittoService.shutdownFailed.value)
+            assertSame(old, DittoService.getDittoInstance())
+            assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+            verify(exactly = 0) { old.close() }
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
+    }
+
+    @Test fun cancelledOwnershipQuiescenceBlocksRetryUntilProcessRestart() = runTest {
+        val service = runningService()
+        DittoService.isRunning.set(true)
+        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        DittoService::class.java.getDeclaredField("ioScope").apply {
+            isAccessible = true
+            set(service, scope)
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        val handoff = async(UnconfinedTestDispatcher(testScheduler)) {
+            DittoService.quiesceBundledEngineForPlugin(context)
+        }
+        try {
+            assertFalse(handoff.isCompleted)
+            handoff.cancelAndJoin()
+            assertTrue(DittoService.shutdownFailed.value)
+            assertTrue(DittoService.isOwnershipFenced(context))
+            assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+            verify(exactly = 0) { old.close() }
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
+    }
+
+    @Test fun callerTimeoutStillCancelsOwnershipQuiescence() = runTest {
+        val service = runningService()
+        DittoService.isRunning.set(true)
+        val scope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher(testScheduler))
+        DittoService::class.java.getDeclaredField("ioScope").apply {
+            isAccessible = true
+            set(service, scope)
+        }
+        val releaseWorker = CompletableDeferred<Unit>()
+        val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { releaseWorker.await() }
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+        try {
+            try {
+                withTimeout(1_000) { DittoService.quiesceBundledEngineForPlugin(context) }
+                fail("Expected caller timeout")
+            } catch (_: TimeoutCancellationException) {
+                assertTrue(DittoService.shutdownFailed.value)
+                assertTrue(DittoService.isOwnershipFenced(context))
+                assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+                verify(exactly = 0) { old.close() }
+            }
+        } finally {
+            releaseWorker.complete(Unit)
+            worker.join()
+        }
     }
 
     @Test fun explicitEnableDisableUsesPersistedToggleWithoutReplacingIdentity() = runTest {
@@ -408,6 +675,12 @@ class DittoIdentityApplyTest {
                 set(service, ownsDitto)
             }
             activeService().value = service
+        }
+
+    private fun initializationAttempted() =
+        DittoService::class.java.getDeclaredField("engineInitializationAttempted").run {
+            isAccessible = true
+            get(null) as java.util.concurrent.atomic.AtomicBoolean
         }
 
     @Suppress("UNCHECKED_CAST")

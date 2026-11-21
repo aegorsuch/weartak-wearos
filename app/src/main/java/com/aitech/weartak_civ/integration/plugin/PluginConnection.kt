@@ -1,7 +1,10 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import android.content.ComponentName
+import android.content.pm.PackageManager
+import android.content.pm.PermissionInfo
 import android.content.ServiceConnection
+import android.os.Bundle
 import android.os.IBinder
 import android.os.RemoteException
 import android.os.Handler
@@ -13,6 +16,7 @@ import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import com.weartak.plugin.sdk.WearTakPluginContract
 import com.weartak.plugin.sdk.host.v1.HostServicesContract
 import com.weartak.plugin.sdk.community.v1.CommunityIdentityContract
+import com.weartak.plugin.sdk.dittoruntime.DittoRuntimeContract
 import com.weartak.plugin.sdk.aidl.IWearTakPlugin
 import com.weartak.plugin.sdk.model.PluginInitParcel
 import com.weartak.plugin.sdk.model.PluginInfoParcel
@@ -28,6 +32,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Owns one bound plugin service: binder, death recipient, host stubs, and teardown.
@@ -39,6 +45,8 @@ class PluginConnection(
     private val pluginUid: Int,
     private val manager: PluginManager,
     private val pluginTrust: PluginTrust,
+    private val pluginOnlyEnabled: () -> Boolean = { false },
+    private val pluginOnlyOwnershipProven: () -> Boolean = { false },
 ) : ServiceConnection {
 
     private val pluginPackage: String = component.packageName
@@ -60,6 +68,8 @@ class PluginConnection(
     @Volatile private var hostMoppControl: HostMoppPpeControl? = null
     @Volatile private var hostRouteStatusControl: HostRouteStatusControl? = null
     @Volatile private var communityIdentityControl: HostCommunityIdentityControl? = null
+    @Volatile private var pluginOnlyPliProducer: PluginOnlyPliProducer? = null
+    @Volatile private var dittoRuntimeHandoff: DittoRuntimeHandoff? = null
     private var hostServicesV1: HostServicesV1Impl? = null
     @Volatile private var hostOpenVpnServicesV1: HostOpenVpnServicesV1Impl? = null
     private val stateLock = Any()
@@ -93,6 +103,8 @@ class PluginConnection(
 
     private val deathRecipient = IBinder.DeathRecipient {
         ready = false
+        pluginOnlyPliProducer?.close()
+        dittoRuntimeHandoff?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         hostRouteStatusControl?.close()
@@ -107,6 +119,7 @@ class PluginConnection(
     }
 
     private fun onBinderDiedInternal() {
+        dittoRuntimeHandoff?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
@@ -236,7 +249,21 @@ class PluginConnection(
             return
         }
 
-        val control = HostControlImpl(app, ingress, pluginPackage, pluginUid, isActive = { !closed })
+        val pluginOnlyProfile = pluginPackage == TrustedCommunityPlugin.PACKAGE && deathLinked &&
+            pluginOnlyEnabled() && pluginOnlyOwnershipProven() && TrustedCommunityPlugin.verify(app, pluginUid)
+        val provisionedIdentity = AtomicReference<String?>(null)
+        // Production supplies no plugin-only proof; synthetic callers can exercise the gated path.
+        val dittoOwnershipConfirmed = {
+            pluginOnlyProfile && pluginOnlyEnabled() && pluginOnlyOwnershipProven() &&
+                !closed && trustVerified && pluginBinder === service && service.isBinderAlive &&
+                manager.connectionFor(pluginPackage) === this &&
+                TrustedCommunityPlugin.verify(app, pluginUid)
+        }
+        val control = HostControlImpl(
+            app, ingress, pluginPackage, pluginUid, isActive = { !closed },
+            requireDittoLeaseForStatus = DITTO_RUNTIME_HANDOFF_ENABLED || pluginOnlyProfile,
+            dittoLeaseConfirmed = dittoOwnershipConfirmed,
+        )
         val controlV2 = if (api >= WearTakPluginV2Contract.CONTRACT_API_VERSION) {
             HostControlV2Impl(app, ingress, pluginPackage, pluginUid, isActive = { !closed })
         } else {
@@ -319,9 +346,14 @@ class PluginConnection(
                     !closed && service.isBinderAlive && manager.connectionFor(pluginPackage) === this
                 },
                 authorize = { TrustedCommunityPlugin.verify(app, pluginUid) },
-                // A cross-process native-quiescence lease does not exist yet.
-                ownershipConfirmed = { false },
-                communityIdentity = { app.repo.communityDittoPdl() },
+                ownershipConfirmed = dittoOwnershipConfirmed,
+                communityIdentity = {
+                    if (pluginOnlyProfile) {
+                        val selected = runBlocking { app.repo.getEffectiveDittoPdl.first() }
+                        provisionedIdentity.compareAndSet(null, selected)
+                        if (provisionedIdentity.get() == selected) selected else ""
+                    } else app.repo.communityDittoPdl()
+                },
             )
         } else null
         val openVpnServices = if (pluginPackage == OpenVpnHostContract.PLUGIN_PACKAGE) {
@@ -343,6 +375,11 @@ class PluginConnection(
             ingress = ingress,
             pluginId = pluginPackage,
             expectedPluginUid = pluginUid,
+            pluginOnlyPli = pluginOnlyProfile,
+            trustedDittoPlugin = dittoOwnershipConfirmed,
+            onPliUnavailable = {
+                mainHandler.post { if (!closed) manager.onConnectionLost(this) }
+            },
         )
         synchronized(stateLock) {
             if (closed) {
@@ -387,6 +424,7 @@ class PluginConnection(
                 putBinder(RouteStatusContract.EXTRA_CONTROL, routeStatusControl)
                 putInt(TransportContract.EXTRA_VERSION, TransportContract.VERSION)
                 putBinder(TransportContract.EXTRA_CONTROL, transportV1.asBinderForInit())
+                if (pluginOnlyProfile) putInt(DITTO_PLUGIN_ONLY_KEY, 1)
                 if (moppControl != null) {
                     putBoolean(MoppPpeContract.EXTRA_CAPABILITY, true)
                     putBinder(MoppPpeContract.EXTRA_CONTROL, moppControl)
@@ -406,10 +444,53 @@ class PluginConnection(
             if (closed) return
             iface.registerHostCallback(callback)
             if (closed) return
+            if (pluginOnlyProfile) {
+                communityControl?.ready()
+                transportV1.activateBinding()
+            }
             iface.startPlugin()
             if (closed) return
             transportV1.activateBinding()
             manager.settingsCoordinator.onPluginConnected(pluginPackage, iface) { !closed }
+            if (DITTO_RUNTIME_HANDOFF_ENABLED && pluginPackage == TrustedCommunityPlugin.PACKAGE && deathLinked) {
+                val handoff = DittoRuntimeHandoff(
+                    context = app,
+                    component = ComponentName(pluginPackage, DittoRuntimeContract.RUNTIME_SERVICE),
+                    action = DittoRuntimeContract.RUNTIME_ACTION,
+                    expectedUid = pluginUid,
+                    lifecycleActive = {
+                        !closed && trustVerified && pluginBinder === service && service.isBinderAlive &&
+                            manager.connectionFor(pluginPackage) === this
+                    },
+                    endpointTrusted = { trustedDittoRuntimeEndpoint() },
+                    firstStartProven = { false },
+                    fenceAndQuiesce = {
+                        runBlocking { com.aitech.weartak_civ.service.DittoService.fenceColdStartForPlugin(app) }
+                    },
+                )
+                synchronized(stateLock) {
+                    if (closed) return
+                    dittoRuntimeHandoff = handoff
+                }
+                val acquired = handoff.acquire { session, generation ->
+                    val extras = Bundle(init.hostExtras).apply {
+                        putInt(DITTO_PROFILE_KEY, 1)
+                        putBinder(DITTO_SESSION_KEY, session)
+                        putLong(DITTO_GENERATION_KEY, generation)
+                    }
+                    val leaseInit = init.copy(hostExtras = extras)
+                    if (controlV3 != null) {
+                        iface.initializePluginV3(leaseInit, control, controlV2, controlV3)
+                    } else {
+                        iface.initializePluginV2(leaseInit, control, controlV2)
+                    }
+                    val profile = iface.status.extras
+                    profile.getInt(DITTO_PROFILE_KEY) == 1 &&
+                        profile.getBinder(DITTO_SESSION_KEY) == session &&
+                        profile.getLong(DITTO_GENERATION_KEY) == generation
+                }
+                if (!acquired) Log.w(TAG, "Ditto handoff unavailable; ownership remains unconfirmed")
+            }
         } catch (e: RemoteException) {
             Log.e(TAG, "plugin lifecycle failed pkg=$pluginPackage", e)
             postFailure("remote_exception")
@@ -423,6 +504,16 @@ class PluginConnection(
                 moppControl?.ready()
                 routeStatusControl.ready()
                 communityControl?.ready()
+                if (pluginOnlyProfile) {
+                    val producer = PluginOnlyPliProducer(app, transportV1, dittoOwnershipConfirmed,
+                        provisionedIdentity::get) {
+                        transportV1.invalidatePluginPli()
+                    }
+                    synchronized(stateLock) {
+                        if (closed) producer.close() else pluginOnlyPliProducer = producer
+                    }
+                    producer.start()
+                }
                 Log.i(TAG, "initialized plugin pkg=$pluginPackage api=$api")
             }
         }
@@ -430,6 +521,8 @@ class PluginConnection(
 
     override fun onServiceDisconnected(name: ComponentName?) {
         ready = false
+        pluginOnlyPliProducer?.close()
+        dittoRuntimeHandoff?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
@@ -442,6 +535,8 @@ class PluginConnection(
 
     override fun onBindingDied(name: ComponentName?) {
         ready = false
+        pluginOnlyPliProducer?.close()
+        dittoRuntimeHandoff?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
@@ -466,6 +561,8 @@ class PluginConnection(
 
     fun tearDownBinder(reason: String) {
         ready = false
+        pluginOnlyPliProducer?.close()
+        dittoRuntimeHandoff?.revoke()
         revokeCertificateSessions()
         Log.i(TAG, "tearDownBinder pkg=$pluginPackage reason=$reason")
         val cleanup = synchronized(stateLock) {
@@ -499,6 +596,8 @@ class PluginConnection(
             val iface = plugin
             val cb = hostCallback
             val binder = pluginBinder
+            val dittoHandoff = dittoRuntimeHandoff
+            dittoRuntimeHandoff = null
             // Local revocation must not wait for a remote lifecycle transaction.
             hostCallback?.close()
             manager.settingsCoordinator.unregisterPlugin(pluginPackage)
@@ -512,10 +611,11 @@ class PluginConnection(
             hostOpenVpnServicesV1 = null
             hostTransportV1 = null
             pluginBinder = null
-            val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) null else ({
+            val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null && dittoHandoff == null) null else ({
                 fun attempt(method: String, block: () -> Unit) {
                     runCatching(block).onFailure { Log.w(TAG, "$method failed pkg=$pluginPackage", it) }
                 }
+                attempt("releaseDittoLease") { dittoHandoff?.release() }
                 attempt("unregisterHostCallback") { if (iface != null && cb != null) iface.unregisterHostCallback(cb) }
                 attempt("stopPlugin") { iface?.stopPlugin() }
                 attempt("shutdownPlugin") { iface?.shutdownPlugin() }
@@ -532,6 +632,32 @@ class PluginConnection(
     }
 
     internal fun pluginInfoSnapshot(): PluginInfoParcel? = pluginInfoSnapshot
+
+    internal fun trustedDittoRuntimeEndpoint(): Boolean {
+        if (!TrustedCommunityPlugin.verify(app, pluginUid)) return false
+        val pm = app.packageManager
+        return try {
+            val service = pm.getServiceInfo(
+                ComponentName(pluginPackage, DittoRuntimeContract.RUNTIME_SERVICE),
+                PackageManager.ComponentInfoFlags.of(0),
+            )
+            @Suppress("DEPRECATION")
+            val permission = pm.getPermissionInfo(DittoRuntimeContract.BIND_PERMISSION, 0)
+            service.packageName == pluginPackage && service.name == DittoRuntimeContract.RUNTIME_SERVICE &&
+                service.enabled && service.exported && service.applicationInfo?.enabled == true &&
+                service.applicationInfo?.uid == pluginUid &&
+                service.permission == DittoRuntimeContract.BIND_PERMISSION &&
+                permission.packageName == pluginPackage && permission.protection == PermissionInfo.PROTECTION_SIGNATURE &&
+                pm.checkPermission(DittoRuntimeContract.BIND_PERMISSION, app.packageName) ==
+                    PackageManager.PERMISSION_GRANTED && TrustedCommunityPlugin.verify(app, pluginUid)
+        } catch (error: PackageManager.NameNotFoundException) {
+            Log.w(TAG, "Ditto runtime service or permission unavailable", error)
+            false
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Ditto runtime service verification denied", error)
+            false
+        }
+    }
 
     internal fun handlerStatus(): com.weartak.plugin.sdk.model.PluginStatusParcel? {
         val iface = synchronized(stateLock) {
@@ -557,5 +683,10 @@ class PluginConnection(
     companion object {
         private const val TAG = "CEP-PluginConnection"
         private const val HANDSHAKE_TIMEOUT_MS = 10_000L
+        private const val DITTO_RUNTIME_HANDOFF_ENABLED = false
+        internal const val DITTO_PLUGIN_ONLY_KEY = "com.weartak.plugin.ditto.pluginOnly.version"
+        private const val DITTO_PROFILE_KEY = "com.weartak.plugin.ditto.pli.profile"
+        private const val DITTO_SESSION_KEY = "com.weartak.plugin.ditto.pli.session"
+        private const val DITTO_GENERATION_KEY = "com.weartak.plugin.ditto.pli.generation"
     }
 }

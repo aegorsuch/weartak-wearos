@@ -81,6 +81,7 @@
         android:name="com.weartak.plugin.permission.BIND_PLUGIN"
         android:protectionLevel="signature" />
     <uses-permission android:name="com.weartak.plugin.permission.BIND_PLUGIN" />
+    <uses-permission android:name="com.weartak.plugin.ditto.permission.BIND_DITTO_RUNTIME_V1" />
 
     <!--
     <uses-permission android:name="android.permission.WRITE_SETTINGS"

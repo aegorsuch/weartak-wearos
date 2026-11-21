@@ -8,9 +8,17 @@ import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import com.weartak.plugin.sdk.community.v1.CommunityIdentityContract as Contract
 import com.weartak.plugin.sdk.community.v1.ICommunityIdentityControlV1
+import com.weartak.plugin.sdk.DeviceStatusContract
+import com.weartak.plugin.sdk.aidl.IWearTakPluginControl
+import com.weartak.plugin.sdk.model.PluginInitParcel
+import com.weartak.plugin.sdk.v2.aidl.IWearTakPluginHostControlV2
+import com.weartak.plugin.sdk.transport.TransportContract
+import kotlinx.coroutines.flow.flowOf
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkConstructor
 import io.mockk.mockkObject
+import io.mockk.unmockkConstructor
 import io.mockk.unmockkObject
 import io.mockk.verify
 import java.io.ByteArrayOutputStream
@@ -121,6 +129,7 @@ class HostCommunityIdentityControlTest {
             awaitPluginLifecycle(packageName)
             val extras = requireNotNull(plugin.lastInit).hostExtras
             assertEquals(Contract.VERSION, extras.getInt(Contract.EXTRA_VERSION))
+            assertFalse(extras.containsKey(PluginConnection.DITTO_PLUGIN_ONLY_KEY))
             val control = ICommunityIdentityControlV1.Stub.asInterface(extras.getBinder(Contract.EXTRA_CONTROL))
             assertEquals(Contract.UNAVAILABLE, control.readCommunityIdentity().getString(Contract.KEY_STATUS))
             verify(exactly = 0) { app.repo.communityDittoPdl() }
@@ -130,6 +139,66 @@ class HostCommunityIdentityControlTest {
             connection.tearDownBinder("test")
             awaitPluginLifecycle(packageName)
             unmockkObject(TrustedCommunityPlugin)
+        }
+    }
+
+    @Test fun syntheticPluginOnlyStartupReadsSelectedIdentityBeforeStartReturns() {
+        val packageName = TrustedCommunityPlugin.PACKAGE
+        val app = mockk<WearTakApplication>(relaxed = true)
+        val selected = identity()
+        val repo = app.repo
+        every { repo.getEffectiveDittoPdl } returns flowOf(selected)
+        every { repo.androidDeviceUid } returns "synthetic-watch"
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(app, Process.myUid()) } returns setOf(packageName)
+        val manager = mockk<PluginManager>(relaxed = true)
+        every { manager.onConnectionReady(any()) } returns true
+        val component = ComponentName(packageName, ".PluginService")
+        var proof = true
+        val connection = PluginConnection(app, ingress, component, Process.myUid(), manager,
+            mockk<PluginTrust>(relaxed = true), pluginOnlyEnabled = { true },
+            pluginOnlyOwnershipProven = { proof })
+        every { manager.connectionFor(packageName) } returns connection
+        val plugin = object : FakeWearTakPlugin(packageName, apiVersion = 2) {
+            private lateinit var control: IWearTakPluginControl
+            var identityAtStart: android.os.Bundle? = null
+            var uidAtStart: String? = null
+            override fun initializePluginV2(init: PluginInitParcel?, control: IWearTakPluginControl?,
+                controlV2: IWearTakPluginHostControlV2?) {
+                super.initializePluginV2(init, control, controlV2)
+                this.control = requireNotNull(control)
+            }
+            override fun startPlugin() {
+                val extras = requireNotNull(lastInit).hostExtras
+                val identityControl = ICommunityIdentityControlV1.Stub.asInterface(extras.getBinder(Contract.EXTRA_CONTROL))
+                identityAtStart = identityControl.readCommunityIdentity()
+                uidAtStart = control.deviceStatus.telemetry.getString(DeviceStatusContract.KEY_TAK_UID)
+                super.startPlugin()
+            }
+        }
+        mockkObject(TrustedCommunityPlugin)
+        every { TrustedCommunityPlugin.verify(app, Process.myUid()) } returns true
+        mockkConstructor(PluginOnlyPliProducer::class)
+        every { anyConstructed<PluginOnlyPliProducer>().start() } returns Unit
+        every { anyConstructed<PluginOnlyPliProducer>().close() } returns Unit
+        try {
+            connection.onServiceConnected(component, plugin.asBinder())
+            awaitPluginLifecycle(packageName)
+            val extras = requireNotNull(plugin.lastInit).hostExtras
+            assertEquals(1, extras.getInt(PluginConnection.DITTO_PLUGIN_ONLY_KEY))
+            assertEquals(TransportContract.VERSION, extras.getInt(TransportContract.EXTRA_VERSION))
+            assertEquals(Contract.OK, plugin.identityAtStart?.getString(Contract.KEY_STATUS))
+            assertEquals(selected, plugin.identityAtStart?.getString(Contract.KEY_IDENTITY))
+            assertEquals("synthetic-watch", plugin.uidAtStart)
+            verify(exactly = 0) { repo.communityDittoPdl() }
+            proof = false
+            val control = ICommunityIdentityControlV1.Stub.asInterface(extras.getBinder(Contract.EXTRA_CONTROL))
+            assertEquals(Contract.UNAVAILABLE, control.readCommunityIdentity().getString(Contract.KEY_STATUS))
+        } finally {
+            connection.tearDownBinder("test")
+            awaitPluginLifecycle(packageName)
+            unmockkObject(TrustedCommunityPlugin)
+            unmockkConstructor(PluginOnlyPliProducer::class)
         }
     }
 }
