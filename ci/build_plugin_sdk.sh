@@ -78,9 +78,17 @@ if [ -n "$job_token" ]; then
         echo "Unable to prepare GitLab job-token authentication" >&2; exit 1;
     }
     export GIT_CONFIG_VALUE_4="Authorization: Basic $credentials"
-    [ "$(git config --get-urlmatch http.extraHeader "$REPOSITORY/info/refs")" = "$GIT_CONFIG_VALUE_4" ] || {
-        echo "Plugin SDK fetch failed: scoped Git authorization configuration mismatch." >&2; exit 1;
-    }
+    effective_header=$(git config --get-urlmatch http.extraHeader "$REPOSITORY/info/refs") || effective_header=
+    if [ "$effective_header" != "$GIT_CONFIG_VALUE_4" ]; then
+        if [ -z "$effective_header" ]; then
+            echo "Plugin SDK fetch failed: scoped Git authorization header missing." >&2
+        else
+            echo "Plugin SDK fetch failed: scoped Git authorization configuration mismatch." >&2
+        fi
+        unset effective_header
+        exit 1
+    fi
+    unset effective_header
 fi
 if ! fetch_error=$(git fetch --quiet --depth=1 origin "$COMMIT" 2>&1); then
     case "$fetch_error" in
