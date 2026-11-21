@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.aitech.weartak_civ.BuildConfig
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.service.LicenseManager.isLicenseValid
 import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
@@ -45,6 +46,7 @@ class ServiceConfiguration(
     private val audioCaptureRepository: AudioCaptureRepository,
     private val weatherDemand: Flow<Boolean> = CepProvider.weatherDemand,
     private val weatherApiKey: String? = WeatherService.OpenWeatherConfig.getApiKey(),
+    private val audioDetectionDelegates: Flow<Set<String>> = flowOf(emptySet()),
 ) {
     private val TAG = "WearTAK-ServiceConfig"
 
@@ -117,8 +119,18 @@ class ServiceConfiguration(
         ) { gunshotOn, uasOn, consumers ->
             gunshotOn || uasOn || consumers.isNotEmpty()
         }.distinctUntilChanged()
-        ServiceType.ONNX_GUNSHOT -> dataRepository.getEnableOnnxGunshotService.distinctUntilChanged()
-        ServiceType.ONNX_UAS -> dataRepository.getEnableOnnxUasService.distinctUntilChanged()
+        ServiceType.ONNX_GUNSHOT -> combine(
+            dataRepository.getEnableOnnxGunshotService,
+            audioDetectionDelegates,
+        ) { enabled, delegates ->
+            enabled && PluginDetectionEventBridge.DART_PACKAGE !in delegates
+        }.distinctUntilChanged()
+        ServiceType.ONNX_UAS -> combine(
+            dataRepository.getEnableOnnxUasService,
+            audioDetectionDelegates,
+        ) { enabled, delegates ->
+            enabled && PluginDetectionEventBridge.FALCON_PACKAGE !in delegates
+        }.distinctUntilChanged()
         ServiceType.CRM_INFERENCE -> dataRepository.getEnableCrmService.distinctUntilChanged()
 
         // Core consumers remain live; BATTERY is now a process-owned virtual observer.

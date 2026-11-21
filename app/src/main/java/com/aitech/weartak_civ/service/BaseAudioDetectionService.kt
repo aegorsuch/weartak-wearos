@@ -18,12 +18,9 @@ import com.aitech.weartak_civ.Utils.startForegroundServiceCompat
 import com.aitech.weartak_civ.Utils.stopForegroundServiceCompat
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.data.AudioCaptureRepository
-import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
-import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import com.aitech.weartak_civ.service.audio.AudioDetectionRuntime
 import com.aitech.weartak_civ.service.audio.AudioDetectionSpec
 import com.aitech.weartak_civ.service.audio.AudioDetectionTrigger
-import com.aitech.weartak_civ.service.audio.collectAudioDetectionFeedback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,11 +47,9 @@ abstract class BaseAudioDetectionService : Service() {
     protected abstract val notificationId: Int
     protected abstract val runningFlag: AtomicBoolean
     protected abstract val spec: AudioDetectionSpec
-    protected abstract val feedbackFlow: Flow<AudioDetectionFeedback>
     protected abstract val thresholdFlow: Flow<Float>
     protected abstract val runtime: AudioDetectionRuntime
 
-    private var feedbackJob: Job? = null
     private var thresholdJob: Job? = null
     @Volatile private var currentTriggerThreshold: Float = 0f
 
@@ -69,13 +64,6 @@ abstract class BaseAudioDetectionService : Service() {
             onTrigger = onTrigger
         )
 
-    protected abstract fun getEventFromUid(uid: String): AudioDetectionEvent?
-
-    protected abstract suspend fun logFeedback(
-        event: AudioDetectionEvent,
-        feedback: AudioDetectionFeedback
-    )
-
     override fun onCreate() {
         super.onCreate()
         Log.d(logTag, "${javaClass.simpleName} onCreate()")
@@ -88,15 +76,6 @@ abstract class BaseAudioDetectionService : Service() {
             }
         }
         runtime.start()
-        feedbackJob = scope.launch {
-            collectAudioDetectionFeedback(
-                logTag = logTag,
-                feedbackPrefix = spec.feedbackPrefix,
-                feedbackFlow = feedbackFlow,
-                getEventFromUid = ::getEventFromUid,
-                logFeedback = ::logFeedback
-            )
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -107,7 +86,6 @@ abstract class BaseAudioDetectionService : Service() {
     override fun onDestroy() {
         runningFlag.set(false)
         thresholdJob?.cancel()
-        feedbackJob?.cancel()
         runtime.shutdown()
         scope.cancel()
         stopForegroundServiceCompat()

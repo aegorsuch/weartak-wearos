@@ -2,10 +2,12 @@ package com.aitech.weartak_civ.data
 
 import android.app.Application
 import com.aitech.weartak_civ.Utils
+import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
 import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import com.aitech.weartak_civ.data.audio.AudioDetectionStore
 import com.aitech.weartak_civ.data.audio.AudioDetectionUserLabel
 import com.aitech.weartak_civ.service.audio.collectAudioDetectionFeedback
+import com.aitech.weartak_civ.service.audio.startAudioDetectionFeedback
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -50,6 +52,34 @@ class AudioDetectionPendingTest {
         assertEquals(Utils.AlertChipState.Warning, dart.getEventFromUid("dart-0")!!.alertLevel)
     }
 
+    @Test fun externalEventsEnterReviewAndReplaysDoNotReplacePendingEvent() {
+        val store = AudioDetectionStore("gunshot", repo)
+        val first = AudioDetectionEvent(
+            detectorKey = "gunshot",
+            timestamp = 100L,
+            confidence = .91f,
+            loc = null,
+            uid = "plugin|gunshot|1|d1",
+            alertLevel = Utils.AlertChipState.Warning,
+            chunkRef = null,
+            triggerPcmPath = null,
+            audioSource = null,
+            sourcePluginId = "com.weartak.plugin.dart",
+            sourceStreamKey = "gunshot",
+            classificationLabel = "gunshot",
+        )
+        val replacement = first.copy(uid = "plugin|gunshot|2|d2", timestamp = 200L)
+
+        assertTrue(store.acceptExternalEvent(first))
+        assertEquals(first, store.pendingEvent.value)
+        assertTrue(store.acceptExternalEvent(replacement))
+        assertEquals(replacement, store.pendingEvent.value)
+        assertTrue(store.acceptExternalEvent(first))
+
+        assertEquals(replacement, store.pendingEvent.value)
+        assertEquals(2, store.recentEventsFlow.value.size)
+    }
+
     @Test fun answeringFrozenSupersededEventLogsExactIdentityOnceAndPreservesReplacement() = runTest {
         val store = AudioDetectionStore("gunshot", repo)
         val logged = mutableListOf<Pair<String, AudioDetectionFeedback>>()
@@ -87,6 +117,34 @@ class AudioDetectionPendingTest {
         assertTrue(store.tryEmitFeedback(answer))
         runCurrent()
         assertEquals(listOf(answer), logged)
+        assertNull(store.pendingEvent.value)
+    }
+
+    @Test fun pluginFeedbackRemainsAvailableWithoutLegacyDetectorService() = runTest {
+        val store = AudioDetectionStore("gunshot", repo)
+        val logged = mutableListOf<Pair<String, AudioDetectionFeedback>>()
+        startAudioDetectionFeedback(backgroundScope, "test", "GS", store.feedback, store::getEventFromUid) { event, answer ->
+            logged += event.uid to answer
+        }
+        val event = AudioDetectionEvent(
+            detectorKey = "gunshot",
+            timestamp = 100L,
+            confidence = .91f,
+            loc = null,
+            uid = "plugin|gunshot|1|d1",
+            alertLevel = Utils.AlertChipState.Warning,
+            chunkRef = null,
+            triggerPcmPath = null,
+            audioSource = null,
+            sourcePluginId = "com.weartak.plugin.dart",
+            sourceStreamKey = "gunshot"
+        )
+        assertTrue(store.acceptExternalEvent(event))
+        val answer = AudioDetectionFeedback(event.uid, AudioDetectionUserLabel.YES, 1234, 321)
+        assertTrue(store.tryEmitFeedback(answer))
+        assertFalse(store.tryEmitFeedback(answer))
+        runCurrent()
+        assertEquals(listOf(event.uid to answer), logged)
         assertNull(store.pendingEvent.value)
     }
 
