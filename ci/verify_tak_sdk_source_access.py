@@ -45,6 +45,9 @@ def main():
             raise RuntimeError(
                 "TAK.gov SDK source ref did not resolve to the expected immutable commit/tree"
             )
+        fetch_source(checkout, TAK_GOV_SDK_REPOSITORY, SDK_COMMIT)
+        if git("rev-parse", "FETCH_HEAD", cwd=checkout) != SDK_COMMIT:
+            raise RuntimeError("TAK.gov SDK commit fetch returned an unexpected revision")
     print(f"Verified read-only TAK.gov SDK source {commit} ({tree})")
 
 

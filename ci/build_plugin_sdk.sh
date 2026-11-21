@@ -73,10 +73,22 @@ if [ -n "$job_token" ]; then
     }
     export GIT_CONFIG_VALUE_4="Authorization: Basic $credentials"
 fi
-if ! git fetch --quiet --depth=1 origin "$COMMIT" >/dev/null 2>&1; then
+if ! fetch_error=$(git fetch --quiet --depth=1 origin "$COMMIT" 2>&1); then
+    case "$fetch_error" in
+        *"couldn't find remote ref"*|*"not our ref"*|*"unadvertised object"*)
+            echo "Plugin SDK fetch failed: requested commit is unavailable." >&2 ;;
+        *"Authentication failed"*|*"403"*|*"401"*|*"access denied"*)
+            echo "Plugin SDK fetch failed: authentication or authorization rejected." >&2 ;;
+        *"404"*|*"not found"*)
+            echo "Plugin SDK fetch failed: repository or ref not found." >&2 ;;
+        *)
+            echo "Plugin SDK fetch failed: Git reported an unclassified error." >&2 ;;
+    esac
+    unset fetch_error
     echo "Plugin SDK source fetch failed; verify pinned ref and job-token read settings." >&2
     exit 1
 fi
+unset fetch_error
 # Keep the ephemeral token out of Git hooks, checkout processing and Gradle.
 unset CI_JOB_TOKEN job_token GIT_CONFIG_COUNT GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL GIT_TERMINAL_PROMPT
 for name in $(env | sed -n 's/^\(GIT_CONFIG_[A-Za-z0-9_]*\)=.*/\1/p'); do
