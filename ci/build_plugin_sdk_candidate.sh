@@ -7,6 +7,12 @@ COMMIT=35b294158c60ab455eb27ad7e69407efc6a6affc
 TREE=6b6f54f99266a1a172e3e0b04a8f74402cbf54a9
 REPOSITORY=https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git
 
+git --version
+if [ "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=probe.key GIT_CONFIG_VALUE_0=marker git config --get probe.key || true)" = marker ]; then
+    echo "Git supports environment config entries."
+else
+    echo "Git does not support environment config entries."
+fi
 [ -n "${CI_JOB_TOKEN:-}" ] || { echo "Missing CI job token" >&2; exit 1; }
 job_token=$CI_JOB_TOKEN
 unset CI_JOB_TOKEN
