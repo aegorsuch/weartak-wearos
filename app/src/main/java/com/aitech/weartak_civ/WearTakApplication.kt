@@ -60,6 +60,10 @@ import com.aitech.weartak_civ.service.AppDiagnostics
 import com.aitech.weartak_civ.service.BatteryPowerObserver
 import com.aitech.weartak_civ.service.ChargingStayAwake
 import com.aitech.weartak_civ.service.ChargingWirelessDebugging
+import com.aitech.weartak_civ.service.audio.startAudioDetectionFeedback
+import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
+import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
+import kotlinx.coroutines.flow.Flow
 import live.ditto.Ditto
 import live.ditto.DittoError
 import live.ditto.DittoIdentity
@@ -158,6 +162,30 @@ class WearTakApplication : Application() {
         installProcessRepositories(this)
 
         AppCtx.init(this)
+        val audioFeedbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        fun startFeedback(
+            logTag: String,
+            prefix: String,
+            debugDir: String,
+            feedback: Flow<AudioDetectionFeedback>,
+            findEvent: (String) -> AudioDetectionEvent?
+        ) {
+            startAudioDetectionFeedback(audioFeedbackScope, logTag, prefix, feedback, findEvent) { event, answer ->
+                Utils.logAudioDetectionFeedback(
+                    context = applicationContext,
+                    event = event,
+                    label = answer.label,
+                    respondedAtMs = answer.respondedAtMs,
+                    responseLatencyMs = answer.responseLatencyMs,
+                    debugDirName = debugDir,
+                    extra = answer.extra
+                )
+            }
+        }
+        startFeedback("WearTAK-GunshotOnnxService", "GS", "gunshot_debug",
+            gunshotOnnxRepo.gunshotFeedback, gunshotOnnxRepo::getEventFromUid)
+        startFeedback("WearTAK-UasOnnxService", "UAS", "uas_debug",
+            uasOnnxRepo.uasFeedback, uasOnnxRepo::getEventFromUid)
         Log.i(TAG, "WearTakApplication Created")
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

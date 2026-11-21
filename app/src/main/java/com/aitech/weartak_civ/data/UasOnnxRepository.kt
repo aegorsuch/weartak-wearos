@@ -57,6 +57,7 @@ class UasOnnxRepository(private val context: Context) {
     val recentUasFlow = store.recentEventsFlow
     val pendingUas = store.pendingEvent
 
+    fun acceptPluginEvent(event: AudioDetectionEvent): Boolean = store.acceptExternalEvent(event)
     fun upsertRecentUas(event: AudioDetectionEvent) = store.upsertRecent(event)
     fun getEventFromUid(uid: String): AudioDetectionEvent? = store.getEventFromUid(uid)
     fun setUasEventAlertLevel(uid: String, level: Utils.AlertChipState): Boolean = store.setEventAlertLevel(uid, level)

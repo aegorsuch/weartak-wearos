@@ -89,6 +89,16 @@ class AudioDetectionStore(
     }
 
     @Synchronized
+    fun acceptExternalEvent(event: AudioDetectionEvent): Boolean {
+        if (event.detectorKey != detectorKey) return false
+        if (recentEventsMap.containsKey(event.uid)) return true
+        upsertRecent(event)
+        _pendingEvent.value = event
+        _events.tryEmit(event)
+        return true
+    }
+
+    @Synchronized
     fun tryEmitFeedback(feedback: AudioDetectionFeedback): Boolean {
         if (!recentEventsMap.containsKey(feedback.eventUid) || feedback.eventUid in reviewedEventUids) {
             Log.w("AudioDetectionStore", "$detectorKey feedback rejected: missing or reviewed uid=${feedback.eventUid}")

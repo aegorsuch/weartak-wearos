@@ -12,6 +12,8 @@ import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import com.weartak.plugin.sdk.WearTakPluginContract
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
 
@@ -32,12 +34,26 @@ open class PluginManager(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connections = ConcurrentHashMap<String, PluginConnection>()
+    private val audioDetectionClaimOwners = ConcurrentHashMap<String, PluginConnection>()
+    private val audioDetectionDelegatesState = MutableStateFlow<Set<String>>(emptySet())
+    val audioDetectionDelegates = audioDetectionDelegatesState.asStateFlow()
     private val topologyListeners = CopyOnWriteArraySet<PluginTopologyListener>()
     private val reconnectTasks = mutableMapOf<String, Runnable>()
     private val reconnectAttempts = mutableMapOf<String, Int>()
     private val preferences = app.getSharedPreferences("plugin_loading", Context.MODE_PRIVATE)
     private val disabled = preferences.getStringSet("disabled_packages", emptySet()).orEmpty().toMutableSet()
     private var stopped = false
+
+    init {
+        settingsCoordinator.onLegacyAudioSettingsRejected = { pluginId, plugin ->
+            mainHandler.post {
+                if (settingsCoordinator.connectionToken(pluginId) === plugin) {
+                    Log.e(TAG, "Disconnecting audio plugin after settings rejection pkg=$pluginId")
+                    detachPackage(pluginId)
+                }
+            }
+        }
+    }
 
     fun isEnabled(packageName: String): Boolean =
         pluginStateStore?.isEnabled(packageName) ?: (packageName !in disabled)
@@ -87,6 +103,7 @@ open class PluginManager(
     internal fun detachPackage(packageName: String) {
         cancelReconnect(packageName)
         val c = connections.remove(packageName)
+        if (c != null) releaseAudioDetectionPlugin(c)
         c?.tearDownBinder(reason = "unbindPackage")
         PluginDiagnostics.markUnbound(packageName)
         notifyTopologyChanged()
@@ -118,6 +135,7 @@ open class PluginManager(
     internal open fun onConnectionLost(conn: PluginConnection) {
         val entry = connections.entries.firstOrNull { it.value === conn } ?: return
         if (!connections.remove(entry.key, conn)) return
+        releaseAudioDetectionPlugin(conn)
         conn.tearDownBinder(reason = "service_disconnected")
         PluginDiagnostics.markDisconnected(entry.key)
         notifyTopologyChanged()
@@ -154,6 +172,34 @@ open class PluginManager(
         return true
     }
 
+    internal fun updateAudioDetectionHealth(conn: PluginConnection, healthy: Boolean) {
+        val packageName = conn.connectionPackageName
+        if (packageName != PluginDetectionEventBridge.DART_PACKAGE &&
+            packageName != PluginDetectionEventBridge.FALCON_PACKAGE
+        ) {
+            return
+        }
+        if (!healthy) {
+            releaseAudioDetectionPlugin(conn)
+            return
+        }
+        if (
+            stopped || !isEnabled(packageName) || connections[packageName] !== conn ||
+            !conn.hasVerifiedTrust
+        ) {
+            return
+        }
+        audioDetectionClaimOwners[packageName] = conn
+        audioDetectionDelegatesState.value = audioDetectionClaimOwners.keys.toSet()
+    }
+
+    private fun releaseAudioDetectionPlugin(conn: PluginConnection) {
+        val packageName = conn.connectionPackageName
+        if (audioDetectionClaimOwners.remove(packageName, conn)) {
+            audioDetectionDelegatesState.value = audioDetectionClaimOwners.keys.toSet()
+        }
+    }
+
     private fun cancelReconnect(packageName: String) {
         reconnectTasks.remove(packageName)?.let(mainHandler::removeCallbacks)
         reconnectAttempts.remove(packageName)
@@ -185,6 +231,7 @@ open class PluginManager(
         Log.w(TAG, "connection failed: $reason")
         val entry = connections.entries.firstOrNull { it.value === conn }
         val pkg = entry?.key ?: conn.connectionPackageName
+        releaseAudioDetectionPlugin(conn)
         if (entry == null && connections.containsKey(pkg)) return
         if (entry != null) {
             connections.remove(entry.key)

@@ -113,6 +113,15 @@ of production persistence.
 
 Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
 
+When enabled, built-in audio detection remains available until the corresponding
+trusted plugin reports an active PCM stream and successful inference. The host
+resumes built-in detection if the plugin reports failure, disconnects, or stops
+reporting healthy inference for 15 seconds of handler uptime. Detector settings
+remain controlled by WearTAK. Plugin and built-in detectors can overlap during
+handoff; their events lack a shared capture identity, so duplicate alerts remain
+possible. An exact retry of the latest accepted plugin event on the same binding
+is acknowledged without creating another event.
+
 DART/FALCON detections show a yellow home top-display warning, not an automatic
 popup. Tap to review "Gunshot detected?" or "UAS detected?" with the model score.
 Only the latest unanswered event per detector remains pending (at most two);
@@ -125,7 +134,8 @@ a separate warning button keeps lower-priority reviews reachable beside it.
 When several warnings coexist, that button opens a compact selector so each
 domain remains reachable without answering another domain first.
 Pending review state survives activity recreation but is in memory, not persisted
-across process termination or reboot. Existing service feedback logging writes
+across process termination or reboot. Process-level feedback logging remains active
+when a plugin replaces the legacy detector and writes
 app-private `gunshot_debug/gunshot_feedback.jsonl` and `uas_debug/uas_feedback.jsonl`,
 including UID, detector, answer timestamp, tap-to-answer latency, and
 detection-to-feedback latency. These files have no explicit rotation; asynchronous

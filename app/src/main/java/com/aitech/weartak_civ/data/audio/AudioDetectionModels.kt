@@ -35,12 +35,16 @@ data class AudioDetectionEvent(
     val loc: DataRepository.LocationSnapshot?,
     val uid: String,
     var alertLevel: AlertChipState,
-    val chunkRef: AudioDetectionChunkRef,
+    val chunkRef: AudioDetectionChunkRef?,
     val triggerPcmPath: String?,
     val audioSource: String?,
     val inferStartElapsedMs: Long? = null,
     val inferEndElapsedMs: Long? = null,
-    val classification: AudioClassificationResult? = null
+    val classification: AudioClassificationResult? = null,
+    val sourcePluginId: String? = null,
+    val sourceStreamKey: String? = null,
+    val classificationLabel: String? = null,
+    val attributesJson: String? = null
 )
 
 enum class AudioDetectionUserLabel { YES, NO, UNKNOWN, TIMEOUT }

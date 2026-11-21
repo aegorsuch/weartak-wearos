@@ -14,6 +14,8 @@ class HostCallbackImpl(
     private val pluginId: String,
     private val pluginUid: Int,
     private val isActive: () -> Boolean = { true },
+    private val onStatusChanged: (PluginStatusParcel?) -> Unit = {},
+    private val onError: (PluginErrorParcel?) -> Unit = {},
 ) : IWearTakHostCallback.Stub() {
     @Volatile private var closed = false
     fun close() { closed = true }
@@ -63,11 +65,13 @@ class HostCallbackImpl(
     override fun onPluginStatusChanged(status: PluginStatusParcel?) {
         if (!active()) return
         PluginDiagnostics.recordPluginStatus(pluginId, status)
+        onStatusChanged(status)
     }
 
     override fun onPluginError(error: PluginErrorParcel?) {
         if (!active()) return
         PluginDiagnostics.recordPluginError(pluginId, error)
+        onError(error)
     }
 
     override fun onSharedBufferAvailable(buffer: SharedBufferParcel?) {

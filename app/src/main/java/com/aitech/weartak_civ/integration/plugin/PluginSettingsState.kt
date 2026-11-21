@@ -20,6 +20,7 @@ data class PluginSettingsState(
     val lastApplyResult: SettingsApplyResultParcel? = null,
     val lastValidationErrors: List<SettingsValidationErrorParcel> = emptyList(),
     val settingsSupported: Boolean = false,
+    val hostManagedSettingsSupported: Boolean = false,
     val lastSyncedAtMillis: Long = 0L,
 ) {
     val hostedSettingsUi: Boolean get() = capabilities.hostedSettingsUi

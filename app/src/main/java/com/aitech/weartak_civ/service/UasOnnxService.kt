@@ -17,7 +17,6 @@ import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.UasOnnxRepository
 import com.aitech.weartak_civ.data.audio.AudioClassificationResult
 import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
-import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import com.aitech.weartak_civ.service.audio.AudioDetectionRuntime
 import com.aitech.weartak_civ.service.audio.AudioDetectionSpec
 import com.aitech.weartak_civ.service.audio.UasAudioClassifier
@@ -54,8 +53,6 @@ class UasOnnxService : BaseAudioDetectionService() {
     override val notificationId: Int = NOTIFICATION_ID
     override val runningFlag: AtomicBoolean = isRunning
     override val spec: AudioDetectionSpec = SPEC
-    override val feedbackFlow: Flow<AudioDetectionFeedback>
-        get() = uasRepo.uasFeedback
     override val thresholdFlow: Flow<Float>
         get() = dataRepository.getOnnxUasTriggerThresholdPercent.map { it.coerceIn(0, 100) / 100f }
     override val runtime: AudioDetectionRuntime by lazy {
@@ -77,20 +74,6 @@ class UasOnnxService : BaseAudioDetectionService() {
             logClassification(event, classification)
             uasRepo.upsertRecentUas(event)
         }
-    }
-
-    override fun getEventFromUid(uid: String): AudioDetectionEvent? = uasRepo.getEventFromUid(uid)
-
-    override suspend fun logFeedback(event: AudioDetectionEvent, feedback: AudioDetectionFeedback) {
-        Utils.logAudioDetectionFeedback(
-            context = applicationContext,
-            event = event,
-            label = feedback.label,
-            respondedAtMs = feedback.respondedAtMs,
-            responseLatencyMs = feedback.responseLatencyMs,
-            debugDirName = spec.debugDirName,
-            extra = feedback.extra
-        )
     }
 
     override fun onDestroy() {

@@ -6,6 +6,7 @@ import android.os.IBinder
 import android.os.RemoteException
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.engine.config.ParserException
@@ -72,6 +73,12 @@ class PluginConnection(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val handshakeTimeout = Runnable {
         if (!closed) failBind("lifecycle_timeout")
+    }
+    private val audioHealthTimeout = Runnable {
+        if (!closed) {
+            Log.w(TAG, "Audio detector health heartbeat timed out pkg=$pluginPackage")
+            manager.updateAudioDetectionHealth(this, false)
+        }
     }
     @Volatile private var certificateImport: HostPkcs12ImportControl? = null
     @Volatile private var serverPackages: HostServerPackageControl? = null
@@ -169,6 +176,21 @@ class PluginConnection(
         mainHandler.post { if (!closed) failBind(reason) }
     }
 
+    private fun postAudioHealth(healthy: Boolean) {
+        if (pluginPackage != PluginDetectionEventBridge.DART_PACKAGE &&
+            pluginPackage != PluginDetectionEventBridge.FALCON_PACKAGE
+        ) return
+        val receivedAt = SystemClock.elapsedRealtime()
+        mainHandler.post {
+            if (closed) return@post
+            mainHandler.removeCallbacks(audioHealthTimeout)
+            val remaining = AUDIO_HEALTH_TIMEOUT_MS - (SystemClock.elapsedRealtime() - receivedAt)
+            val fresh = healthy && remaining > 0
+            manager.updateAudioDetectionHealth(this, fresh)
+            if (fresh) mainHandler.postDelayed(audioHealthTimeout, remaining)
+        }
+    }
+
     private fun initialize(service: IBinder) {
         if (closed) return
         val iface = runCatching { IWearTakPlugin.Stub.asInterface(service) }.getOrElse { t ->
@@ -238,7 +260,14 @@ class PluginConnection(
 
         val control = HostControlImpl(app, ingress, pluginPackage, pluginUid, isActive = { !closed })
         val controlV2 = if (api >= WearTakPluginV2Contract.CONTRACT_API_VERSION) {
-            HostControlV2Impl(app, ingress, pluginPackage, pluginUid, isActive = { !closed })
+            HostControlV2Impl(
+                app,
+                ingress,
+                pluginPackage,
+                pluginUid,
+                isActive = { !closed },
+                detectionEventBridge = PluginDetectionEventBridge.forPlugin(app, pluginPackage),
+            )
         } else {
             null
         }
@@ -287,6 +316,12 @@ class PluginConnection(
             pluginId = pluginPackage,
             pluginUid = pluginUid,
             isActive = { !closed },
+            onStatusChanged = { status ->
+                val healthy = status?.state == com.weartak.plugin.sdk.model.PluginLifecycleState.RUNNING &&
+                    status.extras.getBoolean(PluginDetectionEventBridge.DETECTOR_READY_EXTRA, false)
+                postAudioHealth(healthy)
+            },
+            onError = { postAudioHealth(false) },
         )
         val moppControl = if (pluginPackage == MoppPluginAvailability.PACKAGE) {
             HostMoppPpeControl(app.repo.moppPpeStore, pluginUid, authorize = {
@@ -404,12 +439,13 @@ class PluginConnection(
                 iface.initializePluginV2(init, control, controlV2)
             }
             if (closed) return
+            manager.settingsCoordinator.onPluginConnected(pluginPackage, iface) { !closed }
+            if (closed) return
             iface.registerHostCallback(callback)
             if (closed) return
             iface.startPlugin()
             if (closed) return
             transportV1.activateBinding()
-            manager.settingsCoordinator.onPluginConnected(pluginPackage, iface) { !closed }
         } catch (e: RemoteException) {
             Log.e(TAG, "plugin lifecycle failed pkg=$pluginPackage", e)
             postFailure("remote_exception")
@@ -481,6 +517,7 @@ class PluginConnection(
             communityIdentityControl?.close()
             communityIdentityControl = null
             mainHandler.removeCallbacks(handshakeTimeout)
+            mainHandler.removeCallbacks(audioHealthTimeout)
             hostServicesV1?.close()
             hostOpenVpnServicesV1?.close()
             hostPcmControlV3?.close()
@@ -557,5 +594,6 @@ class PluginConnection(
     companion object {
         private const val TAG = "CEP-PluginConnection"
         private const val HANDSHAKE_TIMEOUT_MS = 10_000L
+        private const val AUDIO_HEALTH_TIMEOUT_MS = 15_000L
     }
 }

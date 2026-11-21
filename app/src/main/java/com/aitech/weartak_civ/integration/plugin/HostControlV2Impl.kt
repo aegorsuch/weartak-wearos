@@ -16,10 +16,11 @@ import com.weartak.plugin.sdk.v2.model.TaskCommandSubmitParcel
 import com.weartak.plugin.sdk.v2.model.V2HostRejectionCode
 import com.weartak.plugin.sdk.v2.model.V2HostResultParcel
 import com.weartak.plugin.sdk.v2.validation.CepRulesV2Validator
+import com.weartak.plugin.sdk.v2.validation.DetectionEventsV2Validator
 
 /**
- * v2 host control plane. CEP streams are bridged into the existing CEP ingress; detection and
- * task/command lanes return [V2HostRejectionCode.NOT_SUPPORTED] until downstream consumers exist.
+ * v2 host control plane. CEP and approved audio-plugin detection events are bridged into host
+ * ingress; task/command lanes remain unsupported until downstream consumers exist.
  */
 class HostControlV2Impl(
     private val app: WearTakApplication,
@@ -27,6 +28,7 @@ class HostControlV2Impl(
     private val pluginPackage: String,
     private val expectedPluginUid: Int,
     private val isActive: () -> Boolean = { true },
+    private val detectionEventBridge: PluginDetectionEventBridge? = null,
 ) : IWearTakPluginHostControlV2.Stub() {
 
     private fun verifyCaller(): Boolean {
@@ -69,9 +71,19 @@ class HostControlV2Impl(
 
     override fun publishDetectionEvent(event: DetectionEventParcel?): V2HostResultParcel {
         if (!verifyCaller() || event == null) return rejected(V2HostRejectionCode.UNSPECIFIED)
-        PluginDiagnostics.recordUnsupportedV2Call(pluginPackage, "publishDetectionEvent", event.toString())
-        Log.i(TAG, "publishDetectionEvent not supported pluginId=$pluginPackage event=$event")
-        return notSupported()
+        if (detectionEventBridge == null) {
+            PluginDiagnostics.recordUnsupportedV2Call(pluginPackage, "publishDetectionEvent", event.toString())
+            Log.i(TAG, "publishDetectionEvent not supported pluginId=$pluginPackage")
+            return notSupported()
+        }
+        val validated = when (val result = DetectionEventsV2Validator.validate(event)) {
+            is com.weartak.plugin.sdk.validation.ContractValidationResult.Err -> {
+                Log.w(TAG, "publishDetectionEvent validation: ${result.issues}")
+                return rejected(V2HostRejectionCode.UNSPECIFIED)
+            }
+            is com.weartak.plugin.sdk.validation.ContractValidationResult.Ok -> result.value
+        }
+        return detectionEventBridge.publish(validated)
     }
 
     override fun submitTaskCommand(request: TaskCommandSubmitParcel?): V2HostResultParcel {
@@ -106,7 +118,7 @@ class HostControlV2Impl(
         return HostCapabilitiesV2Parcel(
             contractApiVersion = WearTakPluginV2Contract.CONTRACT_API_VERSION,
             cepRules = true,
-            detectionEvents = false,
+            detectionEvents = detectionEventBridge != null,
             taskCommands = false,
         )
     }

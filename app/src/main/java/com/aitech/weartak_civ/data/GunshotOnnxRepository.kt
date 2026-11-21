@@ -54,6 +54,7 @@ class GunshotOnnxRepository(private val context: Context) {
     val recentGunshotsFlow = store.recentEventsFlow
     val pendingGunshot = store.pendingEvent
 
+    fun acceptPluginEvent(event: AudioDetectionEvent): Boolean = store.acceptExternalEvent(event)
     fun upsertRecentGunshot(event: AudioDetectionEvent) = store.upsertRecent(event)
     fun getEventFromUid(uid: String): AudioDetectionEvent? = store.getEventFromUid(uid)
     fun setGunshotEventAlertLevel(uid: String, level: Utils.AlertChipState): Boolean = store.setEventAlertLevel(uid, level)

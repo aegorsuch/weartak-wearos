@@ -148,7 +148,12 @@ class ReactiveServiceManager : Service() {
         Log.i(TAG, "ReactiveServiceManager onCreate() Start...")
         isRunning.set(true)
         registry         = ServiceRegistry()
-        config           = ServiceConfiguration(applicationContext, repo, audioRepo)
+        config           = ServiceConfiguration(
+            applicationContext,
+            repo,
+            audioRepo,
+            audioDetectionDelegates = (application as WearTakApplication).pluginManager.audioDetectionDelegates,
+        )
         runnableServicesList = registry.getAllServiceTypes()
 
         startForegroundServiceCompat(
