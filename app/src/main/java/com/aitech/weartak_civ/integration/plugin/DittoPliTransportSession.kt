@@ -10,7 +10,7 @@ import com.weartak.plugin.sdk.transport.model.TransportDeliveryParcel
 import com.weartak.plugin.sdk.transport.model.TransportResultParcel
 import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
 
-/** Host-only accounting for the authenticated plugin-only PLI channel, not a delivery receipt. */
+/** Host-only accounting for authenticated Ditto channels, not a delivery receipt. */
 internal class DittoPliTransportSession(
     private val sessionId: String,
     private val peerUid: Int,
@@ -30,9 +30,10 @@ internal class DittoPliTransportSession(
     init {
         require(TransportValidator.id(sessionId) && peerUid >= 0)
         require(TransportValidator.capabilities(capabilities).code == TransportResultCode.ACCEPTED)
-        require(capabilities.channelIds == listOf(CHANNEL))
+        require(capabilities.channelIds == listOf(CHANNEL) || capabilities.channelIds == listOf(GENERAL_CHANNEL))
         require(capabilities.outboundPayloadKinds == listOf(TransportPayloadKind.COT_XML_UTF8))
-        require(capabilities.inboundPayloadKinds.isEmpty())
+        require(if (capabilities.channelIds.single() == CHANNEL) capabilities.inboundPayloadKinds.isEmpty()
+            else capabilities.inboundPayloadKinds == listOf(TransportPayloadKind.COT_XML_UTF8))
         require(!capabilities.deviceReceipts && !capabilities.recipientReceipts)
     }
 
@@ -40,7 +41,7 @@ internal class DittoPliTransportSession(
     fun admitOutbound(request: TransportSendRequestParcel, uid: Int): TransportResultParcel {
         fence(request.sessionId, uid)?.let { return it }
         if (!capabilities.runtimeAvailable) return error(TransportResultCode.UNAVAILABLE, "Transport unavailable")
-        if (request.channelId != CHANNEL) return error(TransportResultCode.UNSUPPORTED, "Unknown channel")
+        if (request.channelId != capabilities.channelIds.single()) return error(TransportResultCode.UNSUPPORTED, "Unknown channel")
         val valid = TransportValidator.message(request.message, capabilities, outbound = true)
         if (valid.code != TransportResultCode.ACCEPTED) return valid
         val now = clock()
@@ -62,7 +63,7 @@ internal class DittoPliTransportSession(
         val valid = TransportValidator.delivery(update)
         if (valid.code != TransportResultCode.ACCEPTED) return valid
         val record = messages[update.messageId] ?: return error(TransportResultCode.UNKNOWN_MESSAGE, "Unknown outbound message")
-        if (update.channelId != CHANNEL) return error(TransportResultCode.INVALID_REQUEST, "Channel mismatch")
+        if (update.channelId != capabilities.channelIds.single()) return error(TransportResultCode.INVALID_REQUEST, "Channel mismatch")
         if (record.terminal || update.sequence <= record.sequence || update.stage < record.stage) {
             return error(TransportResultCode.STALE_UPDATE, "Terminal or stale delivery update")
         }
@@ -102,5 +103,6 @@ internal class DittoPliTransportSession(
 
     companion object {
         const val CHANNEL = "ditto-pli-v1"
+        const val GENERAL_CHANNEL = "ditto-v1"
     }
 }

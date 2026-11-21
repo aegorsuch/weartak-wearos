@@ -377,8 +377,8 @@ class PluginConnection(
             expectedPluginUid = pluginUid,
             pluginOnlyPli = pluginOnlyProfile,
             trustedDittoPlugin = dittoOwnershipConfirmed,
-            onPliUnavailable = {
-                mainHandler.post { if (!closed) manager.onConnectionLost(this) }
+            onPliUnavailable = { reason ->
+                mainHandler.post { if (!closed) manager.onConnectionFailed(this, reason) }
             },
         )
         synchronized(stateLock) {

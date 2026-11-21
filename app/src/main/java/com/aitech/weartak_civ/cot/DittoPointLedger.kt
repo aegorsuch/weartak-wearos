@@ -2,15 +2,66 @@ package com.aitech.weartak_civ.cot
 
 import android.content.SharedPreferences
 import org.json.JSONObject
+import java.util.Collections
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Shared-key mission writers are trusted; these records enforce application ownership, not signatures. */
-internal class DittoPointLedger(private val preferences: SharedPreferences) {
+internal class DittoPointLedger(
+    private val preferences: SharedPreferences,
+    private val mutationFence: DittoPointMutationFence? = null,
+) {
     private val records = preferences.all.mapValues { it.value as String }.toMutableMap()
     private var failedKey: String? = null
+    private var migrationRevision = 0L
     private val mutableChanges = MutableStateFlow(0L)
     val changes = mutableChanges.asStateFlow()
+
+    internal class MigrationRecord(val key: String, val json: String)
+
+    internal class MigrationSnapshot internal constructor(
+        internal val owner: DittoPointLedger,
+        internal val revision: Long,
+        val records: List<MigrationRecord>,
+    ) {
+        val version: Int = 1
+    }
+
+    @Synchronized
+    fun snapshotForMigration(): MigrationSnapshot {
+        check(failedKey == null) { "Unresolved Ditto point intent write" }
+        check(preferences.all == records) { "Ditto point ledger changed outside this instance" }
+        require(records.size <= MAX_ENTRIES) { "Ditto local point ledger full" }
+        var total = 0L
+        val snapshot = records.entries.sortedBy { it.key }.map { (key, value) ->
+            val size = value.toByteArray(Charsets.UTF_8).size
+            require(size <= MAX_RECORD_BYTES) { "Ditto point record too large" }
+            total += size
+            require(total <= MAX_TOTAL_BYTES) { "Ditto point ledger byte capacity reached" }
+            val record = JSONObject(value)
+            val uid = record.get("uid") as? String
+                ?: throw IllegalArgumentException("Invalid Ditto point ownership record")
+            require(uid.isNotBlank() && uid.length <= 512 && key == DittoCotDocument.digest(uid)) {
+                "Invalid Ditto point ownership record"
+            }
+            val owner = record.get("owner") as? String
+            require(!owner.isNullOrBlank() && record.get("deleted") is Boolean) {
+                "Invalid Ditto point ownership record"
+            }
+            if (record.has("pending")) require(record.get("pending") is Boolean)
+            if (record.has("document")) require(record.get("document") is JSONObject)
+            require(!record.optBoolean("pending") || record.has("document")) {
+                "Pending Ditto point lacks document"
+            }
+            MigrationRecord(key, value)
+        }
+        return MigrationSnapshot(this, migrationRevision, Collections.unmodifiableList(snapshot))
+    }
+
+    @Synchronized
+    fun isMigrationSnapshotCurrent(snapshot: MigrationSnapshot): Boolean =
+        failedKey == null && snapshot.owner === this && snapshot.revision == migrationRevision &&
+            preferences.all == records
 
     @Synchronized
     fun hasPending(): Boolean = records.values.any { JSONObject(it).optBoolean("pending") }
@@ -88,7 +139,7 @@ internal class DittoPointLedger(private val preferences: SharedPreferences) {
         }
     }
 
-    private fun flush(key: String, record: JSONObject, write: (Map<String, Any?>) -> Unit) {
+    private fun flush(key: String, record: JSONObject, write: (Map<String, Any?>) -> Unit) = mutate {
         write(toMap(record.getJSONObject("document")))
         record.put("pending", false)
         save(key, record)
@@ -97,8 +148,9 @@ internal class DittoPointLedger(private val preferences: SharedPreferences) {
 
     private fun read(key: String): JSONObject? = records[key]?.let(::JSONObject)
 
-    private fun save(key: String, record: JSONObject) {
+    private fun save(key: String, record: JSONObject) = mutate {
         val value = record.toString()
+        check(migrationRevision < Long.MAX_VALUE) { "Ditto point migration revision exhausted" }
         require(value.toByteArray(Charsets.UTF_8).size <= MAX_RECORD_BYTES) { "Ditto point record too large" }
         val oldSize = records[key]?.toByteArray(Charsets.UTF_8)?.size ?: 0
         val bytes = records.values.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
@@ -108,16 +160,23 @@ internal class DittoPointLedger(private val preferences: SharedPreferences) {
         failedKey?.let { failed ->
             val repair = preferences.edit()
             records[failed]?.let { repair.putString(failed, it) } ?: repair.remove(failed)
-            check(repair.commit()) { "Could not repair unacknowledged Ditto point intent" }
+            check(commit(repair)) { "Could not repair unacknowledged Ditto point intent" }
             failedKey = null
         }
         val editor = preferences.edit()
-        if (!editor.putString(key, value).commit()) {
+        if (!commit(editor.putString(key, value))) {
             failedKey = key
             throw IllegalStateException("Could not persist Ditto point intent")
         }
         records[key] = value
+        migrationRevision++
     }
+
+    private inline fun <T> mutate(crossinline block: () -> T): T =
+        if (mutationFence == null) block() else mutationFence.mutate { block() }
+
+    private fun commit(editor: SharedPreferences.Editor): Boolean =
+        mutationFence?.commit(editor) ?: editor.commit()
 
     companion object {
         const val METADATA = "weartakPoint"

@@ -79,6 +79,7 @@ class DittoService : Service() {
     private lateinit var dataRepository: DataRepository
     private var dittoUpdateHandler: Handler? = null
     private var dittoUpdateThread: HandlerThread? = null
+    private var stoppedUpdateThread: HandlerThread? = null
     private val ioScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO) // Single CoroutineScope for background I/O tasks, ensuring lifecycle management, error isolation, and cleaner code.
     private val uuid = MainActivity.device_uid
@@ -386,10 +387,12 @@ class DittoService : Service() {
             publicationRetry?.close()
             publicationRetry = null
             dittoUpdateHandler?.removeCallbacks(dittoUpdateRunnable)
+            stoppedUpdateThread = dittoUpdateThread
             dittoUpdateThread?.quitSafely()
             dittoUpdateHandler = null
             dittoUpdateThread = null
-            storeObservers?.close()
+            val observers = storeObservers
+            observers?.close()
             storeObservers = null
             bleDiscovery?.close()
             bleDiscovery = null
@@ -397,7 +400,7 @@ class DittoService : Service() {
             unSubscribeToCollections()
             dataRepository.setEndpointDisconnected(DataRepository.Endpoint.DITTO)
             if (EventBus.getDefault().isRegistered(this)) EventBus.getDefault().unregister(this)
-            peerStopSucceeded = syncStopped
+            peerStopSucceeded = syncStopped && (observers == null || observers.closedSuccessfully)
         } finally {
             if (ownsDitto && !peerStopSucceeded) {
                 shutdownFailureState.value = true
@@ -408,6 +411,10 @@ class DittoService : Service() {
 
     private fun didStopPeerSuccessfully(): Boolean = synchronized(peerLock) {
         peerStopped && peerStopSucceeded
+    }
+
+    private fun workerThreadForJoin(): HandlerThread? = synchronized(peerLock) {
+        dittoUpdateThread ?: stoppedUpdateThread
     }
 
     private fun subscribeToCollections() {
@@ -1034,11 +1041,15 @@ class DittoService : Service() {
             identityMutex.withLock {
                 if (shutdownFailureState.value) return@withLock false
                 if (!persistOwnershipFence(context)) return@withLock false
+                val previous = activeService.value
+                if (previous == null && engineInitializationAttempted.get()) {
+                    Log.e(TAG, "Cannot prove workers from an earlier Ditto service have stopped")
+                    return@withLock false
+                }
                 if (nativeEngineIsQuiescent()) return@withLock true
 
                 reconfiguring.value = true
-                val previous = activeService.value
-                val previousThread = previous?.dittoUpdateThread
+                val previousThread = previous?.workerThreadForJoin()
                 var quiescenceCompleted = false
                 try {
                     if (previous != null) {
@@ -1141,7 +1152,7 @@ class DittoService : Service() {
                     check(!shutdownFailureState.value) { "Previous Ditto shutdown failed" }
                     if (!enabled) {
                         previous = activeService.value
-                        previousThread = previous?.dittoUpdateThread
+                        previousThread = previous?.workerThreadForJoin()
                         shutdownRequested = true
                         reconfiguring.value = true
                     }
@@ -1205,7 +1216,7 @@ class DittoService : Service() {
                 if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) return@withLock false
                 if (isOwnershipFenced(context)) return@withLock false
                 val previous = activeService.value
-                val thread = previous?.dittoUpdateThread
+                val thread = previous?.workerThreadForJoin()
                 reconfiguring.value = true
                 var shutdownRequested = false
                 var shutdownAcknowledged = false

@@ -24,6 +24,9 @@ internal class DittoStoreObservers(
 ) : Closeable {
     private val lock = Any()
     private var closed = false
+    @Volatile
+    internal var closedSuccessfully = false
+        private set
     private val job = Job(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + job)
     private val observers = mutableListOf<Closeable>()
@@ -131,13 +134,16 @@ internal class DittoStoreObservers(
             observers.toList().also { observers.clear() }
         }
         scope.cancel()
+        var allClosed = true
         handles.forEach {
             try {
                 it.close()
             } catch (error: Exception) {
+                allClosed = false
                 Log.e(TAG, "Ditto observer cleanup failed", error)
             }
         }
+        closedSuccessfully = allClosed
     }
 
     companion object {

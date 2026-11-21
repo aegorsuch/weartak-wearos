@@ -155,6 +155,44 @@ class DittoIdentityApplyTest {
             isAccessible = true
             set(service, scope)
         }
+
+        @Test fun handoffRejectsPreviouslyDestroyedServiceWithUnverifiedWorkers() = runTest {
+            val service = runningService()
+            initializationAttempted().set(true)
+            val scope = DittoService::class.java.getDeclaredField("ioScope").run {
+                isAccessible = true
+                get(service) as CoroutineScope
+            }
+            val releaseWorker = CompletableDeferred<Unit>()
+            val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                withContext(NonCancellable) { releaseWorker.await() }
+            }
+            try {
+                service.onDestroy()
+                assertNull(activeService().value)
+                assertFalse(DittoService.quiesceBundledEngineForPlugin(context))
+                assertTrue(ownershipFenced)
+                verify(exactly = 0) { old.close() }
+            } finally {
+                releaseWorker.complete(Unit)
+                worker.join()
+            }
+        }
+
+        @Test fun destroyedServiceRetainsWorkerThreadForHandoffJoin() {
+            val service = runningService()
+            val thread = mockk<android.os.HandlerThread>(relaxed = true)
+            DittoService::class.java.getDeclaredField("dittoUpdateThread").apply {
+                isAccessible = true
+                set(service, thread)
+            }
+            service.onDestroy()
+            val retained = DittoService::class.java.getDeclaredMethod("workerThreadForJoin").apply {
+                isAccessible = true
+            }.invoke(service)
+            assertSame(thread, retained)
+            verify(exactly = 1) { thread.quitSafely() }
+        }
         val releaseWorker = CompletableDeferred<Unit>()
         val worker = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             withContext(NonCancellable) { releaseWorker.await() }
@@ -165,6 +203,8 @@ class DittoIdentityApplyTest {
         val handoff = async(UnconfinedTestDispatcher(testScheduler)) {
             DittoService.quiesceBundledEngineForPlugin(context)
         }
+        val handoffCompleted = CountDownLatch(1)
+        handoff.invokeOnCompletion { handoffCompleted.countDown() }
         try {
             assertTrue(ownershipFenced)
             assertFalse(handoff.isCompleted)
@@ -172,6 +212,7 @@ class DittoIdentityApplyTest {
             releaseWorker.complete(Unit)
             worker.join()
             assertTrue(closeCalled.await(5, TimeUnit.SECONDS))
+            assertTrue(handoffCompleted.await(5, TimeUnit.SECONDS))
             assertTrue(handoff.await())
             assertNull(DittoService.getDittoInstance())
             assertTrue(DittoService.isOwnershipFenced(context))
@@ -638,6 +679,22 @@ class DittoIdentityApplyTest {
         verify(exactly = 1) { old.stopSync() }
         verify(exactly = 0) { old.close() }
         verify(exactly = 0) { DittoService.Companion["initializeDitto"](context, repo) }
+    }
+
+    @Test fun unsuccessfulObserverClosureDoesNotAcknowledgeShutdown() = runTest {
+        val service = runningService()
+        val observers = mockk<DittoStoreObservers>(relaxed = true)
+        every { observers.closedSuccessfully } returns false
+        DittoService::class.java.getDeclaredField("storeObservers").apply {
+            isAccessible = true
+            set(service, observers)
+        }
+        every { context.stopService(any()) } answers { service.onDestroy(); true }
+
+        assertFalse(DittoService.applySelectedIdentity(context, repo))
+        assertTrue(DittoService.shutdownFailed.value)
+        verify(exactly = 1) { observers.close(); old.stopSync() }
+        verify(exactly = 0) { old.close() }
     }
 
     @Test fun workerJoinTimeoutBlocksReplacementAndRestartUntilProcessRestart() = runTest {

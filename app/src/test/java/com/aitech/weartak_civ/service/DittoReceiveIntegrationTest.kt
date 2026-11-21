@@ -1280,6 +1280,18 @@ class DittoReceiveIntegrationTest {
         } finally { f.close() }
     }
 
+    @Test fun observerCloseFailureIsRecordedWhileOtherHandlesAreClosed() = runTest {
+        val f = Fixture(this)
+        try {
+            every { f.handles.first().close() } throws IllegalStateException("synthetic close failure")
+            f.observers.close()
+            assertFalse(f.observers.closedSuccessfully)
+            f.handles.forEach { verify(exactly = 1) { it.close() } }
+            f.observers.close()
+            assertFalse(f.observers.closedSuccessfully)
+        } finally { f.close() }
+    }
+
     @Test fun partialObserverRegistrationFailureClosesPreviouslyRegisteredHandle() = runTest {
         val f = Fixture(this)
         try {
@@ -1771,6 +1783,9 @@ class DittoReceiveIntegrationTest {
             val deleted = f.contracted(deleted = true)
             f.emit("mapitem", deleted)
             f.drain()
+            val watermarkSnapshot = f.repo.dittoPointIngress.snapshotForMigration()
+            assertEquals(1, watermarkSnapshot.records.size)
+            assertTrue(org.json.JSONObject(watermarkSnapshot.records.single().json).getBoolean("deleted"))
             f.observers.close()
             f.repo.clearReceivedMarkers()
             f.observers = f.start()
@@ -1827,6 +1842,13 @@ class DittoReceiveIntegrationTest {
             f.clear()
             every { publisher.writeDocument(any(), any()) } throws IllegalStateException("synthetic offline store")
             publisher.retryPointPublications()
+            val snapshot = f.repo.dittoPointLedger.snapshotForMigration()
+            val point = org.json.JSONObject(snapshot.records.single().json)
+            assertTrue(point.getBoolean("pending"))
+            assertTrue(point.getBoolean("deleted"))
+            assertTrue(point.getJSONObject("document").getBoolean("_r"))
+            assertTrue(point.getJSONObject("document").getJSONObject(DittoPointLedger.METADATA)
+                .getBoolean("deleted"))
             assertTrue(ShadowLog.getLogsForTag("WearTAK-DittoService").any {
                 it.msg.contains("pending") && it.throwable?.message == "synthetic offline store"
             })

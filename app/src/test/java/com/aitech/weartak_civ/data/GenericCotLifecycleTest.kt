@@ -126,6 +126,49 @@ class GenericCotLifecycleTest {
         repo.clearReceivedMarkers()
     }
 
+    @Test fun pointDeletionIsSourceScopedAndRejectsOlderRevisions() = runBlocking {
+        val event = marker("shared-point")
+        repo.receiveMarkerEvent(event, bloodhounds, "peer", "a", now)
+        repo.receiveMarkerEvent(event.copy(time = now + 1), bloodhounds, "peer", "b", now)
+        val processed = DataRepository.SourcePointDeletionResult.PROCESSED
+        assertEquals(processed, repo.receiveSourcePointDeletion(
+            event.uid, "b", now, bloodhounds) { false })
+        assertEquals("b", repo.receivedMarkerList.value.single().sourceServerId)
+        assertEquals(processed, repo.receiveSourcePointDeletion(
+            event.uid, "b", now + 1, bloodhounds) { false })
+        assertEquals("a", repo.receivedMarkerList.value.single().sourceServerId)
+        assertFalse(repo.receiveMarkerEvent(event, bloodhounds, "peer", "b", now))
+    }
+
+    @Test fun pointDeletionProtectsPersistentlyLocalOwnership() = runBlocking {
+        val event = marker("owned-point")
+        repo.receiveMarkerEvent(event, bloodhounds, "peer", "a", now)
+        assertEquals(DataRepository.SourcePointDeletionResult.LOCAL_POINT_PROTECTED,
+            repo.receiveSourcePointDeletion(event.uid, "a", now, bloodhounds) { it == event.uid })
+        assertEquals(event.uid, repo.receivedMarkerList.value.single().uid)
+        verify(exactly = 0) { bloodhounds.removeMarkerCopy(event.uid, "a", any(), any()) }
+    }
+
+    @Test fun pointDeletionCannotDeleteDroppedLocalPoint() = runBlocking {
+        val uid = "local-${java.util.UUID.randomUUID()}"
+        val local = DataRepository.DroppedMarker(
+            cotType = DataRepository.MarkerCotType.DROP,
+            uid = uid,
+            markerType = DataRepository.MarkerType.FRIENDLY,
+            title = "Local",
+            remark = "",
+            timeDropped = now,
+            location = null,
+            enqueuedToBeSent = false,
+            waitingForUpdatedLocation = false,
+        )
+        repo.appendDroppedMarker(local)
+        assertEquals(DataRepository.SourcePointDeletionResult.LOCAL_POINT_PROTECTED,
+            repo.receiveSourcePointDeletion(uid, "peer", now, bloodhounds) { false })
+        assertEquals(listOf(local), repo.droppedMarkerList.value)
+        verify(exactly = 0) { bloodhounds.removeMarkerCopy(uid, "peer", any(), any()) }
+    }
+
     @Test fun deletionBeforeCreationAlsoRejectsOldUsersAndMarkers() = runBlocking {
         repo.receiveCotDeletion(CotDeletion("missing", now + 2), "server", bloodhounds, now)
         assertFalse(repo.receiveMarkerEvent(marker("missing"), bloodhounds, "TAK", "server", now))

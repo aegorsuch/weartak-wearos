@@ -227,6 +227,12 @@ enum class DittoPdlSource {
     CUSTOM
 }
 
+internal class DittoPdlMigrationSelection(
+    val source: DittoPdlSource,
+    val identity: String,
+    val revision: Long = 0,
+)
+
 private const val DEFAULT_COMMUNITY_PDL =
     BuildConfig.DITTO_COMMUNITY_IDENTITY
 
@@ -248,14 +254,21 @@ class DataRepository(
     internal val chatCommandHandler by lazy {
         com.aitech.weartak_civ.service.ChatCommandRuntime.build(context, this)
     }
+    private val dittoPointMutationFence by lazy {
+        com.aitech.weartak_civ.cot.DittoPointMutationFence(
+            context.getSharedPreferences("ditto-point-migration-v1", Context.MODE_PRIVATE)
+        )
+    }
     internal val dittoPointLedger by lazy {
         com.aitech.weartak_civ.cot.DittoPointLedger(
-            context.getSharedPreferences("ditto-local-points-v1", Context.MODE_PRIVATE)
+            context.getSharedPreferences("ditto-local-points-v1", Context.MODE_PRIVATE),
+            dittoPointMutationFence,
         )
     }
     internal val dittoPointIngress by lazy {
         com.aitech.weartak_civ.cot.DittoPointIngress(
-            context.getSharedPreferences("ditto-point-watermarks-v1", Context.MODE_PRIVATE)
+            context.getSharedPreferences("ditto-point-watermarks-v1", Context.MODE_PRIVATE),
+            dittoPointMutationFence,
         )
     }
     data class Spo2DebugState(
@@ -278,6 +291,9 @@ class DataRepository(
     // Saves whether the user selected Community or Custom
     private val DITTO_PDL_SOURCE =
         stringPreferencesKey("ditto_pdl_source")
+
+    private val DITTO_PDL_MIGRATION_REVISION =
+        longPreferencesKey("ditto_pdl_migration_revision")
 
     @androidx.annotation.VisibleForTesting
     internal var takServerSecretsOverride: TakServerSecretsRepository? = null
@@ -2573,7 +2589,7 @@ class DataRepository(
     val droppedMarkerList: StateFlow<List<DroppedMarker>> = _droppedMarkerList
 
     // Backend-only mutators (UI never calls these)
-    suspend fun appendDroppedMarker(item: DroppedMarker) {
+    suspend fun appendDroppedMarker(item: DroppedMarker) = markerIngressMutex.withLock {
         dittoPointLedger.created(item.uid, MainActivity.device_uid)
         deletedLocalPointUids.remove(item.uid)
         _droppedMarkerList.emit(_droppedMarkerList.value + item)
@@ -2799,14 +2815,25 @@ class DataRepository(
         removed || (revision.local && local != null)
     }
 
-    internal suspend fun receiveDittoPointDeletion(
-        uid: String, sourceId: String, time: Long, bloodhounds: BloodhoundRepository
+    internal enum class SourcePointDeletionResult { PROCESSED, LOCAL_POINT_PROTECTED }
+
+    internal suspend fun receiveSourcePointDeletion(
+        uid: String,
+        sourceId: String,
+        time: Long,
+        bloodhounds: BloodhoundRepository,
+        isPersistentlyLocalPoint: (String) -> Boolean,
     ) = markerIngressMutex.withLock {
         currentCoroutineContext().ensureActive()
-        if (_droppedMarkerList.value.any { it.uid == uid } || isDeletedLocalPoint(uid)) return@withLock
+        require(uid.isNotBlank() && sourceId.isNotBlank() && time > 0)
+        if (_droppedMarkerList.value.any { it.uid == uid } || isDeletedLocalPoint(uid) ||
+            isPersistentlyLocalPoint(uid)) {
+            return@withLock SourcePointDeletionResult.LOCAL_POINT_PROTECTED
+        }
         val receivedAt = System.currentTimeMillis()
         receivedMarkerStore.removeIfNotOlder(SourceCotKey(sourceId, uid), time, receivedAt)
         bloodhounds.removeMarkerCopy(uid, sourceId, time, receivedAt)
+        SourcePointDeletionResult.PROCESSED
     }
 
     /** Serializes map and navigation ingestion across BLE and TAK receive paths. */
@@ -5278,6 +5305,7 @@ class DataRepository(
     suspend fun storeDittoPdlSource(source: DittoPdlSource) {
         context.dataStore.edit { preferences ->
             preferences[DITTO_PDL_SOURCE] = source.name
+            preferences.advanceDittoPdlMigrationRevision()
         }
     }
 
@@ -5285,6 +5313,7 @@ class DataRepository(
     suspend fun storeDittoCustomPdl(pdl: String) {
         context.dataStore.edit { preferences ->
             preferences[DITTO_CUSTOM_PDL] = pdl.trim()
+            preferences.advanceDittoPdlMigrationRevision()
         }
     }
 
@@ -5297,7 +5326,60 @@ class DataRepository(
         context.dataStore.edit { preferences ->
             preferences[DITTO_PDL_SOURCE] = source.name
             if (customPdl != null) preferences[DITTO_CUSTOM_PDL] = customPdl
+            preferences.advanceDittoPdlMigrationRevision()
         }
+    }
+
+    private fun MutablePreferences.advanceDittoPdlMigrationRevision() {
+        val revision = this[DITTO_PDL_MIGRATION_REVISION] ?: 0L
+        check(revision >= 0 && revision < Long.MAX_VALUE) { "Invalid PDL migration revision" }
+        this[DITTO_PDL_MIGRATION_REVISION] = revision + 1
+    }
+
+    private fun dittoPdlMigrationSelection(preferences: Preferences): DittoPdlMigrationSelection {
+        val source = when (preferences[DITTO_PDL_SOURCE]) {
+            null, DittoPdlSource.COMMUNITY.name -> DittoPdlSource.COMMUNITY
+            DittoPdlSource.CUSTOM.name -> DittoPdlSource.CUSTOM
+            else -> throw IllegalStateException("Unknown Ditto PDL source")
+        }
+        val identity = when (source) {
+            DittoPdlSource.COMMUNITY -> DEFAULT_COMMUNITY_PDL
+            DittoPdlSource.CUSTOM -> preferences[DITTO_CUSTOM_PDL] ?: ""
+        }
+        val revision = preferences[DITTO_PDL_MIGRATION_REVISION] ?: 0L
+        check(revision >= 0) { "Invalid PDL migration revision" }
+        return DittoPdlMigrationSelection(source, identity, revision)
+    }
+
+    internal suspend fun readDittoPdlMigrationSelection(): DittoPdlMigrationSelection =
+        dittoPdlMigrationSelection(context.dataStore.data.first())
+
+    private fun sameDittoPdlMigrationSelection(
+        first: DittoPdlMigrationSelection,
+        second: DittoPdlMigrationSelection,
+    ): Boolean = first.source == second.source && first.identity == second.identity &&
+        first.revision == second.revision
+
+    /** Point-in-time comparison only; this does not fence later changes or acknowledge migration. */
+    internal suspend fun isDittoPdlMigrationSelectionCurrent(selection: DittoPdlMigrationSelection): Boolean {
+        var matches = false
+        context.dataStore.edit { preferences ->
+            matches = sameDittoPdlMigrationSelection(dittoPdlMigrationSelection(preferences), selection)
+        }
+        return matches
+    }
+
+    internal suspend fun <T : Any> withCurrentDittoPdlMigrationSelection(
+        selection: DittoPdlMigrationSelection,
+        action: () -> T,
+    ): T? {
+        var result: T? = null
+        context.dataStore.edit { preferences ->
+            if (sameDittoPdlMigrationSelection(dittoPdlMigrationSelection(preferences), selection)) {
+                result = action()
+            }
+        }
+        return result
     }
 
     // Loads the selected PDL option

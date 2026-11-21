@@ -95,6 +95,7 @@ class DittoCompanionLifecycleTest {
         assertTrue(service.startPeerSync())
         assertTrue(DittoService.syncActive.value)
         val observers = mockk<DittoStoreObservers>(relaxed = true)
+        every { observers.closedSuccessfully } returns true
         field("storeObservers").set(service, observers)
         val discovery = mockk<DittoBleDiscoverySession>(relaxed = true)
         field("bleDiscovery").set(service, discovery)

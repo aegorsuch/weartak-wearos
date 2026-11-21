@@ -5,6 +5,7 @@ import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.cot.CotMessageParser
 import com.aitech.weartak_civ.cot.TakServerCotEnvelope
 import com.aitech.weartak_civ.cot.TakServerCotIngestResult
 import com.aitech.weartak_civ.service.TAKConnectService
@@ -45,7 +46,7 @@ internal class PluginTransportHostV1Impl(
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val pluginOnlyPli: Boolean = false,
     private val trustedDittoPlugin: () -> Boolean = { TrustedCommunityPlugin.verify(app, expectedPluginUid) },
-    private val onPliUnavailable: (() -> Unit)? = null,
+    private val onPliUnavailable: ((String) -> Unit)? = null,
     private val cotIngest: suspend (TakServerCotEnvelope) -> TakServerCotIngestResult = { envelope ->
         TAKConnectService.handleInboundCotWithResult(
             rawXml = envelope.rawXml,
@@ -119,11 +120,16 @@ internal class PluginTransportHostV1Impl(
         if (validation.code != TransportResultCode.ACCEPTED) return validation
         val negotiated = negotiate(capabilities)
             ?: return result(TransportResultCode.UNSUPPORTED, detail = "No compatible transport direction or channel")
-        val pliProfile = pluginOnlyPli && DittoPliTransportSession.CHANNEL in negotiated.channelIds
+        val pliProfile = pluginOnlyPli && negotiated.channelIds.any {
+            it == DittoPliTransportSession.CHANNEL || it == DittoPliTransportSession.GENERAL_CHANNEL
+        }
         if (pliProfile && (onPliUnavailable == null || pluginId != TrustedCommunityPlugin.PACKAGE || !trustedDittoPlugin() ||
-                negotiated.channelIds != listOf(DittoPliTransportSession.CHANNEL) ||
+                negotiated.channelIds.size != 1 ||
                 negotiated.outboundPayloadKinds != listOf(TransportPayloadKind.COT_XML_UTF8) ||
-                negotiated.inboundPayloadKinds.isNotEmpty() || negotiated.deviceReceipts ||
+                (if (negotiated.channelIds.single() == DittoPliTransportSession.CHANNEL)
+                    negotiated.inboundPayloadKinds.isNotEmpty()
+                 else negotiated.inboundPayloadKinds != listOf(TransportPayloadKind.COT_XML_UTF8)) ||
+                negotiated.deviceReceipts ||
                 negotiated.recipientReceipts)
         ) return result(TransportResultCode.UNSUPPORTED, detail = "Invalid plugin-only PLI profile")
         val sessionId = UUID.randomUUID().toString()
@@ -146,20 +152,28 @@ internal class PluginTransportHostV1Impl(
 
         val pliSession = if (pliProfile) DittoPliTransportSession(sessionId, expectedPluginUid, negotiated, clock) else null
         val next = Registration(sessionId, negotiated, session, pliSession, callback, binder, recipient)
-        val (installed, previous) = synchronized(lock) {
+        val (installed, previous, blocked) = synchronized(lock) {
             if (bindingClosed) {
-                false to null
+                Triple(false, null, null)
             } else {
                 val old = registration
-                registration = next
-                transportNegotiated = true
-                deliveryUpdates.clear()
-                true to old
+                if (old != null && (old.pliSession != null || pliProfile)) {
+                    Triple(false, null, old)
+                } else {
+                    registration = next
+                    transportNegotiated = true
+                    deliveryUpdates.clear()
+                    Triple(true, old, null)
+                }
             }
         }
         if (!installed) {
             unlinkCallback(next)
             next.close()
+            if (blocked != null) {
+                failPliConnection(blocked)
+                return result(TransportResultCode.UNAVAILABLE, detail = "Ditto transport replacement requires safe restart")
+            }
             return result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin binding is closed")
         }
         previous?.let { closeRegistration(it, TransportCloseReason.REPLACED, notifyCallback = true) }
@@ -177,9 +191,15 @@ internal class PluginTransportHostV1Impl(
     override fun unregisterTransport(sessionId: String?): TransportResultParcel {
         if (!verifyCaller()) return result(TransportResultCode.UNAUTHORIZED, detail = "Caller UID mismatch")
         val current = synchronized(lock) {
-            registration?.takeIf { it.sessionId == sessionId }?.also { registration = null }
+            registration?.takeIf { it.sessionId == sessionId }?.also {
+                if (it.pliSession == null) registration = null
+            }
         } ?: return result(TransportResultCode.INACTIVE_SESSION, detail = "Transport session is inactive")
-        closeRegistration(current, TransportCloseReason.STOPPED, notifyCallback = true)
+        if (current.pliSession != null) {
+            failPliConnection(current)
+        } else {
+            closeRegistration(current, TransportCloseReason.STOPPED, notifyCallback = true)
+        }
         return result(TransportResultCode.ACCEPTED, sessionId = current.sessionId)
     }
 
@@ -191,6 +211,9 @@ internal class PluginTransportHostV1Impl(
         if (!verifyCaller()) return result(TransportResultCode.UNAUTHORIZED, detail = "Caller UID mismatch")
         val current = currentSession(sessionId)
             ?: return result(TransportResultCode.INACTIVE_SESSION, detail = "Transport session is inactive")
+        if (current.pliSession != null && !trustedDittoPlugin()) {
+            return result(TransportResultCode.UNAUTHORIZED, detail = "Ditto plugin trust unavailable")
+        }
         if (!isBindingActive()) return result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin is not active")
         if (message == null || channelId.isNullOrBlank()) {
             return result(TransportResultCode.INVALID_REQUEST, detail = "Channel and message are required")
@@ -232,7 +255,15 @@ internal class PluginTransportHostV1Impl(
             current.inboundInFlight.add(messageId)
             null
         }
-        if (reservation != null) return reservation
+        if (reservation != null) {
+            if (current.pliSession != null && reservation.code == TransportResultCode.LIMIT_EXCEEDED &&
+                synchronized(lock) {
+                    current.inboundMessageIds.size + current.inboundInFlight.size +
+                        current.outboundMessageIds.size >= TransportContract.MAX_SESSION_MESSAGES
+                }
+            ) failPliConnection(current, PLI_EXHAUSTED)
+            return reservation
+        }
 
         try {
             val xml = when (inboundMessage.payloadKind) {
@@ -359,13 +390,13 @@ internal class PluginTransportHostV1Impl(
         externalId: String? = null,
         sentAtEpochMillis: Long? = null,
     ) {
-        offerCoTInternal(xml, senderUid, senderCallsign, workspaceId, externalId, sentAtEpochMillis, null)
+        offerCoTInternal(xml, senderUid, senderCallsign, workspaceId, externalId, sentAtEpochMillis, null, false)
     }
 
     internal fun offerPluginPli(snapshot: DittoTrackSnapshot, eligible: () -> Boolean): Boolean {
         if (!eligible()) return false
         return offerCoTInternal(snapshot.toPluginPli().xml, snapshot.uid, snapshot.callsign,
-            null, null, snapshot.eventTime, eligible)
+            null, null, snapshot.eventTime, eligible, false)
     }
 
     private fun offerCoTInternal(
@@ -376,12 +407,22 @@ internal class PluginTransportHostV1Impl(
         externalId: String?,
         sentAtEpochMillis: Long?,
         pliEligible: (() -> Boolean)?,
+        fromTakServer: Boolean,
     ): Boolean {
         val current = synchronized(lock) {
             registration?.takeIf { bindingActive && !bindingClosed }
         } ?: return false
-        if ((current.pliSession != null) != (pliEligible != null)) return false
-        if (pliEligible != null && !trustedDittoPlugin()) {
+        val channel = current.capabilities.channelIds.singleOrNull()
+        if (current.pliSession == null && pliEligible != null) return false
+        if (current.pliSession != null && channel == DittoPliTransportSession.CHANNEL && pliEligible == null) return false
+        if (current.pliSession != null && channel == DittoPliTransportSession.GENERAL_CHANNEL &&
+            pliEligible == null && !fromTakServer &&
+            CotMessageParser.eventTypeOrNull(xml)?.let(CotMessageParser::isUserPositionType) == true
+        ) {
+            Log.d(TAG, "Ditto PLI is supplied by the eligible snapshot producer")
+            return false
+        }
+        if (current.pliSession != null && !trustedDittoPlugin()) {
             Log.w(TAG, "Ditto plugin trust unavailable; skip PLI")
             return false
         }
@@ -431,9 +472,12 @@ internal class PluginTransportHostV1Impl(
         if (admitted.code != TransportResultCode.ACCEPTED) {
             Log.w(TAG, "Transport outbound rejected pkg=$pluginId code=${admitted.code}")
             if (current.pliSession != null && admitted.code == TransportResultCode.LIMIT_EXCEEDED &&
-                synchronized(lock) { current.outboundMessageIds.size >= TransportContract.MAX_SESSION_MESSAGES }
+                synchronized(lock) {
+                    current.inboundMessageIds.size + current.inboundInFlight.size +
+                        current.outboundMessageIds.size >= TransportContract.MAX_SESSION_MESSAGES
+                }
             ) {
-                failPliConnection(current)
+                failPliConnection(current, PLI_EXHAUSTED)
             }
             return false
         }
@@ -447,13 +491,15 @@ internal class PluginTransportHostV1Impl(
 
     fun offerInboundCoT(envelope: TakServerCotEnvelope) {
         if (envelope.sourceServerId.startsWith("plugin:")) return
-        offerCoT(
+        offerCoTInternal(
             xml = envelope.rawXml,
             senderUid = envelope.sourceServerId,
             senderCallsign = null,
             workspaceId = envelope.sourceWorkspaceId,
             externalId = envelope.sourceExternalId,
             sentAtEpochMillis = envelope.sourceSentAtEpochMillis,
+            pliEligible = null,
+            fromTakServer = true,
         )
     }
 
@@ -526,7 +572,7 @@ internal class PluginTransportHostV1Impl(
         }
     }
 
-    private fun failPliConnection(current: Registration) {
+    private fun failPliConnection(current: Registration, reason: String = PLI_UNAVAILABLE) {
         val closed = synchronized(lock) {
             if (registration !== current || bindingClosed) false
             else {
@@ -539,8 +585,8 @@ internal class PluginTransportHostV1Impl(
         }
         if (closed) {
             finishCloseBinding(current, TransportCloseReason.DISCONNECTED)
-            Log.e(TAG, "Ditto PLI connection unavailable; reconnect required")
-            checkNotNull(onPliUnavailable).invoke()
+            Log.e(TAG, "Ditto PLI connection unavailable: $reason")
+            checkNotNull(onPliUnavailable).invoke(reason)
         }
     }
 
@@ -556,8 +602,8 @@ internal class PluginTransportHostV1Impl(
         }
         if (closed) {
             finishCloseBinding(current, TransportCloseReason.DISCONNECTED)
-            Log.e(TAG, "Ditto PLI connection unavailable; reconnect required")
-            checkNotNull(onPliUnavailable).invoke()
+            Log.e(TAG, "Ditto PLI connection unavailable: $PLI_UNAVAILABLE")
+            checkNotNull(onPliUnavailable).invoke(PLI_UNAVAILABLE)
         }
     }
 
@@ -686,10 +732,16 @@ internal class PluginTransportHostV1Impl(
 
     private fun removeIfCurrent(sessionId: String, notifyCallback: Boolean) {
         val current = synchronized(lock) {
-            registration?.takeIf { it.sessionId == sessionId }?.also { registration = null }
+            registration?.takeIf { it.sessionId == sessionId }?.also {
+                if (it.pliSession == null) registration = null
+            }
         } ?: return
         Log.w(TAG, "Transport callback died pkg=$pluginId")
-        closeRegistration(current, TransportCloseReason.DISCONNECTED, notifyCallback)
+        if (current.pliSession != null) {
+            failPliConnection(current)
+        } else {
+            closeRegistration(current, TransportCloseReason.DISCONNECTED, notifyCallback)
+        }
     }
 
     private fun unlinkCallback(current: Registration) {
@@ -724,6 +776,8 @@ internal class PluginTransportHostV1Impl(
     ) = TransportResultParcel(code, sessionId, detail)
 
     companion object {
+        internal const val PLI_EXHAUSTED = "ditto_pli_exhausted"
+        internal const val PLI_UNAVAILABLE = "ditto_pli_unavailable"
         private const val TAG = "CEP-PluginTransport"
         private const val HOST_MAX_PAYLOAD_BYTES = TransportContract.MAX_PAYLOAD_BYTES
         private const val MAX_DELIVERY_HISTORY = TransportContract.MAX_SESSION_MESSAGES

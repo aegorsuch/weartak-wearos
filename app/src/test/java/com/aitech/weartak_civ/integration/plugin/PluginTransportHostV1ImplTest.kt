@@ -462,6 +462,222 @@ class PluginTransportHostV1ImplTest {
     }
 
     @Test
+    fun gatedGeneralDittoChannelCarriesCotAndLocalSubmissionIsTerminal() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        var trusted = true
+        val received = mutableListOf<TakServerCotEnvelope>()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { trusted }, onPliUnavailable = {},
+            cotIngest = { received.add(it); TakServerCotIngestResult.CHAT },
+        ).also(hosts::add)
+        val callback = RecordingCallback()
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            maxPendingMessages = 1, deviceReceipts = false, recipientReceipts = false,
+        )
+        val session = register(host, callback, caps)
+        val outbound = chatXml()
+        host.offerCoT(outbound, DEVICE_UID, "WATCH")
+        runCurrent()
+        val first = requireNotNull(callback.request)
+        assertEquals(outbound, first.message.payload.toString(Charsets.UTF_8))
+        assertEquals(DEVICE_UID, first.message.senderUid)
+        assertEquals("WATCH", first.message.senderCallsign)
+        assertEquals(TransportResultCode.ACCEPTED, host.reportDelivery(session,
+            TransportDeliveryParcel(first.message.messageId, first.channelId, 1,
+                TransportDeliveryStage.CHANNEL_SUBMITTED)).code)
+        host.offerCoT(outbound, DEVICE_UID, "WATCH")
+        runCurrent()
+        assertNotEquals(first.message.messageId, callback.request?.message?.messageId)
+
+        val inbound = TransportMessageParcel(
+            messageId = "synthetic-inbound", payloadKind = TransportPayloadKind.COT_XML_UTF8,
+            payload = outbound.toByteArray(Charsets.UTF_8), senderUid = "peer-1",
+        )
+        trusted = false
+        assertEquals(TransportResultCode.UNAUTHORIZED,
+            host.receiveMessage(session, DittoPliTransportSession.GENERAL_CHANNEL, inbound).code)
+        assertTrue(received.isEmpty())
+        trusted = true
+        assertEquals(TransportResultCode.ACCEPTED,
+            host.receiveMessage(session, DittoPliTransportSession.GENERAL_CHANNEL, inbound).code)
+        assertEquals(outbound, received.single().rawXml)
+        assertEquals(TransportResultCode.DUPLICATE,
+            host.receiveMessage(session, DittoPliTransportSession.GENERAL_CHANNEL, inbound).code)
+        host.closeBinding()
+        runCurrent()
+    }
+
+    @Test
+    fun gatedGeneralDittoChannelUsesOnlyEligibleSnapshotForPli() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = {},
+        ).also(hosts::add)
+        val callback = RecordingCallback()
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        register(host, callback, caps)
+        val snapshot = pliSnapshot()
+        host.offerCoT(snapshot.toPluginPli().xml, DEVICE_UID, "WATCH")
+        runCurrent()
+        assertNull(callback.request)
+        host.offerInboundCoT(
+            TakServerCotEnvelope(
+                sourceServerId = "tak-server",
+                sourceServerAddress = "tak-server",
+                receivedAt = 1L,
+                rawXml = snapshot.toPluginPli().xml,
+            ),
+        )
+        runCurrent()
+        assertNotNull(callback.request)
+        callback.request = null
+        assertTrue(host.offerPluginPli(snapshot) { true })
+        runCurrent()
+        assertEquals(DittoPliTransportSession.GENERAL_CHANNEL, callback.request?.channelId)
+    }
+
+    @Test
+    fun gatedGeneralDittoChannelRequiresExactProfile() {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            pluginOnlyPli = true, trustedDittoPlugin = { true }, onPliUnavailable = {},
+        ).also(hosts::add)
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        assertEquals(TransportResultCode.UNSUPPORTED,
+            host.registerTransport(caps.copy(inboundPayloadKinds = emptyList()), RecordingCallback()).code)
+        assertEquals(TransportResultCode.UNSUPPORTED,
+            host.registerTransport(caps.copy(recipientReceipts = true), RecordingCallback()).code)
+    }
+
+    @Test
+    fun gatedDittoTransportReplacementFencesInsteadOfRotating() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val reasons = mutableListOf<String>()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = { reasons.add(it) },
+        ).also(hosts::add)
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        register(host, RecordingCallback(), caps)
+        assertEquals(TransportResultCode.UNAVAILABLE, host.registerTransport(caps, RecordingCallback()).code)
+        assertEquals(listOf(PluginTransportHostV1Impl.PLI_UNAVAILABLE), reasons)
+        assertFalse(host.isTransportRegistered())
+        runCurrent()
+    }
+
+    @Test
+    fun gatedDittoUnregisterFencesBindingInsteadOfAllowingRotation() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val reasons = mutableListOf<String>()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = { reasons.add(it) },
+        ).also(hosts::add)
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        val session = register(host, RecordingCallback(), caps)
+        assertEquals(TransportResultCode.ACCEPTED, host.unregisterTransport(session).code)
+        assertEquals(TransportResultCode.INACTIVE_SESSION, host.registerTransport(caps, RecordingCallback()).code)
+        assertEquals(listOf(PluginTransportHostV1Impl.PLI_UNAVAILABLE), reasons)
+        runCurrent()
+    }
+
+    @Test
+    fun gatedDittoCallbackDeathFencesBindingInsteadOfAllowingRotation() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val reasons = mutableListOf<String>()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = { reasons.add(it) },
+        ).also(hosts::add)
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        var deathRecipient: IBinder.DeathRecipient? = null
+        val binder = mockk<IBinder>(relaxed = true)
+        every { binder.isBinderAlive } returns true
+        every { binder.linkToDeath(any(), any()) } answers { deathRecipient = firstArg() }
+        val callback = object : RecordingCallback() {
+            override fun asBinder(): IBinder = binder
+        }
+        register(host, callback, caps)
+        requireNotNull(deathRecipient).binderDied()
+        assertEquals(TransportResultCode.INACTIVE_SESSION, host.registerTransport(caps, RecordingCallback()).code)
+        assertEquals(listOf(PluginTransportHostV1Impl.PLI_UNAVAILABLE), reasons)
+        assertFalse(host.isTransportRegistered())
+        runCurrent()
+    }
+
+    @Test
+    fun gatedGeneralDittoInboundExhaustionClosesInsteadOfRotating() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val reasons = mutableListOf<String>()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = { reasons.add(it) },
+            cotIngest = { TakServerCotIngestResult.CHAT },
+        ).also(hosts::add)
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        val session = register(host, RecordingCallback(), caps)
+        repeat(TransportContract.MAX_SESSION_MESSAGES) { index ->
+            val message = TransportMessageParcel(
+                messageId = "inbound-$index", payloadKind = TransportPayloadKind.COT_XML_UTF8,
+                payload = chatXml().toByteArray(Charsets.UTF_8), senderUid = "peer-1",
+            )
+            assertEquals(TransportResultCode.ACCEPTED,
+                host.receiveMessage(session, DittoPliTransportSession.GENERAL_CHANNEL, message).code)
+        }
+        val overflow = TransportMessageParcel(
+            messageId = "inbound-overflow", payloadKind = TransportPayloadKind.COT_XML_UTF8,
+            payload = chatXml().toByteArray(Charsets.UTF_8), senderUid = "peer-1",
+        )
+        assertEquals(TransportResultCode.LIMIT_EXCEEDED,
+            host.receiveMessage(session, DittoPliTransportSession.GENERAL_CHANNEL, overflow).code)
+        assertEquals(listOf(PluginTransportHostV1Impl.PLI_EXHAUSTED), reasons)
+        assertFalse(host.isTransportRegistered())
+        runCurrent()
+    }
+
+    @Test
     fun withoutPluginOnlyGateNoReceiptSubmissionKeepsLegacyExpiry() = runTest {
         var now = 100L
         every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
@@ -493,13 +709,13 @@ class PluginTransportHostV1ImplTest {
     }
 
     @Test
-    fun pluginOnlySessionExhaustionClosesBindingAndRequestsReconnectOnce() = runTest {
+    fun pluginOnlySessionExhaustionClosesBindingAndReportsExhaustionOnce() = runTest {
         every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
-        val unavailable = AtomicInteger()
+        val unavailable = mutableListOf<String>()
         val host = PluginTransportHostV1Impl(
             app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
             dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
-            trustedDittoPlugin = { true }, onPliUnavailable = { unavailable.incrementAndGet() },
+            trustedDittoPlugin = { true }, onPliUnavailable = { unavailable.add(it) },
         ).also(hosts::add)
         val callback = RecordingCallback()
         val session = register(host, callback, capabilities().copy(
@@ -519,7 +735,7 @@ class PluginTransportHostV1ImplTest {
         host.offerPluginPli(pliSnapshot()) { true }
         host.offerPluginPli(pliSnapshot()) { true }
         runCurrent()
-        assertEquals(1, unavailable.get())
+        assertEquals(listOf(PluginTransportHostV1Impl.PLI_EXHAUSTED), unavailable)
         assertFalse(host.isTransportRegistered())
         assertEquals(TransportResultCode.INACTIVE_SESSION, host.reportDelivery(session,
             TransportDeliveryParcel("old", DittoPliTransportSession.CHANNEL, 1,
