@@ -287,6 +287,33 @@ class HeartrateLifecycleTest {
         }
     }
 
+    @Test fun physiologicalAlertsUseImmediateDeliveryAndRestoreBatchingWhenDisabled() {
+        runBlocking { repo.storeEnablePhysiologicalAlerts(false) }
+        val service = service()
+        try {
+            await { sensors.listeners.size == 1 }
+            val manager = sensors as RecordingHrSensorManager
+            assertEquals(1_000_000 to HeartrateService.MAX_REPORT_LATENCY_US, manager.registrations.last())
+
+            runBlocking { repo.storeEnablePhysiologicalAlerts(true) }
+            await { manager.registrations.last().second == 0 }
+
+            runBlocking { repo.storeEnablePhysiologicalAlerts(false) }
+            await { manager.registrations.last().second == HeartrateService.MAX_REPORT_LATENCY_US }
+
+            assertEquals(
+                listOf(
+                    1_000_000 to HeartrateService.MAX_REPORT_LATENCY_US,
+                    1_000_000 to 0,
+                    1_000_000 to HeartrateService.MAX_REPORT_LATENCY_US
+                ),
+                manager.registrations
+            )
+        } finally {
+            service.onDestroy()
+        }
+    }
+
     @Test fun historicalBurstPreservesEveryValueAndMeasurementTimeAndPublishesNewestSnapshot() = runBlocking {
         val service = service()
         try {
