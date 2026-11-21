@@ -23,6 +23,8 @@ class PluginSdkAuthTests(unittest.TestCase):
         )
         self.assertIn("gitlab-ci-token:$job_token", helper)
         self.assertIn("unset CI_JOB_TOKEN", helper)
+        self.assertIn("GIT_SSL_CAINFO|GIT_SSL_CAPATH", helper)
+        self.assertIn("scoped Git authorization configuration mismatch", helper)
         self.assertIn("Unsupported plugin SDK source host", helper)
 
     def test_source_access_probe_is_scoped_to_the_current_core_branch(self):

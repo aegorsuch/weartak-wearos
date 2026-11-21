@@ -18,6 +18,12 @@ OVERLAY_SHA=$(jq -er .overlay.source_sha256 "$PIN")
 }
 SHORT="$(printf '%s' "$COMMIT" | cut -c1-12)-$(printf '%s' "$OVERLAY_SHA" | cut -c1-12)"
 CHECKOUT="$ROOT/.gradle/sdk/$SHORT"
+for name in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    case "$name" in
+        GIT_SSL_CAINFO|GIT_SSL_CAPATH) ;;
+        *) unset "$name" ;;
+    esac
+done
 configure_unauthenticated_git() {
     export GIT_CONFIG_COUNT=4
     export GIT_CONFIG_NOSYSTEM=1
@@ -72,6 +78,9 @@ if [ -n "$job_token" ]; then
         echo "Unable to prepare GitLab job-token authentication" >&2; exit 1;
     }
     export GIT_CONFIG_VALUE_4="Authorization: Basic $credentials"
+    [ "$(git config --get-urlmatch http.extraHeader "$REPOSITORY/info/refs")" = "$GIT_CONFIG_VALUE_4" ] || {
+        echo "Plugin SDK fetch failed: scoped Git authorization configuration mismatch." >&2; exit 1;
+    }
 fi
 if ! fetch_error=$(git fetch --quiet --depth=1 origin "$COMMIT" 2>&1); then
     case "$fetch_error" in
