@@ -39,16 +39,14 @@ def main():
         git("init", "--quiet", cwd=checkout)
         git("remote", "add", "origin", TAK_GOV_SDK_REPOSITORY, cwd=checkout)
         fetch_source(checkout, TAK_GOV_SDK_REPOSITORY, SDK_REF)
+        fetch_source(checkout, TAK_GOV_SDK_REPOSITORY, SDK_COMMIT)
         commit = git("rev-parse", "FETCH_HEAD", cwd=checkout)
         tree = git("rev-parse", "FETCH_HEAD^{tree}", cwd=checkout)
         if commit != SDK_COMMIT or tree != SDK_TREE:
             raise RuntimeError(
-                "TAK.gov SDK source ref did not resolve to the expected immutable commit/tree"
+                "TAK.gov SDK source did not resolve to the expected immutable commit/tree"
             )
-        fetch_source(checkout, TAK_GOV_SDK_REPOSITORY, SDK_COMMIT)
-        if git("rev-parse", "FETCH_HEAD", cwd=checkout) != SDK_COMMIT:
-            raise RuntimeError("TAK.gov SDK commit fetch returned an unexpected revision")
-    print(f"Verified read-only TAK.gov SDK source {commit} ({tree})")
+    print(f"Verified read-only TAK.gov SDK branch access and pinned source {commit} ({tree})")
 
 
 if __name__ == "__main__":

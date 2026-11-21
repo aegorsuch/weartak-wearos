@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -15,6 +16,13 @@ SPEC = importlib.util.spec_from_file_location(
 )
 SDK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SDK)
+
+PROBE_SPEC = importlib.util.spec_from_file_location(
+    "verify_tak_sdk_source_access", ROOT / "ci" / "verify_tak_sdk_source_access.py"
+)
+PROBE = importlib.util.module_from_spec(PROBE_SPEC)
+with mock.patch.dict(sys.modules, {"build_plugin_sdk": SDK}):
+    PROBE_SPEC.loader.exec_module(PROBE)
 
 
 class PluginSdkAuthTests(unittest.TestCase):
@@ -66,6 +74,51 @@ class PluginSdkAuthTests(unittest.TestCase):
         self.assertIn("aegorsuch-weartak-313-ditto-host-contract", job)
         self.assertIn("CI_PROJECT_ID == \"6739\"", job)
         self.assertNotIn("allow_failure", job)
+
+    def test_source_probe_checks_pinned_commit_after_fetching_moving_branch(self):
+        with mock.patch.object(PROBE, "fetch_source") as fetch, \
+             mock.patch.object(PROBE, "git", side_effect=["", "", PROBE.SDK_COMMIT, PROBE.SDK_TREE]):
+            PROBE.main()
+        self.assertEqual(
+            [PROBE.SDK_REF, PROBE.SDK_COMMIT],
+            [call.args[2] for call in fetch.call_args_list],
+        )
+
+    def test_source_probe_rejects_mismatched_pinned_tree(self):
+        with mock.patch.object(PROBE, "fetch_source"), \
+             mock.patch.object(PROBE, "git", side_effect=["", "", PROBE.SDK_COMMIT, "wrong-tree"]):
+            with self.assertRaisesRegex(RuntimeError, "immutable commit/tree"):
+                PROBE.main()
+
+    def test_source_probe_accepts_advanced_branch_with_original_pinned_tree(self):
+        if shutil.which("git") is None:
+            self.skipTest("Git is required")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-C", str(source), *args], text=True, stderr=subprocess.DEVNULL,
+                ).strip()
+            git("init", "--quiet")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            (source / "fixture").write_text("first", encoding="utf-8")
+            git("add", "fixture")
+            git("commit", "--quiet", "-m", "first")
+            commit = git("rev-parse", "HEAD")
+            tree = git("rev-parse", "HEAD^{tree}")
+            (source / "fixture").write_text("second", encoding="utf-8")
+            git("commit", "--quiet", "-am", "second")
+            branch = "refs/heads/" + git("branch", "--show-current")
+
+            def fetch_local(checkout, repository, ref):
+                SDK.fetch_source(checkout, repository, ref, local_source=source)
+
+            with mock.patch.object(PROBE, "SDK_REF", branch), \
+                 mock.patch.object(PROBE, "SDK_COMMIT", commit), \
+                 mock.patch.object(PROBE, "SDK_TREE", tree), \
+                 mock.patch.object(PROBE, "fetch_source", side_effect=fetch_local):
+                PROBE.main()
 
     def test_tak_gov_fetch_uses_only_ephemeral_job_token_header(self):
         token = "fixture-job-token"
