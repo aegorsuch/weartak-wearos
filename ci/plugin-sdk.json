@@ -1,7 +1,7 @@
 {
-  "repository": "https://github.com/aegorsuch/weartak-plugin-sdk.git",
-  "commit": "cfbab369254a3b211d3dbf056b406578acb59932",
-  "tree": "8b991b21ab40b01eaafbeb1fb380a8fe4fbd724c",
+  "repository": "https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git",
+  "commit": "35b294158c60ab455eb27ad7e69407efc6a6affc",
+  "tree": "6b6f54f99266a1a172e3e0b04a8f74402cbf54a9",
   "overlay": {
     "archive": "ci/plugin-sdk-transport/transport-v1-overlay.zip",
     "archive_sha256": "a51f54fbfc1c95a9583ac97daeec2f957fb42de87d27a9bbd823597184033ffd",
@@ -9,7 +9,7 @@
     "source_sha256": "a818af15b3328b817b972e2fe81d9585cb54e9a952a0ec8e13936ee5987ee6a6"
   },
   "release_sha256": {
-    "windows": "409f2e556c0858247ca80601d7789c8c2450b40988527786daecf7cc46325d99",
-    "linux": "929c115fb5ce6aef5dbb924bfce6ed7ee98c82c5c74f0c2fca9d000b37143f8d"
+    "windows": "62773d58329e5e86fbf74354aa90244bf0718e9901ff40cc2e6be62a5dbaecf7",
+    "linux": "c593f20d0a8a4959f56dd4b37ccf207757e2bd75c31f6754ff4a2d1de1760051"
   }
 }

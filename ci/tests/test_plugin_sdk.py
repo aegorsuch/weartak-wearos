@@ -123,6 +123,29 @@ class PluginSdkTests(unittest.TestCase):
             section = ci.split("\n" + job, 1)[1].split("\n" + end, 1)[0]
             self.assertIn("sh ci/build_plugin_sdk.sh", section)
 
+    def test_host_services_artifact_is_duplicate_checked_and_retained_with_hashes(self):
+        ci = (ROOT / ".gitlab-ci.yml").read_text()
+        self.assertIn("sh ci/verify_host_services_aar.sh", ci)
+        candidate = ci.split("\nvalidate_tak_sdk_host_pair:", 1)[1].split(
+            "\nrelease_publisher_tests:", 1
+        )[0]
+        self.assertIn("sh ci/build_plugin_sdk.sh", candidate)
+        self.assertIn("sh ci/verify_host_services_aar.sh", candidate)
+        self.assertIn("aegorsuch-weartak-313-ditto-host-contract", candidate)
+        self.assertIn(
+            "weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256",
+            ci,
+        )
+        official = ci.split("\nofficial_release:", 1)[1].split(
+            "\npublish_personal_github_main:", 1
+        )[0]
+        self.assertIn("expire_in: never", official)
+        self.assertIn(
+            "weartak-plugin-host-services-sdk/build/outputs/aar/"
+            "weartak-plugin-host-services-sdk-release.aar",
+            official,
+        )
+
     def test_android_bootstrap_uses_existing_shell_tools(self):
         helper = ROOT / "ci" / "build_plugin_sdk.sh"
         shell = shutil.which("sh")

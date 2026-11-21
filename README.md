@@ -46,28 +46,17 @@ authorization.
 
 This work extracts shared PKCS12 classification, CA review and guarded save logic
 from unmerged NFC MR !585 (`d6a7611a61eaebc9074ac3af9c7de135ecaf40e2`);
-it does not include NFC HCE, transport or prefilling. The SDK source pin is
-`86bdc8b04797c2cf6caa30e78e796abac1c2a330` from
-`https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` (public mirror:
-`https://github.com/aegorsuch/weartak-plugin-sdk`), tree
-`a03d33bc077d81f80cdb53b04ea75e18cf0200a1`. Build that exact source with JDK 17
-and Android SDK 34 using `gradlew.bat assembleRelease`, then pass the resulting
-AAR to host Gradle using `-PweartakPluginSdkAar=<absolute-path>`.
-Alternatively, run `python ci/build_plugin_sdk.py` to build the pinned source
-into the default ignored SDK directory. Host Gradle verifies its SHA-256 before
-building; CI uses the same helper and hash check.
-For reproducible source extraction, use `git -c core.autocrlf=false archive`;
-Windows Git newline conversion otherwise changes packaged AIDL/proguard files.
-The neutral-source release AAR SHA-256 is
-`f90a36a6cada1a55a3154944a8b524119217cb95176fd055c2a7dd3aeafaa7a7`.
-That hash is Windows-specific. Verified Linux CI output is
-`beae3192d0e80d6e1f8da39ffbb20f5e0921c904a34ab44268b9b4b35e04faa1`;
-only generated manifest line endings differ. Source pin and all other AAR
-payload entries are identical. Build verification selects the exact platform hash.
+it does not include NFC HCE, transport or prefilling. The current SDK source,
+overlay and platform-specific AAR hashes are pinned in `ci/plugin-sdk.json`.
+For local builds, obtain an authorized checkout of the
+[SDK repository](https://git.tak.gov/weartak-plugins/weartak-plugin-sdk), then
+run `python ci/build_plugin_sdk.py --local-source <checkout-path>` with JDK 17
+and Android SDK 34. See `ci/README.md` for source verification and CI usage.
+Host Gradle verifies the combined AAR hash before building.
 The checked-in legacy AAR does not provide the new optional controls and must
 not be used for this integration. The SDK has no signed published AAR;
 source-built binaries are unsigned dependency artifacts, not signed releases.
-The canonical LF source manifest SHA-256 is
+The earlier Nearby-only canonical LF source manifest SHA-256 was
 `3ed70060a8435a90bd3b7369c1cc399183a0861139bf81462b821ad9757e45f9`.
 This includes the SDK owner-controlled Covered Work linking permission from
 SDK MR !9. It does not relicense Google Play services or other third-party code;

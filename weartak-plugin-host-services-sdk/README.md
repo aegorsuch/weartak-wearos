@@ -12,9 +12,13 @@ Build: `gradlew.bat :weartak-plugin-host-services-sdk:assembleRelease`.
 Output: `build\outputs\aar\weartak-plugin-host-services-sdk-release.aar` inside this module.
 Canonical source is `https://git.tak.gov/core/weartak-core/wearos-tak-civ`;
 the normal main pipeline mirrors it to `https://github.com/aegorsuch/weartak-wearos`.
-Pin a full source commit SHA,
-not a moving branch. The `android_host_regression` MR job publishes the AAR for integration;
-`main_release` publishes it alongside `verified-sdk.sha256` and the signed host APK.
+Pin a full source commit SHA, not a moving branch. Consumers that build this AAR
+must also pin the public SDK builder/manifest commit and expected `classes.jar`
+SHA-256; a standalone AAR does not identify a compatible SDK pair. CI checks the
+host AAR for classes duplicated by the exact pinned public SDK AAR and emits
+`verified-classes.sha256` alongside `verified-sdk.sha256`. The `android_host_regression`
+MR artifact is temporary; the `official_release` tag artifact retains the AAR and
+both hashes indefinitely.
 
 For consumer CI, this module also builds standalone without configuring the host
 application or requiring its signing configuration:
@@ -27,67 +31,24 @@ Linux CI: `./gradlew -p weartak-plugin-host-services-sdk assembleRelease`.
 Use JDK 17, Android SDK 35 and the checked-in Gradle wrapper/catalog from that
 same pinned source commit. The resulting Kotlin metadata targets 2.0.
 
-## Draft Ditto discovery and ownership V1
+## Ditto runtime handoff
 
-**Unpublished and unavailable.** This draft does not change the existing
-WearOS endpoint, Community identity V1, plugin lifecycle API, or enable mesh.
-The same versioned AIDL types are intended for both hosts; the future WearOS
-discovery route is not defined here. Tracker retains its bundled engine on
-API 30. No source revision or artifact containing this draft is released.
+Ditto ownership and runtime contracts come from the public `weartak-plugin-sdk`;
+this module does not define or duplicate them. The integration target is the
+single `IDittoRuntimeV1` service. Do not bind the legacy discovery interface or
+a separate ownership endpoint.
 
-The proposed Tracker API 31+ endpoint is explicit-only: package
-`com.weartak.plugin.ditto`, class
-`com.weartak.plugin.ditto.tracker.TrackerDittoServiceV1`, action
-`com.weartak.plugin.ditto.action.TRACKER_DITTO_V1`, and plugin-owned
-permission `com.weartak.plugin.ditto.permission.BIND_TRACKER_DITTO_V1`.
-It must have no discovery intent filter. The plugin must check action and API
-level at bind and exact Binder UID, Tracker package and approved current signer
-on every call. A signature-level `knownSigner` permission must allow only
-approved host certificates, with no permissive fallback. Authenticate the
-plugin and each host callback reciprocally; signing lineage alone is not
-current-signer verification. Platform grant/deny and installation-order tests
-on devices are required before enabling this endpoint.
+Runtime binding, lease acquisition, identity loading and plugin activation remain
+disabled while the handoff restriction is unresolved. Before attempting native
+quiescence, the WearOS host must persist a restart fence. Keep the bundled engine
+fenced after process restart, malformed fence state, Binder death, timeout or
+uncertain release. Binder loss or a lease result alone does not prove plugin
+native teardown; never clear the fence or resume fallback until plugin shutdown
+and release are independently verified. Preserve the existing bundled Ditto
+behavior when the shared plugin is absent or incompatible.
 
-`IDittoDiscoveryV1.getStatus()` returns `DittoStatusV1`: protocol version `1`
-and availability `AVAILABILITY_UNAVAILABLE` or `AVAILABILITY_AVAILABLE`.
-`getOwnership()` returns nullable `IDittoOwnershipV1`; discovery-only state
-must be unavailable and return null. Neither discovery nor status grants a
-lease, proves quiescence, exposes identity or authorizes host commands.
-Unknown versions or values must fail closed.
-
-`IDittoOwnershipV1.acquire(session, host)` returns `DittoLeaseResultV1`.
-The authenticated, live Binder `session` identifies one lease; `host` is a
-reciprocally authenticated `IDittoHostControlV1` callback. Its
-`quiesceBundledEngine()` returns true only after positive host engine shutdown,
-not merely after requesting it. Authentication must precede callback invocation,
-and callback failure, death or timeout is not quiescence. Acquire may return
-`LEASE_ACQUIRED` with a positive generation only after both host and plugin
-engines are positively quiescent and every rollout gate is met. `LEASE_BUSY`
-and `LEASE_UNAVAILABLE` grant no lease.
-
-`release(session, generation)` fences the lease before requesting plugin
-shutdown. `LEASE_STOPPED` permits fallback only after positive plugin
-quiescence; `LEASE_STOPPING` and `LEASE_UNCERTAIN` do not. `LEASE_STALE`
-denies old or mismatched sessions/generations. Repeated release for the same
-session and generation reports the ongoing stop or confirmed stop; it must
-not create a lease. A failed or timed-out call,
-Binder death or disconnect never permits fallback. Non-acquired results carry
-generation zero except stop-related results, which carry the fenced generation.
-All AIDL calls are synchronous; use worker threads and do not hold state locks
-across callbacks. Host commands remain host-authorized and host-executed;
-these DTOs carry no Ditto SDK objects, credentials or identity.
-
-`FencedOwnership` is an engine-neutral, process-local state machine, not an
-authorization mechanism or shutdown proof. Its trusted local adapter must
-use a single gate per Android user, map Binder sessions to stable local identity
-objects, serialize checks with engine operations, verify quiescence before calling
-`acquire`, and call `confirmPluginStopped` only on positive shutdown evidence.
-Death or timeout must call `markUncertain`. Persisted, monotonic fencing across
-process restarts is not provided. A single plugin lease does not prevent a
-second host's bundled engine from running. Cross-host exclusion, migration,
-rollback, persistence/crash recovery and on-device parity remain unresolved;
-keep availability false and ownership null until those gates are independently
-established and reviewed.
+`FencedOwnership` is only an in-memory helper; it is not authorization,
+cross-host exclusion or shutdown proof.
 
 ## Discovery
 
