@@ -23,6 +23,11 @@ The branch-scoped `verify_tak_sdk_source_access` job tests core CI repository
 read access against the expected immutable SDK commit/tree without building or
 logging credentials.
 
+Host AAR verification runs with the launcher's JDK 17 and shell tools, not
+Python. It checks the Linux SDK AAR against the manifest hash, rejects class
+duplicates within either AAR and across the pair, and writes the host
+`classes.jar` SHA-256 to `verified-classes.sha256`.
+
 ## Host and plugin version synchronization
 
 Plugin CI codes use `baseVersionCode` from

@@ -88,6 +88,7 @@ android_host_regression:
       --tests '*CompanionWatchInfoTest' --tests '*CompanionSettingsChangedTest'
       :app:compileDebugAndroidTestKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
+    - sh ci/verify_host_services_aar.sh
   artifacts:
     when: always
     expire_in: 14 days
@@ -97,6 +98,7 @@ android_host_regression:
       - app/build/reports/tests/
       - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
       - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
       - weartak-plugin-host-services-sdk/build/reports/lint-results-release.*
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -112,18 +114,24 @@ verify_tak_sdk_source_access:
     - python3 ci/verify_tak_sdk_source_access.py
   rules:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-ditto-host-contract" && $CI_PIPELINE_SOURCE == "push"'
-build_tak_sdk_candidate:
+validate_tak_sdk_host_pair:
   extends: .artifactory_credentials
   stage: test
   image:
     name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
     entrypoint: [""]
   script:
-    - sh ci/build_plugin_sdk_candidate.sh
+    - sh ci/build_plugin_sdk.sh
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:testReleaseUnitTest --console=plain
+    - sh ci/verify_host_services_aar.sh
+    - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
   artifacts:
     expire_in: 14 days
     paths:
-      - .gradle/sdk-candidate-probe/.gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
+      - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
   rules:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-ditto-host-contract" && $CI_PIPELINE_SOURCE == "push"'
 release_publisher_tests:
@@ -280,6 +288,7 @@ agp_resolution_diagnostic:
     # Build the same release APK that we previously built manually.
     # Share the 4Gi Gradle heap with Kotlin and bound workers within the 8Gi container.
     - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true clean :app:assembleRelease :openvpn-plugin:assembleRelease :weartak-plugin-host-services-sdk:assembleRelease
+    - sh ci/verify_host_services_aar.sh
 
     # Verify that the resulting APK is signed with the established
     # WearTAK Android production certificate.
@@ -452,6 +461,7 @@ main_release:
       - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
       - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
       - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
 
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
@@ -481,6 +491,9 @@ official_release:
       - app/build/outputs/apk/release/verified-apk.sha256
       - openvpn-plugin/build/outputs/apk/release/*.apk
       - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
 
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/'
