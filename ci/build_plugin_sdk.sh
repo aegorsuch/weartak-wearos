@@ -25,18 +25,28 @@ for name in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do
     esac
 done
 configure_unauthenticated_git() {
-    export GIT_CONFIG_COUNT=4
     export GIT_CONFIG_NOSYSTEM=1
     export GIT_CONFIG_GLOBAL=/dev/null
     export GIT_TERMINAL_PROMPT=0
-    export GIT_CONFIG_KEY_0=credential.helper
-    export GIT_CONFIG_VALUE_0=
-    export GIT_CONFIG_KEY_1=http.extraHeader
-    export GIT_CONFIG_VALUE_1=
-    export GIT_CONFIG_KEY_2=http.followRedirects
-    export GIT_CONFIG_VALUE_2=false
-    export GIT_CONFIG_KEY_3=core.hooksPath
-    export GIT_CONFIG_VALUE_3=/dev/null
+    export GIT_CONFIG_PARAMETERS="'credential.helper=' 'http.extraHeader=' 'http.followRedirects=false' 'core.hooksPath=/dev/null'"
+}
+configure_tak_git_auth() {
+    credentials=$(printf '%s' "gitlab-ci-token:$job_token" | base64 | tr -d '\n')
+    [ -n "$credentials" ] || {
+        echo "Unable to prepare GitLab job-token authentication" >&2; exit 1;
+    }
+    export GIT_CONFIG_PARAMETERS="$GIT_CONFIG_PARAMETERS 'http.https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git/.extraHeader=Authorization: Basic $credentials'"
+    effective_header=$(git config --get-urlmatch http.extraHeader "$REPOSITORY/info/refs") || effective_header=
+    if [ "$effective_header" != "Authorization: Basic $credentials" ]; then
+        if [ -z "$effective_header" ]; then
+            echo "Plugin SDK fetch failed: scoped Git authorization header missing." >&2
+        else
+            echo "Plugin SDK fetch failed: scoped Git authorization configuration mismatch." >&2
+        fi
+        unset effective_header
+        exit 1
+    fi
+    unset effective_header
 }
 case "$REPOSITORY" in
     https://github.com/*)
@@ -71,24 +81,7 @@ if git rev-parse --verify --quiet HEAD >/dev/null; then
     }
 fi
 if [ -n "$job_token" ]; then
-    export GIT_CONFIG_COUNT=5
-    export GIT_CONFIG_KEY_4=http.https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git/.extraHeader
-    credentials=$(printf '%s' "gitlab-ci-token:$job_token" | base64 | tr -d '\n')
-    [ -n "$credentials" ] || {
-        echo "Unable to prepare GitLab job-token authentication" >&2; exit 1;
-    }
-    export GIT_CONFIG_VALUE_4="Authorization: Basic $credentials"
-    effective_header=$(git config --get-urlmatch http.extraHeader "$REPOSITORY/info/refs") || effective_header=
-    if [ "$effective_header" != "$GIT_CONFIG_VALUE_4" ]; then
-        if [ -z "$effective_header" ]; then
-            echo "Plugin SDK fetch failed: scoped Git authorization header missing." >&2
-        else
-            echo "Plugin SDK fetch failed: scoped Git authorization configuration mismatch." >&2
-        fi
-        unset effective_header
-        exit 1
-    fi
-    unset effective_header
+    configure_tak_git_auth
 fi
 if ! fetch_error=$(git fetch --quiet --depth=1 origin "$COMMIT" 2>&1); then
     case "$fetch_error" in

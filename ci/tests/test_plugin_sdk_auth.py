@@ -2,6 +2,7 @@ import base64
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import unittest
 
@@ -26,6 +27,31 @@ class PluginSdkAuthTests(unittest.TestCase):
         self.assertIn("GIT_SSL_CAINFO|GIT_SSL_CAPATH", helper)
         self.assertIn("scoped Git authorization configuration mismatch", helper)
         self.assertIn("Unsupported plugin SDK source host", helper)
+
+    def test_shell_auth_works_without_git_config_count(self):
+        shell = shutil.which("sh")
+        if shell is None or shutil.which("git") is None:
+            self.skipTest("Shell and Git are required")
+        helper = (ROOT / "ci" / "build_plugin_sdk.sh").read_text()
+        functions = helper.split("configure_unauthenticated_git() {", 1)[1].split(
+            '\ncase "$REPOSITORY" in', 1
+        )[0]
+        script = (
+            "set -eu\n"
+            "unset GIT_CONFIG_COUNT\n"
+            "configure_unauthenticated_git() {" + functions + "\n"
+            "REPOSITORY='https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git'\n"
+            "job_token=fixture-job-token\n"
+            "configure_unauthenticated_git\n"
+            "configure_tak_git_auth\n"
+            '[ "$(git config --get-urlmatch http.extraHeader "$REPOSITORY/info/refs")" '
+            '= "Authorization: Basic $credentials" ]\n'
+            'other=$(git config --get-urlmatch http.extraHeader '
+            '"https://git.tak.gov/weartak-plugins/other.git/info/refs" || true)\n'
+            '[ -z "$other" ]\n'
+            '[ -z "${GIT_CONFIG_COUNT:-}" ]\n'
+        )
+        subprocess.run([shell], input=script, text=True, check=True)
 
     def test_source_access_probe_is_scoped_to_the_current_core_branch(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
