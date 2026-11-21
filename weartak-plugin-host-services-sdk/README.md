@@ -39,8 +39,8 @@ single `IDittoRuntimeV1` service. Do not bind the legacy discovery interface or
 a separate ownership endpoint.
 
 Runtime binding, lease acquisition, identity loading and plugin activation remain
-disabled while the handoff restriction is unresolved. The WearOS host persists
-a restart fence before attempting native quiescence. Keep the bundled engine
+disabled while the handoff restriction is unresolved. Before attempting native
+quiescence, the WearOS host must persist a restart fence. Keep the bundled engine
 fenced after process restart, malformed fence state, Binder death, timeout or
 uncertain release. Binder loss or a lease result alone does not prove plugin
 native teardown; never clear the fence or resume fallback until plugin shutdown

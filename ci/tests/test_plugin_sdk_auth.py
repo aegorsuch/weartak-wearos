@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -130,6 +132,56 @@ class PluginSdkAuthTests(unittest.TestCase):
             SDK.git_fetch_environment(
                 SDK.TAK_GOV_SDK_REPOSITORY, {"PATH": "fixture-path"}
             )
+
+    def test_local_source_fetches_only_the_requested_commit(self):
+        if shutil.which("git") is None:
+            self.skipTest("Git is required")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            checkout = Path(directory) / "checkout"
+            source.mkdir()
+            checkout.mkdir()
+            subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+            (source / "file.txt").write_text("fixture", encoding="utf-8")
+            subprocess.run(["git", "add", "file.txt"], cwd=source, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                 "commit", "--quiet", "-m", "fixture"], cwd=source, check=True,
+            )
+            ref = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=source, text=True,
+            ).strip()
+            subprocess.run(["git", "init", "--quiet"], cwd=checkout, check=True)
+
+            SDK.fetch_source(checkout, SDK.TAK_GOV_SDK_REPOSITORY, ref, source)
+            fetched = subprocess.check_output(
+                ["git", "rev-parse", "FETCH_HEAD"], cwd=checkout, text=True,
+            ).strip()
+            self.assertEqual(ref, fetched)
+            with self.assertRaisesRegex(RuntimeError, "unavailable in local source"):
+                SDK.fetch_source(checkout, SDK.TAK_GOV_SDK_REPOSITORY, "f" * 40, source)
+            with self.assertRaisesRegex(RuntimeError, "HTTPS|canonical"):
+                SDK.fetch_source(checkout, "https://example.invalid/sdk.git", ref, source)
+
+    def test_local_source_is_rejected_in_ci(self):
+        with mock.patch.object(SDK.sys, "argv", ["build_plugin_sdk.py", "--local-source", "."]):
+            with mock.patch.dict(os.environ, {"CI": "true"}):
+                with self.assertRaisesRegex(RuntimeError, "only supported outside CI"):
+                    SDK.main()
+
+    def test_local_source_does_not_forward_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"CI_JOB_TOKEN": "fixture-secret"}):
+                with mock.patch.object(SDK.subprocess, "run") as git:
+                    git.return_value.returncode = 0
+                    SDK.fetch_source(
+                        Path(directory), SDK.TAK_GOV_SDK_REPOSITORY, "f" * 40,
+                        Path(directory),
+                    )
+            env = git.call_args.kwargs["env"]
+            self.assertNotIn("CI_JOB_TOKEN", env)
+            self.assertFalse(any("fixture-secret" in value for value in env.values()))
+            self.assertEqual(os.devnull, env["GIT_CONFIG_GLOBAL"])
 
     def test_rejects_untrusted_hosts_and_credential_bearing_urls(self):
         for repository in (

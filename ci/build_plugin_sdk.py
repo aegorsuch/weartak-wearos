@@ -1,5 +1,6 @@
 """Build and verify the immutable, source-pinned plugin SDK before host Gradle."""
 
+import argparse
 import base64
 import hashlib
 import io
@@ -28,8 +29,7 @@ def run(*args, cwd, env=None):
     return subprocess.check_output(args, cwd=cwd, env=child_env, text=True).strip()
 
 
-def git_fetch_environment(repository, source_env=None):
-    source_env = os.environ if source_env is None else source_env
+def validate_repository(repository):
     try:
         parsed = urlsplit(repository)
         port = parsed.port
@@ -49,7 +49,12 @@ def git_fetch_environment(repository, source_env=None):
         )
     if parsed.hostname == "git.tak.gov" and repository != TAK_GOV_SDK_REPOSITORY:
         raise RuntimeError("Only the canonical TAK.gov plugin SDK repository is allowed")
+    return parsed
 
+
+def git_fetch_environment(repository, source_env=None):
+    source_env = os.environ if source_env is None else source_env
+    parsed = validate_repository(repository)
     env = {key: source_env[key] for key in GIT_ENVIRONMENT_KEYS if key in source_env}
     settings = [
         ("credential.helper", ""),
@@ -93,10 +98,18 @@ def credential_free_environment(source_env=None):
     return env
 
 
-def fetch_source(checkout, repository, ref):
-    env = git_fetch_environment(repository)
+def fetch_source(checkout, repository, ref, local_source=None):
+    if local_source is None:
+        env = git_fetch_environment(repository)
+        source = "origin"
+    else:
+        validate_repository(repository)
+        source = str(local_source.resolve(strict=True))
+        if not Path(source).is_dir():
+            raise RuntimeError("Local plugin SDK source must be a directory")
+        env = git_fetch_environment("https://github.com/aegorsuch/weartak-plugin-sdk.git")
     result = subprocess.run(
-        ["git", "fetch", "--quiet", "--depth=1", "origin", ref],
+        ["git", "fetch", "--quiet", "--depth=1", "--no-tags", "--", source, ref],
         cwd=checkout,
         env=env,
         stdout=subprocess.DEVNULL,
@@ -104,6 +117,8 @@ def fetch_source(checkout, repository, ref):
         check=False,
     )
     if result.returncode:
+        if local_source is not None:
+            raise RuntimeError("Pinned plugin SDK commit unavailable in local source")
         raise RuntimeError(
             "Plugin SDK source fetch failed; verify the pinned ref and repository "
             "read settings for the current CI_JOB_TOKEN"
@@ -180,6 +195,14 @@ def apply_overlay(checkout, overlay, root=ROOT):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--local-source", type=Path,
+        help="Fetch the pinned commit from an independently authenticated local Git checkout",
+    )
+    args = parser.parse_args()
+    if args.local_source is not None and os.environ.get("CI"):
+        raise RuntimeError("--local-source is only supported outside CI")
     pin = json.loads((ROOT / "ci" / "plugin-sdk.json").read_text(encoding="utf-8"))
     platform = "windows" if os.name == "nt" else sys.platform
     expected = pin["release_sha256"].get(platform)
@@ -195,7 +218,7 @@ def main():
     if run("git", "remote", "get-url", "origin", cwd=checkout) != pin["repository"]:
         raise RuntimeError("Unexpected plugin SDK source remote")
     verify_checkout_clean(checkout)
-    fetch_source(checkout, pin["repository"], pin["commit"])
+    fetch_source(checkout, pin["repository"], pin["commit"], args.local_source)
     run(
         "git",
         "-c",

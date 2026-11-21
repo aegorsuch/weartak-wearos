@@ -17,8 +17,14 @@ write access for this build. See
 [GitLab CI/CD job token access rules](https://docs.gitlab.com/ci/jobs/ci_job_token/).
 
 The builder removes `CI_JOB_TOKEN` and temporary Git auth configuration before
-running the SDK Gradle build. Local builds from a private TAK.gov source fail
-closed without a CI job token; do not substitute a personal access token.
+running the SDK Gradle build. Do not substitute a personal access token for a
+CI job token. For local builds, first obtain an authorized Git checkout of the
+[SDK repository](https://git.tak.gov/weartak-plugins/weartak-plugin-sdk) using
+your normal Git credential helper; never put credentials in the repository URL.
+Then run `python ci/build_plugin_sdk.py --local-source <checkout-path>`. The
+builder fetches the pinned commit from that local Git repository without
+credentials and independently verifies its commit, tree, overlay and final AAR
+hash. The local-source option is unavailable in CI.
 The branch-scoped `verify_tak_sdk_source_access` job tests core CI repository
 read access against the expected immutable SDK commit/tree without building or
 logging credentials.
@@ -197,9 +203,8 @@ References: [job-token allowlists and user permissions](https://docs.gitlab.com/
 
 Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
 pins upstream source commit/tree, the additive transport-v1 overlay, and the
-combined release AAR SHA-256. Upstream SDK `cfbab369` adds the optional
-`DeviceStatusContract.KEY_TAK_UID` telemetry key without changing Binder
-transactions or Parcelable layouts. This unpublished composite retains all
+combined release AAR SHA-256. Upstream SDK `35b294158c60ab455eb27ad7e69407efc6a6affc`
+adds the unpublished shared Ditto contracts. This composite retains the
 canonical APIs and notices, with 17 frozen
 transport source/AIDL/test files added. The repository includes the overlay-only
 ZIP and per-file inventory under `ci/plugin-sdk-transport/`; both are independently
@@ -217,8 +222,9 @@ The helpers restore tracked files directly from Git blobs (including paths with
 explicit newline attributes), build using
 JDK 17/Android SDK 34 and fails on a hash mismatch. Android CI jobs run the same
 pin through `sh ci/build_plugin_sdk.sh` before testing, lint or signing; the
-Android launcher has Git/jq but no Python. Both helpers enforce remote, exact
-commit/tree, neutral checkout and final AAR hash. Source and outputs stay under ignored
+Android launcher has Git/jq but no Python. Both helpers enforce the configured
+repository identity, exact commit/tree, neutral checkout and final AAR hash.
+Source and outputs stay under ignored
 `.gradle/sdk/<12-character-source-prefix>-<12-character-overlay-prefix>`, outside host `clean`; the complete
 commit, tree and overlay identities are still checked. The short directory avoids Windows AIDL
 path limits. No SDK publisher is required.
