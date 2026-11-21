@@ -226,6 +226,9 @@ def main():
                     "-Pkotlin.compiler.execution.strategy=in-process", "--console=plain"],
                    cwd=checkout, env=credential_free_environment(), check=True)
     aar = checkout / "build" / "outputs" / "aar" / "weartak-plugin-sdk-release.aar"
+    if platform == "linux":
+        subprocess.run(["java", str(ROOT / "ci" / "NormalizeSdkAarModes.java"), str(aar)],
+                       cwd=checkout, env=credential_free_environment(), check=True)
     verify_hash(aar, expected)
     print(f"Verified plugin SDK {pin['commit']} + overlay {overlay['source_sha256']} ({platform}): {expected}")
     print(f"AAR: {aar}")

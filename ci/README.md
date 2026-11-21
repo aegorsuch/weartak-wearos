@@ -23,6 +23,11 @@ The branch-scoped `verify_tak_sdk_source_access` job tests core CI repository
 read access against the expected immutable SDK commit/tree without building or
 logging credentials.
 
+On Linux, the builders normalize supported AAR ZIP file modes from `0600` to
+`0644` after the SDK build, without changing file contents or process umask.
+Unsupported ZIP structures fail closed. The pinned full AAR SHA-256 is still
+checked afterward; normalization does not accept a different artifact.
+
 Host AAR verification runs with the launcher's JDK 17 and shell tools, not
 Python. It checks the Linux SDK AAR against the manifest hash, rejects class
 duplicates within either AAR and across the pair, and writes the host

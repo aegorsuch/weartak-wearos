@@ -160,6 +160,7 @@ sha256sum -c "$INVENTORY"
 chmod +x gradlew
 ./gradlew assembleRelease --no-daemon --max-workers=2 \
     -Pkotlin.compiler.execution.strategy=in-process --console=plain
+java "$ROOT/ci/NormalizeSdkAarModes.java" build/outputs/aar/weartak-plugin-sdk-release.aar
 sha256sum build/outputs/aar/weartak-plugin-sdk-release.aar
 printf '%s  %s\n' "$SHA" build/outputs/aar/weartak-plugin-sdk-release.aar | sha256sum -c -
 printf 'Verified plugin SDK %s + overlay %s: %s\n' "$COMMIT" "$OVERLAY_SHA" "$SHA"
