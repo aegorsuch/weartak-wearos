@@ -210,12 +210,18 @@ class ChatService : Service() {
         Log.v(TAG, "Received TakChatEvent")
 
         // 2) Merge into in-memory inbox
+        var hasNewIncomingMessage = false
         incomingRooms.forEach { rawRoom ->
             val incoming = rawRoom.copy(messageList = rawRoom.messageList.filterNot {
                 com.aitech.weartak_civ.command.SensitiveEnrollment.isSensitiveText(it.message)
             })
             if (incoming.messageList.isEmpty()) return@forEach
-            chatRoomMap[incoming.uid] = ChatInboxMerge.merge(chatRoomMap[incoming.uid], incoming)
+            val existing = chatRoomMap[incoming.uid]
+            // Only messages newly added by the merge count; duplicates and local echoes stay silent.
+            if (ChatInboxMerge.addedMessages(existing, incoming).any { it.uid != MainActivity.device_uid }) {
+                hasNewIncomingMessage = true
+            }
+            chatRoomMap[incoming.uid] = ChatInboxMerge.merge(existing, incoming)
         }
 
         // 3) Sort & publish once
@@ -223,6 +229,12 @@ class ChatService : Service() {
 
         // 4) Notify the data layer (updates per‐room booleans correctly)
         publishInboxToRepo()
+
+        if (hasNewIncomingMessage) {
+            runCatching {
+                com.aitech.weartak_civ.Utils.vibrateWatch(vibDurationMs = 150L, numberOfVibes = 2, timeBtwnVibesMs = 120L)
+            }.onFailure { Log.w(TAG, "Chat vibration failed", it) }
+        }
 
         // 5) (Optional) log for debugging
         logChatRooms(sortedInbox)

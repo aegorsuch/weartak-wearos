@@ -1602,6 +1602,8 @@ class DittoReceiveIntegrationTest {
     @Test fun actualTcpMulticastAndDittoAdaptersExposeOneEntityPerUidAndOneNotificationPerRevision() = runTest {
         val f = Fixture(this)
         f.prepareTransportAdapters()
+        mockkObject(com.aitech.weartak_civ.Utils)
+        every { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) } returns Unit
         f.startUnreadCollector()
         val updates = java.util.concurrent.CopyOnWriteArrayList<BloodhoundRepository.BloodhoundUpdate>()
         val notifications = backgroundScope.launch(Dispatchers.Unconfined) {
@@ -1611,9 +1613,11 @@ class DittoReceiveIntegrationTest {
             val docs = arrayOf(f.doc("alice", "a-f-G-U-C"), f.doc(), f.route(), f.chat(), f.alarm())
             f.tcp(*docs)
             assertEquals(2, updates.size)
+            verify(exactly = 2) { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) }
             f.multicast(*docs)
             f.emit("mapitem", *docs)
             f.drain()
+            verify(exactly = 2) { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) }
             assertEquals(1, f.repo.receivedUserList.value.size)
             assertEquals(1, f.repo.receivedMarkerList.value.size)
             assertEquals(1, f.bh.remoteAlerts.value.size)
@@ -1631,7 +1635,9 @@ class DittoReceiveIntegrationTest {
             assertEquals(2, f.repo.chatRoomsFlow.value.single().messageList.size)
             assertEquals(2, f.bh.remoteAlerts.value.size)
             assertEquals(2, f.repo.receivedMarkerList.value.size)
+            verify(exactly = 4) { com.aitech.weartak_civ.Utils.vibrateWatch(any(), any(), any(), any()) }
         } finally {
+            unmockkObject(com.aitech.weartak_civ.Utils)
             notifications.cancel()
             f.close()
         }
