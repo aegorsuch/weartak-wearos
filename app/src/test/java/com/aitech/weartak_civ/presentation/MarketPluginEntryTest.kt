@@ -33,7 +33,7 @@ class MarketPluginEntryTest {
         val installing = mutableStateOf(true)
         val result = mutableStateOf<String?>(null)
         var retries = 0
-        val plugin = hostPlugin()
+        val plugin = hostPlugin().copy(publisher = " aegorsuch ")
         compose.setContent {
             WearTAKCIVTheme {
                 MarketPluginEntry(
@@ -51,7 +51,7 @@ class MarketPluginEntryTest {
             .assertIsDisplayed()
         compose.onNodeWithText("Downloading and verifying…").assertDoesNotExist()
         compose.onNodeWithText("WearTAK-WearOS").assertIsNotEnabled()
-        compose.onNodeWithText("WearTAK by WearTAK").assertDoesNotExist()
+        compose.onNodeWithText("WearTAK by  aegorsuch ").assertDoesNotExist()
         compose.onNodeWithContentDescription("Update", useUnmergedTree = true).assertDoesNotExist()
 
         compose.runOnIdle {
@@ -86,6 +86,61 @@ class MarketPluginEntryTest {
         }
         compose.onNodeWithText("WearTAK by WearTAK").assertIsDisplayed()
         compose.onNodeWithText("WearTAK-WearOS").assertDoesNotExist()
+    }
+
+    @Test
+    fun aegorsuchPluginRowsHidePublisherIgnoringCaseAndWhitespace() {
+        val publisher = mutableStateOf("aegorsuch")
+        compose.setContent {
+            WearTAKCIVTheme {
+                MarketPluginEntry(
+                    plugin = hostPlugin().copy(
+                        name = "Example",
+                        publisher = publisher.value,
+                        packageName = "org.example.plugin",
+                        hostUpdate = false,
+                    ),
+                    installState = MarketInstallState.INSTALL,
+                    canStartInstall = true,
+                    installing = false,
+                    installResult = null,
+                    onInstall = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Example").assertIsDisplayed()
+        compose.onNodeWithText("Example by aegorsuch").assertDoesNotExist()
+        compose.runOnIdle { publisher.value = " \tAeGoRsUcH \n" }
+        compose.onNodeWithText("Example").assertIsDisplayed()
+        compose.onNodeWithText("Example by  \tAeGoRsUcH \n").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "zh-w227dp-h227dp-round-340dpi")
+    fun localizedPluginRowsKeepOtherPublisherAttribution() {
+        val publisher = mutableStateOf(" aegorsuch ")
+        compose.setContent {
+            WearTAKCIVTheme {
+                MarketPluginEntry(
+                    plugin = hostPlugin().copy(
+                        name = "Example",
+                        publisher = publisher.value,
+                        packageName = "org.example.plugin",
+                        hostUpdate = false,
+                    ),
+                    installState = MarketInstallState.INSTALL,
+                    canStartInstall = true,
+                    installing = false,
+                    installResult = null,
+                    onInstall = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("Example").assertIsDisplayed()
+        compose.runOnIdle { publisher.value = "Other" }
+        compose.onNodeWithText("Example（由 Other 提供）").assertIsDisplayed()
     }
 
     private fun hostPlugin() = MarketPlugin(
