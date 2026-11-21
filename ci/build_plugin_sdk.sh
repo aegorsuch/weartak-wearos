@@ -81,6 +81,24 @@ if ! fetch_error=$(git fetch --quiet --depth=1 origin "$COMMIT" 2>&1); then
             echo "Plugin SDK fetch failed: authentication or authorization rejected." >&2 ;;
         *"404"*|*"not found"*)
             echo "Plugin SDK fetch failed: repository or ref not found." >&2 ;;
+        *"bad config"*|*"invalid key"*|*"missing config"*|*"invalid config"*)
+            echo "Plugin SDK fetch failed: invalid Git configuration." >&2 ;;
+        *"dubious ownership"*|*"unsafe repository"*)
+            echo "Plugin SDK fetch failed: Git rejected repository ownership." >&2 ;;
+        *"SSL"*|*"certificate"*|*"TLS"*)
+            echo "Plugin SDK fetch failed: TLS verification or negotiation error." >&2 ;;
+        *"resolve host"*|*"connect to"*|*"timed out"*)
+            echo "Plugin SDK fetch failed: network connection error." >&2 ;;
+        *"redirect"*)
+            echo "Plugin SDK fetch failed: redirect refused." >&2 ;;
+        *"not a git repository"*|*"does not appear to be a git repository"*)
+            echo "Plugin SDK fetch failed: Git repository unavailable." >&2 ;;
+        *"could not read Username"*|*"terminal prompts disabled"*)
+            echo "Plugin SDK fetch failed: Git requested credentials." >&2 ;;
+        *"could not read Password"*)
+            echo "Plugin SDK fetch failed: Git requested a password." >&2 ;;
+        *"protocol"*)
+            echo "Plugin SDK fetch failed: unsupported or blocked protocol." >&2 ;;
         *)
             echo "Plugin SDK fetch failed: Git reported an unclassified error." >&2 ;;
     esac
