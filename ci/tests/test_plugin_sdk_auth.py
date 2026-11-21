@@ -1,5 +1,6 @@
 import base64
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import unittest
@@ -30,6 +31,7 @@ class PluginSdkAuthTests(unittest.TestCase):
             "\nrelease_publisher_tests:", 1
         )[0]
 
+        self.assertIn("name: python:3.12-bookworm", job)
         self.assertIn("python3 ci/verify_tak_sdk_source_access.py", job)
         self.assertIn("aegorsuch-weartak-313-ditto-host-contract", job)
         self.assertIn("CI_PROJECT_ID == \"6739\"", job)
@@ -61,7 +63,8 @@ class PluginSdkAuthTests(unittest.TestCase):
     def test_auth_header_is_scoped_to_the_exact_sdk_repository(self):
         repository = SDK.TAK_GOV_SDK_REPOSITORY
         env = SDK.git_fetch_environment(
-            repository, {"PATH": "fixture-path", "CI_JOB_TOKEN": "fixture-job-token"}
+            repository,
+            {"PATH": os.environ["PATH"], "CI_JOB_TOKEN": "fixture-job-token"},
         )
         sdk_url = repository + "/info/refs?service=git-upload-pack"
         other_url = "https://git.tak.gov/weartak-plugins/another-project.git/info/refs"

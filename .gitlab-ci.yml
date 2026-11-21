@@ -106,7 +106,7 @@ android_host_regression:
 verify_tak_sdk_source_access:
   stage: test
   image:
-    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    name: python:3.12-bookworm
     entrypoint: [""]
   script:
     - python3 ci/verify_tak_sdk_source_access.py
