@@ -112,6 +112,20 @@ verify_tak_sdk_source_access:
     - python3 ci/verify_tak_sdk_source_access.py
   rules:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-ditto-host-contract" && $CI_PIPELINE_SOURCE == "push"'
+build_tak_sdk_candidate:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - sh ci/build_plugin_sdk_candidate.sh
+  artifacts:
+    expire_in: 14 days
+    paths:
+      - .gradle/sdk-candidate-probe/.gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-ditto-host-contract" && $CI_PIPELINE_SOURCE == "push"'
 release_publisher_tests:
   stage: test
   image:
