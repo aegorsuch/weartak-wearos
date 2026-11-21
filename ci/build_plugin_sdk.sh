@@ -18,6 +18,38 @@ OVERLAY_SHA=$(jq -er .overlay.source_sha256 "$PIN")
 }
 SHORT="$(printf '%s' "$COMMIT" | cut -c1-12)-$(printf '%s' "$OVERLAY_SHA" | cut -c1-12)"
 CHECKOUT="$ROOT/.gradle/sdk/$SHORT"
+configure_unauthenticated_git() {
+    export GIT_CONFIG_COUNT=4
+    export GIT_CONFIG_NOSYSTEM=1
+    export GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_TERMINAL_PROMPT=0
+    export GIT_CONFIG_KEY_0=credential.helper
+    export GIT_CONFIG_VALUE_0=
+    export GIT_CONFIG_KEY_1=http.extraHeader
+    export GIT_CONFIG_VALUE_1=
+    export GIT_CONFIG_KEY_2=http.followRedirects
+    export GIT_CONFIG_VALUE_2=false
+    export GIT_CONFIG_KEY_3=core.hooksPath
+    export GIT_CONFIG_VALUE_3=/dev/null
+}
+case "$REPOSITORY" in
+    https://github.com/*)
+        job_token=
+        unset CI_JOB_TOKEN
+        ;;
+    https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git)
+        [ -n "${CI_JOB_TOKEN:-}" ] || {
+            echo "TAK.gov SDK fetch requires CI_JOB_TOKEN" >&2; exit 1;
+        }
+        job_token=$CI_JOB_TOKEN
+        unset CI_JOB_TOKEN
+        ;;
+    *)
+        echo "Unsupported plugin SDK source host" >&2
+        exit 1
+        ;;
+esac
+configure_unauthenticated_git
 mkdir -p "$CHECKOUT"
 cd "$CHECKOUT"
 if [ ! -d .git ]; then
@@ -32,7 +64,25 @@ if git rev-parse --verify --quiet HEAD >/dev/null; then
         echo "Plugin SDK checkout contains tracked changes" >&2; exit 1;
     }
 fi
-git fetch --quiet --depth=1 origin "$COMMIT"
+if [ -n "$job_token" ]; then
+    export GIT_CONFIG_COUNT=5
+    export GIT_CONFIG_KEY_4=http.https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git/.extraHeader
+    credentials=$(printf '%s' "gitlab-ci-token:$job_token" | base64 | tr -d '\n')
+    [ -n "$credentials" ] || {
+        echo "Unable to prepare GitLab job-token authentication" >&2; exit 1;
+    }
+    export GIT_CONFIG_VALUE_4="Authorization: Basic $credentials"
+fi
+if ! git fetch --quiet --depth=1 origin "$COMMIT" >/dev/null 2>&1; then
+    echo "Plugin SDK source fetch failed; verify pinned ref and job-token read settings." >&2
+    exit 1
+fi
+# Keep the ephemeral token out of Git hooks, checkout processing and Gradle.
+unset CI_JOB_TOKEN job_token GIT_CONFIG_COUNT GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL GIT_TERMINAL_PROMPT
+for name in $(env | sed -n 's/^\(GIT_CONFIG_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$name"
+done
+unset credentials
 git -c core.autocrlf=false checkout --quiet --detach "$COMMIT"
 [ "$(git rev-parse HEAD)" = "$COMMIT" ] || {
     echo "Unexpected plugin SDK source revision" >&2; exit 1;

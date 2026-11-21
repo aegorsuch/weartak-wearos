@@ -1,5 +1,28 @@
 # Rolling GitHub pipeline release
 
+## Immutable plugin SDK source
+
+The SDK builder accepts credential-free HTTPS sources on `github.com` or the
+exact TAK.gov SDK URL `https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git`.
+GitHub fetches remain unauthenticated. TAK.gov fetches use only
+the current job's ephemeral `CI_JOB_TOKEN`, passed to Git as HTTP Basic
+authentication for `gitlab-ci-token` through process environment configuration;
+the token is not put in a remote URL, command argument, file or log. The source
+SDK project must permit repository reads by the WearOS core job token. For a
+private source project, allowlist only the WearOS core project with repository
+read permission. For an internal project, GitLab may permit reads outside the
+allowlist unless repository visibility is restricted; verify access with an
+actual core CI job token before pinning. Do not disable the allowlist or grant
+write access for this build. See
+[GitLab CI/CD job token access rules](https://docs.gitlab.com/ci/jobs/ci_job_token/).
+
+The builder removes `CI_JOB_TOKEN` and temporary Git auth configuration before
+running the SDK Gradle build. Local builds from a private TAK.gov source fail
+closed without a CI job token; do not substitute a personal access token.
+The branch-scoped `verify_tak_sdk_source_access` job tests core CI repository
+read access against the expected immutable SDK commit/tree without building or
+logging credentials.
+
 ## Host and plugin version synchronization
 
 Plugin CI codes use `baseVersionCode` from
