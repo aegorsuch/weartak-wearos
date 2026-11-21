@@ -271,8 +271,11 @@ internal fun MarketPluginEntry(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (plugin.hostUpdate) stringResource(R.string.market_host_name)
-                    else stringResource(R.string.market_plugin_by_publisher, plugin.name, plugin.publisher),
+                    when {
+                        plugin.hostUpdate -> stringResource(R.string.market_host_name)
+                        plugin.publisher.trim().equals("aegorsuch", ignoreCase = true) -> plugin.name
+                        else -> stringResource(R.string.market_plugin_by_publisher, plugin.name, plugin.publisher)
+                    },
                     modifier = Modifier.weight(1f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
