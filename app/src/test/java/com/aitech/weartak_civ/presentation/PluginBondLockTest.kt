@@ -99,6 +99,51 @@ class PluginBondLockTest {
         }
     }
 
+    @Test fun audioDetectorRowsKeepPrimaryActionsAndInstalledPluginManagement() {
+        var kind by mutableStateOf(BuiltInPlugin.DART)
+        var installed by mutableStateOf(false)
+        var checked by mutableStateOf(false)
+        var toggles = 0
+        var details = 0
+        var uninstalls = 0
+        var infos = 0
+        compose.setContent {
+            WearTAKCIVTheme {
+                AudioDetectorPluginChip(
+                    kind = kind,
+                    title = kind.name,
+                    phoneManagedSettings = false,
+                    checked = checked,
+                    installed = installed,
+                    onCheckedChange = { checked = it; toggles++ },
+                    onDetails = { details++ },
+                    onUninstall = { uninstalls++ },
+                    onInfo = { infos++ },
+                )
+            }
+        }
+        for (next in listOf(BuiltInPlugin.DART, BuiltInPlugin.FALCON)) {
+            compose.runOnIdle { kind = next; installed = false; checked = false }
+            val tag = "settings_plugin_${next.name.lowercase(Locale.ROOT)}_management"
+            compose.onNodeWithTag(tag).assertDoesNotExist()
+            compose.onNodeWithText(next.name).performClick()
+            compose.onNode(isToggleable()).performClick().assertIsOn()
+            compose.runOnIdle { installed = true }
+            val actions = compose.onNodeWithTag(tag).fetchSemanticsNode().config[SemanticsActions.CustomActions]
+            compose.runOnIdle {
+                assertEquals(listOf("Delete", "Edit"), actions.map { it.label })
+                assertTrue(actions[0].action())
+                assertTrue(actions[1].action())
+            }
+        }
+        compose.runOnIdle {
+            assertEquals(2, toggles)
+            assertEquals(2, details)
+            assertEquals(2, uninstalls)
+            assertEquals(2, infos)
+        }
+    }
+
     @Test fun bloodhoundMenuLabelIsRenamedInEverySupportedLocale() {
         val context = RuntimeEnvironment.getApplication()
         for (language in listOf("en", "ar", "de", "es", "fr", "ja", "ko", "tr", "vi", "zh")) {

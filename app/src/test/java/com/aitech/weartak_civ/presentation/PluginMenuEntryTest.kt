@@ -113,6 +113,29 @@ class PluginMenuEntryTest {
     }
 
     @Test
+    fun audioDetectorsUseLegacyEntriesWithoutDuplicatingInstalledPackages() {
+        for ((kind, packageName) in listOf(
+            BuiltInPlugin.DART to "com.weartak.plugin.dart",
+            BuiltInPlugin.FALCON to "com.weartak.plugin.falcon",
+        )) {
+            val detector = pluginUi("different-declared-id", "WearTAK detector").copy(
+                packageName = packageName,
+                isLoaded = false,
+                isEnabled = false,
+            )
+            val unrelated = pluginUi(packageName, kind.name).copy(packageName = "org.example.other")
+            val entries = (listOf(PluginMenuEntry.BuiltIn(kind, kind.name)) +
+                listOf(detector, unrelated).installedPluginMenuEntries()).alphabetizedPluginEntries()
+
+            assertEquals(2, entries.size)
+            assertEquals("builtin:${kind.name}", entries.first().key)
+            assertEquals(unrelated, (entries.last() as PluginMenuEntry.Installed).plugin)
+            assertEquals(1, listOf(detector.copy(isEnabled = true, isLoaded = true), unrelated)
+                .installedPluginMenuEntries().size)
+        }
+    }
+
+    @Test
     fun handlerSortsByItsShortMenuNameWithoutRenamingOtherPackages() {
         val handler = pluginUi("handler-id", "WearTAK Handler")
             .copy(packageName = "com.weartak.plugin.handler")
