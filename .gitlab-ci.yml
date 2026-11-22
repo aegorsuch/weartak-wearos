@@ -43,6 +43,7 @@ android_host_regression:
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
       --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
       --tests '*CotDispatchTransportResumeTest'
+      --tests '*DittoReceiveIntegrationTest' --tests '*MulticastChatCommandsTest'
       --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
       --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
       --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
