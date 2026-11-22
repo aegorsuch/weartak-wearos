@@ -3,9 +3,11 @@ package com.aitech.weartak_civ.service
 import android.app.Application
 import android.net.Network
 import com.aitech.weartak_civ.TakMulticastEndpoints
+import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.WifiMulticastReceiver
 import com.aitech.weartak_civ.command.PendingServerEnrollment
 import com.aitech.weartak_civ.cot.TakServerCotIngestor
+import com.aitech.weartak_civ.cot.TakServerCotIngestResult
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.DittoPdlSource
 import com.aitech.weartak_civ.events.TakChatEvent
@@ -56,6 +58,7 @@ class MulticastChatCommandsTest {
 
     @Before fun setUp() = runBlocking {
         val app = RuntimeEnvironment.getApplication()
+        WearTakApplication.AppCtx.init(app)
         MainActivity.mainActivity = mockk { every { applicationContext } returns app }
         MainActivity.device_uid = "test-watch"
         MainActivity.callsign = "TEST-WATCH"
@@ -109,6 +112,32 @@ class MulticastChatCommandsTest {
         PendingServerEnrollment.clear()
         unmockkObject(TAKConnectService.Companion)
         unmockkObject(ChatCommandReplies)
+    }
+
+    @Test fun pluginIngressAcceptsCotBeforeMainActivityStarts() = runBlocking {
+        val activityField = MainActivity::class.java.getDeclaredField("mainActivity").apply {
+            isAccessible = true
+        }
+        val previousActivity = activityField.get(null)
+        activityField.set(null, null)
+        try {
+            val factory = TAKConnectService::class.java.declaredMethods.single {
+                it.returnType == TakServerCotIngestor::class.java && it.parameterCount == 0
+            }.apply { isAccessible = true }
+            val ingestor = factory.invoke(null) as TakServerCotIngestor
+            every { TAKConnectService.Companion getProperty "cotIngestor" } returns ingestor
+            val now = Instant.ofEpochMilli(now)
+            val xml = """<event version="2.0" uid="test-watch" type="a-f-G-U-C" how="m-g"
+                time="$now" start="$now" stale="${now.plusSeconds(600)}">
+                <point lat="38" lon="-77" hae="0" ce="10" le="10"/>
+                <detail><contact callsign="TEST-WATCH"/></detail></event>"""
+            assertEquals(
+                TakServerCotIngestResult.USER,
+                TAKConnectService.handleInboundCotWithResult(xml, "plugin:com.weartak.plugin.ditto"),
+            )
+        } finally {
+            activityField.set(null, previousActivity)
+        }
     }
 
     @Test fun productionMulticastCommandPolicyAndCrossTransportMatrix() = runBlocking {

@@ -11,6 +11,7 @@ import com.aitech.weartak_civ.data.BloodhoundRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.RouteFollow
 import com.aitech.weartak_civ.TakMulticastEndpoints
+import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.WifiMulticastReceiver
 import com.aitech.weartak_civ.events.TakChatEvent
 import com.aitech.weartak_civ.events.DittoDocumentEvent
@@ -78,6 +79,7 @@ class DittoReceiveIntegrationTest {
         private var bloodhoundServiceScope: kotlinx.coroutines.CoroutineScope? = null
 
         init {
+            WearTakApplication.AppCtx.init(app)
             MainActivity.device_uid = "watch"
             MainActivity.versionNumber = "test"
             repo = DataRepository(app, projectionScope = scope.backgroundScope)

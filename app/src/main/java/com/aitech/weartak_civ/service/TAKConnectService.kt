@@ -2344,14 +2344,16 @@ class TAKConnectService: Service() {
         val newServerAddedViaUiConnectionStatusLiveData: MutableLiveData<String> = MutableLiveData<String>(TAK_SERVER_CONNECTING_STRING)
 
         private val bhRepo by lazy {
+            val application = WearTakApplication.AppCtx.app
             try {
-                (context as WearTakApplication).bhRepo
+                (application as WearTakApplication).bhRepo
             } catch (_: Throwable) {
-                BloodhoundRepository(context)
+                BloodhoundRepository(application)
             }
         }
 
         private val cotIngestor by lazy {
+            val application = WearTakApplication.AppCtx.app
             TakServerCotIngestor(
                 sink = object : TakServerCotSink {
                     // Offer every inbound CoT to the plugins before WearTAK parses it, the same way
@@ -2368,7 +2370,7 @@ class TAKConnectService: Service() {
                             AppDiagnostics.measureProcessing(ProcessingStage.PLUGIN_OFFER) {
                                 PluginCotIngress.offer(
                                     envelope,
-                                    (context as WearTakApplication).pluginManager.settingsCoordinator,
+                                    (application as WearTakApplication).pluginManager.settingsCoordinator,
                                 )
                             }
                         }.getOrElse {
@@ -2517,7 +2519,7 @@ class TAKConnectService: Service() {
                 isGeofenceEnabled = { geofenceEnabled },
                 deviceUid = { MainActivity.device_uid },
                 deviceCallsign = { MainActivity.callsign },
-                chatCommandHandler = ChatCommandRuntime.create(context, dataRepository),
+                chatCommandHandler = ChatCommandRuntime.create(application, dataRepository),
                 dataPackageHandler = { offer, envelope -> receiveDataPackage(offer, envelope) },
                 isInboundAllowed = { !dataRepository.isCompanionConnected.value }
             )
