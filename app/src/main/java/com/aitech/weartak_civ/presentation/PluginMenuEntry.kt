@@ -4,10 +4,12 @@ import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.MoppStatus
 import com.aitech.weartak_civ.integration.plugin.HandlerExertion
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
+import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 
 internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
@@ -55,6 +57,41 @@ internal fun BuiltInPluginToggleChip(
     )
 }
 
+@Composable
+internal fun AudioDetectorPluginChip(
+    kind: BuiltInPlugin,
+    title: String,
+    phoneManagedSettings: Boolean,
+    checked: Boolean,
+    installed: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onDetails: () -> Unit,
+    onUninstall: () -> Unit,
+    onInfo: () -> Unit,
+) {
+    val chip: @Composable () -> Unit = {
+        BuiltInPluginToggleChip(
+            kind = kind,
+            phoneManagedSettings = phoneManagedSettings,
+            title = title,
+            label = stringResource(R.string.unfunded_request),
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            onClick = onDetails,
+        )
+    }
+    if (installed) {
+        WearTAKSwipeToRevealChip(
+            onPrimaryActionClick = onUninstall,
+            onSecondaryActionClick = onInfo,
+            chipType = { chip() },
+            testTag = "settings_plugin_${kind.name.lowercase(java.util.Locale.ROOT)}_management",
+        )
+    } else {
+        chip()
+    }
+}
+
 internal sealed interface PluginMenuEntry {
     val key: String
     val title: String
@@ -80,7 +117,11 @@ internal fun List<PluginMenuEntry>.withoutSomewearPlaceholder(): List<PluginMenu
     filterNot { it is PluginMenuEntry.BuiltIn && it.kind == BuiltInPlugin.SOMEWEAR_LABS }
 
 internal fun List<PluginUI>.installedPluginMenuEntries(): List<PluginMenuEntry> =
-    map { PluginMenuEntry.Installed(it) }
+    filterNot {
+        it.packageName == PluginDetectionEventBridge.DART_PACKAGE ||
+            it.packageName == PluginDetectionEventBridge.FALCON_PACKAGE
+    }
+        .map { PluginMenuEntry.Installed(it) }
 
 internal fun PluginUI.menuLabel(moppStatus: MoppStatus?, noneLabel: String): String? =
     if (packageName == MoppPluginAvailability.PACKAGE && moppStatus != null) {

@@ -180,7 +180,9 @@ import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_REMOVED
 import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_TOGGLED
 import com.aitech.weartak_civ.integration.plugin.PluginCompatibilityStatus
 import com.aitech.weartak_civ.integration.plugin.PluginActivityLauncher
+import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.integration.plugin.PluginLoadingStatus
+import com.aitech.weartak_civ.integration.plugin.PluginRepositoryOutcome
 import com.aitech.weartak_civ.integration.plugin.PluginUninstallRequest
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 import com.aitech.weartak_civ.integration.plugin.PluginViewModel
@@ -3333,26 +3335,45 @@ fun WearTAKSettingsNav(
                                         onClick = { navController.navigate("sensor_manager") }
                                     )
                                 }
-                                BuiltInPlugin.DART -> {
-                                    BuiltInPluginToggleChip(
+                                BuiltInPlugin.DART, BuiltInPlugin.FALCON -> {
+                                    val isDart = entry.kind == BuiltInPlugin.DART
+                                    val packageName = if (isDart) PluginDetectionEventBridge.DART_PACKAGE
+                                        else PluginDetectionEventBridge.FALCON_PACKAGE
+                                    val detector = pluginList.firstOrNull {
+                                        it.packageName == packageName
+                                    }
+                                    AudioDetectorPluginChip(
                                         kind = entry.kind,
                                         phoneManagedSettings = phoneManagedSettings,
                                         title = entry.title,
-                                        label = stringResource(R.string.dart_plugin_required),
-                                        checked = enableGunshotDetection,
-                                        onCheckedChange = { settingsVm.storeEnableOnnxGunshotService(it) },
-                                        onClick = { navController.navigate("gunshot_detection") }
-                                    )
-                                }
-                                BuiltInPlugin.FALCON -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = stringResource(R.string.unfunded_request),
-                                        checked = enableUasDetection,
-                                        onCheckedChange = { settingsVm.storeEnableOnnxUasService(it) },
-                                        onClick = { navController.navigate("uav_detection") }
+                                        checked = if (isDart) enableGunshotDetection else enableUasDetection,
+                                        installed = detector != null,
+                                        onCheckedChange = { enabled ->
+                                            if (isDart) settingsVm.storeEnableOnnxGunshotService(enabled)
+                                            else settingsVm.storeEnableOnnxUasService(enabled)
+                                            if (enabled && detector != null && !detector.isEnabled) {
+                                                pluginVm.loadPlugin(detector.pluginId)
+                                                val result = pluginVm.operationOutcome.value
+                                                if (result is PluginRepositoryOutcome.Failure) {
+                                                    Log.e(TAG, "Failed to load $packageName: ${result.reason}")
+                                                }
+                                            }
+                                        },
+                                        onDetails = {
+                                            navController.navigate(if (isDart) "gunshot_detection" else "uav_detection")
+                                        },
+                                        onUninstall = {
+                                            if (detector != null) {
+                                                pluginitem.value = detector
+                                                shouldShowDialog.value = true
+                                            }
+                                        },
+                                        onInfo = {
+                                            if (detector != null) {
+                                                pluginitem.value = detector
+                                                showPopup.value = true
+                                            }
+                                        },
                                     )
                                 }
                                 BuiltInPlugin.CRM -> {
