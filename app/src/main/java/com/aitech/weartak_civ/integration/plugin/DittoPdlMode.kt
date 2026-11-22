@@ -11,10 +11,33 @@ import java.util.concurrent.TimeUnit
 
 internal enum class DittoPdlMode { COMMUNITY, PRIVATE, NOT_CONFIGURED }
 
+internal data class DittoMeshStatus(val runtime: Int, val permissions: Int) {
+    val canPrompt: Boolean get() = runtime in 2..4 && permissions == 2
+    val needsRecovery: Boolean get() = runtime in 2..5 &&
+        (permissions == 3 || (runtime == 5 && permissions == 2))
+
+    companion object {
+        @Suppress("DEPRECATION")
+        fun parse(status: PluginStatusParcel?): DittoMeshStatus? {
+            return try {
+                val extras = status?.extras ?: return null
+                val runtime = extras.get("com.weartak.plugin.ditto.runtimeState.v1") as? Int ?: return null
+                val permissions = extras.get("com.weartak.plugin.ditto.meshPermissions.v1") as? Int ?: return null
+                if (runtime !in 1..5 || permissions !in 1..3) null else DittoMeshStatus(runtime, permissions)
+            } catch (error: RuntimeException) {
+                Log.w("WearTAK-DittoPdl", "Invalid mesh status extras", error)
+                null
+            }
+        }
+    }
+}
+
 internal class DittoPdlModeState {
     private val lock = Any()
     private val state = MutableStateFlow<DittoPdlMode?>(null)
     val mode = state.asStateFlow()
+    private val meshState = MutableStateFlow<DittoMeshStatus?>(null)
+    val mesh = meshState.asStateFlow()
     private var revision = 0L
     private var closed = false
 
@@ -25,20 +48,29 @@ internal class DittoPdlModeState {
             if (!closed) {
                 revision++
                 state.value = parse(status)
+                meshState.value = DittoMeshStatus.parse(status)
             }
         }
     }
 
     fun completeRead(readRevision: Long, status: PluginStatusParcel?) {
         synchronized(lock) {
-            if (!closed && revision == readRevision) state.value = parse(status)
+            if (!closed && revision == readRevision) {
+                state.value = parse(status)
+                meshState.value = DittoMeshStatus.parse(status)
+            }
         }
+    }
+
+    fun isReadCurrent(readRevision: Long): Boolean = synchronized(lock) {
+        !closed && revision == readRevision
     }
 
     fun close() = synchronized(lock) {
         closed = true
         revision++
         state.value = null
+        meshState.value = null
     }
 
     @Suppress("DEPRECATION")

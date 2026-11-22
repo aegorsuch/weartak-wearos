@@ -295,6 +295,9 @@ class WearTAKSettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.aitech.weartak_civ.integration.plugin.DittoMeshPermissions.observe(
+            this, (application as com.aitech.weartak_civ.WearTakApplication).pluginManager
+        )
         Log.i(TAG, "WearTAKSettingsActivity onCreate()")
         enrollmentToken = intent.getStringExtra(EXTRA_ENROLLMENT_TOKEN)
         shortcutRoute = settingsShortcutRoute(intent)
@@ -465,6 +468,17 @@ fun WearTAKSettingsNav(
         dittoConnection?.dittoPdlMode ?: kotlinx.coroutines.flow.MutableStateFlow<DittoPdlMode?>(null)
     }
     val dittoMode by dittoModeFlow.collectAsStateWithLifecycle()
+    val dittoMeshFlow = remember(dittoConnection) {
+        dittoConnection?.dittoMeshStatus ?: kotlinx.coroutines.flow.MutableStateFlow<
+            com.aitech.weartak_civ.integration.plugin.DittoMeshStatus?
+        >(null)
+    }
+    val dittoMeshStatus by dittoMeshFlow.collectAsStateWithLifecycle()
+    val dittoPermissionAttempted by com.aitech.weartak_civ.integration.plugin.DittoMeshPermissions
+        .attempted.collectAsStateWithLifecycle()
+    val dittoPermissionRecovery = dittoMeshStatus?.let {
+        it.needsRecovery || (it.canPrompt && dittoPermissionAttempted)
+    } == true
     val dittoSubtitle = when (dittoMode) {
         DittoPdlMode.COMMUNITY -> stringResource(R.string.community_pdl)
         DittoPdlMode.PRIVATE -> stringResource(R.string.ditto_private_pdl)
@@ -3384,7 +3398,11 @@ fun WearTAKSettingsNav(
                             }
                             is PluginMenuEntry.Installed -> {
                                 val item = entry.plugin
-                                val menuLabel = item.dittoMenuLabel(
+                                val needsDittoPermission = item.packageName == TrustedCommunityPlugin.PACKAGE &&
+                                    item.isLoaded && dittoPermissionRecovery
+                                val menuLabel = if (needsDittoPermission) {
+                                    stringResource(R.string.companion_status_permission)
+                                } else item.dittoMenuLabel(
                                     dittoSubtitle, item.menuLabel(moppStatus, stringResource(R.string.mopp_none)))
                                 WearTAKSwipeToRevealChip(
                                     onPrimaryActionClick = {
@@ -3427,7 +3445,13 @@ fun WearTAKSettingsNav(
                                             },
                                             onClick = {
                                                 pluginMenuScope.launch {
-                                                    if (pluginVm.supportsHostedMainUi(item.pluginId)) {
+                                                    if (needsDittoPermission) {
+                                                        if (!PluginActivityLauncher.launch(context, item.packageName)) {
+                                                            reveal.first.launch {
+                                                                reveal.second.animateTo(targetValue = RevealValue.RightRevealing)
+                                                            }
+                                                        }
+                                                    } else if (pluginVm.supportsHostedMainUi(item.pluginId)) {
                                                         navController.navigate(hostedPluginMainUiRoute(item.pluginId))
                                                     } else if (!PluginActivityLauncher.launch(context, item.packageName)) {
                                                         reveal.first.launch {

@@ -1115,6 +1115,9 @@ class MainActivity : ComponentActivity() {
 
         val context = mainActivity.applicationContext
         dataRepository = (context.applicationContext as WearTakApplication).repo
+        com.aitech.weartak_civ.integration.plugin.DittoMeshPermissions.observe(
+            this, (application as WearTakApplication).pluginManager
+        )
         bhRepo = (context.applicationContext as WearTakApplication).bhRepo
         sitxRepo = (context.applicationContext as WearTakApplication).sitxRepo
 

@@ -75,6 +75,7 @@ class PluginConnection(
     internal val hasVerifiedTrust: Boolean get() = trustVerified && !closed
     private val dittoPdlModeState = DittoPdlModeState()
     internal val dittoPdlMode = dittoPdlModeState.mode
+    internal val dittoMeshStatus = dittoPdlModeState.mesh
 
     internal fun dittoCotAvailable(): Boolean = synchronized(stateLock) {
         ready && hasVerifiedTrust && dittoRuntimeAllowed && pluginPackage == TrustedCommunityPlugin.PACKAGE &&
@@ -121,6 +122,7 @@ class PluginConnection(
     private var initializing = false
     private var dittoLifecycleInProgress = false
     private var dittoLifecycleRetryScheduled = false
+    @Volatile private var dittoUsesPluginOnlyLifecycle = false
     @Volatile private var dittoRuntimeAllowed = false
     private var dittoStartRequested = false
     private var pendingRemoteCleanup: (() -> Unit)? = null
@@ -303,6 +305,7 @@ class PluginConnection(
         trustVerified = true
 
         val pluginOnlyProfile = pluginPackage == TrustedCommunityPlugin.PACKAGE && pluginOnlyEnabled()
+        dittoUsesPluginOnlyLifecycle = pluginOnlyProfile
         if (pluginOnlyProfile && (!deathLinked ||
                 info.versionName != TrustedCommunityPlugin.GATE_VERSION_NAME ||
                 !TrustedCommunityPlugin.supportsQuiescentReplacement(app, pluginUid))) {
@@ -742,9 +745,35 @@ class PluginConnection(
 
     internal fun handlerStatus(): com.weartak.plugin.sdk.model.PluginStatusParcel? = trustedStatus()
 
-    private fun isCurrentDittoConnection(): Boolean =
+    internal fun isCurrentDittoConnection(): Boolean =
         pluginPackage == TrustedCommunityPlugin.PACKAGE && ready && hasVerifiedTrust &&
             pluginBinder?.isBinderAlive == true && manager.connectionFor(pluginPackage) === this
+
+    internal fun mayRequestDittoMeshPermissions(): Boolean =
+        isCurrentDittoConnection() &&
+            (!dittoUsesPluginOnlyLifecycle || (pluginOnlyEnabled() && dittoRuntimeAllowed))
+
+    internal fun readFreshDittoMeshStatus(callback: (DittoMeshStatus?) -> Unit): Boolean {
+        if (!isCurrentDittoConnection()) return false
+        val revision = dittoPdlModeState.readRevision()
+        return DittoPdlStatusWork.execute {
+            val status = try {
+                trustedStatus()
+            } catch (error: RemoteException) {
+                Log.w(TAG, "Ditto mesh status unavailable", error)
+                null
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Ditto mesh status invalid", error)
+                null
+            }
+            if (isCurrentDittoConnection()) dittoPdlModeState.completeRead(revision, status)
+            mainHandler.post {
+                callback(if (isCurrentDittoConnection() && dittoPdlModeState.isReadCurrent(revision)) {
+                    DittoMeshStatus.parse(status)
+                } else null)
+            }
+        }
+    }
 
     internal fun refreshDittoPdlMode() {
         if (!isCurrentDittoConnection()) return
