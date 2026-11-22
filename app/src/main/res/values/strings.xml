@@ -1116,6 +1116,8 @@
     <string name="some_servers_connected">Some Servers Connected</string>
     <string name="ditto_identity">Ditto Edge Sync Identity</string>
     <string name="community_pdl">Community PDL</string>
+    <string name="ditto_private_pdl">Private PDL</string>
+    <string name="ditto_pdl_not_configured">Not configured</string>
     <string name="custom_pdl">Custom PDL</string>
     <string name="use_default_community_identity">Use default community identity</string>
     <string name="enter_your_own_identity">Enter your own identity</string>

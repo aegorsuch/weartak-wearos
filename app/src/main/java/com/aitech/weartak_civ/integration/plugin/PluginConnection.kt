@@ -73,6 +73,8 @@ class PluginConnection(
     @Volatile private var trustVerified = false
     @Volatile private var ready = false
     internal val hasVerifiedTrust: Boolean get() = trustVerified && !closed
+    private val dittoPdlModeState = DittoPdlModeState()
+    internal val dittoPdlMode = dittoPdlModeState.mode
 
     internal fun dittoCotAvailable(): Boolean = synchronized(stateLock) {
         ready && hasVerifiedTrust && dittoRuntimeAllowed && pluginPackage == TrustedCommunityPlugin.PACKAGE &&
@@ -152,6 +154,7 @@ class PluginConnection(
 
     private val deathRecipient = IBinder.DeathRecipient {
         ready = false
+        dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
@@ -391,6 +394,9 @@ class PluginConnection(
             pluginUid = pluginUid,
             isActive = { !closed },
             onStatusChanged = { status ->
+                if (android.os.Binder.getCallingUid() == pluginUid && isCurrentDittoConnection()) {
+                    dittoPdlModeState.update(status)
+                }
                 val healthy = status?.state == com.weartak.plugin.sdk.model.PluginLifecycleState.RUNNING &&
                     status.extras.getBoolean(PluginDetectionEventBridge.DETECTOR_READY_EXTRA, false)
                 postAudioHealth(healthy)
@@ -535,6 +541,7 @@ class PluginConnection(
                 ready = true
                 mainHandler.removeCallbacks(handshakeTimeout)
                 PluginDiagnostics.markConnected(pluginPackage)
+                if (pluginPackage == TrustedCommunityPlugin.PACKAGE) manager.onConnectionInitialized(this)
                 moppControl?.ready()
                 routeStatusControl.ready()
                 if (pluginOnlyProfile) {
@@ -555,6 +562,7 @@ class PluginConnection(
 
     override fun onServiceDisconnected(name: ComponentName?) {
         ready = false
+        dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
@@ -568,6 +576,7 @@ class PluginConnection(
 
     override fun onBindingDied(name: ComponentName?) {
         ready = false
+        dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
@@ -655,6 +664,7 @@ class PluginConnection(
 
     fun tearDownBinder(reason: String) {
         ready = false
+        dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
         revokeCertificateSessions()
@@ -730,7 +740,31 @@ class PluginConnection(
 
     internal fun pluginInfoSnapshot(): PluginInfoParcel? = pluginInfoSnapshot
 
-    internal fun handlerStatus(): com.weartak.plugin.sdk.model.PluginStatusParcel? {
+    internal fun handlerStatus(): com.weartak.plugin.sdk.model.PluginStatusParcel? = trustedStatus()
+
+    private fun isCurrentDittoConnection(): Boolean =
+        pluginPackage == TrustedCommunityPlugin.PACKAGE && ready && hasVerifiedTrust &&
+            pluginBinder?.isBinderAlive == true && manager.connectionFor(pluginPackage) === this
+
+    internal fun refreshDittoPdlMode() {
+        if (!isCurrentDittoConnection()) return
+        val revision = dittoPdlModeState.readRevision()
+        val started = DittoPdlStatusWork.execute {
+            try {
+                val status = trustedStatus()
+                if (isCurrentDittoConnection()) dittoPdlModeState.completeRead(revision, status)
+            } catch (error: RemoteException) {
+                Log.w(TAG, "Ditto PDL status unavailable", error)
+                dittoPdlModeState.completeRead(revision, null)
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "Ditto PDL status invalid", error)
+                dittoPdlModeState.completeRead(revision, null)
+            }
+        }
+        if (!started) dittoPdlModeState.completeRead(revision, null)
+    }
+
+    private fun trustedStatus(): com.weartak.plugin.sdk.model.PluginStatusParcel? {
         val iface = synchronized(stateLock) {
             if (!ready || !hasVerifiedTrust || pluginBinder?.isBinderAlive != true) null else plugin
         } ?: return null

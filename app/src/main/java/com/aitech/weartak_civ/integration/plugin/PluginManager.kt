@@ -37,6 +37,8 @@ open class PluginManager(
     private val audioDetectionClaimOwners = ConcurrentHashMap<String, PluginConnection>()
     private val audioDetectionDelegatesState = MutableStateFlow<Set<String>>(emptySet())
     val audioDetectionDelegates = audioDetectionDelegatesState.asStateFlow()
+    private val dittoConnectionState = MutableStateFlow<PluginConnection?>(null)
+    internal val dittoReadyConnection = dittoConnectionState.asStateFlow()
     private val topologyListeners = CopyOnWriteArraySet<PluginTopologyListener>()
     private val reconnectTasks = mutableMapOf<String, Runnable>()
     private val reconnectAttempts = mutableMapOf<String, Int>()
@@ -103,6 +105,7 @@ open class PluginManager(
     internal fun detachPackage(packageName: String) {
         cancelReconnect(packageName)
         val c = connections.remove(packageName)
+        if (c != null) dittoConnectionState.compareAndSet(c, null)
         if (c != null) releaseAudioDetectionPlugin(c)
         c?.tearDownBinder(reason = "unbindPackage")
         PluginDiagnostics.markUnbound(packageName)
@@ -135,6 +138,7 @@ open class PluginManager(
     internal open fun onConnectionLost(conn: PluginConnection) {
         val entry = connections.entries.firstOrNull { it.value === conn } ?: return
         if (!connections.remove(entry.key, conn)) return
+        dittoConnectionState.compareAndSet(conn, null)
         releaseAudioDetectionPlugin(conn)
         conn.tearDownBinder(reason = "service_disconnected")
         PluginDiagnostics.markDisconnected(entry.key)
@@ -170,6 +174,15 @@ open class PluginManager(
         if (connections[packageName] !== conn) return false
         cancelReconnect(packageName)
         return true
+    }
+
+    internal fun onConnectionInitialized(conn: PluginConnection) {
+        if (connections[conn.connectionPackageName] === conn) {
+            if (conn.connectionPackageName == TrustedCommunityPlugin.PACKAGE) {
+                dittoConnectionState.value = conn
+            }
+            notifyTopologyChanged()
+        }
     }
 
     internal fun updateAudioDetectionHealth(conn: PluginConnection, healthy: Boolean) {
@@ -229,6 +242,7 @@ open class PluginManager(
 
     internal open fun onConnectionFailed(conn: PluginConnection, reason: String) {
         Log.w(TAG, "connection failed: $reason")
+        dittoConnectionState.compareAndSet(conn, null)
         val entry = connections.entries.firstOrNull { it.value === conn }
         val pkg = entry?.key ?: conn.connectionPackageName
         releaseAudioDetectionPlugin(conn)

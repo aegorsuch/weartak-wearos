@@ -565,6 +565,9 @@
     <string name="network_toggle_failed">Bağlantı değiştirilemiyor. Eklenti ayarlarını ve ağ kilitlerini kontrol edin.</string>
     <string name="ditto_custom_subtitle">Özel PDL</string>
     <string name="ditto_no_pdl_subtitle">Yok</string>
+    <string name="community_pdl">Topluluk PDL</string>
+    <string name="ditto_private_pdl">Özel PDL</string>
+    <string name="ditto_pdl_not_configured">Yapılandırılmadı</string>
     <string name="toggle_state_on">Açık</string>
     <string name="toggle_state_off">Kapalı</string>
     <plurals name="network_server_count">

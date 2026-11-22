@@ -573,6 +573,9 @@
     <string name="network_toggle_failed">تعذّر تغيير الاتصال. تحقق من إعدادات الإضافة وأقفال الشبكة.</string>
     <string name="ditto_custom_subtitle">PDL مخصص</string>
     <string name="ditto_no_pdl_subtitle">لا شيء</string>
+    <string name="community_pdl">PDL مجتمعي</string>
+    <string name="ditto_private_pdl">PDL خاص</string>
+    <string name="ditto_pdl_not_configured">غير مهيأ</string>
     <string name="toggle_state_on">مفعّل</string>
     <string name="toggle_state_off">متوقف</string>
     <plurals name="network_server_count">

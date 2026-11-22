@@ -48,6 +48,19 @@ internal fun List<NetworkConnectivityRow>.alphabetizedConnections(locale: Locale
     }
 }
 
+internal fun pluginNetworkSubtitle(
+    enabled: Boolean,
+    disabledLabel: String,
+    enabledLabel: String,
+    dittoSubtitle: String?,
+    routeSummary: String?,
+): String = when {
+    !enabled -> disabledLabel
+    dittoSubtitle != null -> dittoSubtitle
+    routeSummary != null -> routeSummary
+    else -> enabledLabel
+}
+
 internal fun toggleStateAnnouncement(
     checked: Boolean,
     onLabel: String,

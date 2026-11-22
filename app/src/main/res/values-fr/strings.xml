@@ -567,6 +567,9 @@
     <string name="network_toggle_failed">Impossible de modifier la connectivité. Vérifiez les paramètres de l’extension et les verrouillages réseau.</string>
     <string name="ditto_custom_subtitle">PDL personnalisée</string>
     <string name="ditto_no_pdl_subtitle">Aucune</string>
+    <string name="community_pdl">PDL communautaire</string>
+    <string name="ditto_private_pdl">PDL privé</string>
+    <string name="ditto_pdl_not_configured">Non configuré</string>
     <string name="toggle_state_on">Activé</string>
     <string name="toggle_state_off">Désactivé</string>
     <plurals name="network_server_count">

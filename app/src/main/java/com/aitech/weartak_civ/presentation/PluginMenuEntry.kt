@@ -11,6 +11,7 @@ import com.aitech.weartak_civ.integration.plugin.HandlerExertion
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.integration.plugin.PluginUI
+import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
 
 internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
     BATDOK(R.drawable.batdok),
@@ -129,6 +130,9 @@ internal fun PluginUI.menuLabel(moppStatus: MoppStatus?, noneLabel: String): Str
     } else {
         menuLabel
     }
+
+internal fun PluginUI.dittoMenuLabel(dittoSubtitle: String?, fallback: String?): String? =
+    if (packageName == TrustedCommunityPlugin.PACKAGE && isLoaded) dittoSubtitle ?: fallback else fallback
 
 internal const val HOSTED_PLUGIN_MAIN_UI_ROUTE_PATTERN = "plugin_main_ui/{pluginId}"
 

@@ -563,6 +563,9 @@
     <string name="network_toggle_failed">接続を変更できません。プラグイン設定とネットワークロックを確認してください。</string>
     <string name="ditto_custom_subtitle">カスタムPDL</string>
     <string name="ditto_no_pdl_subtitle">なし</string>
+    <string name="community_pdl">コミュニティ PDL</string>
+    <string name="ditto_private_pdl">プライベート PDL</string>
+    <string name="ditto_pdl_not_configured">未設定</string>
     <string name="toggle_state_on">オン</string>
     <string name="toggle_state_off">オフ</string>
     <plurals name="network_server_count">

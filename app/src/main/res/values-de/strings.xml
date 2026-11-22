@@ -565,6 +565,9 @@
     <string name="network_toggle_failed">Verbindung kann nicht geändert werden. Plugin-Einstellungen und Netzwerksperren prüfen.</string>
     <string name="ditto_custom_subtitle">Eigene PDL</string>
     <string name="ditto_no_pdl_subtitle">Keine</string>
+    <string name="community_pdl">Community-PDL</string>
+    <string name="ditto_private_pdl">Privates PDL</string>
+    <string name="ditto_pdl_not_configured">Nicht konfiguriert</string>
     <string name="toggle_state_on">Ein</string>
     <string name="toggle_state_off">Aus</string>
     <plurals name="network_server_count">

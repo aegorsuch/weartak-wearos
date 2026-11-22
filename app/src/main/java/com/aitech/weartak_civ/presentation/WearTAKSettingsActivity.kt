@@ -180,6 +180,8 @@ import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_REMOVED
 import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_TOGGLED
 import com.aitech.weartak_civ.integration.plugin.PluginCompatibilityStatus
 import com.aitech.weartak_civ.integration.plugin.PluginActivityLauncher
+import com.aitech.weartak_civ.integration.plugin.DittoPdlMode
+import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
 import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.integration.plugin.PluginLoadingStatus
 import com.aitech.weartak_civ.integration.plugin.PluginRepositoryOutcome
@@ -457,6 +459,27 @@ fun WearTAKSettingsNav(
     val bloodhoundProximityIntensity by settingsVm.savedBloodhoundProximityIntensity.collectAsState()
 
     val pluginList by pluginVm.plugins.collectAsState()
+    val dittoConnection by (context.applicationContext as com.aitech.weartak_civ.WearTakApplication)
+        .pluginManager.dittoReadyConnection.collectAsStateWithLifecycle()
+    val dittoModeFlow = remember(dittoConnection) {
+        dittoConnection?.dittoPdlMode ?: kotlinx.coroutines.flow.MutableStateFlow<DittoPdlMode?>(null)
+    }
+    val dittoMode by dittoModeFlow.collectAsStateWithLifecycle()
+    val dittoSubtitle = when (dittoMode) {
+        DittoPdlMode.COMMUNITY -> stringResource(R.string.community_pdl)
+        DittoPdlMode.PRIVATE -> stringResource(R.string.ditto_private_pdl)
+        DittoPdlMode.NOT_CONFIGURED -> stringResource(R.string.ditto_pdl_not_configured)
+        null -> null
+    }
+    val settingsLifecycle = LocalLifecycleOwner.current
+    DisposableEffect(settingsLifecycle, dittoConnection) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) dittoConnection?.refreshDittoPdlMode()
+        }
+        settingsLifecycle.lifecycle.addObserver(observer)
+        dittoConnection?.refreshDittoPdlMode()
+        onDispose { settingsLifecycle.lifecycle.removeObserver(observer) }
+    }
 
     val enableGunshotDetection by settingsVm.savedEnableOnnxGunshotService.collectAsState()
     val gunshotTriggerThreshold by settingsVm.savedOnnxGunshotTriggerThresholdPercent.collectAsState()
@@ -1477,11 +1500,11 @@ fun WearTAKSettingsNav(
                 if (toggle == null && routes.isEmpty()) return@mapNotNull null
                 val enabled = toggle?.enabled != false
                 NetworkConnectivityRow("plugin:${plugin.packageName}", plugin.title,
-                    when {
-                        !enabled -> disabledLabel
-                        routes.isNotEmpty() -> pluginRouteSummary(routes)
-                        else -> enabledLabel
-                    }, enabled,
+                    pluginNetworkSubtitle(
+                        enabled, disabledLabel, enabledLabel,
+                        dittoSubtitle.takeIf { plugin.packageName == TrustedCommunityPlugin.PACKAGE },
+                        if (routes.isNotEmpty()) pluginRouteSummary(routes) else null,
+                    ), enabled,
                     { if (toggle != null) pluginVm.setConnectivityEnabled(plugin.packageName, toggle, it) },
                     pluginIcon = plugin.icon, toggleAvailable = toggle != null)
             }).alphabetizedConnections(LocalConfiguration.current.locales[0])
@@ -3361,7 +3384,8 @@ fun WearTAKSettingsNav(
                             }
                             is PluginMenuEntry.Installed -> {
                                 val item = entry.plugin
-                                val menuLabel = item.menuLabel(moppStatus, stringResource(R.string.mopp_none))
+                                val menuLabel = item.dittoMenuLabel(
+                                    dittoSubtitle, item.menuLabel(moppStatus, stringResource(R.string.mopp_none)))
                                 WearTAKSwipeToRevealChip(
                                     onPrimaryActionClick = {
                                         pluginitem.value = item
