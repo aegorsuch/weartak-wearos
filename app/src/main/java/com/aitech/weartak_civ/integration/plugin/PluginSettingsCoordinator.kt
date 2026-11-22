@@ -18,6 +18,7 @@ import com.weartak.plugin.sdk.validation.SettingsSchemaContractValidator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +44,7 @@ class PluginSettingsCoordinator(
     private val transportHosts = ConcurrentHashMap<String, PluginTransportHostV1Impl>()
     private val syncMutex = Mutex()
     private var hostWatcherStarted = false
+    internal var onLegacyAudioSettingsRejected: (String, IWearTakPlugin) -> Unit = { _, _ -> }
     private val outboundCotAvailableState = MutableStateFlow(false)
     val outboundCotAvailable = outboundCotAvailableState.asStateFlow()
     private val outboundCotReadyRoutesState = MutableStateFlow<Map<String, Long>>(emptyMap())
@@ -157,6 +159,13 @@ class PluginSettingsCoordinator(
                 state.schema.fields.any { it.fieldId == fieldId } && state.values.getBoolean(fieldId, false)
         }
 
+    internal fun pluginHasSettingEnabled(pluginId: String, fieldId: String): Boolean {
+        val state = cache[pluginId] ?: return false
+        return pluginRefs.containsKey(pluginId) &&
+            state.schema.fields.any { it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE } &&
+            state.values.getBoolean(fieldId, false)
+    }
+
     /**
      * Fire [actionId] at every connected plugin that declares [fieldId] and currently has it set.
      *
@@ -199,10 +208,11 @@ class PluginSettingsCoordinator(
         sourceEnvelope: TakServerCotEnvelope? = null,
         senderUid: String? = null,
         senderCallsign: String? = null,
+        excludedPluginId: String? = null,
     ) {
         val targets = cache.entries
-            .filter { (_, state) ->
-                state.schema.fields.any {
+            .filter { (pluginId, state) ->
+                pluginId != excludedPluginId && state.schema.fields.any {
                     it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE
                 } && state.values.getBoolean(fieldId, false)
             }
@@ -320,6 +330,32 @@ class PluginSettingsCoordinator(
                     pushHostSettingsToAllPlugins()
                 }
         }
+        scope.launch {
+            combine(
+                repo.getEnableOnnxGunshotService,
+                repo.getOnnxGunshotTriggerThresholdPercent,
+                repo.getEnableOnnxUasService,
+                repo.getOnnxUasTriggerThresholdPercent,
+            ) { gunshotEnabled, gunshotThreshold, uasEnabled, uasThreshold ->
+                LegacyAudioSettings(
+                    gunshotEnabled = gunshotEnabled,
+                    gunshotThresholdPercent = gunshotThreshold.coerceIn(0, 100),
+                    uasEnabled = uasEnabled,
+                    uasThresholdPercent = uasThreshold.coerceIn(0, 100),
+                )
+            }
+                .distinctUntilChanged()
+                .catch { error ->
+                    Log.e(TAG, "Legacy audio settings watcher failed", error)
+                    throw error
+                }
+                .collect {
+                    syncMutex.withLock {
+                        pushLegacyAudioSettingsLocked(PluginDetectionEventBridge.DART_PACKAGE, it)
+                        pushLegacyAudioSettingsLocked(PluginDetectionEventBridge.FALCON_PACKAGE, it)
+                    }
+                }
+        }
     }
 
     /**
@@ -330,25 +366,50 @@ class PluginSettingsCoordinator(
             if (!isCurrent()) return
             registerPlugin(pluginId, plugin)
         }
-        startHostSettingsWatcher()
         runBlocking {
             // A frozen plugin's handshake must not hold the shared settings sync mutex.
             refreshFromPluginLocked(pluginId, plugin)
             pushHostSettingsToPluginLocked(pluginId, plugin)
+            if (legacyAudioSettingsFields(pluginId) != null) {
+                if (cache[pluginId]?.hostManagedSettingsSupported != true) {
+                    val errors = cache[pluginId]?.lastValidationErrors.orEmpty()
+                    throw IllegalStateException(
+                        "Plugin $pluginId has no valid host-managed audio settings schema: $errors"
+                    )
+                }
+                val settings = readLegacyAudioSettings()
+                if (!pushLegacyAudioSettingsLocked(pluginId, settings, force = true)) {
+                    val result = cache[pluginId]?.lastApplyResult
+                    throw IllegalStateException(
+                        "Unable to apply WearTAK audio settings to $pluginId: ${result?.errors.orEmpty()}"
+                    )
+                }
+            }
         }
+        startHostSettingsWatcher()
     }
 
     fun onPluginSettingsSchemaChanged(pluginId: String) {
         val plugin = pluginRefs[pluginId] ?: return
         scope.launch {
-            syncMutex.withLock { refreshFromPluginLocked(pluginId, plugin) }
+            syncMutex.withLock {
+                refreshFromPluginLocked(pluginId, plugin)
+                if (legacyAudioSettingsFields(pluginId) != null) {
+                    pushLegacyAudioSettingsLocked(pluginId, readLegacyAudioSettings())
+                }
+            }
         }
     }
 
     fun onPluginSettingsValuesChanged(pluginId: String) {
         val plugin = pluginRefs[pluginId] ?: return
         scope.launch {
-            syncMutex.withLock { refreshValuesFromPluginLocked(pluginId, plugin) }
+            syncMutex.withLock {
+                refreshValuesFromPluginLocked(pluginId, plugin)
+                if (legacyAudioSettingsFields(pluginId) != null) {
+                    pushLegacyAudioSettingsLocked(pluginId, readLegacyAudioSettings())
+                }
+            }
         }
     }
 
@@ -398,7 +459,7 @@ class PluginSettingsCoordinator(
                     ),
                 ),
             )
-        if (!state.settingsSupported) {
+        if (!state.settingsSupported && !state.hostManagedSettingsSupported) {
             return SettingsApplyResultParcel(
                 success = false,
                 applyMode = applyMode,
@@ -461,10 +522,12 @@ class PluginSettingsCoordinator(
         if (pluginRefs[pluginId] !== plugin) return
         val caps = runCatching { plugin.capabilities }.getOrDefault(PluginCapabilitiesParcel())
         val settingsSupported = caps.hostedSettingsUi || caps.externalSettingsActivity
+        val audioSettingsFields = legacyAudioSettingsFields(pluginId)
+        val shouldLoadSchema = settingsSupported || audioSettingsFields != null
         var schema = SettingsSchemaParcel()
         var values = Bundle()
         var errors = emptyList<com.weartak.plugin.sdk.model.SettingsValidationErrorParcel>()
-        if (settingsSupported) {
+        if (shouldLoadSchema) {
             val rawSchema = runCatching { plugin.settingsSchema }.getOrDefault(SettingsSchemaParcel())
             when (val v = SettingsSchemaContractValidator.validate(rawSchema)) {
                 is ContractValidationResult.Ok -> schema = v.value
@@ -479,6 +542,12 @@ class PluginSettingsCoordinator(
                 }
             }
             values = runCatching { plugin.settingsValues }.getOrDefault(Bundle())
+        }
+        val hostManagedSettingsSupported = audioSettingsFields?.expectedFieldTypes?.all { (fieldId, fieldType) ->
+            schema.fields.any { it.fieldId == fieldId && it.fieldType == fieldType }
+        } == true
+        if (audioSettingsFields != null && !hostManagedSettingsSupported) {
+            Log.e(TAG, "host-managed audio settings schema missing or mismatched pluginId=$pluginId")
         }
         val prior = cache[pluginId]
         val host = prior?.hostSettings ?: snapshotBuilder.build()
@@ -495,6 +564,7 @@ class PluginSettingsCoordinator(
                 hostSettingsRevision = host.revision,
                 lastValidationErrors = errors,
                 settingsSupported = settingsSupported,
+                hostManagedSettingsSupported = hostManagedSettingsSupported,
                 lastSyncedAtMillis = System.currentTimeMillis(),
             ),
         )
@@ -509,7 +579,7 @@ class PluginSettingsCoordinator(
     private suspend fun refreshValuesFromPluginLocked(pluginId: String, plugin: IWearTakPlugin) {
         if (pluginRefs[pluginId] !== plugin) return
         val prior = cache[pluginId] ?: return
-        if (!prior.settingsSupported) return
+        if (!prior.settingsSupported && !prior.hostManagedSettingsSupported) return
         val values = runCatching { plugin.settingsValues }.getOrDefault(Bundle())
         if (pluginRefs[pluginId] !== plugin) return
         updateConnectionCache(
@@ -522,6 +592,107 @@ class PluginSettingsCoordinator(
         )
         PluginDiagnostics.recordSettingsCache(pluginId, cache[pluginId])
     }
+
+    private suspend fun readLegacyAudioSettings(): LegacyAudioSettings {
+        val repo = app.repo
+        return try {
+            LegacyAudioSettings(
+                gunshotEnabled = repo.getEnableOnnxGunshotService.first(),
+                gunshotThresholdPercent = repo.getOnnxGunshotTriggerThresholdPercent.first().coerceIn(0, 100),
+                uasEnabled = repo.getEnableOnnxUasService.first(),
+                uasThresholdPercent = repo.getOnnxUasTriggerThresholdPercent.first().coerceIn(0, 100),
+            )
+        } catch (error: java.io.IOException) {
+            Log.e(TAG, "Unable to read legacy audio-detection settings", error)
+            throw IllegalStateException("Unable to read legacy audio-detection settings", error)
+        }
+    }
+
+    private fun pushLegacyAudioSettingsLocked(
+        pluginId: String,
+        settings: LegacyAudioSettings,
+        force: Boolean = false,
+    ): Boolean {
+        val fields = legacyAudioSettingsFields(pluginId) ?: return true
+        val plugin = pluginRefs[pluginId] ?: return true
+        val state = cache[pluginId] ?: return true
+        if (!state.hostManagedSettingsSupported) {
+            Log.e(TAG, "legacy audio settings unsupported by pluginId=$pluginId")
+            if (!force) onLegacyAudioSettingsRejected(pluginId, plugin)
+            return false
+        }
+        val (enabled, thresholdPercent) = when (pluginId) {
+            PluginDetectionEventBridge.DART_PACKAGE ->
+                settings.gunshotEnabled to settings.gunshotThresholdPercent
+            PluginDetectionEventBridge.FALCON_PACKAGE ->
+                settings.uasEnabled to settings.uasThresholdPercent
+            else -> return true
+        }
+        if (!force &&
+            state.values.containsKey(fields.enabledFieldId) &&
+            state.values.containsKey(fields.thresholdFieldId) &&
+            state.values.getBoolean(fields.enabledFieldId) == enabled &&
+            state.values.getDouble(fields.thresholdFieldId) == thresholdPercent.toDouble()
+        ) {
+            return true
+        }
+        if (pluginRefs[pluginId] !== plugin) return false
+        val values = Bundle().apply {
+            putBoolean(fields.enabledFieldId, enabled)
+            putDouble(fields.thresholdFieldId, thresholdPercent.toDouble())
+        }
+        var result = applyPluginSettings(pluginId, values)
+        var retries = 0
+        while (!result.success && retries < 2 && pluginRefs[pluginId] === plugin) {
+            val transientChange = result.errors.any { error ->
+                error.code == "connectivity.unavailable" &&
+                    (error.message == "Plugin connection changed" || error.message == "Plugin settings changed")
+            }
+            if (!transientChange) break
+            Log.w(TAG, "Retrying audio settings after concurrent cache update pluginId=$pluginId")
+            result = applyPluginSettings(pluginId, values)
+            retries++
+        }
+        if (!result.success) {
+            Log.e(TAG, "legacy audio settings rejected by pluginId=$pluginId errors=${result.errors}")
+            if (!force) onLegacyAudioSettingsRejected(pluginId, plugin)
+        }
+        return result.success
+    }
+
+    private data class LegacyAudioSettings(
+        val gunshotEnabled: Boolean,
+        val gunshotThresholdPercent: Int,
+        val uasEnabled: Boolean,
+        val uasThresholdPercent: Int,
+    )
+
+    private data class LegacyAudioSettingsFields(
+        val enabledFieldId: String,
+        val thresholdFieldId: String,
+        val expectedFieldTypes: Map<String, String>,
+    )
+
+    private fun legacyAudioSettingsFields(pluginId: String): LegacyAudioSettingsFields? =
+        when (pluginId) {
+            PluginDetectionEventBridge.DART_PACKAGE -> LegacyAudioSettingsFields(
+                enabledFieldId = "enable_onnx_gunshot_service",
+                thresholdFieldId = "onnx_gunshot_trigger_threshold_percent",
+                expectedFieldTypes = mapOf(
+                    "enable_onnx_gunshot_service" to SettingsFieldTypes.TOGGLE,
+                    "onnx_gunshot_trigger_threshold_percent" to SettingsFieldTypes.NUMBER,
+                ),
+            )
+            PluginDetectionEventBridge.FALCON_PACKAGE -> LegacyAudioSettingsFields(
+                enabledFieldId = "enable_onnx_uas_service",
+                thresholdFieldId = "onnx_uas_trigger_threshold_percent",
+                expectedFieldTypes = mapOf(
+                    "enable_onnx_uas_service" to SettingsFieldTypes.TOGGLE,
+                    "onnx_uas_trigger_threshold_percent" to SettingsFieldTypes.NUMBER,
+                ),
+            )
+            else -> null
+        }
 
     private suspend fun pushHostSettingsToPluginLocked(pluginId: String, plugin: IWearTakPlugin) {
         val snapshot = snapshotBuilder.build()

@@ -22,4 +22,12 @@ internal class DittoPointCutoverSnapshot(
             DittoPointIngress(watermarkPreferences, fence).snapshotForMigration(),
         )
     }
+
+    fun <T : Any> withCurrentPair(pair: Pair, action: () -> T): T? =
+        fence.withConfirmedFence {
+            val ledger = pair.ledger.records.associate { it.key to it.json }
+            val watermarks = pair.watermarks.records.associate { it.key to it.json }
+            if (ledger.size != pair.ledger.records.size || watermarks.size != pair.watermarks.records.size ||
+                ledgerPreferences.all != ledger || watermarkPreferences.all != watermarks) null else action()
+        }
 }

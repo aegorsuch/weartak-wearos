@@ -969,6 +969,9 @@
     <string name="server_connected_multicast">Server Connected Multicast</string>
     <string name="phone_uplink_active" translatable="false">Phone uplink active</string>
     <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_save_unconfirmed">Marker save not confirmed. Check the marker list before retrying.</string>
+    <string name="marker_saved_locally">Marker saved locally. Delivery may still be pending.</string>
+    <string name="marker_request_invalid">Invalid marker request.</string>
     <string name="group">Group</string>
     <string name="my_callsign">My Callsign</string>
     <string name="my_role">My Role</string>

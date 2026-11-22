@@ -161,6 +161,7 @@ class RoutineServiceNotificationTest {
     fun startupRemovesOnlyKnownLegacyRoutineCardsAndRebuildsFromNewOwners() {
         post(101, "ChatService_channel")
         post(102, "BatteryService_channel")
+        post(919, "GunshotOnnxService_channel")
         post(999, "test_alert_channel")
         post(201, "AudioCaptureService_channel")
         post(1167, "beacon-ref-notification-id")

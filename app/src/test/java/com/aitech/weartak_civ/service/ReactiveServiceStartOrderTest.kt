@@ -92,87 +92,6 @@ class ReactiveServiceStartOrderTest {
         )
     }
 
-    @Test fun disconnectedCompanionAndDittoCanBothStart() {
-        desire(ServiceType.DITTO, ServiceType.COMPANION_APP)
-
-        assertEquals(
-            listOf(CompanionAppService::class.java.name, DittoService::class.java.name),
-            reconcile()
-        )
-        assertEquals(emptyList<String>(), stopped())
-    }
-
-    @Test fun reconnectingCompanionDoesNotBlockDittoStartup() {
-        registry.setServiceRunning(ServiceType.COMPANION_APP, true)
-        desire(ServiceType.DITTO, ServiceType.COMPANION_APP)
-
-        assertEquals(listOf(DittoService::class.java.name), reconcile())
-        assertTrue(registry.isServiceRunning(ServiceType.COMPANION_APP))
-        assertEquals(emptyList<String>(), stopped())
-    }
-
-    @Test fun runningDittoDoesNotBlockOrGetStoppedByCompanionStartup() {
-        registry.setServiceRunning(ServiceType.DITTO, true)
-        desire(ServiceType.DITTO, ServiceType.COMPANION_APP)
-
-        assertEquals(listOf(CompanionAppService::class.java.name), reconcile())
-        assertTrue(registry.isServiceRunning(ServiceType.DITTO))
-        assertEquals(emptyList<String>(), stopped())
-    }
-
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    @Test fun linkChangesStartAndStopOnlyDittoWhileCompanionKeepsReconnecting() = runTest {
-        val connected = MutableStateFlow(true)
-        val directTransportSuppressed = MutableStateFlow(true)
-        val enabled = MutableStateFlow(true)
-        val companionEnabled = MutableStateFlow(true)
-        val repo = mockk<DataRepository>(relaxed = true)
-        every { repo.isCompanionConnected } returns connected
-        every { repo.watchTransportSuppressed } returns directTransportSuppressed
-        every { repo.getEnableDittoService } returns enabled
-        every { repo.getEnableCompanionAppService } returns companionEnabled
-        val config = ServiceConfiguration(app, repo, mockk(relaxed = true))
-        set("config", config)
-        desire(ServiceType.COMPANION_APP)
-        registry.setServiceRunning(ServiceType.COMPANION_APP, true)
-        @Suppress("UNCHECKED_CAST")
-        val desired = get("desiredServicesStateMap") as MutableMap<ServiceType, Boolean?>
-        for (type in listOf(ServiceType.DITTO, ServiceType.COMPANION_APP)) {
-            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-                config.getServiceEnabledFlow(type).collect { desired[type] = it }
-            }
-        }
-
-        assertEquals(emptyList<String>(), reconcile())
-        assertEquals(emptyList<String>(), stopped())
-        repeat(2) {
-            connected.value = false
-            runCurrent()
-            assertEquals("Brief loss keeps direct Ditto suspended", emptyList<String>(), reconcile())
-            directTransportSuppressed.value = false
-            runCurrent()
-            assertTrue(config.getServiceEnabledFlow(ServiceType.DITTO).first())
-            assertEquals(true, desired[ServiceType.DITTO])
-            registry.setServiceRunning(ServiceType.DITTO, true)
-            assertTrue(registry.isServiceRunning(ServiceType.COMPANION_APP))
-
-            connected.value = true
-            directTransportSuppressed.value = true
-            runCurrent()
-            advanceTimeBy(2_000)
-            runCurrent()
-            assertEquals(emptyList<String>(), reconcile())
-            assertEquals(listOf(DittoService::class.java.name), stopped())
-            assertTrue(registry.isServiceRunning(ServiceType.COMPANION_APP))
-            assertTrue(enabled.value)
-        }
-
-        enabled.value = false
-        connected.value = false
-        assertEquals(emptyList<String>(), reconcile())
-        assertEquals(emptyList<String>(), stopped())
-    }
-
     @Test fun disabledCompanionIsNotStarted() {
         desire(ServiceType.TAK_CONNECT)
 
@@ -202,23 +121,20 @@ class ReactiveServiceStartOrderTest {
         }
     }
 
-    @Test fun bondedReadyConnectionSuspendsDirectMeshAndSitxWithoutChangingSavedPreferences() = runBlocking {
+    @Test fun bondedReadyConnectionSuspendsSitxWithoutChangingSavedPreferences() = runBlocking {
         val connected = MutableStateFlow(false)
         val enabled = MutableStateFlow(true)
         val repo = mockk<DataRepository>(relaxed = true)
         every { repo.isCompanionConnected } returns connected
         every { repo.watchTransportSuppressed } returns connected
-        every { repo.getEnableDittoService } returns enabled
         every { repo.getEnableSitxService } returns enabled
         val config = ServiceConfiguration(app, repo, mockk(relaxed = true))
         for (value in listOf(false, true, false, true, false)) {
             connected.value = value
-            assertEquals(!value, config.getServiceEnabledFlow(ServiceType.DITTO).first())
             assertEquals(!value, config.getServiceEnabledFlow(ServiceType.SITX_SERVICE).first())
             assertEquals(true, enabled.value)
         }
         enabled.value = false
-        assertEquals(false, config.getServiceEnabledFlow(ServiceType.DITTO).first())
         assertEquals(false, config.getServiceEnabledFlow(ServiceType.SITX_SERVICE).first())
     }
 

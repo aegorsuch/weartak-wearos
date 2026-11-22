@@ -10,6 +10,25 @@ import org.junit.Test
 
 class CotEndpointDispatcherTest {
     @Test
+    fun trackedDittoOfferDoesNotCompleteUntilReceiverCallsBack() = runBlocking {
+        var completion: ((Boolean) -> Unit)? = null
+        var result: Boolean? = null
+        var offered = false
+        val dispatcher = CotEndpointDispatcher(
+            sendTak = { _, _ -> }, sendSitx = {}, sendDitto = { _, _ -> error("untracked route") },
+            sendTrackedDitto = { _, _, callback -> completion = callback },
+            sendMulticast = {}, sendPliMulticast = {}, sendCompanion = {},
+        )
+        val message = CotOutboundMessage("<marker/>", CotMessageKind.MARKER, CotCompanionPayload.OwnedPointDeletion("test"),
+            dittoCompletion = { result = it }, onDittoOffered = { offered = true })
+        assertTrue(dispatcher.dispatch(message, CotEndpointAvailability(false, false, true, false, false)))
+        assertTrue(offered)
+        assertEquals(null, result)
+        completion!!(true)
+        assertEquals(true, result)
+    }
+
+    @Test
     fun ownedDeletionUsesDirectRoutesWithoutDittoAndNeverFallsThroughReadyCompanion() = runBlocking {
         val calls = mutableListOf<String>()
         val dispatcher = CotEndpointDispatcher(

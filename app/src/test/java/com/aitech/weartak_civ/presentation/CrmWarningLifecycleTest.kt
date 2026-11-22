@@ -23,7 +23,8 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class CrmWarningLifecycleTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test fun warningExpiresWithoutAnotherInferenceAndRejectedGoodOrDisabledCannotStayLive() {
         var now = 1_000L

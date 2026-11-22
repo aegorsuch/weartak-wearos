@@ -233,12 +233,38 @@ internal class DittoPdlMigrationSelection(
     val revision: Long = 0,
 )
 
-private const val DEFAULT_COMMUNITY_PDL =
-    BuildConfig.DITTO_COMMUNITY_IDENTITY
+internal class DittoPdlFrozenSelection(
+    val selection: DittoPdlMigrationSelection,
+    val cutoverId: String,
+    val communityIdentity: String,
+    val customIdentity: String?,
+    val initiallyEnabled: Boolean,
+)
+
+internal class DittoPdlHandoffState(val cutoverId: String, val completed: Boolean)
+
+internal data class DittoEnablePolicyState(
+    val revision: Long,
+    val desiredEnabled: Boolean,
+    val localEnableBlocked: Boolean,
+    val menuNavigationBlocked: Boolean,
+    val application: Int,
+    val phoneGeneration: Long,
+)
+
+private const val DEFAULT_COMMUNITY_PDL = ""
 
 class DataRepository(
     private val context: Context,
     private val projectionScope: CoroutineScope = repoScope,
+    private val pdlDataStore: DataStore<Preferences> = context.dataStore,
+    private val pdlSnapshotAead: () -> com.google.crypto.tink.Aead = {
+        com.aitech.weartak_civ.data.secure.crypto.AppKeyManager(context)
+            .getAead("ditto-migration-v1", "weartak-ditto-migration-v1")
+    },
+    private val pdlCommunityIdentity: () -> String = { DEFAULT_COMMUNITY_PDL },
+    private val markerJournalPreferences: android.content.SharedPreferences =
+        context.getSharedPreferences("marker-intents-v1", Context.MODE_PRIVATE),
 ) {
     internal val locationMotionNanos = MutableStateFlow(0L)
 
@@ -259,6 +285,9 @@ class DataRepository(
             context.getSharedPreferences("ditto-point-migration-v1", Context.MODE_PRIVATE)
         )
     }
+    internal fun closeAndDrainDittoPointMutations(timeoutMillis: Long): Boolean =
+        dittoPointMutationFence.closeAndDrain(timeoutMillis)
+
     internal val dittoPointLedger by lazy {
         com.aitech.weartak_civ.cot.DittoPointLedger(
             context.getSharedPreferences("ditto-local-points-v1", Context.MODE_PRIVATE),
@@ -294,6 +323,13 @@ class DataRepository(
 
     private val DITTO_PDL_MIGRATION_REVISION =
         longPreferencesKey("ditto_pdl_migration_revision")
+
+    private val DITTO_PDL_MIGRATION_FROZEN =
+        booleanPreferencesKey("ditto_pdl_migration_frozen")
+
+    private val DITTO_PDL_CUTOVER_ID = stringPreferencesKey("ditto_pdl_cutover_id")
+    private val DITTO_PDL_HANDOFF_COMPLETED = booleanPreferencesKey("ditto_pdl_handoff_completed")
+    private val DITTO_PDL_FROZEN_SNAPSHOT = stringPreferencesKey("ditto_pdl_frozen_snapshot")
 
     @androidx.annotation.VisibleForTesting
     internal var takServerSecretsOverride: TakServerSecretsRepository? = null
@@ -2217,6 +2253,7 @@ class DataRepository(
         val sendSms: Boolean,
         val timeMillis: Long,
         val enqueuedToBeSent: Boolean,
+        val activationId: String = java.util.UUID.randomUUID().toString(),
     )
 
     // UI reads manualAlertList to display manual alerts sent out
@@ -2585,12 +2622,48 @@ class DataRepository(
         val isCamera: Boolean = false
     )
 
-    private val _droppedMarkerList = MutableStateFlow<List<DroppedMarker>>(emptyList())
+    internal val markerIntentJournal = MarkerIntentJournal(markerJournalPreferences)
+    private val markerJournalLock = Any()
+    private val _markerJournalRevision = MutableStateFlow(0L)
+    internal val markerJournalRevision: StateFlow<Long> = _markerJournalRevision
+    private fun journalMarkers(state: MarkerIntentJournal.State): List<DroppedMarker> =
+        state.intents.groupBy { it.uid }.values.mapNotNull { entries ->
+            val last = entries.last()
+            last.marker?.let {
+                if (last.phase == MarkerIntentJournal.Phase.ACKNOWLEDGED)
+                    it.copy(enqueuedToBeSent = false, waitingForUpdatedLocation = false)
+                else it
+            }
+        }
+
+    private val _droppedMarkerList = MutableStateFlow(journalMarkers(markerIntentJournal.recoverInterrupted()))
     val droppedMarkerList: StateFlow<List<DroppedMarker>> = _droppedMarkerList
+
+    internal fun refreshJournalMarkerProjection() = synchronized(markerJournalLock) {
+        val state = markerIntentJournal.read()
+        _droppedMarkerList.value = _droppedMarkerList.value.filterNot { state.effective.containsKey(it.uid) } +
+            journalMarkers(state)
+    }
+
+    private fun publishMarkerIntent(intent: MarkerIntentJournal.Intent) {
+        _droppedMarkerList.value = _droppedMarkerList.value.filterNot { it.uid == intent.uid } +
+            listOfNotNull(intent.marker)
+        _markerJournalRevision.value += 1
+    }
+
+    private fun updateJournalMarker(
+        uid: String,
+        refreshSelf: Boolean = false,
+        transform: (DroppedMarker) -> DroppedMarker?,
+    ): Boolean = synchronized(markerJournalLock) {
+        val fallback = _droppedMarkerList.value.firstOrNull { it.uid == uid }
+        val intent = markerIntentJournal.update(uid, fallback, refreshSelf, transform) ?: return@synchronized false
+        publishMarkerIntent(intent)
+        true
+    }
 
     // Backend-only mutators (UI never calls these)
     suspend fun appendDroppedMarker(item: DroppedMarker) = markerIngressMutex.withLock {
-        dittoPointLedger.created(item.uid, MainActivity.device_uid)
         deletedLocalPointUids.remove(item.uid)
         _droppedMarkerList.emit(_droppedMarkerList.value + item)
     }
@@ -2716,7 +2789,11 @@ class DataRepository(
 
     private val markerIngressMutex = Mutex()
     private val deletedLocalPointUids = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    fun isDeletedLocalPoint(uid: String): Boolean = uid in deletedLocalPointUids
+    fun isDeletedLocalPoint(uid: String): Boolean {
+        if (uid in deletedLocalPointUids) return true
+        val effective = markerIntentJournal.read().effective
+        return effective.containsKey(uid) && effective[uid] == null
+    }
     val companionPointRevisions = CompanionPointRevisions()
     data class PointDeletionRequest(val uid: String, val revision: CompanionPointRevisions.Revision)
     private val _pointDeletionRequests = MutableSharedFlow<PointDeletionRequest>(extraBufferCapacity = 64)
@@ -2772,12 +2849,6 @@ class DataRepository(
     ): Boolean =
         markerIngressMutex.withLock {
             if (_droppedMarkerList.value.none { it.uid == uid }) return@withLock false
-            try {
-                dittoPointLedger.delete(uid, MainActivity.device_uid, System.currentTimeMillis())
-            } catch (error: Exception) {
-                Log.e(TAG, "Point clear blocked: could not persist Ditto deletion intent", error)
-                return@withLock false
-            }
             deletedLocalPointUids.add(uid)
             companionPointRevisions.current(uid, companionPointGeneration)?.let {
                 bloodhounds.removeMarkerCopy(uid, "companion-phone", it.time, System.currentTimeMillis())
@@ -2787,6 +2858,21 @@ class DataRepository(
             removeMarkerByUid(uid)
             true
         }
+
+    internal suspend fun applyJournalPointDeletion(
+        uid: String,
+        bloodhounds: BloodhoundRepository,
+        emitMirrorRequest: Boolean,
+    ): Boolean = markerIngressMutex.withLock {
+        val owned = markerIntentJournal.read().intents.any { it.uid == uid && it.marker != null }
+        deletedLocalPointUids.add(uid)
+        companionPointRevisions.current(uid, companionPointGeneration)?.let {
+            bloodhounds.removeMarkerCopy(uid, "companion-phone", it.time, System.currentTimeMillis())
+        }
+        notifyLocalPointDeletion(uid, emitMirrorRequest)
+        bloodhounds.removeLocalMarkerCopy(uid)
+        owned
+    }
 
     suspend fun receivePointDeletion(
         uid: String, token: String, generation: Long, bloodhounds: BloodhoundRepository
@@ -2800,6 +2886,13 @@ class DataRepository(
         val key = SourceCotKey("companion-phone", uid)
         if (receivedMarkerStore.item(key)?.timeReceived?.let { it > revision.time } == true) {
             return@withLock false
+        }
+        if (revision.local && local != null) {
+            val recorded = synchronized(markerJournalLock) {
+                if (_droppedMarkerList.value.firstOrNull { it.uid == uid } != local) null
+                else markerIntentJournal.recordRemoteDeletion(uid, token)?.also(::publishMarkerIntent)
+            }
+            if (recorded == null) return@withLock false
         }
 
         val receivedAt = System.currentTimeMillis()
@@ -2815,7 +2908,29 @@ class DataRepository(
         removed || (revision.local && local != null)
     }
 
-    internal enum class SourcePointDeletionResult { PROCESSED, LOCAL_POINT_PROTECTED }
+    internal enum class SourcePointDeletionResult { PROCESSED, LOCAL_POINT_PROTECTED, INACTIVE }
+
+    internal enum class SourcePointUpsertResult { PROCESSED, LOCAL_POINT_PROTECTED, INACTIVE }
+
+    internal suspend fun receiveSourcePointUpsertFenced(
+        event: CotMarkerEvent,
+        sourceId: String,
+        bloodhounds: BloodhoundRepository,
+        isSessionActive: () -> Boolean,
+        isPersistentlyLocalPoint: (String) -> Boolean,
+        deviceUid: String,
+    ) = markerIngressMutex.withLock {
+        currentCoroutineContext().ensureActive()
+        if (!isSessionActive() || isCompanionConnected.value) return@withLock SourcePointUpsertResult.INACTIVE
+        if (event.uid == deviceUid || event.detail.creator?.uid == deviceUid ||
+            _droppedMarkerList.value.any { it.uid == event.uid } || isDeletedLocalPoint(event.uid) ||
+            isPersistentlyLocalPoint(event.uid)) {
+            return@withLock SourcePointUpsertResult.LOCAL_POINT_PROTECTED
+        }
+        val now = System.currentTimeMillis()
+        receiveMarkerEventLocked(event, bloodhounds, "Ditto", sourceId, now)
+        SourcePointUpsertResult.PROCESSED
+    }
 
     internal suspend fun receiveSourcePointDeletion(
         uid: String,
@@ -2823,9 +2938,19 @@ class DataRepository(
         time: Long,
         bloodhounds: BloodhoundRepository,
         isPersistentlyLocalPoint: (String) -> Boolean,
+    ) = receiveSourcePointDeletionFenced(uid, sourceId, time, bloodhounds, { true }, isPersistentlyLocalPoint)
+
+    internal suspend fun receiveSourcePointDeletionFenced(
+        uid: String,
+        sourceId: String,
+        time: Long,
+        bloodhounds: BloodhoundRepository,
+        isSessionActive: () -> Boolean,
+        isPersistentlyLocalPoint: (String) -> Boolean,
     ) = markerIngressMutex.withLock {
         currentCoroutineContext().ensureActive()
         require(uid.isNotBlank() && sourceId.isNotBlank() && time > 0)
+        if (!isSessionActive()) return@withLock SourcePointDeletionResult.INACTIVE
         if (_droppedMarkerList.value.any { it.uid == uid } || isDeletedLocalPoint(uid) ||
             isPersistentlyLocalPoint(uid)) {
             return@withLock SourcePointDeletionResult.LOCAL_POINT_PROTECTED
@@ -2845,10 +2970,21 @@ class DataRepository(
         receivedAt: Long = System.currentTimeMillis(),
         companionRevision: CompanionPointRevisions.Revision? = null
     ): Boolean = markerIngressMutex.withLock {
+        receiveMarkerEventLocked(event, bloodhoundRepository, source, sourceServerId, receivedAt, companionRevision)
+    }
+
+    private suspend fun receiveMarkerEventLocked(
+        event: CotMarkerEvent,
+        bloodhoundRepository: BloodhoundRepository,
+        source: String,
+        sourceServerId: String?,
+        receivedAt: Long,
+        companionRevision: CompanionPointRevisions.Revision? = null,
+    ): Boolean {
         genericBloodhounds = bloodhoundRepository
         currentCoroutineContext().ensureActive()
         if (event.uid.isBlank() || event.time <= 0 || event.start <= 0 || event.stale <= 0) {
-            return@withLock false
+            return false
         }
         val now = System.currentTimeMillis()
         bloodhoundRepository.applyReceivedMarkerEvent(event, source, sourceServerId, receivedAt, now)
@@ -2858,7 +2994,7 @@ class DataRepository(
             companionPointRevisions.forget(event.uid)
             companionRevision?.let { companionPointRevisions.remember(event.uid, it) }
         }
-        applied
+        return applied
     }
 
     suspend fun applyReceivedMarkerEvent(
@@ -3097,9 +3233,30 @@ class DataRepository(
         lon: Double? = null,
         uid: String = "",
     ): Boolean {
-        val parsed = MarkerType.parse(markerTypeRaw) ?: return false // caller can handle false
-        _markerDropRequests.emit(MarkerDropRequest(parsed, title.trimEnd { it <= ' ' }, remark, timeMillis, uid = uid, lat = lat, lon = lon))
-        return true
+        val parsed = MarkerType.parse(markerTypeRaw) ?: return false
+        if ((lat == null) != (lon == null)) return false
+        if (lat != null && (lat !in -90.0..90.0 || lon!! !in -180.0..180.0)) return false
+        val markerUid = uid.ifBlank { UUID.randomUUID().toString() }
+        val location = if (lat != null && lon != null) {
+            LocationSnapshot(timeMillis, lat, lon, null, null, null, null, null)
+        } else snapshotLocation(bestKnownLocation())
+        val trimmed = title.trimEnd { it <= ' ' }
+        val finalTitle = if (trimmed.isEmpty()) {
+            val formatter = java.text.SimpleDateFormat("HHmmss'Z'", java.util.Locale.US)
+            formatter.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            "${MainActivity.Constants.callsign}_${formatter.format(java.util.Date(timeMillis))}"
+        } else trimmed
+        val marker = DroppedMarker(
+            MarkerCotType.DROP, markerUid, parsed, finalTitle, remark, timeMillis, location,
+            enqueuedToBeSent = true, waitingForUpdatedLocation = location == null,
+        )
+        return synchronized(markerJournalLock) {
+            if (_droppedMarkerList.value.any { it.uid == markerUid }) return@synchronized false
+            val intent = markerIntentJournal.admitNew(markerUid, marker, refreshSelf = lat == null)
+                ?: return@synchronized false
+            publishMarkerIntent(intent)
+            true
+        }
     }
 
     /** Plugin/UI: update an existing dropped marker and enqueue CoT edit. Returns false if type invalid or uid missing. */
@@ -3114,108 +3271,55 @@ class DataRepository(
     ): Boolean {
         val parsed = MarkerType.parse(markerTypeRaw) ?: return false
         if (uid.isBlank()) return false
+        if ((lat == null) != (lon == null)) return false
+        if (lat != null && (lat !in -90.0..90.0 || lon!! !in -180.0..180.0)) return false
         val explicitLoc = if (lat != null && lon != null) {
             LocationSnapshot(
                 timeMillis = timeMillis,
                 lat = lat,
                 lon = lon,
-                hae = 0.0,
-                ce = 0.0f,
-                le = 0.0f,
-                course = 0.0f,
-                speed = 0.0f,
+                hae = null,
+                ce = null,
+                le = null,
+                course = null,
+                speed = null,
             )
         } else {
             null
         }
-        var updatedMarker: DroppedMarker? = null
-        _droppedMarkerList.update { list ->
-            list.map { marker ->
-                if (marker.uid == uid && marker.cotType != MarkerCotType.CLEAR) {
-                    marker.copy(
-                        cotType = MarkerCotType.EDIT,
-                        markerType = parsed,
-                        title = title,
-                        remark = remark,
-                        location = explicitLoc ?: marker.location,
-                        enqueuedToBeSent = true,
-                        waitingForUpdatedLocation = false,
-                    ).also { updatedMarker = it }
-                } else {
-                    marker
-                }
-            }
+        return updateJournalMarker(uid) { marker ->
+            marker.copy(cotType = MarkerCotType.EDIT, markerType = parsed, title = title,
+                remark = remark, location = explicitLoc ?: marker.location,
+                enqueuedToBeSent = true,
+                waitingForUpdatedLocation = explicitLoc == null && marker.location == null)
         }
-        if (updatedMarker == null) return false
-        emitMarkerEditRequest(updatedMarker)
-        return true
     }
 
-    suspend fun requestMarkerClear(uid: String) {
-        if (uid.isBlank()) return
-        requestClearSpecific(uid)
-    }
+    suspend fun requestMarkerClear(uid: String): Boolean =
+        uid.isNotBlank() && requestClearSpecific(uid)
 
-    suspend fun requestUpdateMarkerLocation(uid: String) {
+    suspend fun requestUpdateMarkerLocation(uid: String): Boolean {
         val loc = snapshotLocation()
-        var updatedMarker: DroppedMarker? = null
-        _droppedMarkerList.update { list ->
-            list.map { marker ->
-                if ((marker.uid == uid) && (marker.cotType != MarkerCotType.CLEAR)) {
-                    marker.copy(cotType = MarkerCotType.EDIT, location = loc, enqueuedToBeSent = true, waitingForUpdatedLocation = true).also { updatedMarker = it }
-                } else {
-                    marker
-                }
-            }
+        return updateJournalMarker(uid, refreshSelf = true) { marker ->
+            marker.copy(cotType = MarkerCotType.EDIT, location = loc,
+                enqueuedToBeSent = true, waitingForUpdatedLocation = loc == null)
         }
-        if (null != updatedMarker) emitMarkerEditRequest(updatedMarker)
     }
 
-    fun requestChangeMarkerTitle(uid: String, title: String) {
-        var updatedMarker: DroppedMarker? = null
-        _droppedMarkerList.update { list ->
-            list.map { marker ->
-                if ((marker.uid == uid) && (marker.cotType != MarkerCotType.CLEAR)) {
-                    marker.copy(cotType = MarkerCotType.EDIT, enqueuedToBeSent = true, title = title).also { updatedMarker = it }
-                } else {
-                    marker
-                }
-            }
+    internal fun admitMarkerLocation(uid: String, loc: LocationSnapshot?): Boolean =
+        updateJournalMarker(uid) { marker ->
+            marker.copy(cotType = MarkerCotType.EDIT, location = loc,
+                enqueuedToBeSent = true, waitingForUpdatedLocation = loc == null)
         }
-        if (null != updatedMarker) emitMarkerEditRequest(updatedMarker)
-    }
 
-    fun requestChangeMarkerRemark(uid: String, remark: String) {
-        var updatedMarker: DroppedMarker? = null
-        _droppedMarkerList.update { list ->
-            list.map { marker ->
-                if (marker.uid == uid) {
-                    if (marker.cotType != MarkerCotType.CLEAR) {
-                        marker.copy(cotType = MarkerCotType.EDIT, enqueuedToBeSent = true, remark = remark).also { updatedMarker = it }
-                    } else { marker }
-                } else {
-                    marker
-                }
-            }
-        }
-        if (null != updatedMarker) emitMarkerEditRequest(updatedMarker)
-    }
+    fun requestChangeMarkerTitle(uid: String, title: String): Boolean =
+        updateJournalMarker(uid) { it.copy(cotType = MarkerCotType.EDIT, enqueuedToBeSent = true, title = title) }
 
-    fun requestChangeMarkerType(uid: String, type: MarkerType) {
-        var updatedMarker: DroppedMarker? = null
-        _droppedMarkerList.update { list ->
-            list.map { marker ->
-                if (marker.uid == uid) {
-                    if (marker.cotType != MarkerCotType.CLEAR) {
-                        marker.copy(cotType = MarkerCotType.EDIT, enqueuedToBeSent = true, markerType = type).also { updatedMarker = it }
-                    } else { marker }
-                } else {
-                    marker
-                }
-            }
-        }
-        if (null != updatedMarker) emitMarkerEditRequest(updatedMarker)
-    }
+    fun requestChangeMarkerRemark(uid: String, remark: String): Boolean =
+        updateJournalMarker(uid) { it.copy(cotType = MarkerCotType.EDIT, enqueuedToBeSent = true, remark = remark) }
+
+    fun requestChangeMarkerType(uid: String, type: MarkerType): Boolean =
+        updateJournalMarker(uid) { it.copy(cotType = MarkerCotType.EDIT, enqueuedToBeSent = true, markerType = type) }
 
     private fun emitMarkerEditRequest(marker: DroppedMarker?) {
         if (marker == null) return
@@ -3353,10 +3457,20 @@ class DataRepository(
 
 
 
-    suspend fun requestClearSpecific(uid: String) =
-        _clearMarkerRequests.emit(ClearRequest.Specific(uid))
-    suspend fun requestClearLast() = _clearMarkerRequests.emit(ClearRequest.Last)
-    suspend fun requestClearAll() = _clearMarkerRequests.emit(ClearRequest.All)
+    suspend fun requestClearSpecific(uid: String): Boolean =
+        updateJournalMarker(uid) { null }
+
+    suspend fun requestClearLast(): Boolean = synchronized(markerJournalLock) {
+        val last = _droppedMarkerList.value.maxByOrNull { it.timeDropped } ?: return@synchronized false
+        updateJournalMarker(last.uid) { null }
+    }
+
+    suspend fun requestClearAll(): Boolean = synchronized(markerJournalLock) {
+        val uids = _droppedMarkerList.value.map { it.uid }.distinct()
+        if (uids.isEmpty()) return@synchronized false
+        markerIntentJournal.admitAll(uids.map { it to null }).forEach(::publishMarkerIntent)
+        true
+    }
 
     fun recordHeartRateSample(heartRate: Int, measuredAtMillis: Long?) {
         selfStatusHeartRate.value = measuredAtMillis?.takeIf { it > 0 }?.let { PhysioSample(heartRate, it) }
@@ -3469,12 +3583,21 @@ class DataRepository(
     }
 
     private val phoneManagementSessionActive = MutableStateFlow(false)
+    private val dittoPolicyPhoneLock = Any()
+    private val dittoPolicyProcess = java.util.UUID.randomUUID().toString()
+    private val dittoPolicyPhoneGeneration = MutableStateFlow(0L)
     val phoneManagedSettingsLocked: Flow<Boolean> = kotlinx.coroutines.flow.combine(
         phoneManagedSettingsEnabled, phoneManagementSessionActive
     ) { enabled, active -> enabled && active }
 
     internal fun setPhoneManagementSessionActive(active: Boolean) {
-        phoneManagementSessionActive.value = active
+        synchronized(dittoPolicyPhoneLock) {
+            if (phoneManagementSessionActive.value != active) {
+                check(dittoPolicyPhoneGeneration.value < Long.MAX_VALUE) { "Ditto policy generation exhausted" }
+                phoneManagementSessionActive.value = active
+                dittoPolicyPhoneGeneration.value++
+            }
+        }
     }
 
     val phoneManagedCompanionAddress: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -3489,6 +3612,7 @@ class DataRepository(
         context.dataStore.edit { prefs ->
             check(mayEnable()) { "Companion connection changed before management activation" }
             prefs[PHONE_MANAGED_COMPANION_ADDRESS] = companionAddress
+            if (prefs[PHONE_MANAGED_SETTINGS_ENABLED] != true) prefs.advanceDittoEnablePolicy()
             prefs[PHONE_MANAGED_SETTINGS_ENABLED] = true
         }
     }
@@ -3706,6 +3830,7 @@ class DataRepository(
                 before = prefs.phoneManagedSettingsValues()
                 prefs.restoreSnapshotValues()
                 prefs[PHONE_MANAGED_SETTINGS_ENABLED] = false
+                prefs.advanceDittoEnablePolicy()
                 prefs.remove(PHONE_MANAGED_COMPANION_ADDRESS)
                 after = prefs.phoneManagedSettingsValues()
             }
@@ -5303,7 +5428,8 @@ class DataRepository(
     }
     // Saves the selected PDL option
     suspend fun storeDittoPdlSource(source: DittoPdlSource) {
-        context.dataStore.edit { preferences ->
+        pdlDataStore.edit { preferences ->
+            preferences.requireLegacyDittoPdlWritable()
             preferences[DITTO_PDL_SOURCE] = source.name
             preferences.advanceDittoPdlMigrationRevision()
         }
@@ -5311,7 +5437,8 @@ class DataRepository(
 
     // Saves the Custom PDL entered by the user
     suspend fun storeDittoCustomPdl(pdl: String) {
-        context.dataStore.edit { preferences ->
+        pdlDataStore.edit { preferences ->
+            preferences.requireLegacyDittoPdlWritable()
             preferences[DITTO_CUSTOM_PDL] = pdl.trim()
             preferences.advanceDittoPdlMigrationRevision()
         }
@@ -5323,12 +5450,190 @@ class DataRepository(
         source: DittoPdlSource,
         customPdl: String?
     ) {
-        context.dataStore.edit { preferences ->
+        pdlDataStore.edit { preferences ->
+            preferences.requireLegacyDittoPdlWritable()
             preferences[DITTO_PDL_SOURCE] = source.name
             if (customPdl != null) preferences[DITTO_CUSTOM_PDL] = customPdl
             preferences.advanceDittoPdlMigrationRevision()
         }
     }
+
+    private fun Preferences.requireLegacyDittoPdlWritable() {
+        check(this[DITTO_PDL_MIGRATION_FROZEN] != true) { "Legacy Ditto settings are migration-fenced" }
+    }
+
+    /** Caller must establish persistent bundled-engine fencing and completed quiescence. */
+    internal suspend fun freezeDittoPdlForMigration(
+        fenceAndQuiesce: suspend () -> Boolean,
+    ): DittoPdlFrozenSelection {
+        check(fenceAndQuiesce()) { "Bundled Ditto ownership not safely fenced" }
+        val aead = pdlSnapshotAead()
+        val newId = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        var result: DittoPdlFrozenSelection? = null
+        pdlDataStore.edit { preferences ->
+            check(preferences[DITTO_PDL_HANDOFF_COMPLETED] != true) { "Ditto handoff already completed" }
+            val id = preferences[DITTO_PDL_CUTOVER_ID]
+            val alreadyFrozen = preferences[DITTO_PDL_MIGRATION_FROZEN] == true
+            check(!alreadyFrozen || (id != null && preferences[DITTO_PDL_FROZEN_SNAPSHOT] != null)) {
+                "Frozen Ditto handoff state is incomplete"
+            }
+            val cutoverId = id ?: newId
+            check(cutoverId.matches(Regex("[0-9a-f]{32}"))) { "Invalid Ditto handoff state" }
+            if (alreadyFrozen) {
+                result = frozenDittoPdlSnapshot(preferences, aead)
+            } else {
+                check(id == null && preferences[DITTO_PDL_FROZEN_SNAPSHOT] == null) {
+                    "Invalid Ditto handoff state"
+                }
+                val community = pdlCommunityIdentity()
+                val snapshot = DittoPdlFrozenSelection(
+                    dittoPdlMigrationSelection(preferences, community), cutoverId, community,
+                    preferences[DITTO_CUSTOM_PDL],
+                    preferences[ENABLE_DITTO_SERVICE] ?: DEFAULT_ENABLE_DITTO_SERVICE,
+                )
+                preferences[DITTO_PDL_MIGRATION_FROZEN] = true
+                preferences[DITTO_PDL_CUTOVER_ID] = cutoverId
+                preferences[DITTO_PDL_FROZEN_SNAPSHOT] = encryptFrozenSnapshot(aead, snapshot)
+                result = snapshot
+            }
+        }
+        return checkNotNull(result)
+    }
+
+    internal suspend fun isDittoPdlMigrationFrozen(): Boolean =
+        pdlDataStore.data.first()[DITTO_PDL_MIGRATION_FROZEN] == true
+
+    internal suspend fun readFrozenDittoPdlSnapshot(): DittoPdlFrozenSelection {
+        val aead = pdlSnapshotAead()
+        var result: DittoPdlFrozenSelection? = null
+        pdlDataStore.edit { preferences ->
+            result = frozenDittoPdlSnapshot(preferences, aead)
+        }
+        return checkNotNull(result)
+    }
+
+    internal suspend fun <T : Any> withCurrentFrozenDittoPdlSnapshot(
+        expected: DittoPdlFrozenSelection,
+        action: () -> T,
+    ): T? {
+        val aead = pdlSnapshotAead()
+        var result: T? = null
+        pdlDataStore.edit { preferences ->
+            val current = frozenDittoPdlSnapshot(preferences, aead, requireLegacyMatch = false)
+            if (legacyMatchesFrozenDittoPdl(preferences, current) &&
+                sameFrozenDittoPdlSnapshot(current, expected)) result = action()
+        }
+        return result
+    }
+
+    internal suspend fun readDittoPdlHandoffState(): DittoPdlHandoffState? {
+        val preferences = pdlDataStore.data.first()
+        if (preferences[DITTO_PDL_MIGRATION_FROZEN] != true) {
+            check(preferences[DITTO_PDL_CUTOVER_ID] == null && preferences[DITTO_PDL_FROZEN_SNAPSHOT] == null &&
+                preferences[DITTO_PDL_HANDOFF_COMPLETED] != true) { "Invalid Ditto handoff state" }
+            return null
+        }
+        check(preferences[DITTO_PDL_FROZEN_SNAPSHOT] != null) { "Frozen Ditto handoff state is incomplete" }
+        val id = checkNotNull(preferences[DITTO_PDL_CUTOVER_ID])
+        check(id.matches(Regex("[0-9a-f]{32}"))) { "Invalid Ditto handoff state" }
+        return DittoPdlHandoffState(id, preferences[DITTO_PDL_HANDOFF_COMPLETED] == true)
+    }
+
+    /**
+     * Proof must cover the authenticated receipt, full settings and paired points.
+     * It must not perform Binder calls or await DataStore-dependent locks.
+     */
+    internal suspend fun completeDittoPdlHandoff(
+        frozen: DittoPdlFrozenSelection,
+        proof: () -> Boolean,
+    ): Boolean {
+        val aead = pdlSnapshotAead()
+        var completed = false
+        pdlDataStore.edit { preferences ->
+            if (preferences[DITTO_PDL_MIGRATION_FROZEN] == true &&
+                preferences[DITTO_PDL_HANDOFF_COMPLETED] != true &&
+                sameFrozenDittoPdlSnapshot(frozenDittoPdlSnapshot(preferences, aead), frozen) && proof()) {
+                preferences[DITTO_PDL_HANDOFF_COMPLETED] = true
+                completed = true
+            }
+        }
+        return completed
+    }
+
+    private fun encryptFrozenSnapshot(aead: com.google.crypto.tink.Aead, snapshot: DittoPdlFrozenSelection): String {
+        val bytes = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(bytes).use { output ->
+            output.writeInt(1)
+            output.writeInt(if (snapshot.selection.source == DittoPdlSource.COMMUNITY) 1 else 2)
+            output.writeLong(snapshot.selection.revision)
+            output.writeBoolean(snapshot.initiallyEnabled)
+            fun writeIdentity(value: String?) {
+                check(value == null || value.length <= 16_384) { "Ditto identity exceeds migration limit" }
+                output.writeInt(value?.length ?: -1)
+                value?.forEach { output.writeChar(it.code) }
+            }
+            writeIdentity(snapshot.communityIdentity)
+            writeIdentity(snapshot.customIdentity)
+        }
+        return android.util.Base64.encodeToString(
+            aead.encrypt(bytes.toByteArray(), ("weartak-ditto-pdl-cutover-v1:" + snapshot.cutoverId).toByteArray(Charsets.UTF_8)),
+            android.util.Base64.NO_WRAP,
+        )
+    }
+
+    private fun decryptFrozenSnapshot(aead: com.google.crypto.tink.Aead, id: String, value: String): DittoPdlFrozenSelection {
+        val bytes = aead.decrypt(
+            android.util.Base64.decode(value, android.util.Base64.NO_WRAP),
+            ("weartak-ditto-pdl-cutover-v1:" + id).toByteArray(Charsets.UTF_8),
+        )
+        return java.io.DataInputStream(java.io.ByteArrayInputStream(bytes)).use { input ->
+            check(input.readInt() == 1) { "Invalid frozen Ditto snapshot" }
+            val source = when (input.readInt()) {
+                1 -> DittoPdlSource.COMMUNITY
+                2 -> DittoPdlSource.CUSTOM
+                else -> throw IllegalStateException("Invalid frozen Ditto source")
+            }
+            val revision = input.readLong()
+            check(revision >= 0) { "Invalid frozen Ditto revision" }
+            val enabled = input.readBoolean()
+            fun readIdentity(): String? {
+                val length = input.readInt()
+                check(length in -1..16_384) { "Invalid frozen Ditto identity" }
+                return if (length == -1) null else buildString(length) { repeat(length) { append(input.readChar()) } }
+            }
+            val community = checkNotNull(readIdentity())
+            val custom = readIdentity()
+            check(input.read() == -1) { "Invalid frozen Ditto snapshot" }
+            val identity = if (source == DittoPdlSource.COMMUNITY) community else custom ?: ""
+            DittoPdlFrozenSelection(DittoPdlMigrationSelection(source, identity, revision), id, community, custom, enabled)
+        }
+    }
+
+    private fun frozenDittoPdlSnapshot(
+        preferences: Preferences,
+        aead: com.google.crypto.tink.Aead,
+        requireLegacyMatch: Boolean = true,
+    ): DittoPdlFrozenSelection {
+        check(preferences[DITTO_PDL_MIGRATION_FROZEN] == true &&
+            preferences[DITTO_PDL_HANDOFF_COMPLETED] != true) { "Ditto snapshot unavailable" }
+        val id = checkNotNull(preferences[DITTO_PDL_CUTOVER_ID])
+        check(id.matches(Regex("[0-9a-f]{32}"))) { "Invalid Ditto handoff state" }
+        val frozen = decryptFrozenSnapshot(aead, id, checkNotNull(preferences[DITTO_PDL_FROZEN_SNAPSHOT]))
+        check(!requireLegacyMatch || legacyMatchesFrozenDittoPdl(preferences, frozen)) {
+            "Frozen Ditto legacy settings changed"
+        }
+        return frozen
+    }
+
+    private fun legacyMatchesFrozenDittoPdl(preferences: Preferences, frozen: DittoPdlFrozenSelection): Boolean =
+        preferences[DITTO_CUSTOM_PDL] == frozen.customIdentity &&
+            sameDittoPdlMigrationSelection(dittoPdlMigrationSelection(preferences, frozen.communityIdentity), frozen.selection)
+
+    private fun sameFrozenDittoPdlSnapshot(a: DittoPdlFrozenSelection, b: DittoPdlFrozenSelection): Boolean =
+        a.cutoverId == b.cutoverId && a.communityIdentity == b.communityIdentity &&
+            a.customIdentity == b.customIdentity && a.initiallyEnabled == b.initiallyEnabled &&
+            sameDittoPdlMigrationSelection(a.selection, b.selection)
 
     private fun MutablePreferences.advanceDittoPdlMigrationRevision() {
         val revision = this[DITTO_PDL_MIGRATION_REVISION] ?: 0L
@@ -5336,14 +5641,17 @@ class DataRepository(
         this[DITTO_PDL_MIGRATION_REVISION] = revision + 1
     }
 
-    private fun dittoPdlMigrationSelection(preferences: Preferences): DittoPdlMigrationSelection {
+    private fun dittoPdlMigrationSelection(
+        preferences: Preferences,
+        communityIdentity: String = DEFAULT_COMMUNITY_PDL,
+    ): DittoPdlMigrationSelection {
         val source = when (preferences[DITTO_PDL_SOURCE]) {
             null, DittoPdlSource.COMMUNITY.name -> DittoPdlSource.COMMUNITY
             DittoPdlSource.CUSTOM.name -> DittoPdlSource.CUSTOM
             else -> throw IllegalStateException("Unknown Ditto PDL source")
         }
         val identity = when (source) {
-            DittoPdlSource.COMMUNITY -> DEFAULT_COMMUNITY_PDL
+            DittoPdlSource.COMMUNITY -> communityIdentity
             DittoPdlSource.CUSTOM -> preferences[DITTO_CUSTOM_PDL] ?: ""
         }
         val revision = preferences[DITTO_PDL_MIGRATION_REVISION] ?: 0L
@@ -5352,7 +5660,7 @@ class DataRepository(
     }
 
     internal suspend fun readDittoPdlMigrationSelection(): DittoPdlMigrationSelection =
-        dittoPdlMigrationSelection(context.dataStore.data.first())
+        dittoPdlMigrationSelection(pdlDataStore.data.first())
 
     private fun sameDittoPdlMigrationSelection(
         first: DittoPdlMigrationSelection,
@@ -5363,7 +5671,7 @@ class DataRepository(
     /** Point-in-time comparison only; this does not fence later changes or acknowledge migration. */
     internal suspend fun isDittoPdlMigrationSelectionCurrent(selection: DittoPdlMigrationSelection): Boolean {
         var matches = false
-        context.dataStore.edit { preferences ->
+        pdlDataStore.edit { preferences ->
             matches = sameDittoPdlMigrationSelection(dittoPdlMigrationSelection(preferences), selection)
         }
         return matches
@@ -5374,7 +5682,7 @@ class DataRepository(
         action: () -> T,
     ): T? {
         var result: T? = null
-        context.dataStore.edit { preferences ->
+        pdlDataStore.edit { preferences ->
             if (sameDittoPdlMigrationSelection(dittoPdlMigrationSelection(preferences), selection)) {
                 result = action()
             }
@@ -5384,7 +5692,7 @@ class DataRepository(
 
     // Loads the selected PDL option
     val getDittoPdlSource: Flow<DittoPdlSource> =
-        context.dataStore.data.map { preferences ->
+        pdlDataStore.data.map { preferences ->
             runCatching {
                 DittoPdlSource.valueOf(
                     preferences[DITTO_PDL_SOURCE]
@@ -5395,13 +5703,13 @@ class DataRepository(
 
     // Loads the saved Custom PDL
     val getDittoCustomPdl: Flow<String> =
-        context.dataStore.data.map { preferences ->
+        pdlDataStore.data.map { preferences ->
             preferences[DITTO_CUSTOM_PDL] ?: ""
         }
 
     // Returns the PDL Ditto should use
     val getEffectiveDittoPdl: Flow<String> =
-        context.dataStore.data.map { preferences ->
+        pdlDataStore.data.map { preferences ->
             val source = preferences[DITTO_PDL_SOURCE]
             when (source) {
                 DittoPdlSource.CUSTOM.name -> preferences[DITTO_CUSTOM_PDL] ?: ""
@@ -5518,21 +5826,24 @@ class DataRepository(
     ): String? {
         var rejection: String? = null
         context.dataStore.edit { prefs ->
-            rejection = if (prefs.networkTogglesLocked()) "network settings locked or phone-managed"
-                else policyRejection?.invoke()
-            if (rejection != null) {
-                Log.w(TAG, "Network toggle rejected: ${key.name}: $rejection")
-                return@edit
+            if (key == ENABLE_DITTO_SERVICE) synchronized(dittoPolicyPhoneLock) {
+                rejection = if (prefs.networkTogglesLocked()) "network settings locked or phone-managed"
+                    else null
+                if (rejection == null) {
+                    if ((prefs[key] ?: DEFAULT_ENABLE_DITTO_SERVICE) != enabled) prefs.advanceDittoEnablePolicy()
+                    prefs[key] = enabled
+                    if (!enabled) prefs.remove(DITTO_BLE_RECOVERY_STATE)
+                }
+            } else {
+                rejection = if (prefs.networkTogglesLocked()) "network settings locked or phone-managed"
+                    else policyRejection?.invoke()
+                if (rejection == null) {
+                    prefs[key] = enabled
+                    if (key == ENABLE_TAK_ENDPOINT) prefs[TAK_ENDPOINT_USER_CHOICE] = enabled
+                    else if (key == ENABLE_MULTICAST) prefs[MULTICAST_USER_CHOICE] = enabled
+                }
             }
-            prefs[key] = enabled
-            if (key == ENABLE_TAK_ENDPOINT) {
-                prefs[TAK_ENDPOINT_USER_CHOICE] = enabled
-            } else if (key == ENABLE_MULTICAST) {
-                prefs[MULTICAST_USER_CHOICE] = enabled
-            } else if (key == ENABLE_DITTO_SERVICE && !enabled) {
-                // Explicit Ditto off/on starts a fresh BLE recovery budget.
-                prefs.remove(DITTO_BLE_RECOVERY_STATE)
-            }
+            if (rejection != null) Log.w(TAG, "Network toggle rejected: ${key.name}: $rejection")
         }
         return rejection
     }
@@ -5553,15 +5864,128 @@ class DataRepository(
             tak?.let { prefs[ENABLE_TAK_ENDPOINT] = it }
             multicast?.let { prefs[ENABLE_MULTICAST] = it }
             sitx?.let { prefs[ENABLE_SITX_SERVICE] = it }
-            ditto?.let { prefs[ENABLE_DITTO_SERVICE] = it }
+            ditto?.let {
+                if ((prefs[ENABLE_DITTO_SERVICE] ?: DEFAULT_ENABLE_DITTO_SERVICE) != it) {
+                    prefs.advanceDittoEnablePolicy()
+                }
+                prefs[ENABLE_DITTO_SERVICE] = it
+            }
             companion?.let { prefs[ENABLE_COMPANION_APP_SERVICE] = it }
         }
     }
 
     suspend fun storeNetworkPreferencesLocked(locked: Boolean) {
         context.dataStore.edit { prefs ->
+            if ((prefs[NETWORK_PREFERENCES_LOCKED] ?: false) != locked) prefs.advanceDittoEnablePolicy()
             prefs[NETWORK_PREFERENCES_LOCKED] = locked
         }
+    }
+
+    private fun MutablePreferences.advanceDittoEnablePolicy(by: Long = 1) {
+        val revision = this[DITTO_ENABLE_POLICY_REVISION] ?: 0L
+        check(by > 0 && revision >= 0 && revision <= Long.MAX_VALUE - by) {
+            "Ditto enable policy revision exhausted"
+        }
+        this[DITTO_ENABLE_POLICY_REVISION] = revision + by
+        this[DITTO_ENABLE_POLICY_APPLICATION] = com.weartak.plugin.sdk.enablepolicy.v1.EnablePolicyContractV1.PENDING
+    }
+
+    private fun MutablePreferences.syncDittoPolicyPhoneGeneration() {
+        val savedProcess = this[DITTO_ENABLE_POLICY_PROCESS]
+        val savedGeneration = this[DITTO_ENABLE_POLICY_PHONE_GENERATION] ?: 0L
+        if (savedProcess != dittoPolicyProcess) {
+            check(dittoPolicyPhoneGeneration.value < Long.MAX_VALUE) { "Ditto policy generation exhausted" }
+            advanceDittoEnablePolicy(dittoPolicyPhoneGeneration.value + 1)
+        } else {
+            check(savedGeneration in 0..dittoPolicyPhoneGeneration.value) { "Invalid Ditto policy generation" }
+            val delta = dittoPolicyPhoneGeneration.value - savedGeneration
+            if (delta > 0) advanceDittoEnablePolicy(delta)
+        }
+        this[DITTO_ENABLE_POLICY_PROCESS] = dittoPolicyProcess
+        this[DITTO_ENABLE_POLICY_PHONE_GENERATION] = dittoPolicyPhoneGeneration.value
+    }
+
+    private fun Preferences.dittoEnablePolicyState(): DittoEnablePolicyState {
+        val revision = checkNotNull(this[DITTO_ENABLE_POLICY_REVISION])
+        val application = checkNotNull(this[DITTO_ENABLE_POLICY_APPLICATION])
+        val contract = com.weartak.plugin.sdk.enablepolicy.v1.EnablePolicyContractV1
+        check(revision > 0 && application in listOf(contract.PENDING, contract.APPLIED, contract.FAILED)) {
+            "Invalid Ditto enable policy"
+        }
+        val phoneBlocked = this[PHONE_MANAGED_SETTINGS_ENABLED] == true && phoneManagementSessionActive.value
+        return DittoEnablePolicyState(
+            revision,
+            this[ENABLE_DITTO_SERVICE] ?: DEFAULT_ENABLE_DITTO_SERVICE,
+            this[NETWORK_PREFERENCES_LOCKED] == true || phoneBlocked,
+            phoneBlocked,
+            application,
+            dittoPolicyPhoneGeneration.value,
+        )
+    }
+
+    internal val dittoEnablePolicySignals: Flow<Pair<Long, Long>> =
+        combine(context.dataStore.data, dittoPolicyPhoneGeneration) { prefs, generation ->
+            (prefs[DITTO_ENABLE_POLICY_REVISION] ?: 0L) to generation
+        }.distinctUntilChanged()
+
+    internal fun isDittoPolicyPhoneGenerationCurrent(generation: Long): Boolean =
+        synchronized(dittoPolicyPhoneLock) { generation == dittoPolicyPhoneGeneration.value }
+
+    internal suspend fun readDittoEnablePolicy(newBinding: Boolean = false): DittoEnablePolicyState {
+        lateinit var state: DittoEnablePolicyState
+        context.dataStore.edit { prefs ->
+            synchronized(dittoPolicyPhoneLock) {
+                prefs.syncDittoPolicyPhoneGeneration()
+                if (newBinding) prefs.advanceDittoEnablePolicy()
+                state = prefs.dittoEnablePolicyState()
+            }
+        }
+        return state
+    }
+
+    internal suspend fun requestDittoEnabled(expectedRevision: Long, enabled: Boolean): Pair<Int, Long> {
+        val contract = com.weartak.plugin.sdk.enablepolicy.v1.EnablePolicyContractV1
+        var result = contract.REQUEST_UNAVAILABLE
+        var generation = -1L
+        context.dataStore.edit { prefs ->
+            synchronized(dittoPolicyPhoneLock) {
+                prefs.syncDittoPolicyPhoneGeneration()
+                generation = dittoPolicyPhoneGeneration.value
+                prefs.dittoEnablePolicyState()
+                result = when {
+                    expectedRevision != prefs[DITTO_ENABLE_POLICY_REVISION] -> contract.REQUEST_STALE
+                    prefs.networkTogglesLocked() -> contract.REQUEST_LOCKED
+                    else -> {
+                        if ((prefs[ENABLE_DITTO_SERVICE] ?: DEFAULT_ENABLE_DITTO_SERVICE) != enabled) {
+                            prefs[ENABLE_DITTO_SERVICE] = enabled
+                            if (!enabled) prefs.remove(DITTO_BLE_RECOVERY_STATE)
+                        }
+                        prefs.advanceDittoEnablePolicy()
+                        contract.REQUEST_ACCEPTED_PENDING
+                    }
+                }
+            }
+        }
+        return result to generation
+    }
+
+    internal suspend fun reportDittoPolicyApplied(revision: Long, application: Int): Pair<Int, Long> {
+        val contract = com.weartak.plugin.sdk.enablepolicy.v1.EnablePolicyContractV1
+        var result = contract.UNAVAILABLE
+        var generation = -1L
+        context.dataStore.edit { prefs ->
+            synchronized(dittoPolicyPhoneLock) {
+                prefs.syncDittoPolicyPhoneGeneration()
+                generation = dittoPolicyPhoneGeneration.value
+                prefs.dittoEnablePolicyState()
+                result = if (revision != prefs[DITTO_ENABLE_POLICY_REVISION]) contract.STALE
+                else {
+                    prefs[DITTO_ENABLE_POLICY_APPLICATION] = application
+                    contract.OK
+                }
+            }
+        }
+        return result to generation
     }
 
     data class LocalizationBleBeaconItem(
@@ -6466,6 +6890,10 @@ class DataRepository(
         private val HIGH_ATM_PRESSURE_ALERT_THRESHOLD = intPreferencesKey("high_atm_pressure_alert_threshold")
         private val ENABLE_ACTIVITY_RECOGNITION_SERVICE = booleanPreferencesKey("enable_activity_recognition_service")
         private val ENABLE_DITTO_SERVICE = booleanPreferencesKey("enable_ditto_service")
+        private val DITTO_ENABLE_POLICY_REVISION = longPreferencesKey("ditto_enable_policy_revision")
+        private val DITTO_ENABLE_POLICY_APPLICATION = intPreferencesKey("ditto_enable_policy_application")
+        private val DITTO_ENABLE_POLICY_PROCESS = stringPreferencesKey("ditto_enable_policy_process")
+        private val DITTO_ENABLE_POLICY_PHONE_GENERATION = longPreferencesKey("ditto_enable_policy_phone_generation")
         private val DITTO_BLE_RECOVERY_STATE = stringPreferencesKey("ditto_ble_recovery_state")
         private val ENABLE_CHAT_SERVICE = booleanPreferencesKey("enable_chat_service")
         private val ENABLE_AUDIO_CAP_SERVICE = booleanPreferencesKey("enable_audio_capture_service")

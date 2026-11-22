@@ -224,6 +224,7 @@ class HostControlImpl(
             is ContractValidationResult.Ok -> {
                 val parsed = PluginMarkerMapping.fromParcel(v.value)
                 val timeMillis = System.currentTimeMillis()
+                try {
                 runBlocking {
                     when (lifecycle) {
                         MarkerLifecycle.PUBLISH -> {
@@ -260,8 +261,13 @@ class HostControlImpl(
                                 )
                             }
                         }
-                        MarkerLifecycle.CLEAR -> app.repo.requestMarkerClear(parsed.uid)
+                        MarkerLifecycle.CLEAR -> if (!app.repo.requestMarkerClear(parsed.uid)) {
+                            Log.w(TAG, "requestMarkerClear: marker not found uid=${parsed.uid}")
+                        }
                     }
+                }
+                } catch (error: Exception) {
+                    Log.e(TAG, "Marker ${lifecycle.name} admission failed; no durable acknowledgement", error)
                 }
             }
         }

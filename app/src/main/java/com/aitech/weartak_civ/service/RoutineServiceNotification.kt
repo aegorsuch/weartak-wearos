@@ -44,7 +44,6 @@ internal object RoutineServiceNotification {
         "ActivityRecognitionService" to Capability(192, R.string.notification_activity),
         "PowerManagerService" to Capability(555, R.string.notification_power),
         "BloodhoundService" to Capability(848, R.string.notification_bloodhound),
-        "GunshotOnnxService" to Capability(919, R.string.notification_gunshot),
         "UasOnnxService" to Capability(920, R.string.notification_uas),
         "CrmInferenceService" to Capability(921, R.string.notification_crm),
         "CompanionAppService" to Capability(999, R.string.notification_companion),
@@ -117,7 +116,7 @@ internal object RoutineServiceNotification {
             (if (name == "ReactiveServiceManager") "ServiceManager_channel"
             else if (name == "EnvSensorService") "env_sensor_channel"
             else "${name}_channel") to capability.legacyId
-        }.toMap()
+        }.toMap() + ("GunshotOnnxService_channel" to 919)
         manager.activeNotifications.forEach { entry ->
             if (legacyChannels[entry.notification.channelId] == entry.id) {
                 manager.cancel(entry.tag, entry.id)

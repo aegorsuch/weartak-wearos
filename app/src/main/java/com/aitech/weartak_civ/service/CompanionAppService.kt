@@ -1776,13 +1776,6 @@ class CompanionAppService : Service() {
                     } catch (error: Exception) {
                         Log.e(TAG, "Failed to expire direct self PLI before Companion handoff", error)
                     }
-                    try {
-                        DittoService.prepareForCompanionHandoffIfRunning()
-                    } catch (error: kotlinx.coroutines.CancellationException) {
-                        throw error
-                    } catch (error: Exception) {
-                        Log.e(TAG, "Failed to expire direct Ditto self track before Companion handoff", error)
-                    }
                     repo.setCompanionAppConnected()
                     capRepo.updateBleConnectionState(CompanionAppRepository.BleConnectionState.SERVICES_READY)
                     if (!helloSentForConnection) {

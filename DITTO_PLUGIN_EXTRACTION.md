@@ -1,9 +1,45 @@
 # Ditto plugin extraction inventory
 
-Status: inventory, safe-boundary groundwork, and development-only plugin
-scaffold and document decoding. The core Ditto path remains enabled as-is; no
-replacement, settings migration, SDK copy to a plugin, or credential transfer
-has occurred.
+## Current direction
+
+Update and restart WearTAK Core before installing the optional Ditto plugin.
+The plugin requires Core and owns provisioning, settings, and Ditto storage;
+no identity or point-history transfer is required. Earlier migration and handoff
+sections below describe inactive work, not the intended release path.
+
+The bundled Ditto service and SDK dependency have been removed from the current
+source. The plugin-only profile is enabled. The integrated candidate pins
+canonical SDK commit `8d1b8b46437136f7b9deea6aaa6973cd84925793` with the
+existing transport overlay. Earlier debug and release unit suites passed with
+candidate SDK commit `6f295be6ba52fd4e4d67d1cc3813ca22608f087c`, but do not
+validate this integrated candidate. TAK.gov CI, lifecycle/device validation,
+and review remain required. Marker routing uses the
+existing authenticated `ditto-v1` transport, with stable journal message IDs.
+`CHANNEL_SUBMITTED` records local submission, not durable storage or peer
+delivery. Disconnect or failure after admission leaves the result uncertain.
+Independent marker routes are offered separately while an installed, enabled
+Ditto plugin reconnects; their offer state is persisted to avoid replay.
+The plugin-only profile uses authenticated host device status for
+the TAK UID and does not provide the host's Community Identity binder. Point
+ingress protects host-owned markers using the generic marker journal.
+The direct profile can retire and re-register transport and point sessions on
+the same authenticated binding. Companion and power suppression request plugin
+stop and restart on that binding. Alert submission uses a stable activation
+ID and captured payload, retries only known pre-admission refusals, and fences
+uncertain outcomes. Independent routes are offered first. Per-UID fences reject
+stale queued alerts and clears and prevent a new activation overtaking an
+uncertain earlier submission. Captured clears persist for retry after plugin
+route recovery without replaying independent routes. Uncertain submissions
+are retired, never replayed, only after an authenticated replacement session
+from the verified signed plugin build `5.8.4-p35+d981f7a5` (version code
+`5840035`). The prior admission must also have recorded a verified session.
+Unknown, older, or unverified builds cannot establish this proof; other builds
+are rejected, including later version codes. Future canonical plugin updates
+must be revalidated and added to Core's compatibility policy before
+installation.
+
+The inventory and migration discussions below are historical. The current
+direction does not transfer credentials, settings, or history.
 
 Target repositories are established: internal-access
 [`weartak-plugins/weartak-plugin-ditto`](https://git.tak.gov/weartak-plugins/weartak-plugin-ditto)
@@ -213,10 +249,12 @@ The template consumes WearTAK SDK AARs from `app/libs/`, but its README says
 their redistribution terms are unverified. Do not copy those opaque AARs into
 the Ditto repository. The core instead builds the pinned SDK from source using
 `python ci/build_plugin_sdk.py`: source commit
-`86bdc8b04797c2cf6caa30e78e796abac1c2a330`, plus the Transport V1 overlay
+`6f295be6ba52fd4e4d67d1cc3813ca22608f087c`, plus the Transport V1 overlay
 with source SHA-256
 `a818af15b3328b817b972e2fe81d9585cb54e9a952a0ec8e13936ee5987ee6a6`.
 The generated release AAR is SHA-256-pinned per platform in `ci/plugin-sdk.json`.
+This candidate source was verified in TAK.gov CI but is not yet a merged SDK release;
+plugin activation remains gated.
 No SDK AAR or Ditto SDK binary was copied into the plugin repository.
 
 The development scaffold initially used the provisional application ID
@@ -412,7 +450,129 @@ was attempted.
    plugin is independently verified for identity provisioning, standalone
    operation, mesh transports, PLI/CoT/chat, point deletion and replay
    protection, power/BLE recovery, Companion handoff, settings, and rollback
-   or migration. No migration contract currently exists.
+   or migration. Migration contracts and host adapters remain default-off.
+   Unregister acceptance is not a broker-retirement proof. The separate
+   versioned retirement endpoint revokes preactivation registration, closes
+   broker admission and waits boundedly for admitted work and policy observers.
+   A timeout, lost response, repeated call or death is not proof. RETIRED does
+   not attest Binder reply delivery, plugin-side draining or native shutdown.
+   Promotion remains unavailable and plugin-side callback and reply draining
+   must be verified independently.
+   Migration preparation also refuses before bundled-engine quiescence: no
+   production marker admission-and-drain proof exists. Before enabling it, close
+   admission and persist admitted and coalesced edits before either permanent
+   fence; retain closure through snapshot capture. Durable unsent network work
+   must be preserved or transferred, not delivered to peers as a prerequisite.
+   After a permanent or PREPARED fence, never reopen the legacy owner. Before
+   fencing, retain it only when its unchanged sole ownership is proven; a
+   failed persistence call does not prove rollback. Preparation also rejects
+   active local ledger entries without point documents before fencing; their
+   content cannot be reconstructed from ownership records alone.
+   Marker drop, edit and clear requests now persist their desired state and
+   ordered host intents before reporting local admission. While the legacy
+   engine owns point writes, the service materializes and persists the exact
+   outbound CoT, then dispatches eligible intents in per-UID order. A tracked
+   Ditto callback reports success only after the native write and ledger flush;
+   a missing, failed, or interrupted callback remains uncertain and is not
+   replayed. Non-Ditto route acceptance is only a local offer, not peer delivery;
+   deletion staging records a local durable tombstone, not native completion.
+   At capacity, the journal compacts acknowledged history while retaining
+   unresolved intents and per-UID anchors for UI order, effective state,
+   deletion location and maximum materialized event time. Compacted historical
+   acknowledgments are not a durable operation-receipt lookup; plugin receipt
+   retention and cross-store reconciliation remain separate requirements.
+   No plugin point dispatch is enabled after the ownership fence.
+   The journal consumer can close admission and wait for its in-flight effects,
+   including across consumer instances. This is not a global point-writer drain:
+   the Ditto publication gate now counts EventBus submissions, direct publication
+   and ledger retry work through completion of their native calls and callbacks.
+   Timeout or a native exception cannot prove drain. Direct local ledger mutation,
+   observer callbacks, persistent restart fencing and ordering across these gates
+   still require a combined proof before cutover can use it.
+   Known pre-native rejection remains retryable after its phase is persisted;
+   attempted native writes and failed ledger commits remain uncertain.
+   The local point mutation fence has a separate process-wide admission drain
+   for ledger and watermark mutations, including a ledger flush's native call.
+   It rejects new work while waiting and reports timeout without waiting on the
+   writer monitor. The persistent fence commit runs on a tracked worker: a
+   timeout or interruption leaves its outcome uncertain even if it later
+   finishes. This is not a global barrier: journal and observer lifetime
+   must still be coordinated, and the worker itself can remain blocked.
+   Observer shutdown now has a bounded local wait for handle closure, entered
+   callbacks and launched ingestion jobs. It is not connected to cutover;
+   the SDK close documentation does not by itself prove that an already-invoked
+   callback cannot enter the counter after that wait.
+   The journal is not connected to the cutover barrier. Its local payload digest is not the
+   unpublished point-receipt request digest. A closed journal alone does not
+   drain service work, and recovery of a started dispatch does not prove its
+   outcome. Do not enable migration or replay such work on this basis.
+   Drop UI confirmation distinguishes a local journal save from delivery.
+
+### Incumbent point encoding (not a receipt contract)
+
+`CotMessageBuilder.marker` emits CoT 2.0 with the point UID and marker type,
+`time=start` at snapshot construction, stale one year later, `how=h-g-i-g-o`,
+`access=Undefined`, and point lat/lon/hae/ce/le. Its detail contains status
+(readiness/battery), precisionlocation altsrc SRTM1, parent-device link
+(production time, type `a-f-G-U-C`, callsign, relation `p-p`), color -1,
+usericon iconsetpath, remarks and contact callsign. See `CotXml`: attributes
+and content are raw, so receiver code must not assume automatic XML escaping.
+
+`DittoService.onDittoDoc` asynchronously parses CoT and constructs the `mapitem`
+record: `_id`=UID, `_r`=false, `_v`=2, `authorCs`/`e`=local callsign,
+`AuthorId`/`d`=local device UUID, `authorType`/`w`=CoT type, `visible`/`f`=true,
+`a`=event pks or local peer key, `b`/`n`=event time in milliseconds,
+`c`=contact callsign, `g`=2.0, `h`=ce, `i`=hae, `j`=lat, `k`=le,
+`l`=lon, `o`=stale milliseconds, `p`=how, `q`=access and `r`=detail XML.
+`DittoPointLedger.publish` requires prior locally owned UID, validates owner
+and peer, and adds `weartakPoint={version:1,owner,revision,deleted:false}`.
+The revision is SHA-256 lowercase hex of the canonical reconstructed CoT
+from `DittoCotDocument.decode`, not necessarily the original raw input XML.
+Equal timestamps with unequal revisions conflict; older events are rejected.
+
+`DittoPointLedger.delete` persists a terminal local ledger record. For a point
+with a document it retains the document and revision, sets `_r=true`,
+`visible=false`, `f=false`, and `weartakPoint.deleted=true` plus
+`deletedAt=max(now, document.b)`; the local record becomes
+`{uid,owner,deleted:true,document,pending:true,nativePhase:"NEVER_DISPATCHED"}`.
+The phase becomes `DISPATCH_STARTED` before the native call and is removed
+when the pending flag is durably cleared. An ownership-only unpublished
+point has no document and no mesh tombstone. Ledger keys are SHA-256 of UID;
+receive watermarks use SHA-256 of peer + NUL + UID, retaining owner, event time,
+revision and deleted. Deletion is terminal and same-time conflicts are refused.
+The independent TAK deletion CoT uses a distinct event UUID, type `t-x-d-d`,
+one-day stale, link to target UID and `__forcedelete`. The journal consumer
+derives its event UUID from the stable dispatch ID; the incumbent non-journal
+builder defaults to a fresh UUID.
+
+The data-only `PAYLOAD_POINT_RECORD_JSON_V1` DELETE profile wraps the actual
+persisted tombstone document as `{"version":1,"document":{...}}`. It requires
+the bound local peer, matching UID and owner, original event time and revision,
+and the recorded deletion time; missing or inconsistent historical data is
+rejected. It preserves compatible document fields without reconstructing the
+overwritten prior lifecycle flags. The shared golden payload is
+`app/src/test/resources/point-delete-v1.json` (excluding its file newline).
+Serialization does not send an operation or prove its native outcome.
+The `point-producer-drop.xml`, `point-producer-edit.xml`, and
+`point-producer-delete.json` test resources contain synthetic bytes generated
+through the incumbent marker builder, Ditto document materialization and
+ledger deletion; fixture trailing newlines are not payload bytes. Their
+historical peer is intentionally distinct from any new runtime peer. Site ID
+alone does not prove peer-key continuity.
+The plugin-to-host point endpoint is exposed only under the existing verified
+plugin-only ownership profile and authenticated live transport session. Production
+ownership proof remains unavailable; no host-to-plugin point sender is enabled.
+
+The host journal's sequence, random dispatch ID and digest of its exact stored
+payload identify a local intent only; they are not the future authenticated
+point-receipt request digest. EventBus/network queue acceptance, the local
+journal commit, ledger pending commit, native Ditto write and peer delivery are
+distinct outcomes. `dispatch` can accept before `onDittoDoc` asynchronously
+persists the ledger. The tracked callback occurs after `DittoPointLedger.flush`
+writes the native document and persists pending=false; its prior persisted
+native-start phase prevents automatic retry after an interrupted write.
+Neither a local callback nor a staged deletion proves peer delivery or an
+authenticated plugin receipt.
 
 The plugin-repository checkout and approved branch are established. Final
 identity provisioning, signing, migration, and host

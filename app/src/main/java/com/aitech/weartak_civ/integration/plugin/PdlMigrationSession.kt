@@ -78,17 +78,47 @@ internal class PdlMigrationSession(
             !MessageDigest.isEqual(current.nonce, nonce)) return@withLock Status.INVALID
         if (current.changed) return@withLock Status.CHANGED
         val result = acknowledgeIfCurrent(current.selection) {
-            reject(callerUid, requestedSession, transferId) ?: run {
-                current.acknowledged = true
-                Status.OK
-            }
+            reject(callerUid, requestedSession, transferId) ?: Status.OK
         }
         if (result == null) {
             current.changed = true
             return@withLock Status.CHANGED
         }
         reject(callerUid, requestedSession, transferId)?.let { return@withLock it }
+        if (result == Status.OK) current.acknowledged = true
         result
+    }
+
+    /** Action must not perform Binder calls or wait for DataStore-dependent locks. */
+    suspend fun <T : Any> withAcknowledgedCurrent(
+        callerUid: Int,
+        requestedSession: String,
+        action: () -> T,
+    ): T? = mutex.withLock {
+        val current = transfer ?: return@withLock null
+        if (!current.acknowledged || current.changed ||
+            reject(callerUid, requestedSession, current.id) != null) return@withLock null
+        var value: T? = null
+        val result = acknowledgeIfCurrent(current.selection) {
+            reject(callerUid, requestedSession, current.id) ?: run {
+                value = action()
+                Status.OK
+            }
+        }
+        if (result == null) current.changed = true
+        if (result != Status.OK) null else value
+    }
+
+    /** The action must revalidate this selection in its own serialized storage transaction. */
+    suspend fun <T : Any> withAcknowledgedSelection(
+        callerUid: Int,
+        requestedSession: String,
+        action: suspend (DittoPdlMigrationSelection) -> T?,
+    ): T? = mutex.withLock {
+        val current = transfer ?: return@withLock null
+        if (!current.acknowledged || current.changed ||
+            reject(callerUid, requestedSession, current.id) != null) return@withLock null
+        action(current.selection)
     }
 
     fun close() {

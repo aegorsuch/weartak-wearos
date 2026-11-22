@@ -67,6 +67,38 @@ class DittoPointMigrationSnapshotTest {
         assertEquals(malformed, prefs.getString(key, null))
     }
 
+    @Test fun incompleteActivePointBlocksPreflightButDurablePendingAndTombstoneDoNot() {
+        val prefs = preferences()
+        val deleted = """{"uid":"deleted","owner":"watch","deleted":true}"""
+        assertTrue(prefs.edit()
+            .putString(DittoCotDocument.digest("deleted"), deleted).commit())
+        val ledger = DittoPointLedger(prefs)
+        ledger.created("pending", "watch")
+        val document = mapOf<String, Any?>(
+            "_id" to "pending", "_v" to 2, "_r" to false, "a" to "peer",
+            "AuthorId" to "watch", "b" to 1000L, "d" to "watch",
+            "g" to "2.0", "h" to 1.0, "i" to 50.0, "j" to 38.0, "k" to 1.0,
+            "l" to -77.0, "n" to 1000L, "o" to 601000L,
+            "p" to "m-g", "q" to "Undefined",
+            "r" to "<detail><contact callsign='Point'/></detail>", "w" to "a-f-G",
+        )
+        assertThrows(IllegalStateException::class.java) {
+            ledger.publish(document) { throw IllegalStateException("offline") }
+        }
+        assertTrue(ledger.hasPending())
+        assertFalse(ledger.hasUnexportableActivePoints())
+        ledger.created("incomplete", "watch")
+        assertTrue(ledger.hasUnexportableActivePoints())
+    }
+
+    @Test fun malformedActiveDocumentFailsPreflight() {
+        val prefs = preferences()
+        val record = """{"uid":"point","owner":"watch","deleted":false,"document":{}}"""
+        assertTrue(prefs.edit().putString(DittoCotDocument.digest("point"), record).commit())
+        val ledger = DittoPointLedger(prefs)
+        assertThrows(IllegalArgumentException::class.java) { ledger.hasUnexportableActivePoints() }
+    }
+
     @Test fun watermarkSnapshotPreservesOpaqueTombstonesAndDetectsExternalChange() {
         val prefs = preferences()
         val key = DittoCotDocument.digest("synthetic-peer\u0000synthetic-point")
@@ -143,6 +175,35 @@ class DittoPointMigrationSnapshotTest {
         }
     }
 
+    @Test fun mutationDrainTimesOutWithoutWaitingForWriterAndClosesAdmission() {
+        val prefs = preferences()
+        val first = DittoPointMutationFence(prefs)
+        val second = DittoPointMutationFence(prefs)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val writer = executor.submit {
+                first.mutate {
+                    entered.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                    first.mutate { }
+                }
+            }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertFalse(second.closeAndDrain(50))
+            assertThrows(IllegalStateException::class.java) { second.mutate { } }
+            release.countDown()
+            writer.get(5, TimeUnit.SECONDS)
+            assertTrue(second.closeAndDrain(1000))
+            assertTrue(second.fence())
+            assertThrows(IllegalStateException::class.java) { first.mutate { } }
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
     @Test fun corruptFenceRefusesBothMutationAndCutover() {
         val prefs = preferences()
         assertTrue(prefs.edit().putString("local-point-writers-fenced", "invalid").commit())
@@ -174,11 +235,49 @@ class DittoPointMigrationSnapshotTest {
         assertThrows(IllegalStateException::class.java) { next.mutate { } }
     }
 
+    @Test fun timedOutFenceCommitNeverBecomesConfirmedWhenWorkerFinishes() {
+        val real = preferences()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val prefs = object : SharedPreferences by real {
+            override fun edit(): SharedPreferences.Editor {
+                val editor = real.edit()
+                return object : SharedPreferences.Editor by editor {
+                    override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor {
+                        editor.putBoolean(key, value)
+                        return this
+                    }
+                    override fun commit(): Boolean = try {
+                        entered.countDown()
+                        check(release.await(5, TimeUnit.SECONDS))
+                        editor.commit()
+                    } finally {
+                        finished.countDown()
+                    }
+                }
+            }
+        }
+        val fence = DittoPointMutationFence(prefs)
+        try {
+            assertFalse(fence.fence(100))
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            assertThrows(IllegalStateException::class.java) { fence.mutate { } }
+            assertFalse(DittoPointMutationFence(prefs).fence(50))
+            release.countDown()
+            assertTrue(finished.await(5, TimeUnit.SECONDS))
+            assertFalse(fence.fence(1000))
+            assertNull(fence.withConfirmedFence { "unsafe" })
+        } finally {
+            release.countDown()
+        }
+    }
+
     @Test fun fencedRetryDoesNotPublishPendingDocument() {
         val prefs = preferences()
         val fence = DittoPointMutationFence(preferences())
         val key = DittoCotDocument.digest("point")
-        val record = """{"uid":"point","owner":"watch","deleted":false,"pending":true,"document":{}}"""
+        val record = """{"uid":"point","owner":"watch","deleted":false,"pending":true,"nativePhase":"NEVER_DISPATCHED","document":{}}"""
         assertTrue(prefs.edit().putString(key, record).commit())
         val ledger = DittoPointLedger(prefs, fence)
         assertTrue(fence.fence())
@@ -188,6 +287,85 @@ class DittoPointMigrationSnapshotTest {
         assertEquals(0, writes)
         assertEquals(1, errors)
         assertEquals(record, prefs.getString(key, null))
+    }
+
+    @Test fun retryDoesNotInvokeFailingErrorHandlerTwice() {
+        val prefs = preferences()
+        val fence = DittoPointMutationFence(preferences())
+        val key = DittoCotDocument.digest("point")
+        val record = """{"uid":"point","owner":"watch","deleted":false,"pending":true,"nativePhase":"NEVER_DISPATCHED","document":{}}"""
+        assertTrue(prefs.edit().putString(key, record).commit())
+        val ledger = DittoPointLedger(prefs, fence)
+        var calls = 0
+        assertThrows(IllegalStateException::class.java) {
+            ledger.retry(write = { throw IllegalStateException("write") },
+                onError = { calls++; throw IllegalStateException("handler") })
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test fun interruptedNativeWriteIsNotRetriedAfterLedgerRecreation() {
+        val prefs = preferences()
+        val ledger = DittoPointLedger(prefs)
+        ledger.created("point", "watch")
+        val document = mapOf<String, Any?>(
+            "_id" to "point", "_v" to 2, "_r" to false, "a" to "peer",
+            "AuthorId" to "watch", "b" to 1000L, "d" to "watch",
+            "g" to "2.0", "h" to 1.0, "i" to 50.0, "j" to 38.0, "k" to 1.0,
+            "l" to -77.0, "n" to 1000L, "o" to 601000L,
+            "p" to "m-g", "q" to "Undefined",
+            "r" to "<detail><contact callsign='Point'/></detail>", "w" to "a-f-G",
+        )
+        assertThrows(IllegalStateException::class.java) {
+            ledger.publish(document) { throw IllegalStateException("unknown native outcome") }
+        }
+        val restored = DittoPointLedger(prefs)
+        assertTrue(restored.hasPending())
+        assertTrue(restored.hasUncertainNativeWrites())
+        assertFalse(restored.hasRetryablePending())
+        var writes = 0
+        restored.retry({ writes++ }, { throw it })
+        assertEquals(0, writes)
+        assertThrows(IllegalStateException::class.java) { restored.delete("point", "watch", 2000L) }
+    }
+
+    @Test fun pointMutationDrainWaitsThroughNativeWriteAndLedgerAcknowledgement() {
+        val ledgerPrefs = preferences()
+        val fencePrefs = preferences()
+        val fence = DittoPointMutationFence(fencePrefs)
+        val ledger = DittoPointLedger(ledgerPrefs, fence)
+        ledger.created("point", "watch")
+        val document = mapOf<String, Any?>(
+            "_id" to "point", "_v" to 2, "_r" to false, "a" to "peer",
+            "AuthorId" to "watch", "b" to 1000L, "d" to "watch",
+            "g" to "2.0", "h" to 1.0, "i" to 50.0, "j" to 38.0, "k" to 1.0,
+            "l" to -77.0, "n" to 1000L, "o" to 601000L,
+            "p" to "m-g", "q" to "Undefined",
+            "r" to "<detail><contact callsign='Point'/></detail>", "w" to "a-f-G",
+        )
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val writer = executor.submit<Boolean> {
+                ledger.publish(document) {
+                    entered.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                }
+            }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertFalse(fence.closeAndDrain(50))
+            val other = DittoPointMutationFence(fencePrefs)
+            assertThrows(IllegalStateException::class.java) { other.mutate { } }
+            release.countDown()
+            assertTrue(writer.get(5, TimeUnit.SECONDS))
+            assertTrue(fence.closeAndDrain(1000))
+            assertFalse(ledger.hasPending())
+            assertTrue(fence.fence())
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
     }
 
     @Test fun uncertainStorageCommitBlocksFenceAcrossInstancesWithoutBlockingNormalWrites() {

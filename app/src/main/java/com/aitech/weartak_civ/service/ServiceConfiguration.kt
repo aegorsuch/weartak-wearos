@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.aitech.weartak_civ.BuildConfig
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.service.LicenseManager.isLicenseValid
 import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
@@ -45,6 +46,7 @@ class ServiceConfiguration(
     private val audioCaptureRepository: AudioCaptureRepository,
     private val weatherDemand: Flow<Boolean> = CepProvider.weatherDemand,
     private val weatherApiKey: String? = WeatherService.OpenWeatherConfig.getApiKey(),
+    private val audioDetectionDelegates: Flow<Set<String>> = flowOf(emptySet()),
 ) {
     private val TAG = "WearTAK-ServiceConfig"
 
@@ -98,27 +100,24 @@ class ServiceConfiguration(
             actOn && (physioOn || (dynamic && locationOn))
         }.distinctUntilChanged()
 
-        // Keep direct transports stopped briefly after a Companion drop to absorb reconnect flaps.
-        ServiceType.DITTO -> combine(
-            dataRepository.getEnableDittoService, dataRepository.watchTransportSuppressed,
-            DittoService.isReconfiguring, DittoService.shutdownFailed
-        ) { enabled, suppressed, reconfiguring, shutdownFailed ->
-            enabled && !suppressed && !reconfiguring && !shutdownFailed
-        }.distinctUntilChanged()
+        ServiceType.DITTO -> kotlinx.coroutines.flow.flowOf(false)
         ServiceType.HAIL -> dataRepository.getEnableHailService.distinctUntilChanged()
         ServiceType.CHAT  -> dataRepository.getEnableChatService.distinctUntilChanged()
         ServiceType.BLE_BEACON -> dataRepository.getEnableBleBeaconService.distinctUntilChanged()
         ServiceType.GEOFENCE  -> dataRepository.getEnableGeofenceService.distinctUntilChanged()
         ServiceType.BLOOD_HOUND -> dataRepository.getEnableBloodhoundCompassService.distinctUntilChanged()
         ServiceType.AUDIO_CAP -> combine(
-            dataRepository.getEnableOnnxGunshotService.distinctUntilChanged(),
             dataRepository.getEnableOnnxUasService.distinctUntilChanged(),
             audioCaptureRepository.activeConsumers,
-        ) { gunshotOn, uasOn, consumers ->
-            gunshotOn || uasOn || consumers.isNotEmpty()
+        ) { uasOn, consumers ->
+            uasOn || consumers.isNotEmpty()
         }.distinctUntilChanged()
-        ServiceType.ONNX_GUNSHOT -> dataRepository.getEnableOnnxGunshotService.distinctUntilChanged()
-        ServiceType.ONNX_UAS -> dataRepository.getEnableOnnxUasService.distinctUntilChanged()
+        ServiceType.ONNX_UAS -> combine(
+            dataRepository.getEnableOnnxUasService,
+            audioDetectionDelegates,
+        ) { enabled, delegates ->
+            enabled && PluginDetectionEventBridge.FALCON_PACKAGE !in delegates
+        }.distinctUntilChanged()
         ServiceType.CRM_INFERENCE -> dataRepository.getEnableCrmService.distinctUntilChanged()
 
         // Core consumers remain live; BATTERY is now a process-owned virtual observer.
@@ -186,9 +185,6 @@ class ServiceConfiguration(
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
         ServiceType.AUDIO_CAP -> listOf(
-            android.Manifest.permission.RECORD_AUDIO
-        )
-        ServiceType.ONNX_GUNSHOT -> listOf(
             android.Manifest.permission.RECORD_AUDIO
         )
         ServiceType.ONNX_UAS -> listOf(

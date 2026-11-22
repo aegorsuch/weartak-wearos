@@ -81,7 +81,6 @@
         android:name="com.weartak.plugin.permission.BIND_PLUGIN"
         android:protectionLevel="signature" />
     <uses-permission android:name="com.weartak.plugin.permission.BIND_PLUGIN" />
-    <uses-permission android:name="com.weartak.plugin.ditto.permission.BIND_DITTO_RUNTIME_V1" />
 
     <!--
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
@@ -357,12 +356,6 @@
             android:foregroundServiceType="specialUse"
             android:stopWithTask="false" />
         <service
-            android:name=".service.DittoService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice"
-            android:stopWithTask="false" />
-        <service
             android:name=".service.OffBodyDetectService"
             android:enabled="true"
             android:exported="false"
@@ -412,12 +405,6 @@
             android:stopWithTask="false" />
         <service
             android:name=".service.MovementDetectionService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:stopWithTask="false" />
-        <service
-            android:name=".service.GunshotOnnxService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse"

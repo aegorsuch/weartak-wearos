@@ -3,6 +3,10 @@ package com.aitech.weartak_civ.service
 import android.app.Application
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.integration.plugin.PluginSettingsCoordinator
+import com.aitech.weartak_civ.integration.plugin.PluginConnection
+import com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost
+import com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission
+import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
 import com.aitech.weartak_civ.cot.CotCompanionPayload
 import com.aitech.weartak_civ.cot.CotEndpointDispatcher
 import com.aitech.weartak_civ.cot.CotEventTime
@@ -13,13 +17,22 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import io.mockk.just
+import io.mockk.Runs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -37,6 +50,319 @@ import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 @Config(sdk = [34], application = Application::class)
 class CotDispatchServiceAlertReadinessTest {
     @Test
+    fun repeatedActivationWithSameUidSendsNewAlertAfterClear() = runTest {
+        val fixture = Fixture(this)
+        fixture.multicast.value = true
+        fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+        val first = fixture.alert("reused-uid")
+        fixture.activeAlerts(false)[first.uuid] = first
+        fixture.send(false, first)
+        fixture.clear(false, first.uuid)
+        val second = fixture.alert("reused-uid")
+        fixture.activeAlerts(false)[second.uuid] = second
+        fixture.send(false, second)
+        assertEquals(3, fixture.sent.size)
+        assertEquals(2, fixture.sent.count { !it.contains("type='b-a-o-can'") })
+    }
+
+    @Test
+    fun deselectedPluginClearSurvivesOtherRouteAndRetriesOnReconnect() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            fixture.multicast.value = true
+            val submissions = mutableListOf<String>()
+            fixture.enableTrackedPlugin { xml, _ -> submissions += xml; Submission.SUBMITTED }
+            fixture.startClearRecovery()
+            val alert = fixture.alert("pending-clear")
+            fixture.activeAlerts(false)[alert.uuid] = alert
+            fixture.send(false, alert)
+            runCurrent()
+            assertEquals(1, submissions.size)
+            fixture.pluginSelected.value = false
+            fixture.clear(false, alert.uuid)
+            runCurrent()
+            assertEquals(2, fixture.sent.size)
+            assertEquals(1, submissions.size)
+            fixture.pluginSelected.value = true
+            fixture.pluginRoutes.value = mapOf(TrustedCommunityPlugin.PACKAGE to 1L)
+            runCurrent()
+            assertEquals(2, submissions.size)
+            assertTrue(submissions.last().contains("type='b-a-o-can'"))
+            assertEquals(2, fixture.sent.size)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun clearIsPersistedWhenNoRouteIsAvailable() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            val submissions = mutableListOf<String>()
+            fixture.enableTrackedPlugin { xml, _ -> submissions += xml; Submission.SUBMITTED }
+            fixture.startClearRecovery()
+            val alert = fixture.alert("offline-clear")
+            fixture.activeAlerts(false)[alert.uuid] = alert
+            fixture.pluginSelected.value = false
+            fixture.clear(false, alert.uuid)
+            runCurrent()
+            assertEquals(1, fixture.persistedClears().size)
+            assertTrue(submissions.isEmpty())
+            fixture.pluginSelected.value = true
+            fixture.pluginRoutes.value = mapOf(TrustedCommunityPlugin.PACKAGE to 1L)
+            runCurrent()
+            assertEquals(1, submissions.size)
+            assertTrue(submissions.single().contains("type='b-a-o-can'"))
+            assertTrue(fixture.persistedClears().isEmpty())
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun gatewayClearIsCapturedForPluginWithoutRepeatingGatewaySend() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            val submissions = mutableListOf<String>()
+            fixture.enableTrackedPlugin { xml, _ -> submissions += xml; Submission.SUBMITTED }
+            fixture.companionEnabled.value = true
+            fixture.companionReady.value = true
+            fixture.gateway.negotiate(org.json.JSONObject().put("version", 1).put("session", "phone"))
+            assertTrue(fixture.gateway.confirm("phone"))
+            fixture.startClearRecovery()
+            val alert = fixture.alert("gateway-clear")
+            fixture.activeAlerts(false)[alert.uuid] = alert
+            fixture.clear(false, alert.uuid)
+            runCurrent()
+            assertEquals(1, fixture.gatewaySent.size)
+            assertEquals(1, fixture.persistedClears().size)
+            assertTrue(submissions.isEmpty())
+
+            fixture.companionReady.value = false
+            fixture.gateway.reset()
+            fixture.pluginRoutes.value = mapOf(TrustedCommunityPlugin.PACKAGE to 1L)
+            runCurrent()
+            assertEquals(1, submissions.size)
+            assertEquals(fixture.gatewaySent.single(), submissions.single())
+            assertEquals(1, fixture.gatewaySent.size)
+            assertTrue(fixture.persistedClears().isEmpty())
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun uncertainAlertClearsAfterVerifiedReplacementWithoutAlertReplay() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            fixture.verifiedSession.value = "old-session"
+            val submissions = mutableListOf<String>()
+            fixture.enableTrackedPlugin { xml, _ ->
+                submissions += xml
+                if (submissions.size == 1) Submission.UNCERTAIN else Submission.SUBMITTED
+            }
+            fixture.startClearRecovery()
+            val alert = fixture.alert("uncertain-clear")
+            fixture.activeAlerts(false)[alert.uuid] = alert
+            fixture.send(false, alert)
+            runCurrent()
+            fixture.clear(false, alert.uuid)
+            runCurrent()
+            assertEquals(1, submissions.size)
+            assertEquals(1, fixture.persistedClears().size)
+            fixture.verifiedSession.value = "new-session"
+            fixture.pluginRoutes.value = mapOf(TrustedCommunityPlugin.PACKAGE to 1L)
+            runCurrent()
+            assertEquals(2, submissions.size)
+            assertTrue(submissions.last().contains("type='b-a-o-can'"))
+            assertTrue(fixture.persistedClears().isEmpty())
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun recreatedServiceRetriesPersistedClearFromInitialReadyState() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val first = Fixture(this)
+            first.snapshotLocation = first.location(System.currentTimeMillis())
+            val priorAttempts = mutableListOf<Pair<String, String>>()
+            first.enableTrackedPlugin { xml, id ->
+                priorAttempts += xml to id
+                Submission.NOT_ADMITTED
+            }
+            val alert = first.alert("recreated-clear")
+            first.activeAlerts(false)[alert.uuid] = alert
+            first.clear(false, alert.uuid)
+            runCurrent()
+            assertTrue(priorAttempts.isNotEmpty())
+            val captured = first.persistedClears().single()
+            first.stopRecoveryCollector()
+
+            val recreated = Fixture(this)
+            val submissions = mutableListOf<Pair<String, String>>()
+            recreated.enableTrackedPlugin(preservePreferences = true) { xml, id ->
+                submissions += xml to id
+                Submission.SUBMITTED
+            }
+            recreated.pluginRoutes.value = mapOf(TrustedCommunityPlugin.PACKAGE to 1L)
+            recreated.startClearRecovery()
+            runCurrent()
+            assertEquals(1, submissions.size)
+            assertEquals(captured.xml, submissions.single().first)
+            assertEquals(priorAttempts.first(), submissions.single())
+            assertTrue(recreated.persistedClears().isEmpty())
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun newSameUidActivationRetiresOfflineClearBeforeReconnect() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            fixture.multicast.value = true
+            val submissions = mutableListOf<String>()
+            fixture.enableTrackedPlugin(waitForReadiness = true) { xml, _ ->
+                submissions += xml
+                Submission.SUBMITTED
+            }
+            fixture.pluginReady.value = false
+            fixture.startClearRecovery()
+            val first = fixture.alert("reused-offline")
+            fixture.activeAlerts(true)[first.uuid] = first
+            fixture.clear(true, first.uuid)
+            runCurrent()
+            assertEquals(1, fixture.persistedClears().size)
+
+            fixture.startAutomaticAlertCollector()
+            runCurrent()
+            fixture.automaticAlerts.emit(DataRepository.PhysioAndAutoGenAlertRequest(
+                first.uuid, DataRepository.AlertState.ALERT, "Alert", "Help", 1, false, 0,
+            ))
+            runCurrent()
+            assertTrue(fixture.persistedClears().isEmpty())
+            fixture.pluginReady.value = true
+            fixture.pluginRoutes.value = mapOf(TrustedCommunityPlugin.PACKAGE to 1L)
+            advanceTimeBy(250)
+            runCurrent()
+            assertEquals(1, submissions.size)
+            assertFalse(submissions.single().contains("type='b-a-o-can'"))
+            assertEquals(2, fixture.sent.size)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun absentDittoPluginDoesNotBlockMulticastAlerts() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.setDittoPluginAbsent()
+            fixture.multicast.value = true
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            fixture.send(false, fixture.alert("no-ditto-plugin"))
+            runCurrent()
+            assertEquals(1, fixture.sent.size)
+            assertTrue(fixture.queue(false).isEmpty())
+            assertTrue(fixture.pluginDispatches.isEmpty())
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun delayedPluginDoesNotBlockIndependentAlerts() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            fixture.multicast.value = true
+            val release = CompletableDeferred<Unit>()
+            fixture.enableTrackedPlugin { _, _ ->
+                release.await()
+                Submission.SUBMITTED
+            }
+            fixture.send(false, fixture.alert("first-tracked"))
+            fixture.send(false, fixture.alert("second-tracked"))
+            assertEquals(2, fixture.sent.size)
+            release.complete(Unit)
+            runCurrent()
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun coldPluginOnlyAlertWaitsForAdmissionAndNeverReplaysUncertainSubmission() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            var attempts = 0
+            fixture.enableTrackedPlugin { _, _ ->
+                attempts++
+                if (attempts == 1) Submission.NOT_ADMITTED else Submission.UNCERTAIN
+            }
+            val alert = fixture.alert("cold-uncertain")
+            fixture.send(false, alert)
+            runCurrent()
+            assertEquals(2, attempts)
+            assertEquals(1, fixture.queue(false).size)
+            fixture.drain(false)
+            assertEquals(2, attempts)
+            assertEquals(1, fixture.queue(false).size)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun otherRouteReceivesAlertBeforeSuppressedPluginIsReady() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            fixture.multicast.value = true
+            val submissions = mutableListOf<Pair<String, String>>()
+            fixture.enableTrackedPlugin { xml, id ->
+                assertEquals(1, fixture.sent.size)
+                submissions += xml to id
+                if (submissions.size == 1) Submission.NOT_ADMITTED else Submission.SUBMITTED
+            }
+            fixture.send(false, fixture.alert("tracked-alert"))
+            runCurrent()
+            assertEquals(1, fixture.sent.size)
+            assertEquals(2, submissions.size)
+            assertEquals(1, submissions.toSet().size)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
     fun pluginOnlyAvailabilityDrainsQueuedEmergencyWithoutEnablingNetworkRoutes() = runTest {
         val fixture = Fixture(this)
         fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
@@ -46,10 +372,9 @@ class CotDispatchServiceAlertReadinessTest {
         fixture.activeAlerts(false)[alert.uuid] = alert
         fixture.send(false, alert)
         assertTrue(fixture.sent.isEmpty())
+        fixture.pluginRoutes.value = mapOf("other.plugin" to 1L)
         fixture.pluginAvailable.value = true
-        runCurrent()
-        delay(10)
-        runCurrent()
+        fixture.awaitFirstSend()
         assertEquals(1, fixture.sent.size)
         assertTrue(fixture.endpoints.value.isEmpty())
         assertFalse(fixture.multicast.value)
@@ -98,17 +423,54 @@ class CotDispatchServiceAlertReadinessTest {
             fixture.endpoints.value = setOf(DataRepository.Endpoint.TAK_SERVER)
             runCurrent()
             fixture.multicast.value = true
-            launch { fixture.drain(automatic) }
-            launch { fixture.drain(automatic) }
-            runCurrent()
-            delay(10)
-            runCurrent()
+            val firstDrain = launch { fixture.drain(automatic) }
+            val secondDrain = launch { fixture.drain(automatic) }
+            firstDrain.join()
+            secondDrain.join()
 
             assertEquals(1, fixture.sent.size)
             assertTrue(fixture.sent[0].contains("type='b-a-o-can'"))
             assertTrue(fixture.queue(automatic).isEmpty())
             assertTrue(fixture.activeAlerts(automatic).isEmpty())
             fixture.stopRecoveryCollector()
+        }
+    }
+
+    @Test fun cancelDuringPluginReadinessWaitFencesOldAlertAndDoesNotBlockOtherRoute() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            fixture.pluginReady.value = false
+            val submissions = mutableListOf<String>()
+            fixture.enableTrackedPlugin(waitForReadiness = true) { xml, _ ->
+                submissions += xml
+                Submission.SUBMITTED
+            }
+            val first = fixture.alert("same-uid")
+            fixture.activeAlerts(false)[first.uuid] = first
+            fixture.send(false, first)
+            runCurrent()
+            assertTrue(submissions.isEmpty())
+            fixture.pluginSelected.value = false
+            fixture.multicast.value = true
+            fixture.clear(false, first.uuid)
+            assertEquals(1, fixture.sent.size)
+            assertTrue(fixture.sent.single().contains("type='b-a-o-can'"))
+            fixture.pluginSelected.value = true
+            fixture.pluginReady.value = true
+            advanceTimeBy(251)
+            runCurrent()
+            assertTrue(submissions.isEmpty())
+            val second = fixture.alert("same-uid")
+            fixture.activeAlerts(false)[second.uuid] = second
+            fixture.send(false, second)
+            runCurrent()
+            assertEquals(1, submissions.size)
+            assertEquals(2, fixture.sent.size)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
         }
     }
 
@@ -201,32 +563,42 @@ class CotDispatchServiceAlertReadinessTest {
         }
     }
 
-    private class Fixture(scope: TestScope) {
+    private class Fixture(private val scope: TestScope) {
         val endpoints = MutableStateFlow<Set<DataRepository.Endpoint>>(emptySet())
         val multicast = MutableStateFlow(false)
         val companionReady = MutableStateFlow(false)
         val companionEnabled = MutableStateFlow(false)
         val pluginAvailable = MutableStateFlow(false)
+        val pluginRoutes = MutableStateFlow<Map<String, Long>>(emptyMap())
+        val pluginSelected = MutableStateFlow(true)
+        val pluginReady = MutableStateFlow(true)
+        val verifiedSession = MutableStateFlow<String?>("test-session")
+        val automaticAlerts = MutableSharedFlow<DataRepository.PhysioAndAutoGenAlertRequest>()
         val takEnabled = MutableStateFlow(true)
         val sent = mutableListOf<String>()
+        val pluginDispatches = mutableListOf<String>()
+        val gateway = com.aitech.weartak_civ.cot.CompanionGatewaySession()
+        val gatewaySent = mutableListOf<String>()
+        private val firstSend = CompletableDeferred<Unit>()
         val payloads = mutableListOf<CotCompanionPayload.Emergency>()
         val chats = mutableListOf<CotCompanionPayload.Chat>()
         var snapshotLocation: DataRepository.LocationSnapshot? = null
         private val repo = mockk<DataRepository>(relaxed = true)
         private val companion = mockk<CompanionAppRepository>(relaxed = true)
         private val service: CotDispatchService
+        private val app: WearTakApplication
         private val collectorScope = CoroutineScope(
             scope.backgroundScope.coroutineContext + Job(scope.backgroundScope.coroutineContext[Job]),
         )
 
         init {
-            every { companion.gateway } returns com.aitech.weartak_civ.cot.CompanionGatewaySession()
+            every { companion.gateway } returns gateway
+            every { companion.offerGatewayCot(any()) } answers { gatewaySent += firstArg<String>(); true }
             MainActivity.mainActivity = mockk {
                 every { applicationContext } returns RuntimeEnvironment.getApplication()
             }
             MainActivity.enableSmsForAlerts = false
             TAKConnectService.isAnyTakConnected = false
-            DittoService.isRunning.set(false)
             every { repo.endpointConnected } returns endpoints
             every { repo.anyEndpointConnected } returns MutableStateFlow(false)
             every { repo.latestLocation } returns MutableStateFlow<android.location.Location?>(null)
@@ -237,8 +609,9 @@ class CotDispatchServiceAlertReadinessTest {
             every { repo.getEnableCompanionAppService } returns companionEnabled
             every { companion.companionAppReady } returns companionReady
             every { repo.isCompanionConnected } returns companionReady
+            every { repo.addPhysioAndAutoGenAlert } returns automaticAlerts
             coEvery { repo.snapshotEmergencyEvent(any()) } coAnswers {
-                delay(1)
+                yield()
                 val alert = firstArg<DataRepository.CustomEmergencyAlert>()
                 DataRepository.EmergencyEventSnapshot(
                     alert.uuid, alert.alertState, alert.category, alert.description, alert.priority, false,
@@ -248,11 +621,17 @@ class CotDispatchServiceAlertReadinessTest {
             }
             val coordinator = mockk<PluginSettingsCoordinator>(relaxed = true)
             every { coordinator.outboundCotAvailable } returns pluginAvailable
+            every { coordinator.outboundCotReadyRoutes } returns pluginRoutes
+            every { coordinator.connectivityToggles } returns MutableStateFlow(emptyMap())
             every { coordinator.anyPluginHasSettingEnabled(any()) } answers { pluginAvailable.value }
-            val app = mockk<WearTakApplication>(relaxed = true)
+            app = mockk<WearTakApplication>(relaxed = true)
             every { app.pluginManager.settingsCoordinator } returns coordinator
             service = spyk(CotDispatchService())
             every { service.applicationContext } returns app
+            val preferences = RuntimeEnvironment.getApplication().getSharedPreferences(
+                "alert-readiness-${java.util.UUID.randomUUID()}", android.content.Context.MODE_PRIVATE
+            )
+            field("trackedPluginAlert\$delegate").set(service, lazyOf(TrackedPluginAlert(preferences)))
             field("dataRepository").set(service, repo)
             field("serviceScope").set(service, collectorScope)
             field("capRepo\$delegate").set(service, lazyOf(companion))
@@ -269,9 +648,56 @@ class CotDispatchServiceAlertReadinessTest {
                         else -> error("Unexpected payload")
                     }
                 },
-                sendPlugin = { sent += it },
+                sendPlugin = {
+                    pluginDispatches += it
+                    sent += it
+                    firstSend.complete(Unit)
+                },
+                sendPluginWithoutDitto = {
+                    pluginDispatches += it
+                    sent += it
+                    firstSend.complete(Unit)
+                },
             )
             field("endpointDispatcher\$delegate").set(service, lazyOf(dispatcher))
+        }
+
+        fun setDittoPluginAbsent() {
+            every { app.pluginManager.dittoCotSelected() } returns false
+            every { app.pluginManager.connectionFor(TrustedCommunityPlugin.PACKAGE) } returns null
+        }
+
+        fun enableTrackedPlugin(
+            waitForReadiness: Boolean = false,
+            preservePreferences: Boolean = false,
+            send: suspend (String, String) -> Submission,
+        ) {
+            val connection = mockk<PluginConnection>()
+            every { app.pluginManager.dittoCotSelected() } answers { pluginSelected.value }
+            every { app.pluginManager.connectionFor(TrustedCommunityPlugin.PACKAGE) } returns connection
+            every { connection.resumeDittoForAlert() } just Runs
+            every { connection.dittoCotAvailable() } answers { pluginReady.value }
+            every { connection.quiescentReplacementSession() } answers { verifiedSession.value }
+            every { connection.offerTrackedDittoCoT(any(), any(), any(), any(), any(), any()) } answers {
+                val xml = firstArg<String>()
+                val id = arg<String>(3)
+                val eligible = arg<() -> Boolean>(4)
+                val expected = arg<String>(5)
+                val wait: suspend () -> Submission = {
+                    if (expected != verifiedSession.value) Submission.NOT_ADMITTED
+                    else if (eligible()) send(xml, id) else Submission.UNCERTAIN
+                }
+                wait
+            }
+            val preferences = RuntimeEnvironment.getApplication().getSharedPreferences(
+                "alert-readiness-test", android.content.Context.MODE_PRIVATE
+            )
+            if (!preservePreferences) preferences.edit().clear().commit()
+            var clock = 0L
+            field("trackedPluginAlert\$delegate").set(service, lazyOf(
+                if (waitForReadiness) TrackedPluginAlert(preferences, { scope.testScheduler.currentTime }, { delay(it) })
+                else TrackedPluginAlert(preferences, { clock }, { clock += it })
+            ))
         }
 
         fun startRecoveryCollector() {
@@ -279,7 +705,25 @@ class CotDispatchServiceAlertReadinessTest {
                 .apply { isAccessible = true }.invoke(service)
         }
 
+        fun startClearRecovery() {
+            CotDispatchService::class.java.getDeclaredMethod("startPendingPluginAlertClears")
+                .apply { isAccessible = true }.invoke(service)
+        }
+
+        fun startAutomaticAlertCollector() {
+            CotDispatchService::class.java.getDeclaredMethod("startAddPhysioAndAutoGenAlertCollector")
+                .apply { isAccessible = true }.invoke(service)
+        }
+
+        fun persistedClears(): List<TrackedPluginAlert.PendingClear> {
+            val preferences = RuntimeEnvironment.getApplication().getSharedPreferences(
+                "alert-readiness-test", android.content.Context.MODE_PRIVATE
+            )
+            return TrackedPluginAlert(preferences).pendingClears()
+        }
+
         fun stopRecoveryCollector() { collectorScope.coroutineContext[Job]?.cancel() }
+        suspend fun awaitFirstSend() = withTimeout(1_000) { firstSend.await() }
         fun alert(uid: String) = DataRepository.CustomEmergencyAlert(uid, DataRepository.AlertState.ALERT, "Alert", "Help", 1, false, 0, false)
         fun location(time: Long) = DataRepository.LocationSnapshot(time, 41.0, -87.0, 100.0, 4f, 5f, null, null)
         suspend fun send(automatic: Boolean, alert: DataRepository.CustomEmergencyAlert) {

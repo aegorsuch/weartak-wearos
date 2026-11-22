@@ -7,13 +7,6 @@
  * See the LICENSE file in the repository root for the full license text.
  */
 
-/*
- * Moving Ditto initialization to onCreate of DittoService as initializing Ditto takes a lot of resources and
- * causes ANR when the Application is started on boot. Also Ditto initialization should be done only if Ditto service
- * is started.
- * Use WearTakApplication to create a single, globally accessible instance that persists for the app's entire lifecycle.
- */
-
 package com.aitech.weartak_civ
 
 import android.app.Application
@@ -34,7 +27,7 @@ import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.CrmDataRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.SavedCustomAlertsStore
-import com.aitech.weartak_civ.data.GunshotOnnxRepository
+import com.aitech.weartak_civ.data.GunshotDetectionRepository
 import com.aitech.weartak_civ.data.UasOnnxRepository
 import com.aitech.weartak_civ.data.secure.migration.TakServerMigration
 import com.aitech.weartak_civ.data.secure.sitx.SitxEncryptedDataStore
@@ -60,10 +53,10 @@ import com.aitech.weartak_civ.service.AppDiagnostics
 import com.aitech.weartak_civ.service.BatteryPowerObserver
 import com.aitech.weartak_civ.service.ChargingStayAwake
 import com.aitech.weartak_civ.service.ChargingWirelessDebugging
-import live.ditto.Ditto
-import live.ditto.DittoError
-import live.ditto.DittoIdentity
-import live.ditto.android.DefaultAndroidDittoDependencies
+import com.aitech.weartak_civ.service.audio.startAudioDetectionFeedback
+import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
+import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
+import kotlinx.coroutines.flow.Flow
 
 class WearTakApplication : Application() {
 
@@ -83,7 +76,7 @@ class WearTakApplication : Application() {
     lateinit var audioRepo: AudioCaptureRepository; private set
     lateinit var crmRepo: CrmDataRepository; private set
 
-    lateinit var gunshotOnnxRepo: GunshotOnnxRepository; private set
+    lateinit var gunshotDetectionRepo: GunshotDetectionRepository; private set
     lateinit var uasOnnxRepo: UasOnnxRepository; private set
     val crmCsvLogger: CrmSessionCsvLogger by lazy { CrmSessionCsvLogger(applicationContext) }
     val savedCustomAlerts: SavedCustomAlertsStore by lazy { SavedCustomAlertsStore(applicationContext) }
@@ -152,12 +145,36 @@ class WearTakApplication : Application() {
         locationDiagnostics = BondedLocationDiagnostics(applicationContext)
         audioRepo = AudioCaptureRepository(applicationContext)
         crmRepo = CrmDataRepository(repo)
-        gunshotOnnxRepo = GunshotOnnxRepository(applicationContext)
+        gunshotDetectionRepo = GunshotDetectionRepository(applicationContext)
         uasOnnxRepo = UasOnnxRepository(applicationContext)
         sitxRepo = SitxSecretsRepository(SitxEncryptedDataStore(applicationContext))
         installProcessRepositories(this)
 
         AppCtx.init(this)
+        val audioFeedbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        fun startFeedback(
+            logTag: String,
+            prefix: String,
+            debugDir: String,
+            feedback: Flow<AudioDetectionFeedback>,
+            findEvent: (String) -> AudioDetectionEvent?
+        ) {
+            startAudioDetectionFeedback(audioFeedbackScope, logTag, prefix, feedback, findEvent) { event, answer ->
+                Utils.logAudioDetectionFeedback(
+                    context = applicationContext,
+                    event = event,
+                    label = answer.label,
+                    respondedAtMs = answer.respondedAtMs,
+                    responseLatencyMs = answer.responseLatencyMs,
+                    debugDirName = debugDir,
+                    extra = answer.extra
+                )
+            }
+        }
+        startFeedback("WearTAK-GunshotDetection", "GS", "gunshot_debug",
+            gunshotDetectionRepo.gunshotFeedback, gunshotDetectionRepo::getEventFromUid)
+        startFeedback("WearTAK-UasOnnxService", "UAS", "uas_debug",
+            uasOnnxRepo.uasFeedback, uasOnnxRepo::getEventFromUid)
         Log.i(TAG, "WearTakApplication Created")
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

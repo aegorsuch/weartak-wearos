@@ -31,7 +31,6 @@ class ServiceRegistry() {
         ServiceType.HEART_RATE to HeartrateService::class.java,
         ServiceType.SKIN_TEMP to SkinTempService::class.java,
         ServiceType.PRESSURE to PressureService::class.java,
-        ServiceType.DITTO to DittoService::class.java,
         ServiceType.SITX_SERVICE to SitxTakService::class.java,
         ServiceType.CHAT to ChatService::class.java,
         ServiceType.BLE_BEACON to BleBeaconService::class.java,
@@ -43,7 +42,6 @@ class ServiceRegistry() {
         ServiceType.BLOOD_HOUND to BloodhoundService::class.java,
         ServiceType.COMPANION_APP to CompanionAppService::class.java,
         ServiceType.AUDIO_CAP to AudioCaptureService::class.java,
-        ServiceType.ONNX_GUNSHOT to GunshotOnnxService::class.java,
         ServiceType.ONNX_UAS to UasOnnxService::class.java,
         ServiceType.CRM_INFERENCE to CrmInferenceService::class.java
     ) + if (BuildConfig.CEP_SIMULATION) mapOf(
@@ -59,7 +57,6 @@ class ServiceRegistry() {
         ServiceType.HEART_RATE to HeartrateService.isRunning,
         ServiceType.SKIN_TEMP to SkinTempService.isRunning,
         ServiceType.PRESSURE to PressureService.isRunning,
-        ServiceType.DITTO to DittoService.isRunning,
         ServiceType.SITX_SERVICE to SitxTakService.isRunning,
         ServiceType.CHAT to ChatService.isRunning,
         ServiceType.BLE_BEACON to BleBeaconService.isRunning,
@@ -72,7 +69,6 @@ class ServiceRegistry() {
         ServiceType.BLOOD_HOUND to BloodhoundService.isRunning,
         ServiceType.COMPANION_APP to CompanionAppService.isRunning,
         ServiceType.AUDIO_CAP to AudioCaptureService.isRunning,
-        ServiceType.ONNX_GUNSHOT to GunshotOnnxService.isRunning,
         ServiceType.ONNX_UAS to UasOnnxService.isRunning,
         ServiceType.CRM_INFERENCE to CrmInferenceService.isRunning
     ) + if (BuildConfig.CEP_SIMULATION) mapOf(

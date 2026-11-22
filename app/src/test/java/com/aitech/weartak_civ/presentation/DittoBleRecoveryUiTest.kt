@@ -35,7 +35,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w300dp-h300dp-round-340dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DittoBleRecoveryUiTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
 
     @Test fun sharedPriorityKeepsDittoBelowAllOtherWarningDomains() {

@@ -27,7 +27,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w400dp-h800dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AccessibilitySemanticsTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test
     fun rootExportsTagsWithoutHidingTextOrBuiltInToggleState() {

@@ -22,7 +22,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TakConnectionStatusTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val disconnected = TAKConnectService.TAK_SERVER_DISCONNECTED_STRING
     private val connected = TAKConnectService.TAK_SERVER_CONNECTED_STRING
     private val connecting = TAKConnectService.TAK_SERVER_CONNECTING_STRING

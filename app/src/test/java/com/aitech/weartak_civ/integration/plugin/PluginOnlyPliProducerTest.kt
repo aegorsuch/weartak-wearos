@@ -35,14 +35,14 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class PluginOnlyPliProducerTest {
-    @Test fun capturesFreshOwnPliAndFencesOnCompanionTakeover() {
+    @Test fun capturesFreshOwnPliAndPausesForCompanionAndPower() {
         val app = mockk<WearTakApplication>(relaxed = true)
         val repo = mockk<DataRepository>(relaxed = true)
         val ingress = mockk<PluginIngressPort>()
         val manager = mockk<PluginManager>(relaxed = true)
         val context = RuntimeEnvironment.getApplication()
         val companion = MutableStateFlow(false)
-        val identity = MutableStateFlow("synthetic-identity")
+        val battery = MutableStateFlow<Int?>(80)
         val location = Location("fused").apply {
             latitude = 1.0; longitude = 2.0; altitude = 3.0; accuracy = 4f
             time = System.currentTimeMillis()
@@ -64,15 +64,15 @@ class PluginOnlyPliProducerTest {
         every { app.checkPermission(any(), any(), any()) } returns PackageManager.PERMISSION_GRANTED
         every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
         every { repo.androidDeviceUid } returns "synthetic-watch"
-        every { repo.getEnableDittoService } returns MutableStateFlow(true)
+        every { repo.getEnableDittoService } returns MutableStateFlow(false)
         every { repo.getEnableLocationService } returns MutableStateFlow(true)
         every { repo.watchTransportSuppressed } returns companion
         every { repo.shouldSuppressWatchTransportNow() } answers { companion.value }
-        every { repo.getEffectiveDittoPdl } returns identity
+        every { repo.getEffectiveDittoPdl } returns MutableStateFlow("")
         every { repo.getBatteryWarnPercentage } returns flowOf(20)
         every { repo.latestDeviceWornObservation } returns MutableStateFlow<Boolean?>(true)
         every { repo.chargingState } returns MutableStateFlow(false)
-        every { repo.latestBatteryPercentage } returns MutableStateFlow<Int?>(80)
+        every { repo.latestBatteryPercentage } returns battery
         every { repo.isAlerting } returns MutableStateFlow(false)
         every { repo.stayConnectedOffWrist } returns flowOf(false)
         every { repo.latestLocation } returns MutableStateFlow(location)
@@ -86,6 +86,7 @@ class PluginOnlyPliProducerTest {
         MainActivity.callsign = "SYNTHETIC"
         val received = CountDownLatch(1)
         val disconnected = CountDownLatch(1)
+        val policy = java.util.concurrent.LinkedBlockingQueue<Boolean>()
         val callback = object : IPluginTransportCallbackV1.Stub() {
             @Volatile var request: TransportSendRequestParcel? = null
             override fun sendMessage(request: TransportSendRequestParcel?): TransportResultParcel {
@@ -100,13 +101,15 @@ class PluginOnlyPliProducerTest {
         val host = PluginTransportHostV1Impl(app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
             pluginOnlyPli = true, trustedDittoPlugin = { true }, onPliUnavailable = { disconnected.countDown() })
         val caps = TransportCapabilitiesParcel(TransportContract.VERSION,
-            listOf(TransportPayloadKind.COT_XML_UTF8), emptyList(), listOf(DittoPliTransportSession.CHANNEL),
+            listOf(TransportPayloadKind.COT_XML_UTF8), listOf(TransportPayloadKind.COT_XML_UTF8),
+            listOf(DittoPliTransportSession.GENERAL_CHANNEL),
             TransportContract.MAX_PAYLOAD_BYTES, 1, true, false, false)
         val session = requireNotNull(host.registerTransport(caps, callback).sessionId)
         host.activateBinding()
-        val producer = PluginOnlyPliProducer(app, host, { true }, { "synthetic-identity" }, host::invalidatePluginPli)
+        val producer = PluginOnlyPliProducer(app, host, { true }, host::invalidatePluginPli) { policy.offer(it) }
         try {
             producer.start()
+            assertEquals(true, policy.poll(10, TimeUnit.SECONDS))
             assertTrue("Fresh snapshot was not offered", received.await(10, TimeUnit.SECONDS))
             val request = requireNotNull(callback.request)
             assertEquals("synthetic-watch", request.message.senderUid)
@@ -115,8 +118,26 @@ class PluginOnlyPliProducerTest {
                 TransportDeliveryParcel(request.message.messageId, request.channelId, 1,
                     TransportDeliveryStage.CHANNEL_SUBMITTED)).code)
             companion.value = true
-            assertTrue("Companion takeover did not fence connection", disconnected.await(10, TimeUnit.SECONDS))
-            assertFalse(host.isTransportRegistered())
+            assertEquals(false, policy.poll(10, TimeUnit.SECONDS))
+            companion.value = false
+            assertEquals(true, policy.poll(10, TimeUnit.SECONDS))
+            battery.value = 10
+            assertEquals(false, policy.poll(10, TimeUnit.SECONDS))
+            companion.value = true
+            Thread.sleep(100)
+            producer.resumeForAlert()
+            assertNull(policy.poll(200, TimeUnit.MILLISECONDS))
+            companion.value = false
+            assertEquals(true, policy.poll(10, TimeUnit.SECONDS))
+            battery.value = 11
+            assertNull(policy.poll(200, TimeUnit.MILLISECONDS))
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(61))
+            battery.value = 12
+            assertEquals(false, policy.poll(10, TimeUnit.SECONDS))
+            battery.value = 80
+            assertEquals(true, policy.poll(10, TimeUnit.SECONDS))
+            assertTrue(host.isTransportRegistered())
+            assertEquals(1L, disconnected.count)
         } finally {
             producer.close()
             host.closeBinding()

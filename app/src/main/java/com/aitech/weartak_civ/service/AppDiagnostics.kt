@@ -259,19 +259,6 @@ class AppDiagnostics internal constructor(private val application: Application) 
                 }
             }
         }
-        scope.launch {
-            enabled.collectLatest { recording ->
-                if (!recording) return@collectLatest
-                combine(DittoService.syncActive, DittoService.powerSuppressed,
-                    DittoService.isReconfiguring) { active, suppressed, changing ->
-                    mapOf(
-                        DiagnosticMetric.ACTIVE to if (active) 1L else 0L,
-                        DiagnosticMetric.SUPPRESSED to if (suppressed) 1L else 0L,
-                        DiagnosticMetric.REQUESTED to if (changing) 1L else 0L
-                    )
-                }.distinctUntilChanged().collect { capture(DiagnosticEvent.DITTO_STATE, it) }
-            }
-        }
         if (enabled.value) {
             attach()
             enqueue(DiagnosticEvent.PROCESS_START)

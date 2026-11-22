@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.aitech.weartak_civ.ditto.diagnostics.fixture" />
+    </queries>
+    <application android:allowBackup="false" android:label="Inert chat IPC fixture">
+        <service android:name=".FakeChatService" android:exported="true" />
+    </application>
+</manifest>

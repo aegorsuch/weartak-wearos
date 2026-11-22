@@ -44,7 +44,8 @@ import java.io.File
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NetworkConnectivityIconsTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private lateinit var renderedView: View
 
     @Test fun builtInArtworkMapsToEveryChecklistRoute() {
@@ -227,7 +228,11 @@ class NetworkConnectivityIconsTest {
             val textBounds = text.fetchSemanticsNode().boundsInRoot
             val switchBounds = toggle.fetchSemanticsNode().boundsInRoot
             assertTrue(iconBounds.right < textBounds.left)
-            assertTrue(textBounds.right <= switchBounds.left)
+            if (networkSettingsRoute(route) == null) {
+                assertTrue(textBounds.right <= switchBounds.right - 25 * density)
+            } else {
+                assertTrue(textBounds.right <= switchBounds.left)
+            }
             val radius = size * density / 2
             for (bounds in listOf(iconBounds, textBounds)) {
                 for (corner in listOf(bounds.topLeft, bounds.topRight, bounds.bottomLeft, bounds.bottomRight)) {

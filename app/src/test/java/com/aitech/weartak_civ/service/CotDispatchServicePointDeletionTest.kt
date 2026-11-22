@@ -83,6 +83,7 @@ class CotDispatchServicePointDeletionTest {
             val now = System.currentTimeMillis()
             val marker = DataRepository.DroppedMarker(DataRepository.MarkerCotType.DROP,
                 uid, DataRepository.MarkerType.HOSTILE, "Point", "", now, null, true, true)
+            checkNotNull(repo.markerIntentJournal.admitNew(uid, marker, refreshSelf = false))
             repo.appendDroppedMarker(marker)
             map[uid] = marker
             queue.add(marker)

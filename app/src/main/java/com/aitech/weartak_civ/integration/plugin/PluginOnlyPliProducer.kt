@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
@@ -34,8 +35,8 @@ internal class PluginOnlyPliProducer(
     private val app: WearTakApplication,
     private val transport: PluginTransportHostV1Impl,
     private val ownershipActive: () -> Boolean,
-    private val provisionedIdentity: () -> String?,
     private val onUnavailable: () -> Unit,
+    private val onRuntimeAllowed: (Boolean) -> Unit = {},
 ) : AutoCloseable {
     private val repo = app.repo
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO +
@@ -46,13 +47,17 @@ internal class PluginOnlyPliProducer(
     private val active = AtomicBoolean(true)
     private val triggers = Channel<Unit>(Channel.CONFLATED)
     private val powerLock = Any()
+    private val policyLock = Any()
     private val powerPolicy = DittoPowerPolicy()
     private val gate = DittoTrackPublicationGate()
     private var powerMonitor: DittoPowerMonitor? = null
-    @Volatile private var enabled = false
     @Volatile private var locationEnabled = false
     @Volatile private var suppressed = true
     @Volatile private var powerAllowed = false
+    private var runtimeAllowed = false
+    private var lastPowerState: DittoPowerState? = null
+    private var alertGeneration = 0L
+    private var alertExpiryJob: Job? = null
 
     fun start() {
         scope.launch {
@@ -67,20 +72,13 @@ internal class PluginOnlyPliProducer(
                 }
                 if (!active.get()) return@launch
                 launch {
-                    combine(repo.getEnableDittoService, repo.getEnableLocationService,
-                        repo.watchTransportSuppressed) { ditto, location, companion ->
-                        Triple(ditto, location, companion)
-                    }.distinctUntilChanged().collect { (ditto, location, companion) ->
-                        enabled = ditto
+                    combine(repo.getEnableLocationService, repo.watchTransportSuppressed) { location, companion ->
+                        location to companion
+                    }.distinctUntilChanged().collect { (location, companion) ->
                         locationEnabled = location
                         suppressed = companion
-                        if (!ditto || companion) unavailable() else triggers.trySend(Unit)
-                    }
-                }
-                launch {
-                    repo.getEffectiveDittoPdl.distinctUntilChanged().collect { selected ->
-                        val provisioned = provisionedIdentity()
-                        if (provisioned != null && provisioned != selected) unavailable()
+                        updateRuntimeAllowed()
+                        triggers.trySend(Unit)
                     }
                 }
                 launch { repo.latestLocation.collect { triggers.trySend(Unit) } }
@@ -104,8 +102,38 @@ internal class PluginOnlyPliProducer(
     }
 
     private fun onPowerChanged(state: DittoPowerState) {
-        powerAllowed = !powerPolicy.suppressed(state, SystemClock.elapsedRealtime())
-        if (!powerAllowed) unavailable() else triggers.trySend(Unit)
+        synchronized(powerLock) {
+            lastPowerState = state
+            powerAllowed = !powerPolicy.suppressed(state, SystemClock.elapsedRealtime())
+            updateRuntimeAllowed()
+            triggers.trySend(Unit)
+        }
+    }
+
+    fun resumeForAlert() {
+        synchronized(powerLock) {
+            if (!active.get()) return
+            powerPolicy.resumeForAlert(SystemClock.elapsedRealtime())
+            lastPowerState?.let(::onPowerChanged)
+            val generation = ++alertGeneration
+            alertExpiryJob?.cancel()
+            alertExpiryJob = scope.launch {
+                delay(DittoPowerPolicy.ALERT_GRACE_MS)
+                synchronized(powerLock) {
+                    if (active.get() && generation == alertGeneration) lastPowerState?.let(::onPowerChanged)
+                }
+            }
+        }
+    }
+
+    private fun updateRuntimeAllowed() {
+        synchronized(policyLock) {
+            val allowed = active.get() && powerAllowed && !suppressed
+            if (runtimeAllowed != allowed) {
+                runtimeAllowed = allowed
+                onRuntimeAllowed(allowed)
+            }
+        }
     }
 
     private suspend fun publishLatest() {
@@ -130,18 +158,9 @@ internal class PluginOnlyPliProducer(
     }
 
     private fun baseEligible(): Boolean {
-        if (!active.get() || !enabled || !locationEnabled || suppressed || !powerAllowed ||
+        if (!active.get() || !locationEnabled || suppressed || !powerAllowed ||
             !ownershipActive() || repo.shouldSuppressWatchTransportNow()) return false
-        val identity = provisionedIdentity() ?: return false
-        val current = runBlocking {
-            Triple(repo.getEnableDittoService.first(), repo.getEnableLocationService.first(),
-                repo.getEffectiveDittoPdl.first())
-        }
-        if (current.third != identity) {
-            unavailable()
-            return false
-        }
-        return current.first && current.second &&
+        return runBlocking { repo.getEnableLocationService.first() } &&
             (ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                 ContextCompat.checkSelfPermission(app, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
     }

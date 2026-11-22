@@ -12,6 +12,7 @@ import com.weartak.plugin.sdk.model.PluginCapabilitiesParcel
 import com.weartak.plugin.sdk.model.SettingsFieldParcel
 import com.weartak.plugin.sdk.model.SettingsFieldTypes
 import com.weartak.plugin.sdk.model.SettingsSchemaParcel
+import com.weartak.plugin.sdk.model.SettingsApplyResultParcel
 import com.weartak.plugin.sdk.transport.TransportContract
 import com.weartak.plugin.sdk.transport.TransportPayloadKind
 import com.weartak.plugin.sdk.transport.TransportResultCode
@@ -46,6 +47,10 @@ class PluginSettingsCoordinatorTest {
     private lateinit var coordinator: PluginSettingsCoordinator
     private lateinit var fakePlugin: FakeWearTakPlugin
     private val networkLocked = MutableStateFlow(false)
+    private val gunshotEnabled = MutableStateFlow(false)
+    private val gunshotThreshold = MutableStateFlow(90)
+    private val uasEnabled = MutableStateFlow(false)
+    private val uasThreshold = MutableStateFlow(90)
 
     @Before
     fun setUp() {
@@ -54,6 +59,10 @@ class PluginSettingsCoordinatorTest {
         val repo = mockk<DataRepository>(relaxed = true)
         every { app.repo } returns repo
         every { repo.getCallsign } returns flowOf("TEST")
+        every { repo.getEnableOnnxGunshotService } returns gunshotEnabled
+        every { repo.getOnnxGunshotTriggerThresholdPercent } returns gunshotThreshold
+        every { repo.getEnableOnnxUasService } returns uasEnabled
+        every { repo.getOnnxUasTriggerThresholdPercent } returns uasThreshold
         every { repo.networkSettingsLocked } returns networkLocked
         every { repo.getTeam } returns flowOf("Cyan")
         every { repo.getRole } returns flowOf("Member")
@@ -357,6 +366,30 @@ class PluginSettingsCoordinatorTest {
     }
 
     @Test
+    fun outboundCotExcludesOnlyTrackedPlugin() {
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        val schema = SettingsSchemaParcel(fields = listOf(
+            SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+        ))
+        val other = FakeWearTakPlugin("com.plugin.other").apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(schema)
+        }
+        fakePlugin.setSettingsSchemaForTest(schema)
+        coordinator.onPluginConnected("com.plugin.settings", fakePlugin)
+        coordinator.onPluginConnected("com.plugin.other", other)
+        val on = Bundle().apply { putBoolean(field, true) }
+        assertTrue(coordinator.applyPluginSettings("com.plugin.settings", on).success)
+        assertTrue(coordinator.applyPluginSettings("com.plugin.other", on).success)
+        coordinator.invokeCotOnPluginsWithSetting(
+            field, PluginCotEgress.ACTION_COT_OUTBOUND, Bundle().apply { putString("xml", "<event/>") },
+            senderUid = "watch", excludedPluginId = "com.plugin.settings",
+        )
+        assertTrue(fakePlugin.mainUiActions.isEmpty())
+        assertEquals(1, other.mainUiActions.size)
+    }
+
+    @Test
     fun outboundReadinessVersionsReconnectsAndSecondPluginsWithoutUnchangedRepeats() {
         val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
         val schema = SettingsSchemaParcel(fields = listOf(
@@ -522,4 +555,119 @@ class PluginSettingsCoordinatorTest {
         )
         assertTrue(result.success)
     }
+
+    @Test
+    fun legacyAudioPreferencesAreAppliedOnBindAndLiveChanges() {
+        gunshotEnabled.value = true
+        gunshotThreshold.value = 67
+        uasEnabled.value = true
+        uasThreshold.value = 82
+
+        val dart = legacyAudioPlugin(
+            PluginDetectionEventBridge.DART_PACKAGE,
+            "enable_onnx_gunshot_service",
+            "onnx_gunshot_trigger_threshold_percent",
+        )
+        val falcon = legacyAudioPlugin(
+            PluginDetectionEventBridge.FALCON_PACKAGE,
+            "enable_onnx_uas_service",
+            "onnx_uas_trigger_threshold_percent",
+        )
+
+        coordinator.onPluginConnected(PluginDetectionEventBridge.DART_PACKAGE, dart)
+        coordinator.onPluginConnected(PluginDetectionEventBridge.FALCON_PACKAGE, falcon)
+
+        assertEquals(true, dart.settingsValues.getBoolean("enable_onnx_gunshot_service"))
+        assertEquals(67.0, dart.settingsValues.getDouble("onnx_gunshot_trigger_threshold_percent"), 0.0)
+        assertEquals(true, falcon.settingsValues.getBoolean("enable_onnx_uas_service"))
+        assertEquals(82.0, falcon.settingsValues.getDouble("onnx_uas_trigger_threshold_percent"), 0.0)
+
+        gunshotEnabled.value = false
+        gunshotThreshold.value = 74
+        uasEnabled.value = false
+        uasThreshold.value = 95
+
+        assertEquals(false, dart.settingsValues.getBoolean("enable_onnx_gunshot_service"))
+        assertEquals(74.0, dart.settingsValues.getDouble("onnx_gunshot_trigger_threshold_percent"), 0.0)
+        assertEquals(false, falcon.settingsValues.getBoolean("enable_onnx_uas_service"))
+        assertEquals(95.0, falcon.settingsValues.getDouble("onnx_uas_trigger_threshold_percent"), 0.0)
+    }
+
+    @Test
+    fun liveAudioSettingsRejectionReportsTheAffectedBinding() {
+        val packageName = PluginDetectionEventBridge.DART_PACKAGE
+        var reject = false
+        val plugin = legacyAudioPlugin(
+            packageName,
+            "enable_onnx_gunshot_service",
+            "onnx_gunshot_trigger_threshold_percent",
+            object : FakeWearTakPlugin(packageName) {
+                override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel =
+                    if (reject) SettingsApplyResultParcel(success = false)
+                    else super.applySettingsWithResult(values, applyMode)
+            },
+        )
+        var rejectedBinding: FakeWearTakPlugin? = null
+        coordinator.onLegacyAudioSettingsRejected = { id, binding ->
+            assertEquals(packageName, id)
+            rejectedBinding = binding as FakeWearTakPlugin
+        }
+        coordinator.onPluginConnected(packageName, plugin)
+        reject = true
+        gunshotThreshold.value = 75
+        assertTrue(rejectedBinding === plugin)
+    }
+
+    @Test
+    fun audioBindRetriesWhenHostSnapshotChangesDuringApply() {
+        val packageName = PluginDetectionEventBridge.FALCON_PACKAGE
+        var applies = 0
+        val plugin = legacyAudioPlugin(
+            packageName,
+            "enable_onnx_uas_service",
+            "onnx_uas_trigger_threshold_percent",
+            object : FakeWearTakPlugin(packageName) {
+                override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel {
+                    if (++applies == 1) coordinator.pushHostSettingsToAllPlugins()
+                    return super.applySettingsWithResult(values, applyMode)
+                }
+            },
+        )
+        uasEnabled.value = true
+        uasThreshold.value = 83
+        coordinator.onPluginConnected(packageName, plugin)
+        assertTrue(applies >= 2)
+        assertTrue(plugin.settingsValues.getBoolean("enable_onnx_uas_service"))
+        assertEquals(83.0, plugin.settingsValues.getDouble("onnx_uas_trigger_threshold_percent"), 0.0)
+    }
+
+    private fun legacyAudioPlugin(
+        packageName: String,
+        enabledFieldId: String,
+        thresholdFieldId: String,
+        plugin: FakeWearTakPlugin = FakeWearTakPlugin(packageName),
+    ): FakeWearTakPlugin =
+        plugin.apply {
+            pluginCapabilities = PluginCapabilitiesParcel()
+            setSettingsSchemaForTest(
+                SettingsSchemaParcel(
+                    fields = listOf(
+                        SettingsFieldParcel(
+                            fieldId = enabledFieldId,
+                            label = "Detection enabled",
+                            fieldType = SettingsFieldTypes.TOGGLE,
+                            required = true,
+                            defaultValueLiteral = "false",
+                        ),
+                        SettingsFieldParcel(
+                            fieldId = thresholdFieldId,
+                            label = "Detection threshold",
+                            fieldType = SettingsFieldTypes.NUMBER,
+                            required = true,
+                            defaultValueLiteral = "90",
+                        ),
+                    ),
+                ),
+            )
+        }
 }

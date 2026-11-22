@@ -22,7 +22,8 @@ import org.robolectric.RuntimeEnvironment
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BatdokPatientSharingPageTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test fun legacyOnNeedsOffOnAndToggleAloneAuthorizesWithoutConfirmationControl() {
         val consent = mutableStateOf(BatdokSharingConsent(true, 0, 0))

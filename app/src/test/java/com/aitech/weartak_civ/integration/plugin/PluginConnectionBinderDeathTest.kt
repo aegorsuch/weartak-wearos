@@ -1,9 +1,31 @@
 package com.aitech.weartak_civ.integration.plugin
 
+import android.app.Application
 import android.content.ComponentName
+import android.os.Process
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
+import com.weartak.plugin.sdk.activation.v1.ITransportReadinessV1
+import com.weartak.plugin.sdk.activation.v1.TransportReadinessContractV1 as Readiness
+import com.weartak.plugin.sdk.brokerretirement.v1.BrokerRetirementContractV1 as Retirement
+import com.weartak.plugin.sdk.brokerretirement.v1.IBrokerRetirementV1
+import com.weartak.plugin.sdk.cutover.v1.CutoverCompletionContractV1
+import com.weartak.plugin.sdk.enablepolicy.v1.EnablePolicyContractV1
+import com.weartak.plugin.sdk.pdlsnapshot.v1.PdlSnapshotContractV1
+import com.weartak.plugin.sdk.pointcutover.v1.PointCutoverContractV1
+import com.weartak.plugin.sdk.point.v1.PointContractV1
+import com.weartak.plugin.sdk.transport.TransportContract
+import com.weartak.plugin.sdk.transport.TransportPayloadKind
+import com.weartak.plugin.sdk.transport.TransportResultCode
+import com.weartak.plugin.sdk.transport.aidl.IPluginTransportCallbackV1
+import com.weartak.plugin.sdk.transport.aidl.IPluginTransportHostV1
+import com.weartak.plugin.sdk.transport.model.TransportCapabilitiesParcel
+import com.weartak.plugin.sdk.transport.model.TransportResultParcel
+import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +43,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
@@ -34,12 +57,6 @@ class PluginConnectionBinderDeathTest {
             val trust = mockk<PluginTrust>(relaxed = true)
             val connection = PluginConnection(app, ingress, ComponentName("com.synthetic.plugin", ".Svc"),
                 42, manager, trust)
-            val community = HostCommunityIdentityControl(42, { true }, { true }, { false }, { "" }, { 42 })
-            community.ready()
-            PluginConnection::class.java.getDeclaredField("communityIdentityControl").apply {
-                isAccessible = true
-                set(connection, community)
-            }
             val packages = HostServerPackageControl(42, { true }, {}, {}, { 42 })
             PluginConnection::class.java.getDeclaredField("serverPackages").apply {
                 isAccessible = true
@@ -68,8 +85,6 @@ class PluginConnectionBinderDeathTest {
             assertFalse(packages.imports.completeApplied(staged))
             assertFalse(packages.exportLive(outgoing))
             assertTrue(runCatching { packages.imports.openPackage(staged) }.isFailure)
-            assertEquals(termination, CommunityIdentityContract.INACTIVE,
-                community.readCommunityIdentity().getString(CommunityIdentityContract.KEY_STATUS))
             packages.close()
         }
     }

@@ -18,7 +18,7 @@ class AlertSmsLabelTest {
         val app = ApplicationProvider.getApplicationContext<Application>()
         listOf("en", "ar", "de", "es", "fr", "ja", "ko", "tr", "vi", "zh").forEach { language ->
             val config = Configuration(app.resources.configuration).apply { setLocale(Locale(language)) }
-            assertEquals("Send Alerts over SMS",
+            assertEquals("Send Alerts Over SMS",
                 app.createConfigurationContext(config).getString(R.string.send_sms_over_alerts))
         }
     }

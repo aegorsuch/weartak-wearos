@@ -25,9 +25,13 @@ import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.time.Duration
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.just
+import io.mockk.Runs
 import io.mockk.verify
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -43,6 +47,10 @@ import kotlinx.coroutines.runBlocking
 import android.os.Bundle
 import com.weartak.plugin.sdk.model.PluginLifecycleState
 import com.weartak.plugin.sdk.model.PluginStatusParcel
+import com.weartak.plugin.sdk.model.PluginErrorParcel
+import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
+import com.weartak.plugin.sdk.aidl.IWearTakHostCallback
+import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -211,6 +219,100 @@ class PluginConnectionBindTrustTest {
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
         assertEquals(3, bindFlags.size)
         assertEquals(Context.BIND_AUTO_CREATE, bindFlags.last())
+    }
+
+    @Test
+    fun trustedAudioPluginClaimsLegacyDetectorOnlyWhileHealthy() {
+        val packageName = PluginDetectionEventBridge.DART_PACKAGE
+        var hostCallback: IWearTakHostCallback? = null
+        val plugin = object : FakeWearTakPlugin(packageName, WearTakPluginV3Contract.CONTRACT_API_VERSION) {
+            override fun registerHostCallback(callback: IWearTakHostCallback?) {
+                super.registerHostCallback(callback)
+                hostCallback = callback
+            }
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(packageName))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(packageName)
+        val trust = mockk<PluginTrust>()
+        coEvery { trust.enforce(packageName, pluginUid, setOf(packageName)) } answers { Unit }
+        val manager = PluginManager(
+            app,
+            ingress,
+            trust,
+            settingsCoordinator = mockk(relaxed = true),
+        )
+
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        manager.refreshBindings()
+        awaitPluginLifecycle(packageName)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+
+        fun report(state: PluginLifecycleState, healthy: Boolean) {
+            hostCallback!!.onPluginStatusChanged(PluginStatusParcel(state, extras = Bundle().apply {
+                putBoolean(PluginDetectionEventBridge.DETECTOR_READY_EXTRA, healthy)
+            }))
+            ShadowLooper.shadowMainLooper().idle()
+        }
+        report(PluginLifecycleState.RUNNING, true)
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(14_999))
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(14_999))
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(1))
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+
+        hostCallback!!.onPluginStatusChanged(PluginStatusParcel(PluginLifecycleState.RUNNING))
+        ShadowLooper.shadowMainLooper().idle()
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        report(PluginLifecycleState.RUNNING, false)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+        hostCallback!!.onPluginError(PluginErrorParcel(3, "inference failed", false))
+        ShadowLooper.shadowMainLooper().idle()
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        report(PluginLifecycleState.STOPPED, true)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        manager.unbindPackage(packageName)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+    }
+
+    @Test
+    fun audioSettingsRejectionDetachesOnlyTheCurrentBinding() {
+        val packageName = PluginDetectionEventBridge.DART_PACKAGE
+        val plugin = FakeWearTakPlugin(packageName, WearTakPluginV3Contract.CONTRACT_API_VERSION)
+        val app = mockHostApp(listOf(resolveInfoFor(packageName))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(packageName)
+        val coordinator = mockk<PluginSettingsCoordinator>(relaxed = true)
+        val rejection = slot<(String, com.weartak.plugin.sdk.aidl.IWearTakPlugin) -> Unit>()
+        every { coordinator.onLegacyAudioSettingsRejected = capture(rejection) } just Runs
+        every { coordinator.connectionToken(packageName) } returns plugin
+        val manager = PluginManager(app, ingress, mockk(relaxed = true), coordinator)
+
+        manager.refreshBindings()
+        awaitPluginLifecycle(packageName)
+        assertTrue(manager.hasConnectionForTest(packageName))
+        rejection.captured(packageName, FakeWearTakPlugin(packageName))
+        ShadowLooper.shadowMainLooper().idle()
+        assertTrue(manager.hasConnectionForTest(packageName))
+        rejection.captured(packageName, plugin)
+        ShadowLooper.shadowMainLooper().idle()
+        assertFalse(manager.hasConnectionForTest(packageName))
     }
 
     @Test

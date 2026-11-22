@@ -10,6 +10,7 @@ import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
 import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -52,6 +53,22 @@ data class AudioDetectionInferenceResult(
     val errorMessage: String? = null
 )
 
+internal fun detectorResultForScore(score: Float, threshold: Float): AudioDetectionInferenceResult {
+    if (!score.isFinite() || score !in 0f..1f) {
+        return AudioDetectionInferenceResult(
+            inferenceSucceeded = false,
+            detected = false,
+            confidence = null,
+            errorMessage = "Detector produced invalid confidence: $score"
+        )
+    }
+    return AudioDetectionInferenceResult(
+        inferenceSucceeded = true,
+        detected = score >= threshold,
+        confidence = score
+    )
+}
+
 data class AudioDetectionTrigger(
     val uid: String,
     val confidence: Float,
@@ -83,6 +100,7 @@ class AudioDetectionRuntime(
 
     private var lastSeq: Long? = null
     private var lastTriggerMs = 0L
+    private var invalidConfidenceReported = false
     private var pcmCollectJob: Job? = null
     private var streamSegmentIndex = 0
     private var nextWindowIndex = 0L
@@ -301,11 +319,12 @@ class AudioDetectionRuntime(
 
         return try {
             val score = lock.withLock { runModelScalar(session, modelInput) }
-            AudioDetectionInferenceResult(
-                inferenceSucceeded = true,
-                detected = score >= threshold,
-                confidence = score
-            )
+            detectorResultForScore(score, threshold).also {
+                if (!it.inferenceSucceeded && !invalidConfidenceReported) {
+                    Log.e(spec.logTag, it.errorMessage.orEmpty())
+                }
+                invalidConfidenceReported = !it.inferenceSucceeded
+            }
         } catch (t: Throwable) {
             Log.e(spec.logTag, "Detector inference error", t)
             AudioDetectionInferenceResult(
@@ -365,6 +384,17 @@ class AudioDetectionRuntime(
             buf = buf.copyOf(newCapacity)
         }
     }
+}
+
+fun startAudioDetectionFeedback(
+    scope: CoroutineScope,
+    logTag: String,
+    feedbackPrefix: String,
+    feedbackFlow: Flow<AudioDetectionFeedback>,
+    getEventFromUid: (String) -> AudioDetectionEvent?,
+    logFeedback: suspend (AudioDetectionEvent, AudioDetectionFeedback) -> Unit
+): Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    collectAudioDetectionFeedback(logTag, feedbackPrefix, feedbackFlow, getEventFromUid, logFeedback)
 }
 
 suspend fun collectAudioDetectionFeedback(

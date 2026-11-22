@@ -19,7 +19,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w192dp-h192dp-round", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BloodhoundPickerActionsTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val marker = Utils.BloodhoundItem("Rally Point", "marker", "Sender", 1L, 1.2, 0f, false)
 
     @Test fun markerButtonsMapStartAndStopWithoutOpeningDetails() {

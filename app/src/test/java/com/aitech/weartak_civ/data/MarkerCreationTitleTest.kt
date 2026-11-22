@@ -1,10 +1,8 @@
 package com.aitech.weartak_civ.data
 
 import android.app.Application
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import com.aitech.weartak_civ.presentation.MainActivity
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,17 +14,20 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class MarkerCreationTitleTest {
     @Test fun newTitlesTrimOnlyTrailingAsciiWhitespaceAndKeepRemarks() = runBlocking {
+        MainActivity.device_uid = "test-watch"
+        MainActivity.versionNumber = "test"
+        MainActivity.Constants.callsign = "watch"
         val repo = DataRepository(RuntimeEnvironment.getApplication())
-        for ((input, expected) in listOf(
+        for ((index, pair) in listOf(
             "Test " to "Test", "Bad \t\r\n" to "Bad", " Keep leading " to " Keep leading",
             " \t" to "", "Nonbreaking\u00a0" to "Nonbreaking\u00a0"
-        )) {
-            val next = async(start = CoroutineStart.UNDISPATCHED) { repo.markerDropRequests.first() }
-            assertTrue(repo.requestMarkerDrop("friendly", input, "Remark  ", 123L, uid = "original"))
-            val request = next.await()
-            assertEquals(expected, request.title)
-            assertEquals("Remark  ", request.remark)
-            assertEquals("original", request.uid)
+        ).withIndex()) {
+            val (input, expected) = pair
+            val uid = "original-$index"
+            assertTrue(repo.requestMarkerDrop("friendly", input, "Remark  ", 123L, uid = uid))
+            val marker = repo.droppedMarkerList.value.first { it.uid == uid }
+            assertEquals(if (expected.isEmpty()) "watch_000000Z" else expected, marker.title)
+            assertEquals("Remark  ", marker.remark)
         }
         val legacy = DataRepository.DroppedMarker(DataRepository.MarkerCotType.DROP,
             "legacy", DataRepository.MarkerType.FRIENDLY, "Legacy ", "Old  ", 1L, null, false, false)

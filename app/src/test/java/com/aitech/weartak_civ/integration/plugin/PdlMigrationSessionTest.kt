@@ -109,6 +109,24 @@ class PdlMigrationSessionTest {
         assertEquals(16_385, current.identity.length)
     }
 
+    @Test fun readinessRequiresAcknowledgedCurrentSelectionAndLiveTrust() = runTest {
+        val session = session()
+        val nonce = requireNotNull(session.read(42, "session", "transfer").nonce)
+        assertNull(session.withAcknowledgedCurrent(42, "session") { "ready" })
+        assertNull(session.withAcknowledgedSelection(42, "session") { "ready" })
+        assertEquals(PdlMigrationSession.Status.OK, session.acknowledge(42, "session", "transfer", nonce))
+        assertEquals("ready", session.withAcknowledgedCurrent(42, "session") { "ready" })
+        assertEquals(DittoPdlSource.CUSTOM,
+            session.withAcknowledgedSelection(42, "session") { it.source })
+        trusted = false
+        assertNull(session.withAcknowledgedCurrent(42, "session") { "ready" })
+        trusted = true
+        current = DittoPdlMigrationSelection(DittoPdlSource.COMMUNITY, "")
+        assertNull(session.withAcknowledgedCurrent(42, "session") { "ready" })
+        current = DittoPdlMigrationSelection(DittoPdlSource.CUSTOM, "")
+        assertNull(session.withAcknowledgedCurrent(42, "session") { "ready" })
+    }
+
     @Test fun closeAfterSerializedAcknowledgmentCannotReturnSuccess() = runTest {
         val entered = CompletableDeferred<Unit>()
         val resume = CompletableDeferred<Unit>()

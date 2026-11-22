@@ -25,7 +25,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NetworkChecklistPreferenceTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val app get() = RuntimeEnvironment.getApplication()
 
     @Before fun reset() = runBlocking {
@@ -48,7 +49,7 @@ class NetworkChecklistPreferenceTest {
 
     @Test fun persistedChangesShowAndHideOnlyChecklistLive() {
         val repository = DataRepository(app)
-        val row = NetworkConnectivityRow("ditto", "Ditto Edge Sync", "", true, {})
+        val row = NetworkConnectivityRow("multicast", "TAK SA Multicast", "", true, {})
         compose.setContent {
             val enabled by repository.networkPreferencesChecklistEnabled.collectAsState(initial = false)
             WearTAKCIVTheme {
@@ -60,18 +61,18 @@ class NetworkChecklistPreferenceTest {
                 }
             }
         }
-        compose.onNodeWithText("Ditto Edge Sync").assertDoesNotExist()
+        compose.onNodeWithText("TAK SA Multicast").assertDoesNotExist()
         compose.onNodeWithText("Actual preferences").assertExists()
         runBlocking { repository.storeNetworkPreferencesChecklistEnabled(true) }
         compose.waitUntil {
-            compose.onAllNodesWithText("Ditto Edge Sync").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("TAK SA Multicast").fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onAllNodesWithContentDescription("Ditto Edge Sync", useUnmergedTree = true)
+        compose.onAllNodesWithContentDescription("TAK SA Multicast", useUnmergedTree = true)
             .assertCountEquals(2)
         compose.onNodeWithText("Actual preferences").assertExists()
         runBlocking { repository.storeNetworkPreferencesChecklistEnabled(false) }
         compose.waitUntil {
-            compose.onAllNodesWithText("Ditto Edge Sync").fetchSemanticsNodes().isEmpty()
+            compose.onAllNodesWithText("TAK SA Multicast").fetchSemanticsNodes().isEmpty()
         }
         compose.onNodeWithText("Actual preferences").assertExists()
     }

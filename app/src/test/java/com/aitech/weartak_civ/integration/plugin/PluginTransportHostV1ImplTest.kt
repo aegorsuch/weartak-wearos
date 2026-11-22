@@ -12,6 +12,9 @@ import com.aitech.weartak_civ.cot.CotUserPositionEvent
 import com.aitech.weartak_civ.data.model.GeofenceCot
 import com.aitech.weartak_civ.data.model.TakRoute
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.data.DittoPdlMigrationSelection
+import com.aitech.weartak_civ.data.DittoPdlSource
+import com.weartak.plugin.sdk.pdltransfer.v1.PdlTransferContractV1 as PdlContract
 import com.aitech.weartak_civ.events.TakChatEvent
 import com.aitech.weartak_civ.service.DittoTrackSnapshot
 import com.weartak.plugin.sdk.transport.TransportContract
@@ -43,6 +46,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -68,6 +72,110 @@ class PluginTransportHostV1ImplTest {
     fun tearDown() {
         hosts.forEach { it.closeBinding() }
     }
+
+    @Test
+    fun pdlMigrationUsesLiveInactiveTransportRegistration() {
+        val host = preactivationHost()
+        val registration = host.registerTransport(preactivationCapabilities(), RecordingCallback())
+        assertEquals(TransportResultCode.ACCEPTED, registration.code)
+        val sessionId = requireNotNull(registration.sessionId)
+        val selection = DittoPdlMigrationSelection(DittoPdlSource.CUSTOM, "")
+        val broker = HostPdlTransferBrokerV1(
+            expectedUid = Process.myUid(),
+            authorized = { true },
+            isPreactivationSession = host::isPreactivationSession,
+            readSelection = { selection },
+            selectionCurrent = { it === selection },
+            acknowledgeIfCurrent = { expected, action -> if (expected === selection) action() else null },
+        )
+        val result = broker.read(sessionId, "transfer")
+        assertTrue(PdlContract.isValidReadResult(result, "transfer"))
+        assertEquals(
+            TransportResultCode.INACTIVE_SESSION,
+            host.receiveMessage(sessionId, DittoPliTransportSession.GENERAL_CHANNEL, inboundMessage("before-ready")).code,
+        )
+        assertEquals(PdlContract.INACTIVE_SESSION, broker.read("other", "transfer").getInt(PdlContract.KEY_CODE))
+        val nonce = requireNotNull(result.getByteArray(PdlContract.KEY_NONCE))
+        assertEquals(PdlContract.OK, broker.acknowledge(sessionId, "transfer", nonce))
+        host.activateBinding()
+        assertEquals(PdlContract.OK, broker.acknowledge(sessionId, "transfer", nonce))
+        host.closeBinding()
+        assertEquals(PdlContract.INACTIVE_SESSION, broker.acknowledge(sessionId, "transfer", nonce))
+        broker.close()
+    }
+
+    @Test
+    fun pdlMigrationCannotUseUnregisteredOrReplacedTransportSession() {
+        val host = preactivationHost()
+        val caps = preactivationCapabilities()
+        val first = requireNotNull(host.registerTransport(caps, RecordingCallback()).sessionId)
+        val selection = DittoPdlMigrationSelection(DittoPdlSource.CUSTOM, "value")
+        val broker = HostPdlTransferBrokerV1(
+            expectedUid = Process.myUid(),
+            authorized = { true },
+            isPreactivationSession = host::isPreactivationSession,
+            readSelection = { selection },
+            selectionCurrent = { it === selection },
+            acknowledgeIfCurrent = { expected, action -> if (expected === selection) action() else null },
+        )
+        val nonce = requireNotNull(broker.read(first, "transfer").getByteArray(PdlContract.KEY_NONCE))
+        assertEquals(TransportResultCode.UNAVAILABLE, host.registerTransport(caps, RecordingCallback()).code)
+        assertEquals(PdlContract.INACTIVE_SESSION, broker.acknowledge(first, "transfer", nonce))
+        assertEquals(PdlContract.INACTIVE_SESSION, broker.read(first, "new-transfer").getInt(PdlContract.KEY_CODE))
+        broker.close()
+    }
+
+    @Test
+    fun preactivationRefusesEarlyReadyAndAlreadyActiveBinding() {
+        val host = preactivationHost()
+        val caps = preactivationCapabilities()
+        assertEquals(TransportResultCode.UNSUPPORTED,
+            host.registerTransport(caps.copy(runtimeAvailable = true), RecordingCallback()).code)
+        host.activateBinding()
+        assertEquals(TransportResultCode.INACTIVE_SESSION, host.registerTransport(caps, RecordingCallback()).code)
+    }
+
+    @Test
+    fun preactivationUnregisterRequiresCurrentTrustAndTimeoutRetiresSession() {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        var trusted = true
+        var retireCalls = 0
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            pluginOnlyPli = true, preactivationEnabled = true, preactivationTrusted = { trusted },
+            retirePreactivation = { retireCalls++; false }, onPliUnavailable = {},
+        ).also(hosts::add)
+        val id = requireNotNull(host.registerTransport(preactivationCapabilities(), RecordingCallback()).sessionId)
+        assertEquals(TransportResultCode.INACTIVE_SESSION, host.unregisterTransport("stale").code)
+        trusted = false
+        assertEquals(TransportResultCode.UNAUTHORIZED, host.unregisterTransport(id).code)
+        assertTrue(host.isPreactivationSession(id))
+        assertEquals(0, retireCalls)
+        trusted = true
+        assertEquals(TransportResultCode.UNAVAILABLE, host.unregisterTransport(id).code)
+        assertFalse(host.isPreactivationSession(id))
+        assertEquals(1, retireCalls)
+        assertEquals(TransportResultCode.INACTIVE_SESSION, host.unregisterTransport(id).code)
+        assertEquals(1, retireCalls)
+    }
+
+    private fun preactivationHost(): PluginTransportHostV1Impl {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        return PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            pluginOnlyPli = true, trustedDittoPlugin = { true }, onPliUnavailable = {},
+            preactivationEnabled = true, preactivationTrusted = { true },
+        ).also(hosts::add)
+    }
+
+    private fun preactivationCapabilities() = capabilities().copy(
+        runtimeAvailable = false,
+        outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+        inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+        channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+        deviceReceipts = false,
+        recipientReceipts = false,
+    )
 
     @Test
     fun inboundTypedChatUsesHostParserAndPreservesTransportMetadata() {
@@ -462,6 +570,85 @@ class PluginTransportHostV1ImplTest {
     }
 
     @Test
+    fun trackedDittoSubmissionWaitsForLocalSubmissionAndFencesDisconnect() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = {},
+        ).also(hosts::add)
+        val callback = RecordingCallback()
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        val session = register(host, callback, caps)
+        val first = async { host.submitDittoCoT(chatXml(), DEVICE_UID, "WATCH", "stable-id") }
+        runCurrent()
+        assertFalse(first.isCompleted)
+        val request = requireNotNull(callback.request)
+        assertEquals("stable-id", request.message.messageId)
+        assertEquals(TransportResultCode.ACCEPTED, host.reportDelivery(session,
+            TransportDeliveryParcel("stable-id", request.channelId, 1, TransportDeliveryStage.CHANNEL_SUBMITTED)).code)
+        assertEquals(PluginTransportHostV1Impl.Submission.SUBMITTED, first.await())
+        val second = async { host.submitDittoCoT(chatXml(), DEVICE_UID, "WATCH", "next-id") }
+        runCurrent()
+        host.closeBinding()
+        assertEquals(PluginTransportHostV1Impl.Submission.UNCERTAIN, second.await())
+        assertEquals(PluginTransportHostV1Impl.Submission.NOT_ADMITTED,
+            host.submitDittoCoT(chatXml(), DEVICE_UID, "WATCH", "third-id"))
+    }
+
+    @Test
+    fun queuedTrackedAlertIsNotSentAfterEligibilityIsRevoked() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = {},
+        ).also(hosts::add)
+        val callback = RecordingCallback()
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        register(host, callback, caps)
+        var eligible = true
+        val awaitResult = host.offerTrackedDittoCoT(chatXml(), DEVICE_UID, "WATCH", "cancelled-id") { eligible }
+        eligible = false
+        runCurrent()
+        assertNull(callback.request)
+        assertEquals(PluginTransportHostV1Impl.Submission.CANCELLED_BEFORE_EFFECT, awaitResult())
+    }
+
+    @Test
+    fun trackedAdmissionRejectsDifferentTransportSession() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            trustedDittoPlugin = { true }, onPliUnavailable = {},
+        ).also(hosts::add)
+        val callback = RecordingCallback()
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        val session = register(host, callback, caps)
+        assertEquals(session, host.activeGeneralDittoSession())
+        val receipt = host.offerTrackedDittoCoT(chatXml(), DEVICE_UID, "WATCH", "stale-id", "old-session")
+        assertEquals(PluginTransportHostV1Impl.Submission.NOT_ADMITTED, receipt())
+        runCurrent()
+        assertNull(callback.request)
+    }
+
+    @Test
     fun gatedGeneralDittoChannelCarriesCotAndLocalSubmissionIsTerminal() = runTest {
         every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
         var trusted = true
@@ -608,6 +795,42 @@ class PluginTransportHostV1ImplTest {
         assertEquals(TransportResultCode.ACCEPTED, host.unregisterTransport(session).code)
         assertEquals(TransportResultCode.INACTIVE_SESSION, host.registerTransport(caps, RecordingCallback()).code)
         assertEquals(listOf(PluginTransportHostV1Impl.PLI_UNAVAILABLE), reasons)
+        runCurrent()
+    }
+
+    @Test
+    fun pluginOnlyUnregisterRetiresSessionWithoutClosingBinding() = runTest {
+        every { ingress.packagesForUid(app, any()) } returns setOf(TrustedCommunityPlugin.PACKAGE)
+        val reasons = mutableListOf<String>()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, TrustedCommunityPlugin.PACKAGE, Process.myUid(),
+            dispatcher = StandardTestDispatcher(testScheduler), pluginOnlyPli = true,
+            restartablePluginOnly = true, trustedDittoPlugin = { true },
+            onPliUnavailable = { reasons.add(it) },
+        ).also(hosts::add)
+        val caps = capabilities().copy(
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            deviceReceipts = false, recipientReceipts = false,
+        )
+        val callback = RecordingCallback()
+        val old = register(host, callback, caps)
+        val pending = async { host.submitDittoCoT(chatXml(), DEVICE_UID, "WATCH", "pending-id") }
+        runCurrent()
+        assertNotNull(callback.request)
+        assertEquals(TransportResultCode.ACCEPTED, host.unregisterTransport(old).code)
+        assertEquals(PluginTransportHostV1Impl.Submission.UNCERTAIN, pending.await())
+        assertFalse(host.isActiveDittoSession(old))
+        val next = register(host, RecordingCallback(), caps)
+        assertNotEquals(old, next)
+        assertTrue(host.isActiveDittoSession(next))
+        assertEquals(TransportResultCode.INACTIVE_SESSION, host.unregisterTransport(old).code)
+        assertEquals(TransportResultCode.INACTIVE_SESSION, host.reportDelivery(old,
+            TransportDeliveryParcel("pending-id", DittoPliTransportSession.GENERAL_CHANNEL, 1,
+                TransportDeliveryStage.CHANNEL_SUBMITTED)).code)
+        assertTrue(host.isActiveDittoSession(next))
+        assertTrue(reasons.isEmpty())
         runCurrent()
     }
 
