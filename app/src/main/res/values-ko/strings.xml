@@ -255,6 +255,9 @@
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
     <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_save_unconfirmed">마커 저장이 확인되지 않았습니다. 다시 시도하기 전에 마커 목록을 확인하세요.</string>
+    <string name="marker_saved_locally">마커가 로컬에 저장되었습니다. 전송이 아직 보류 중일 수 있습니다.</string>
+    <string name="marker_request_invalid">잘못된 마커 요청입니다.</string>
     <string name="bloodhound_settings">Bloodhound Settings</string>
     <string name="bloodhound_proximity_vibration">Bloodhound Proximity Vibration</string>
     <string name="bloodhound_proximity_radius">Bloodhound Proximity Radius</string>

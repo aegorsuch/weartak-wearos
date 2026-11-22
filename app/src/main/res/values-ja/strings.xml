@@ -255,6 +255,9 @@
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
     <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_save_unconfirmed">マーカーの保存を確認できませんでした。再試行する前にマーカー一覧を確認してください。</string>
+    <string name="marker_saved_locally">マーカーをローカルに保存しました。配信は保留中の場合があります。</string>
+    <string name="marker_request_invalid">無効なマーカーリクエストです。</string>
     <string name="bloodhound_settings">Bloodhound Settings</string>
     <string name="bloodhound_proximity_vibration">Bloodhound Proximity Vibration</string>
     <string name="bloodhound_proximity_radius">Bloodhound Proximity Radius</string>
