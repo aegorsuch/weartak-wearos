@@ -29,7 +29,8 @@ import org.robolectric.annotation.GraphicsMode
     shadows = [com.aitech.weartak_civ.service.DebugStayAwakeServiceTest.StayAwakeWifiShadow::class])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DebugStayAwakeSettingTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val app get() = RuntimeEnvironment.getApplication()
 
     @Before fun resetPreference() {

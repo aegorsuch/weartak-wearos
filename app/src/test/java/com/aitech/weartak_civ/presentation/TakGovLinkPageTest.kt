@@ -15,7 +15,8 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34], qualifiers = "w227dp-h227dp-round")
 class TakGovLinkPageTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test fun activeLinkShowsCodeAndRegistrationUrlWithoutOpenPageInstructions() {
         compose.setContent {

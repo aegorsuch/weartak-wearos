@@ -255,6 +255,9 @@
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
     <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_save_unconfirmed">Enregistrement du marqueur non confirmé. Vérifiez la liste des marqueurs avant de réessayer.</string>
+    <string name="marker_saved_locally">Marqueur enregistré localement. La livraison peut être encore en attente.</string>
+    <string name="marker_request_invalid">Demande de marqueur non valide.</string>
     <string name="bloodhound_settings">Bloodhound Settings</string>
     <string name="bloodhound_proximity_vibration">Bloodhound Proximity Vibration</string>
     <string name="bloodhound_proximity_radius">Bloodhound Proximity Radius</string>

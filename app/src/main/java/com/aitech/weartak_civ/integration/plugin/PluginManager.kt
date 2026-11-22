@@ -271,7 +271,8 @@ open class PluginManager(
             PluginDiagnostics.recordBindFailure(cn.flattenToString(), it)
             return
         }
-        val conn = PluginConnection(app, ingress, cn, uid, this, pluginTrust)
+        val conn = PluginConnection(app, ingress, cn, uid, this, pluginTrust,
+            pluginOnlyEnabled = PluginOnlyDittoHost::enabled)
         val intent = Intent(WearTakPluginContract.ACTION_PLUGIN_SERVICE).setComponent(cn)
         connections[cn.packageName] = conn
         conn.startBindingTimeout()
@@ -310,6 +311,14 @@ open class PluginManager(
 
     internal fun connectionFor(packageName: String): PluginConnection? =
         connections[packageName]
+
+    internal fun dittoCotSelected(): Boolean {
+        val packageName = TrustedCommunityPlugin.PACKAGE
+        if (!isEnabled(packageName) || discoverPluginComponents().none { it.packageName == packageName }) return false
+        val connection = connectionFor(packageName)
+        if (connection?.hasVerifiedTrust != true || settingsCoordinator.getState(packageName) == null) return true
+        return settingsCoordinator.pluginHasSettingEnabled(packageName, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)
+    }
 
     fun addTopologyListener(listener: PluginTopologyListener) {
         topologyListeners.add(listener)

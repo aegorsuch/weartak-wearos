@@ -21,6 +21,7 @@ internal object PluginTransportMessageMapper {
         workspaceId: String? = null,
         externalId: String? = null,
         sentAtEpochMillis: Long? = null,
+        messageId: String = UUID.randomUUID().toString(),
     ): TransportMessageParcel? {
         val document = CotMessageParser.parseDocumentOrNull(xml) ?: return null
         val event = document.documentElement.takeIf { it.tagName == "event" } ?: return null
@@ -39,7 +40,7 @@ internal object PluginTransportMessageMapper {
                 chatSenderUid != null && chatSenderCallsign != null && recipientUid != null && text != null
             ) {
                 return TransportMessageParcel(
-                    messageId = UUID.randomUUID().toString(),
+                    messageId = messageId,
                     payloadKind = TransportPayloadKind.CHAT_UTF8,
                     payload = text.toByteArray(Charsets.UTF_8),
                     senderUid = chatSenderUid,
@@ -54,7 +55,7 @@ internal object PluginTransportMessageMapper {
 
         if (TransportPayloadKind.COT_XML_UTF8 !in supportedKinds) return null
         return TransportMessageParcel(
-            messageId = UUID.randomUUID().toString(),
+            messageId = messageId,
             payloadKind = TransportPayloadKind.COT_XML_UTF8,
             payload = xml.toByteArray(Charsets.UTF_8),
             senderUid = senderUid,

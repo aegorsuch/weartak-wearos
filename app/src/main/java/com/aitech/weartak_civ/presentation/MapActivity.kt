@@ -2873,7 +2873,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         )
 
                         // Creates a marker at the selected coordinates
-                        dataRepository.requestMarkerDrop(
+                        val saved = dataRepository.requestMarkerDrop(
                             markerType,
                             "",
                             "",
@@ -2881,10 +2881,18 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                             lat = coordinates.latitude,
                             lon = coordinates.longitude
                         )
-
-                        Log.d(TAG, "requestMarkerDrop finished")
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context,
+                                if (saved) R.string.marker_saved_locally else R.string.marker_request_invalid,
+                                Toast.LENGTH_LONG).show()
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         Log.e(TAG, "requestMarkerDrop failed", e)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, R.string.marker_save_unconfirmed, Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
 

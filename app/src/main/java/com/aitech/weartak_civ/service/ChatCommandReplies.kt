@@ -7,6 +7,8 @@ import com.aitech.weartak_civ.command.ChatCommandRequest
 import com.aitech.weartak_civ.cot.CotMessageBuilder
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.presentation.MainActivity
+import com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl
+import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
 import com.aitech.weartak_civ.service.sitx.SitxServiceCommand
 import com.aitech.weartak_civ.service.sitx.SitxServiceCommandBus
 
@@ -34,7 +36,16 @@ internal object ChatCommandReplies {
         )
         val xml = CotMessageBuilder.chat(snapshot, MainActivity.callsign, MainActivity.device_uid)
         return when {
-            source.startsWith("ditto:") -> DittoService.publishCommandReply(xml)
+            source == "plugin:${TrustedCommunityPlugin.PACKAGE}" -> {
+                val connection = (context.applicationContext as WearTakApplication).pluginManager
+                    .connectionFor(TrustedCommunityPlugin.PACKAGE)
+                connection?.submitDittoCoT(xml, MainActivity.device_uid, MainActivity.callsign,
+                    java.util.UUID.randomUUID().toString()) == PluginTransportHostV1Impl.Submission.SUBMITTED
+            }
+            source.startsWith("ditto:") -> {
+                android.util.Log.w("WearTAK-ChatCommands", "Bundled Ditto reply route is unavailable")
+                false
+            }
             source.startsWith("multicast:") -> {
                 val target = source.removePrefix("multicast:").split(':')
                 target.size == 2 && NetworkUtils.MulticastPublisher.sendCommandReply(

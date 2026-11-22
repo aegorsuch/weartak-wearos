@@ -61,16 +61,6 @@ internal class ConnectivityPathDiagnostics(
                         DiagnosticMetric.CONNECTED_COUNT to repo.outboundReadyRoutes.map { routes ->
                             routes.values.count { it.endpoint == DataRepository.Endpoint.TAK_SERVER }.toLong()
                         })
-                    watch(ConnectivityPath.DITTO,
-                        DiagnosticMetric.ENABLED to repo.getEnableDittoService.numeric(),
-                        DiagnosticMetric.ACTIVE to DittoService.syncActive.numeric(),
-                        DiagnosticMetric.MODE to combine(repo.getDittoPdlSource, repo.getDittoCustomPdl) { source, custom ->
-                            when {
-                                source == DittoPdlSource.COMMUNITY -> 1L
-                                custom.isNotBlank() -> 2L
-                                else -> 0L
-                            }
-                        })
                     watch(ConnectivityPath.SITX,
                         DiagnosticMetric.ENABLED to repo.getEnableSitxService.numeric(),
                         DiagnosticMetric.ACTIVE to repo.sitxStatus.map { if (it == DataRepository.SitxServerStatus.CONNECTED) 1L else 0L },

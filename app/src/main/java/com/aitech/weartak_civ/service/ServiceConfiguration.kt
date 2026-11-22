@@ -100,13 +100,7 @@ class ServiceConfiguration(
             actOn && (physioOn || (dynamic && locationOn))
         }.distinctUntilChanged()
 
-        // Keep direct transports stopped briefly after a Companion drop to absorb reconnect flaps.
-        ServiceType.DITTO -> combine(
-            dataRepository.getEnableDittoService, dataRepository.watchTransportSuppressed,
-            DittoService.isReconfiguring, DittoService.shutdownFailed
-        ) { enabled, suppressed, reconfiguring, shutdownFailed ->
-            enabled && !suppressed && !reconfiguring && !shutdownFailed
-        }.distinctUntilChanged()
+        ServiceType.DITTO -> kotlinx.coroutines.flow.flowOf(false)
         ServiceType.HAIL -> dataRepository.getEnableHailService.distinctUntilChanged()
         ServiceType.CHAT  -> dataRepository.getEnableChatService.distinctUntilChanged()
         ServiceType.BLE_BEACON -> dataRepository.getEnableBleBeaconService.distinctUntilChanged()

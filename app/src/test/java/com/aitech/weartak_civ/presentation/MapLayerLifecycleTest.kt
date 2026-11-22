@@ -67,7 +67,8 @@ import org.maplibre.android.style.layers.SymbolLayer as NativeSymbolLayer
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @OptIn(InternalComposeApi::class)
 class MapLayerLifecycleTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Before fun resetRecording() {
         RecordingSymbolLayer.detachedFilterCalled = false

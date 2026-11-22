@@ -196,8 +196,6 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.mainActivity
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.sitxRepo
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.sitxTakGroup
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.teamEntriesValuesList
-import com.aitech.weartak_civ.data.DittoPdlSource
-import com.aitech.weartak_civ.service.DittoCommunityLicenseHelper
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.versionNumber
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.TAG
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.allergiesOptionsList
@@ -417,9 +415,6 @@ fun WearTAKSettingsNav(
     }
     val enableSmsAlerts by settingsVm.savedEnableSmsForAlerts.collectAsState()
     val smsNumberList by settingsVm.savedSmsNumbersList.collectAsState()
-    val enableDittoService by settingsVm.savedEnableDittoService.collectAsState()
-    val dittoPdlSource by dataRepository.getDittoPdlSource.collectAsState(initial = DittoPdlSource.COMMUNITY)
-    val dittoCustomPdl by dataRepository.getDittoCustomPdl.collectAsState(initial = "")
     val enableTabletCommandEndpoint by settingsVm.savedEnableTabletCommandEndpoint.collectAsState()
     val tabletCommandEndpoint by settingsVm.savedTabletCommandEndpoint.collectAsState()
     val tabletCommandAPIKey by settingsVm.savedTabletCommandApikey.collectAsState()
@@ -570,19 +565,6 @@ fun WearTAKSettingsNav(
                     )
                 }
             }
-        }
-        composable("ditto_pdl") {
-            DittoPdlSelectionPage(
-                navController = navController,
-                selectedSource = dittoPdlSource
-            )
-        }
-
-        composable("ditto_custom_pdl") {
-            LaunchedEffect(Unit) {
-                com.aitech.weartak_civ.service.DittoService.onDittoScreenOpened()
-            }
-            DittoCustomPdlEntryPage(navController)
         }
         //Callsign and Device Settings vvv
         composable("callsign_and_device_preferences") {
@@ -1459,28 +1441,6 @@ fun WearTAKSettingsNav(
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
             val pluginRouteStatuses by pluginVm.connectionStatuses.collectAsStateWithLifecycle()
             val companionStatus = companionPluginStatus(enableCompanionAppService)
-            val dittoPowerSuppressionReason by com.aitech.weartak_civ.service.DittoService.powerSuppressionReason
-                .collectAsStateWithLifecycle()
-            val dittoSubtitle = stringResource(dittoPdlSubtitle(dittoPdlSource, dittoCustomPdl.isNotBlank()))
-            val dittoSuppression = dittoSuppressionLabel(enableDittoService, dittoPowerSuppressionReason)
-            val suppressedLabel = dittoSuppression?.let { stringResource(it) }
-            val dittoBleWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
-            var showDittoBleRecovery by rememberSaveable { mutableStateOf(false) }
-            LaunchedEffect(dittoBleWarning) {
-                if (dittoBleWarning == com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
-                    showDittoBleRecovery = false
-                }
-            }
-            if (showDittoBleRecovery && dittoBleWarning != com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
-                DittoBleRecoveryDialog(
-                    warning = dittoBleWarning,
-                    onRetryNow = {
-                        showDittoBleRecovery = false
-                        dataRepository.requestDittoBleRecovery(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
-                    },
-                    onDismiss = { showDittoBleRecovery = false }
-                )
-            }
             val enabledLabel = stringResource(R.string.enabled)
             val disabledLabel = stringResource(R.string.disabled)
             val takIndicator = TakServerIndicator.resolve(
@@ -1507,12 +1467,6 @@ fun WearTAKSettingsNav(
                         sitxGroup != null -> stringResource(R.string.network_disconnected_group, sitxGroup!!.name)
                         else -> stringResource(R.string.network_no_group)
                     }, enableSitx, settingsVm::storeEnableSitx),
-                NetworkConnectivityRow("ditto", stringResource(R.string.ditto),
-                    suppressedLabel ?: dittoSubtitle,
-                    enableDittoService, settingsVm::storeEnableDittoService,
-                    statusDescription = if (suppressedLabel != null) "$dittoSubtitle, $suppressedLabel" else dittoSubtitle,
-                    suppressed = dittoSuppression != null,
-                    suppressionLabel = dittoSuppression ?: R.string.connection_route_suppressed),
                 NetworkConnectivityRow("companion", stringResource(R.string.companion_app),
                     "", enableCompanionAppService, settingsVm::storeEnableCompanionAppService,
                     statusDescription = companionStatus)
@@ -1545,11 +1499,6 @@ fun WearTAKSettingsNav(
                                 Toast.makeText(context, networkLockedNotice, Toast.LENGTH_SHORT).show()
                             }
                         )
-                    }
-                    if (dittoBleWarning != com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
-                        item {
-                            DittoBleRecoverySettingsChip(dittoBleWarning) { showDittoBleRecovery = true }
-                        }
                     }
                     item {
                         if (phoneManagedSettings) {
@@ -3212,7 +3161,6 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, stringResource(R.string.gunshot_detection)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, stringResource(R.string.data_sync)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, stringResource(R.string.ditto)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, stringResource(R.string.esri)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, stringResource(R.string.everywhere_comms)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, stringResource(R.string.uas_detection)),
@@ -3313,17 +3261,7 @@ fun WearTAKSettingsNav(
                                         onClick = { navController.navigate("chat_commands") }
                                     )
                                 }
-                                BuiltInPlugin.DITTO -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = stringResource(dittoPdlSubtitle(dittoPdlSource, dittoCustomPdl.isNotBlank())),
-                                        checked = enableDittoService,
-                                        onCheckedChange = { settingsVm.storeEnableDittoService(it) },
-                                        onClick = { navController.navigate("ditto_pdl") }
-                                    )
-                                }
+                                BuiltInPlugin.DITTO -> Unit
                                 BuiltInPlugin.SENSOR_MANAGER -> {
                                     BuiltInPluginToggleChip(
                                         kind = entry.kind,
@@ -4385,268 +4323,6 @@ fun WearTAKBackButton(
         )
     }
 }
-@Composable
-fun DittoPdlSelectionPage(
-    navController: NavController,
-    selectedSource: DittoPdlSource
-) {
-    val scope = rememberCoroutineScope()
-    val savedCustomPdl by dataRepository.getDittoCustomPdl.collectAsState(initial = "")
-    val liveStatus by com.aitech.weartak_civ.service.DittoService.liveStatus.collectAsStateWithLifecycle()
-    val enabled by dataRepository.getEnableDittoService.collectAsStateWithLifecycle(initialValue = false)
-    val context = LocalContext.current
-    val platformTransports = remember(context) {
-        com.aitech.weartak_civ.service.dittoDiagnosticTransports(context.packageManager)
-    }
-    val visibleStatus = if (enabled) liveStatus else liveStatus.copy(
-        peers = null, recovery = com.aitech.weartak_civ.service.DittoRecoveryStatus.STOPPED)
-    DittoIdentitySettingsPage(navController, selectedSource, savedCustomPdl,
-        visibleStatus.copy(transports = visibleStatus.transports ?: platformTransports),
-        onCommunitySelected = {
-            scope.launch { dataRepository.storeDittoPdlSource(DittoPdlSource.COMMUNITY) }
-        })
-}
-
-@Composable
-internal fun DittoIdentitySettingsPage(
-    navController: NavController,
-    selectedSource: DittoPdlSource,
-    savedCustomPdl: String,
-    liveStatus: com.aitech.weartak_civ.service.DittoLiveStatus,
-    onCommunitySelected: () -> Unit,
-) {
-    val showPdlHelp = remember { mutableStateOf(false) }
-    val communityTitle = stringResource(R.string.community_pdl)
-    val customTitle = stringResource(R.string.custom_pdl)
-    val pdlOptions = listOf(communityTitle, customTitle)
-
-    WearTAKPageWithBackArrow(
-        title = stringResource(R.string.ditto_identity),
-        columnContent = {
-            item {
-                WearTAKSelectableChip(
-                    selected = selectedSource == DittoPdlSource.COMMUNITY,
-                    onClick = onCommunitySelected,
-                    title = communityTitle,
-                    secondaryTitle = stringResource(R.string.community_pdl),
-                    combined = true,
-                    list = pdlOptions
-                )
-            }
-
-            item {
-                WearTAKSelectableChip(
-                    selected = selectedSource == DittoPdlSource.CUSTOM,
-                    onClick = {
-                        navController.navigate("ditto_custom_pdl")
-                    },
-                    title = customTitle,
-                    secondaryTitle = savedCustomPdl.ifBlank {
-                        stringResource(R.string.no_custom_pdl_saved)
-                    },
-                    combined = true,
-                    list = pdlOptions
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            item {
-                Chip(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        showPdlHelp.value = true
-                    },
-                    label = {
-                        Text(stringResource(R.string.pdl_help))
-                    },
-                    secondaryLabel = {
-                        Text(
-                            text = stringResource(R.string.pdl_help_summary),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = stringResource(R.string.pdl_help),
-                            modifier = Modifier.size(18.dp),
-                            tint = Color.LightGray
-                        )
-                    },
-                    colors = ChipDefaults.chipColors(
-                        backgroundColor = Color.DarkGray,
-                        contentColor = Color.White,
-                        secondaryContentColor = Color.LightGray
-                    )
-                )
-            }
-            dittoDiagnosticItems(liveStatus)
-        },
-        navController = navController
-    )
-
-    DittoPdlHelpDialog(showPdlHelp)
-}
-
-@Composable
-fun DittoPdlHelpDialog(
-    shouldShowDialog: MutableState<Boolean>
-) {
-    if (shouldShowDialog.value) {
-        Dialog(
-            onDismissRequest = {
-                shouldShowDialog.value = false
-            },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false
-            )
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = colors.background
-                ),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Info,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .size(22.dp),
-                        tint = Color.LightGray
-                    )
-
-                    Text(
-                        text = stringResource(R.string.pdl_help_instructions),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = 32.dp, bottom = 56.dp)
-                            .verticalScroll(rememberScrollState()),
-                        fontSize = 12.sp,
-                        lineHeight = 15.sp
-                    )
-
-                    Button(
-                        onClick = {
-                            shouldShowDialog.value = false
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .width(112.dp)
-                            .height(40.dp),
-                        contentPadding = PaddingValues(
-                            horizontal = 12.dp,
-                            vertical = 0.dp
-                        ),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Gray
-                        )
-                    ) {
-                        Text(
-                            text = stringResource(R.string.dismiss),
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DittoCustomPdlEntryPage(
-    navController: NavController
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val savedCustomPdl by dataRepository.getDittoCustomPdl.collectAsState(
-        initial = ""
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .padding(bottom = 16.dp)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        val textField = WearTAKOutlinedTextField(
-            string = savedCustomPdl,
-            label = stringResource(R.string.custom_pdl)
-        )
-
-        Row(
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            WearTAKConfirmCancelButtons(
-                onClickCancel = {
-                    navController.popBackStack()
-                },
-                onClickConfirm = {
-                    val value = textField.text.trim()
-
-                    val license = try {
-                        DittoCommunityLicenseHelper.parse(value)
-                    } catch (error: Exception) {
-                        Log.e(TAG, "Custom PDL is invalid", error)
-
-                        Toast.makeText(
-                            context,
-                            "Invalid PDL",
-                            Toast.LENGTH_LONG
-                        ).show()
-
-                        return@WearTAKConfirmCancelButtons
-                    }
-
-                    if (license.isExpired) {
-                        Toast.makeText(
-                            context,
-                            "Expired PDL",
-                            Toast.LENGTH_LONG
-                        ).show()
-
-                        return@WearTAKConfirmCancelButtons
-                    }
-
-                    scope.launch {
-                        dataRepository.storeDittoCustomPdl(value)
-                        dataRepository.storeDittoPdlSource(
-                            DittoPdlSource.CUSTOM
-                        )
-
-                        Toast.makeText(
-                            context,
-                            "PDL saved successfully",
-                            Toast.LENGTH_LONG
-                        ).show()
-
-                        navController.popBackStack(
-                            route = "ditto_pdl",
-                            inclusive = true
-                        )
-                    }
-                }
-            )
-        }
-    }
-}
-
 //Used wherever a string value needs to be edited
 @Composable
 fun WearTAKStringEntryPage(

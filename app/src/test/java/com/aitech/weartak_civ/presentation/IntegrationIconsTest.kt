@@ -77,8 +77,7 @@ class IntegrationIconsTest {
             drawable.setBounds(64, index * 64 + 24, 64 + width * 4 / 3, index * 64 + 24 + height * 4 / 3)
             drawable.draw(canvas)
         }
-        val output = File(File(System.getProperty("user.home")).parentFile, "reports/integration-icons.png")
-        output.parentFile.mkdirs()
+        val output = File(RuntimeEnvironment.getApplication().cacheDir, "integration-icons.png")
         output.outputStream().use { preview.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 }

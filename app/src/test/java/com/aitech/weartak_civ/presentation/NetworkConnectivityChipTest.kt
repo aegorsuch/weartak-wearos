@@ -21,7 +21,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NetworkConnectivityChipTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     private val key = mutableStateOf("tak")
     private val checked = mutableStateOf(true)
@@ -51,7 +52,7 @@ class NetworkConnectivityChipTest {
     @Test fun everyBuiltInLabelRoutesWithoutTogglingAndSwitchOnlyToggles() {
         render()
         val expected = mapOf("tak" to "tak_servers", "companion" to COMPANION_DETAILS_ROUTE,
-            "multicast" to "tak_sa_multicast", "sitx" to "sitx_tak_screen", "ditto" to "ditto_pdl")
+            "multicast" to "tak_sa_multicast", "sitx" to "sitx_tak_screen")
         expected.forEach { (transport, destination) ->
             compose.runOnIdle { key.value = transport; checked.value = true }
             val before = toggles
@@ -93,7 +94,7 @@ class NetworkConnectivityChipTest {
     @Test fun eitherLockDisablesTransportSwitchesButKeepsNonServerNavigation() {
         render()
         for (managed in listOf(false, true)) {
-            for (transport in listOf("multicast", "sitx", "ditto")) {
+            for (transport in listOf("multicast", "sitx")) {
                 compose.runOnIdle {
                     key.value = transport
                     phoneManaged.value = managed
@@ -162,7 +163,7 @@ class NetworkConnectivityChipTest {
 
     @Test fun bondReplacesSubtitleAndAccessibleStatusOnLockedChecklistAndPluginEquivalent() {
         render()
-        for (transport in listOf("tak", "multicast", "sitx", "ditto", "plugin:example")) {
+        for (transport in listOf("tak", "multicast", "sitx", "plugin:example")) {
             compose.runOnIdle { key.value = transport; phoneManaged.value = true }
             compose.onNodeWithText("Bonded").assertIsDisplayed()
             compose.onNodeWithText("Subtitle").assertDoesNotExist()

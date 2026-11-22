@@ -38,12 +38,10 @@ import com.aitech.weartak_civ.cot.CotDispatchPolicy
 import com.aitech.weartak_civ.cot.CotMessageBuilder
 import com.aitech.weartak_civ.cot.CotMessageKind
 import com.aitech.weartak_civ.cot.CotOutboundMessage
-import com.aitech.weartak_civ.events.DittoDocumentEvent
 import com.aitech.weartak_civ.events.LocationRcvd
 import com.aitech.weartak_civ.events.InteractionLocationRcvd
 import com.aitech.weartak_civ.events.InteractionPliRefresh
 import com.aitech.weartak_civ.events.PliRefreshReason
-import com.aitech.weartak_civ.events.OutboundDittoTrackRefresh
 import com.aitech.weartak_civ.events.LocationUpdateRequired
 import com.aitech.weartak_civ.events.MessageEvent.Companion.CALLSIGN_TEAM_ROLE_CHANGED
 import com.aitech.weartak_civ.events.MessageEvent.Companion.CUSTOM_DEVELOPER_CONFIG_JSON_CHANGED
@@ -82,6 +80,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -101,7 +100,20 @@ class CotDispatchService : Service() {
     private var cotDispatchThread: HandlerThread? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val alertDispatchMutex = Mutex()
+    private val trackedPluginAlert by lazy {
+        TrackedPluginAlert(getSharedPreferences("plugin_alert_submission", Context.MODE_PRIVATE))
+    }
+    private data class PluginAlertKey(
+        val uid: String,
+        val activationId: String,
+        val state: DataRepository.AlertState,
+        val positional: Boolean,
+    )
+    private val pluginAlertJobs = mutableMapOf<PluginAlertKey, kotlinx.coroutines.Job>()
     private val markerDispatchMutex = Mutex()
+    private val markerIntentConsumer by lazy {
+        com.aitech.weartak_civ.data.MarkerIntentConsumer(dataRepository.markerIntentJournal)
+    }
     private val periodicPliMutex = Mutex()
     private val periodicReportingGate = PeriodicReportingGate()
     private var identityPliJob: kotlinx.coroutines.Job? = null
@@ -119,6 +131,7 @@ class CotDispatchService : Service() {
 
     private val manualAlertMap = java.util.concurrent.ConcurrentHashMap<String, DataRepository.CustomEmergencyAlert>()
     private val selfMarkerRefreshes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val selfMarkerRefreshRequested = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
     private val pendingManualAlertQueue = ArrayDeque<CustomEmergencyAlertWithAddedState>()
 
     private val physioAndAutoGenAlertMap = java.util.concurrent.ConcurrentHashMap<String, DataRepository.CustomEmergencyAlert>()
@@ -148,11 +161,14 @@ class CotDispatchService : Service() {
         CotEndpointDispatcher(
             sendTak = ::sendDataTAKServers,
             sendSitx = { xml -> SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot(xml)) },
-            sendDitto = { collection, xml -> EventBus.getDefault().post(DittoDocumentEvent(collection, xml)) },
+            sendDitto = { _, _ -> error("Bundled Ditto route is unavailable") },
             sendMulticast = ::sendMulticastDatagram,
             sendPliMulticast = NetworkUtils.MulticastPublisher::send,
             sendPlugin = { xml ->
                 PluginCotEgress.offer(applicationContext as WearTakApplication, xml)
+            },
+            sendPluginWithoutDitto = { xml ->
+                PluginCotEgress.offer(applicationContext as WearTakApplication, xml, excludeDitto = true)
             },
             sendCompanion = { payload ->
                 when (payload) {
@@ -217,6 +233,7 @@ class CotDispatchService : Service() {
 
         startAnyEndpointConnectedCollector()
         startOutboundPliAnnouncements()
+        startPendingPluginAlertClears()
         startBatdokPatientSharing()
     }
 
@@ -330,13 +347,12 @@ class CotDispatchService : Service() {
 
     internal fun outboundReadyRouteFlow(): Flow<Set<String>> {
         val enabled = combine(
-            dataRepository.getEnableDittoService, dataRepository.getEnableSitxService,
+            dataRepository.getEnableSitxService,
             dataRepository.getEnableCompanionAppService, dataRepository.getEnableMulticast,
             dataRepository.getEnableTakEndpoint
-        ) { ditto, sitx, companion, multicast, tak ->
+        ) { sitx, companion, multicast, tak ->
             buildSet {
                 if (tak) add(DataRepository.Endpoint.TAK_SERVER)
-                if (ditto) add(DataRepository.Endpoint.DITTO)
                 if (sitx) add(DataRepository.Endpoint.SITX)
                 if (companion) add(DataRepository.Endpoint.COMPANION_APP)
                 if (multicast) add(DataRepository.Endpoint.MULTICAST)
@@ -366,6 +382,25 @@ class CotDispatchService : Service() {
         collectOutboundReadyRoutes(outboundReadyRouteFlow())
     }
 
+    private fun startPendingPluginAlertClears() {
+        if (!com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) return
+        val settings = (applicationContext as WearTakApplication).pluginManager.settingsCoordinator
+        serviceScope.launch {
+            combine(settings.connectivityToggles, settings.outboundCotReadyRoutes) { _, _ -> Unit }
+                .collect {
+                    for (clear in trackedPluginAlert.pendingClears()) {
+                        serviceScope.launch {
+                            val key = PluginAlertKey(clear.uid, clear.activationId, DataRepository.AlertState.CANCEL, clear.positional)
+                            synchronized(pluginAlertJobs) { pluginAlertJobs[key] }?.join()
+                            if (dittoAlertSelected()) {
+                                launchTrackedPluginAlert(key, clear.xml, clear.senderUid, clear.senderCallsign)
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
     internal fun collectOutboundReadyRoutes(routes: Flow<Set<String>>) {
         serviceScope.launch {
             routes.collect { ready ->
@@ -393,7 +428,7 @@ class CotDispatchService : Service() {
             tak = available.tak && DataRepository.Endpoint.TAK_SERVER in ready &&
                 dataRepository.getEnableTakEndpoint.first(),
             sitx = available.sitx && DataRepository.Endpoint.SITX in ready,
-            ditto = DataRepository.Endpoint.DITTO in ready && dataRepository.getEnableDittoService.first(),
+            ditto = false,
             multicast = dataRepository.multicastPublisherRunning.value && dataRepository.getEnableMulticast.first()
         )
     }
@@ -415,9 +450,7 @@ class CotDispatchService : Service() {
             val accepted = if (available.companion && capRepo.gateway.session != null) {
                 endpointDispatcher.dispatchGateway(message) { capRepo.offerGatewayCot(message.xml) }
             } else endpointDispatcher.dispatch(message, available, readyPliOnly = true)
-            val ditto = available.ditto && !available.companion
-            if (ditto) EventBus.getDefault().post(OutboundDittoTrackRefresh(android.location.Location(location)))
-            if (accepted || ditto) {
+            if (accepted) {
                 outboundAnnouncementGate.complete()
                 Log.i(TAG, "Announced current self PLI after outbound route became usable")
                 true
@@ -599,7 +632,13 @@ class CotDispatchService : Service() {
     }
 
     private suspend fun hasUsableEmergencyRoute(): Boolean =
-        CotDispatchPolicy.routesFor(CotMessageKind.EMERGENCY, endpointAvailability()).isNotEmpty()
+        CotDispatchPolicy.routesFor(CotMessageKind.EMERGENCY, endpointAvailability()).isNotEmpty() ||
+            dittoAlertSelected()
+
+    private suspend fun dittoAlertSelected(): Boolean =
+        com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled() &&
+            !companionAppAvailable() &&
+            (applicationContext as WearTakApplication).pluginManager.dittoCotSelected()
 
     private suspend fun readyToSendAlertEvents(): Boolean = hasUsableEmergencyRoute()
 
@@ -610,6 +649,9 @@ class CotDispatchService : Service() {
                 val manualAlert = DataRepository.CustomEmergencyAlert(uuid = UUID.randomUUID().toString(), alertState = DataRepository.AlertState.ALERT, category = req.category, description = req.description, priority = 1, sendSms = true, timeMillis = req.timeMillis, enqueuedToBeSent = false)
                 val manualAlertWithState = CustomEmergencyAlertWithAddedState(smsSent = false, alert = manualAlert)
                 alertDispatchMutex.withLock {
+                    if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
+                        trackedPluginAlert.activate(manualAlert.uuid, manualAlert.activationId)
+                    }
                     manualAlertMap[manualAlert.uuid] = manualAlert
                     if (readyToSendAlertEvents()) {
                         sendAllManualAlertsLocked(manualAlertWithState)
@@ -669,7 +711,9 @@ class CotDispatchService : Service() {
 
     private suspend fun enqueueManualAlertAndUpdateUI(manualAlertWithState: CustomEmergencyAlertWithAddedState) {
         if (pendingManualAlertQueue.any {
-                it.alert.uuid == manualAlertWithState.alert.uuid && it.alert.alertState == manualAlertWithState.alert.alertState
+                it.alert.uuid == manualAlertWithState.alert.uuid &&
+                    it.alert.activationId == manualAlertWithState.alert.activationId &&
+                    it.alert.alertState == manualAlertWithState.alert.alertState
             }) return
         resumeWatchTransportsForPendingOutbound()
         val pendingManualAlert = manualAlertWithState.alert.copy(enqueuedToBeSent = true)
@@ -716,9 +760,13 @@ class CotDispatchService : Service() {
         val manualAlert = manualAlertMap[uid]
         if (null == manualAlert) return
 
+        if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
+            trackedPluginAlert.cancel(uid, manualAlert.activationId)
+        }
         val manualAlertClearWithState = CustomEmergencyAlertWithAddedState(smsSent = false, alert = manualAlert.copy(alertState = DataRepository.AlertState.CANCEL))
-        pendingManualAlertQueue.removeAll { it.alert.uuid == uid && it.alert.alertState == DataRepository.AlertState.ALERT }
-        if (readyToSendAlertEvents()) {
+        pendingManualAlertQueue.removeAll { it.alert.uuid == uid && it.alert.activationId == manualAlert.activationId && it.alert.alertState == DataRepository.AlertState.ALERT }
+        if (readyToSendAlertEvents() ||
+            com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
             sendAllManualAlertsLocked(manualAlertClearWithState)
         } else {
             enqueueManualAlertAndUpdateUI(manualAlertClearWithState)
@@ -750,13 +798,16 @@ class CotDispatchService : Service() {
                 Log.i(
                     TAG,
                     "Alert routing state before dispatch: ready=${readyToSendAlertEvents()} " +
-                        "tak=${TAKConnectService.isAnyTakConnected} ditto=${DittoService.isRunning.get()} " +
+                        "tak=${TAKConnectService.isAnyTakConnected} " +
                         "multicast=${dataRepository.multicastPublisherRunning.value} sitx=${sitxAvailable()} " +
                         "endpoints=${dataRepository.anyEndpointConnected.value}",
                 )
                 val physioAndAutoGenAlert = DataRepository.CustomEmergencyAlert(uuid = req.uuid, alertState = DataRepository.AlertState.ALERT, category = req.category, description = req.description, priority = req.priority, sendSms = req.sendSms, timeMillis = req.timeMillis, enqueuedToBeSent = false)
                 val physioAndAutoGenAlertAlertWithState = CustomEmergencyAlertWithAddedState(smsSent = false, alert = physioAndAutoGenAlert)
                 alertDispatchMutex.withLock {
+                    if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
+                        trackedPluginAlert.activate(physioAndAutoGenAlert.uuid, physioAndAutoGenAlert.activationId)
+                    }
                     physioAndAutoGenAlertMap[physioAndAutoGenAlert.uuid] = physioAndAutoGenAlert
                     if (readyToSendAlertEvents()) {
                         Log.i(TAG, "Alert is ready to send now: uid=${physioAndAutoGenAlert.uuid}")
@@ -818,7 +869,9 @@ class CotDispatchService : Service() {
 
     private suspend fun enqueuePhysioAndAutoGenAlertAndUpdateUI(alertWithState: CustomEmergencyAlertWithAddedState) {
         if (pendingPhysioAndAutoGenAlertQueue.any {
-                it.alert.uuid == alertWithState.alert.uuid && it.alert.alertState == alertWithState.alert.alertState
+                it.alert.uuid == alertWithState.alert.uuid &&
+                    it.alert.activationId == alertWithState.alert.activationId &&
+                    it.alert.alertState == alertWithState.alert.alertState
             }) return
         resumeWatchTransportsForPendingOutbound()
         val pendingAlert = alertWithState.alert.copy(enqueuedToBeSent = true)
@@ -868,9 +921,13 @@ class CotDispatchService : Service() {
         val physioAndAutoGenAlert = physioAndAutoGenAlertMap[uid]
         if (null == physioAndAutoGenAlert) return
 
+        if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
+            trackedPluginAlert.cancel(uid, physioAndAutoGenAlert.activationId)
+        }
         val physioAndAutoGenAlertClearWithState = CustomEmergencyAlertWithAddedState(smsSent = false, alert = physioAndAutoGenAlert.copy(alertState = DataRepository.AlertState.CANCEL))
-        pendingPhysioAndAutoGenAlertQueue.removeAll { it.alert.uuid == uid && it.alert.alertState == DataRepository.AlertState.ALERT }
-        if (readyToSendAlertEvents()) {
+        pendingPhysioAndAutoGenAlertQueue.removeAll { it.alert.uuid == uid && it.alert.activationId == physioAndAutoGenAlert.activationId && it.alert.alertState == DataRepository.AlertState.ALERT }
+        if (readyToSendAlertEvents() ||
+            com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
             sendAllPhysioAndAutoGenAlertsLocked(physioAndAutoGenAlertClearWithState)
         } else {
             enqueuePhysioAndAutoGenAlertAndUpdateUI(physioAndAutoGenAlertClearWithState)
@@ -975,10 +1032,147 @@ class CotDispatchService : Service() {
 
 
     private fun startMarkerPipelines() {
-        startMarkerDropCollector()
-        startMarkerEditCollector()
+        startMarkerJournalCollector()
         startMarkerClearCollector()
         startMarkerDropListCollector()
+    }
+
+    private fun startMarkerJournalCollector() {
+        serviceScope.launch {
+            val pluginAvailability = (applicationContext as WearTakApplication).pluginManager
+                .settingsCoordinator.outboundCotAvailable
+            combine(dataRepository.markerJournalRevision, dataRepository.endpointConnected,
+                dataRepository.latestLocation, dataRepository.isCompanionConnected, pluginAvailability) { _, _, _, _, _ -> Unit }
+                .collect {
+                try {
+                    var retry: Boolean
+                    do {
+                        retry = markerIntentConsumer.drain(::prepareJournalMarker, { it.xml },
+                            ::executeJournalMarker,
+                            executeOtherRoutes = ::executeOtherMarkerRoutes,
+                        ) { Log.e(TAG, "Marker dispatch outcome uncertain", it) }
+                        dataRepository.refreshJournalMarkerProjection()
+                        if (retry) kotlinx.coroutines.delay(5_000)
+                    } while (retry)
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.e(TAG, "Marker journal unavailable; marker dispatch remains stopped", error)
+                }
+            }
+        }
+    }
+
+    private data class PreparedJournalMarker(
+        val xml: String,
+        val snapshot: DataRepository.MarkerSnapshot?,
+    )
+
+    private suspend fun prepareJournalMarker(
+        intent: com.aitech.weartak_civ.data.MarkerIntentJournal.Intent,
+        state: com.aitech.weartak_civ.data.MarkerIntentJournal.State,
+    ): PreparedJournalMarker? {
+        val marker = intent.marker
+        if (marker == null) {
+            val previous = state.intents.lastOrNull {
+                it.uid == intent.uid && it.sequence < intent.sequence && it.marker != null
+            }?.marker
+            val eventId = UUID.nameUUIDFromBytes(intent.dispatchId.toByteArray(Charsets.UTF_8)).toString()
+            return PreparedJournalMarker(intent.dispatchPayload ?: CotMessageBuilder.ownedPointDeletion(
+                intent.uid, previous?.location, eventUid = eventId), null)
+        }
+        if (intent.refreshSelf && state.effective[intent.uid] != null &&
+            selfMarkerRefreshRequested.add(intent.sequence)) {
+            selfMarkerRefreshes[intent.uid] = android.os.SystemClock.elapsedRealtimeNanos()
+            dataRepository.requestInteractionPliRefresh(PliRefreshReason.SELF_MARKER)
+        }
+        if (!hasConnectedEndpoint()) return null
+        val savedEvent = intent.dispatchPayload?.let {
+            requireNotNull(com.aitech.weartak_civ.cot.CotMessageParser.parseMarkerOrNull(it))
+        }
+        val location = savedEvent?.let {
+            DataRepository.LocationSnapshot(it.time, it.point.lat, it.point.lon, it.point.hae,
+                it.point.ce.toFloat(), it.point.le.toFloat(), null, null)
+        } ?: marker.location ?: dataRepository.snapshotLocation(dataRepository.bestKnownLocation())
+        if (location == null) {
+            dataRepository.requestInteractionPliRefresh(PliRefreshReason.SELF_MARKER)
+            return null
+        }
+        val priorJournalTime = state.intents.asSequence()
+            .filter { it.uid == intent.uid && it.sequence < intent.sequence && it.marker != null }
+            .mapNotNull { it.dispatchPayload }
+            .mapNotNull { com.aitech.weartak_civ.cot.CotMessageParser.parseMarkerOrNull(it)?.time }
+            .maxOrNull() ?: 0L
+        val previousTime = priorJournalTime
+        check(previousTime < Long.MAX_VALUE) { "Marker timestamp exhausted" }
+        val eventTime = savedEvent?.time ?: maxOf(System.currentTimeMillis(), previousTime + 1)
+        val snapshot = dataRepository.snapshotMarker(marker.copy(
+            location = location.copy(hae = location.hae ?: 0.0),
+        )).copy(time = com.aitech.weartak_civ.cot.CotEventTimeFactory.at(eventTime,
+            staleOffset = com.aitech.weartak_civ.cot.CotTimeOffset(years = 1)))
+        return PreparedJournalMarker(
+            intent.dispatchPayload ?: CotMessageBuilder.marker(snapshot, finalMarkerTitle(snapshot.title), marker.markerType.icon),
+            snapshot,
+        )
+    }
+
+    private suspend fun executeJournalMarker(
+        intent: com.aitech.weartak_civ.data.MarkerIntentJournal.Intent,
+        prepared: PreparedJournalMarker,
+    ): com.aitech.weartak_civ.data.MarkerIntentJournal.Outcome? {
+        run {
+            val gateway = capRepo.gateway.session != null && companionAppAvailable()
+            val manager = (applicationContext as WearTakApplication).pluginManager
+            val selected = !companionAppAvailable() && manager.dittoCotSelected()
+            val plugin = if (selected) manager.connectionFor(
+                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+            ) else null
+            if (selected && plugin == null) return com.aitech.weartak_civ.data.MarkerIntentJournal.Outcome.RETRY_LATER
+            val submitted = if (plugin == null) false else when (plugin.submitDittoCoT(
+                prepared.xml, MainActivity.device_uid, MainActivity.callsign, intent.dispatchId
+            )) {
+                com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.NOT_ADMITTED ->
+                    return com.aitech.weartak_civ.data.MarkerIntentJournal.Outcome.RETRY_LATER
+                com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.UNCERTAIN,
+                com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.CANCELLED_BEFORE_EFFECT -> return null
+                com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.SUBMITTED -> true
+            }
+            if (prepared.snapshot == null && intent.otherRoutes != com.aitech.weartak_civ.data.MarkerIntentJournal.OtherRoutes.OFFERED) {
+                dataRepository.applyJournalPointDeletion(intent.uid, bhRepo, !gateway)
+                requestBloodhoundComplicationUpdate(this)
+            }
+            if (prepared.snapshot != null && !submitted &&
+                intent.otherRoutes != com.aitech.weartak_civ.data.MarkerIntentJournal.OtherRoutes.OFFERED) {
+                return if (intent.otherRoutes == com.aitech.weartak_civ.data.MarkerIntentJournal.OtherRoutes.PENDING)
+                    com.aitech.weartak_civ.data.MarkerIntentJournal.Outcome.RETRY_LATER else null
+            }
+            if (!submitted && !companionAppAvailable()) Log.i(TAG, "Ditto plugin unavailable; marker not submitted")
+            return if (submitted) com.aitech.weartak_civ.data.MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED
+            else com.aitech.weartak_civ.data.MarkerIntentJournal.Outcome.LOCAL_ONLY
+        }
+    }
+
+    private suspend fun executeOtherMarkerRoutes(
+        intent: com.aitech.weartak_civ.data.MarkerIntentJournal.Intent,
+        prepared: PreparedJournalMarker,
+    ): Boolean {
+        val gateway = capRepo.gateway.session != null && companionAppAvailable()
+        val available = endpointAvailability().copy(
+            ditto = false,
+            plugin = (applicationContext as WearTakApplication).pluginManager.settingsCoordinator
+                .outboundCotReadyRoutes.value.keys.any {
+                    it != com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                },
+        )
+        val kind = if (prepared.snapshot == null) CotMessageKind.MARKER_CLEAR else CotMessageKind.MARKER
+        if (!gateway && com.aitech.weartak_civ.cot.CotDispatchPolicy.routesFor(kind, available).isEmpty()) return false
+        val companionPayload = if (prepared.snapshot == null) {
+            val owned = dataRepository.applyJournalPointDeletion(intent.uid, bhRepo, !gateway)
+            requestBloodhoundComplicationUpdate(this)
+            if (!owned) return false
+            CotCompanionPayload.OwnedPointDeletion(intent.uid)
+        } else CotCompanionPayload.Marker(prepared.snapshot)
+        return dispatch(CotOutboundMessage(prepared.xml, kind, companionPayload, excludeDittoPlugin = true))
     }
 
     private fun startMarkerDropCollector() {
@@ -1060,7 +1254,7 @@ class CotDispatchService : Service() {
         PluginCotEgress.hasSubscribers(applicationContext as WearTakApplication)
 
     private fun hasConnectedEndpoint(): Boolean =
-        dataRepository.anyEndpointConnected.value || pluginAvailable()
+        dataRepository.endpointConnected.value.isNotEmpty() || pluginAvailable()
 
     private fun isLocationFresh(): Boolean {
         val loc = dataRepository.latestLocation.value
@@ -1180,8 +1374,7 @@ class CotDispatchService : Service() {
         val hailDetail = buildHailDetail(snapshot.physioData.data, callsign)
         val xml = CotMessageBuilder.pli(
             snapshot,
-            CotMessageBuilder.PliOptions(callsign, role, teamValue, enableBatdokCot, hailDetail,
-                dittoMetadata = DittoService.currentCotMetadata()),
+            CotMessageBuilder.PliOptions(callsign, role, teamValue, enableBatdokCot, hailDetail),
         )
         Log.e("WEARTAK_COT_XML", "XML=$xml")
         return xml
@@ -1313,7 +1506,7 @@ class CotDispatchService : Service() {
             tak = isLicenseValid() && dataRepository.getEnableTakEndpoint.first() &&
                 TAKConnectService.isAnyTakConnected,
             sitx = sitxAvailable(),
-            ditto = DittoService.isRunning.get(),
+            ditto = false,
             multicast = isLicenseValid() && dataRepository.multicastPublisherRunning.value,
             companion = companionAppAvailable(),
             plugin = pluginAvailable(),
@@ -1358,6 +1551,17 @@ class CotDispatchService : Service() {
                 accepted = false
                 return false
             }
+            val alert = message.emergencyDelivery
+                ?: (message.companionPayload as? CotCompanionPayload.Emergency)?.snapshot
+            val trackedAlert = alert != null && message.alertActivationId != null &&
+                com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()
+            if (trackedAlert && requireNotNull(alert).alertState == DataRepository.AlertState.CANCEL) {
+                trackedPluginAlert.rememberClear(TrackedPluginAlert.PendingClear(
+                    alert.uid, requireNotNull(message.alertActivationId),
+                    message.kind == CotMessageKind.EMERGENCY && alert.location != null,
+                    message.xml, alert.system.deviceId, alert.system.callsign,
+                ))
+            }
             if (capRepo.gateway.session != null && companionAppAvailable() &&
                 message.kind in listOf(
                     CotMessageKind.PLI, CotMessageKind.MARKER, CotMessageKind.MARKER_CLEAR,
@@ -1368,16 +1572,83 @@ class CotDispatchService : Service() {
                 accepted = gatewayAccepted
                 return gatewayAccepted
             }
-            if (capRepo.gateway.session != null) {
-                // Non-map traffic keeps its existing independent endpoints, never the gateway.
-                return endpointDispatcher.dispatch(message, endpointAvailability().copy(companion = false)).also { accepted = it }
+            val outbound = if (trackedAlert) message.copy(excludeDittoPlugin = true) else message
+            val availability = endpointAvailability().let {
+                if (!outbound.excludeDittoPlugin) it else it.copy(
+                    ditto = false,
+                    plugin = (applicationContext as WearTakApplication).pluginManager.settingsCoordinator
+                        .outboundCotReadyRoutes.value.keys.any { packageName ->
+                            packageName != com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                        },
+                )
             }
-            return endpointDispatcher.dispatch(message, endpointAvailability()).also { accepted = it }
+            val directAvailability = if (capRepo.gateway.session != null)
+                availability.copy(companion = false) else availability
+            val otherAccepted = endpointDispatcher.dispatch(outbound, directAvailability)
+            var dittoSubmitted = false
+            if (trackedAlert && dittoAlertSelected()) {
+                val snapshot = requireNotNull(alert)
+                val key = PluginAlertKey(snapshot.uid, requireNotNull(message.alertActivationId), snapshot.alertState,
+                    message.kind == CotMessageKind.EMERGENCY && snapshot.location != null)
+                dittoSubmitted = trackedPluginAlert.submitted(key.uid, key.activationId, key.state, key.positional)
+                if (!dittoSubmitted) launchTrackedPluginAlert(key, message.xml, snapshot.system.deviceId, snapshot.system.callsign)
+            }
+            return (otherAccepted || dittoSubmitted).also { accepted = it }
         } finally {
             if (message.kind == CotMessageKind.PLI) AppDiagnostics.record(DiagnosticEvent.PLI_RESULT, mapOf(
                 DiagnosticMetric.RESULT to when (accepted) { true -> 1L; false -> 0L; null -> -1L },
                 DiagnosticMetric.DURATION_MS to android.os.SystemClock.elapsedRealtime() - started
             ))
+        }
+    }
+
+    private fun launchTrackedPluginAlert(key: PluginAlertKey, payload: String, senderUid: String, senderCallsign: String) {
+        val manager = (applicationContext as WearTakApplication).pluginManager
+        synchronized(pluginAlertJobs) {
+            if (pluginAlertJobs.containsKey(key)) return
+            val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+                val submitted = try {
+                    trackedPluginAlert.submit(
+                        key.uid, key.activationId, key.state, key.positional, payload,
+                        selected = {
+                            dittoAlertSelected().also { selected ->
+                                if (selected) manager.connectionFor(
+                                    com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                                )?.resumeDittoForAlert()
+                            }
+                        },
+                        ready = {
+                            manager.connectionFor(
+                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                            )?.dittoCotAvailable() == true
+                        },
+                        verifiedSession = {
+                            manager.connectionFor(
+                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                            )?.quiescentReplacementSession()
+                        },
+                        offer = { xml, messageId, eligible, session ->
+                            manager.connectionFor(
+                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                            )?.offerTrackedDittoCoT(xml, senderUid, senderCallsign, messageId, eligible, session)
+                                ?: { com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.NOT_ADMITTED }
+                        },
+                    )
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.e(TAG, "Tracked plugin alert failed", error)
+                    false
+                } finally {
+                    synchronized(pluginAlertJobs) { pluginAlertJobs.remove(key) }
+                }
+                if (submitted) {
+                    sendAllManualAlerts(null)
+                    sendAllPhysioAndAutoGenAlerts(null)
+                }
+            }
+            pluginAlertJobs[key] = job
+            job.start()
         }
     }
 
@@ -1414,7 +1685,12 @@ class CotDispatchService : Service() {
 
     internal fun resumeWatchTransportsForDispatch(kind: CotMessageKind, emergencyNotice: Boolean = false) {
         if (kind != CotMessageKind.PLI) resumeWatchTransportsForPendingOutbound()
-        if (kind == CotMessageKind.EMERGENCY || emergencyNotice) DittoService.resumeSyncForAlert()
+        if ((kind == CotMessageKind.EMERGENCY || emergencyNotice) &&
+            com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
+            (applicationContext as WearTakApplication).pluginManager.connectionFor(
+                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+            )?.resumeDittoForAlert()
+        }
     }
 
     internal fun shouldDeferPliForTransportGrace(kind: CotMessageKind): Boolean =
@@ -1428,7 +1704,7 @@ class CotDispatchService : Service() {
 
     private suspend fun handleClearMarkerUidLocked(uid: String) {
         val marker = dataRepository.droppedMarkerList.value.firstOrNull { it.uid == uid } ?: return
-        val owned = dataRepository.dittoPointLedger.owns(uid)
+        val owned = dataRepository.markerIntentJournal.read().effective[uid] != null
         val gatewayDeletion = owned && capRepo.gateway.session != null && companionAppAvailable()
         val removed = dataRepository.deleteDroppedPointLocally(uid, bhRepo, emitMirrorRequest = !gatewayDeletion)
         if (!removed) return
@@ -1467,7 +1743,7 @@ class CotDispatchService : Service() {
             TAG,
             "sendEmergencyAlert start uid=${alert.uuid} state=${alert.alertState} category=${alert.category} " +
                 "priority=${alert.priority} tak=${TAKConnectService.isAnyTakConnected} " +
-                "ditto=${DittoService.isRunning.get()} multicast=${dataRepository.multicastPublisherRunning.value} " +
+                "multicast=${dataRepository.multicastPublisherRunning.value} " +
                 "sitx=${sitxAvailable()} companion=${companionAppAvailable()}",
         )
         if (MainActivity.enableSmsForAlerts && alert.sendSms && !alertWithSmsSentState.smsSent) {
@@ -1493,6 +1769,7 @@ class CotDispatchService : Service() {
             val accepted = dispatch(CotOutboundMessage(
                 CotMessageBuilder.chat(chat, snapshot.system.callsign, snapshot.system.deviceId, messageId = chat.uid),
                 CotMessageKind.CHAT, CotCompanionPayload.Chat(chat), emergencyDelivery = snapshotForDispatch,
+                alertActivationId = alert.activationId,
             ))
             Log.w(TAG, "Emergency uid=${alert.uuid} has no valid fix; chat accepted=$accepted, positional alert awaits GPS")
             return accepted && alert.alertState == DataRepository.AlertState.CANCEL
@@ -1506,21 +1783,22 @@ class CotDispatchService : Service() {
         val xml = CotMessageBuilder.emergency(outboundSnapshot)
 
         val sent = dispatch(
-            CotOutboundMessage(xml, CotMessageKind.EMERGENCY, CotCompanionPayload.Emergency(snapshotForDispatch)),
+            CotOutboundMessage(xml, CotMessageKind.EMERGENCY, CotCompanionPayload.Emergency(snapshotForDispatch),
+                alertActivationId = alert.activationId),
         )
 
         if (sent) {
             Log.i(
                 TAG,
                 "sendEmergencyAlert complete uid=${alert.uuid} sent=true tak=${TAKConnectService.isAnyTakConnected} " +
-                    "ditto=${DittoService.isRunning.get()} multicast=${dataRepository.multicastPublisherRunning.value} " +
+                    "multicast=${dataRepository.multicastPublisherRunning.value} " +
                     "sitx=${sitxAvailable()} companion=${companionAppAvailable()}",
             )
         } else {
             Log.i(
                 TAG,
                 "sendEmergencyAlert complete uid=${alert.uuid} sent=false reason=no_route_available " +
-                    "tak=${TAKConnectService.isAnyTakConnected} ditto=${DittoService.isRunning.get()} " +
+                    "tak=${TAKConnectService.isAnyTakConnected} " +
                     "multicast=${dataRepository.multicastPublisherRunning.value} sitx=${sitxAvailable()} " +
                     "companion=${companionAppAvailable()}",
             )
@@ -1640,16 +1918,12 @@ class CotDispatchService : Service() {
                 if (nowNanos - requested > InteractionPliRefreshGate.TIMEOUT_MILLIS * 1_000_000L) {
                     selfMarkerRefreshes.remove(uid, requested)
                 } else if (location.elapsedRealtimeNanos >= requested && selfMarkerRefreshes.remove(uid, requested)) {
-                    val marker = dataRepository.droppedMarkerList.value.firstOrNull { it.uid == uid }
-                    if (marker != null && !dataRepository.isDeletedLocalPoint(uid)) {
-                        val updated = marker.copy(
-                            cotType = DataRepository.MarkerCotType.EDIT,
-                            location = dataRepository.snapshotLocation(location), waitingForUpdatedLocation = false,
-                            enqueuedToBeSent = true,
-                        )
-                        dataRepository.changeDroppedMarkerLocationByUid(uid, updated.location)
-                        markerDropMap[uid] = updated
-                        enqueueMarkerEdit(updated)
+                    if (!dataRepository.isDeletedLocalPoint(uid)) {
+                        try {
+                            dataRepository.admitMarkerLocation(uid, dataRepository.snapshotLocation(location))
+                        } catch (error: Exception) {
+                            Log.e(TAG, "Could not persist refreshed marker location", error)
+                        }
                     }
                 }
             }

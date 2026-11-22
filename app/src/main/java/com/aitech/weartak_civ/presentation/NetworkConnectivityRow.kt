@@ -4,7 +4,6 @@ import android.graphics.drawable.Drawable
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import com.aitech.weartak_civ.R
-import com.aitech.weartak_civ.data.DittoPdlSource
 import com.aitech.weartak_civ.service.DittoPowerSuppression
 import java.text.Collator
 import java.util.Locale
@@ -39,7 +38,6 @@ internal fun networkSettingsRoute(key: String): String? = when (key) {
     "companion" -> COMPANION_DETAILS_ROUTE
     "multicast" -> "tak_sa_multicast"
     "sitx" -> "sitx_tak_screen"
-    "ditto" -> "ditto_pdl"
     else -> null
 }
 
@@ -60,12 +58,6 @@ internal fun toggleStateAnnouncement(
     if (status.isEmpty() || status == visibleDescription) return null
     return "${if (checked) onLabel else offLabel}, $status"
 }
-@StringRes
-internal fun dittoPdlSubtitle(source: DittoPdlSource, hasCustomPdl: Boolean): Int = when (source) {
-    DittoPdlSource.COMMUNITY -> R.string.ditto_community_subtitle
-    DittoPdlSource.CUSTOM -> if (hasCustomPdl) R.string.ditto_custom_subtitle else R.string.ditto_no_pdl_subtitle
-}
-
 @StringRes
 internal fun dittoSuppressionLabel(enabled: Boolean, reason: DittoPowerSuppression?): Int? = when {
     !enabled || reason == null -> null

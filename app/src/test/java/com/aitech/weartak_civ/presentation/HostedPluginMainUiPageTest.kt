@@ -38,7 +38,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w227dp-h227dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class HostedPluginMainUiPageTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     private fun cards() = HostedPluginMainUiContract.parse(PluginMainUiSchemaParcel(cards = listOf(
         presentedCard("back", C.BACK, placement = C.HEADER_END),

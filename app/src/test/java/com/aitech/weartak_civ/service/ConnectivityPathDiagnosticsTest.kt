@@ -2,7 +2,6 @@ package com.aitech.weartak_civ.service
 
 import android.app.Application
 import com.aitech.weartak_civ.data.DataRepository
-import com.aitech.weartak_civ.data.DittoPdlSource
 import com.aitech.weartak_civ.integration.plugin.PluginSettingsCoordinator
 import io.mockk.every
 import io.mockk.mockk
@@ -24,16 +23,13 @@ import org.robolectric.annotation.Config
 class ConnectivityPathDiagnosticsTest {
     @Test fun optInTransitionsPeriodicAndChargingBoundariesContainOnlyNumericClassifications() = runTest {
         val enabled = MutableStateFlow(false)
-        val ditto = MutableStateFlow(false)
+        val toggles = MutableStateFlow<Map<String, PluginSettingsCoordinator.ConnectivityToggle>>(emptyMap())
         val charging = MutableStateFlow(false)
         val repo = mockk<DataRepository>(relaxed = true)
         every { repo.chargingState } returns charging
         every { repo.getEnableTakEndpoint } returns flowOf(true)
         every { repo.getTakServerListReady } returns flowOf(emptyList())
         every { repo.outboundReadyRoutes } returns MutableStateFlow(emptyMap())
-        every { repo.getEnableDittoService } returns ditto
-        every { repo.getDittoPdlSource } returns flowOf(DittoPdlSource.CUSTOM)
-        every { repo.getDittoCustomPdl } returns flowOf("sensitive-custom-pdl-never-logged")
         every { repo.getEnableSitxService } returns flowOf(false)
         every { repo.sitxStatus } returns MutableStateFlow(DataRepository.SitxServerStatus.DISCONNECTED)
         every { repo.getSelectedSitxGroup } returns flowOf(null)
@@ -42,7 +38,7 @@ class ConnectivityPathDiagnosticsTest {
         every { repo.getEnableCompanionAppService } returns flowOf(false)
         every { repo.isCompanionConnected } returns MutableStateFlow(false)
         val plugins = mockk<PluginSettingsCoordinator>()
-        every { plugins.connectivityToggles } returns MutableStateFlow(emptyMap())
+        every { plugins.connectivityToggles } returns toggles
         every { plugins.outboundCotReadyRoutes } returns MutableStateFlow(emptyMap())
         val events = mutableListOf<Map<DiagnosticMetric, Long>>()
         var powerSnapshots = 0
@@ -52,26 +48,27 @@ class ConnectivityPathDiagnosticsTest {
         assertTrue(events.isEmpty())
         enabled.value = true
         runCurrent()
-        assertEquals(6, events.size)
-        assertEquals(2L, events.single { it[DiagnosticMetric.KIND] == ConnectivityPath.DITTO.code }[DiagnosticMetric.MODE])
-        ditto.value = true
+        assertEquals(5, events.size)
+        toggles.value = mapOf("sensitive-plugin-id" to PluginSettingsCoordinator.ConnectivityToggle(true, mockk()))
         runCurrent()
-        assertEquals(7, events.size)
+        assertEquals(6, events.size)
         assertEquals(1L, events.last()[DiagnosticMetric.ENABLED])
+        assertEquals(1L, events.last()[DiagnosticMetric.CONFIGURED_COUNT])
+        assertTrue(events.all { it.values.all { value -> value in 0L..5L } })
         charging.value = true
         runCurrent()
-        assertEquals(13, events.size)
+        assertEquals(11, events.size)
         advanceTimeBy(300_000)
         runCurrent()
-        assertEquals(19, events.size)
+        assertEquals(16, events.size)
         assertEquals(1, powerSnapshots)
         enabled.value = false
         runCurrent()
         charging.value = false
-        ditto.value = false
+        toggles.value = emptyMap()
         advanceTimeBy(600_000)
         runCurrent()
-        assertEquals(19, events.size)
+        assertEquals(16, events.size)
         assertEquals(1, powerSnapshots)
     }
 }

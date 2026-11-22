@@ -1,22 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <queries>
+        <package android:name="com.weartak.plugin.ditto.syntheticfixture" />
+    </queries>
     <application android:name="${debugApplication}" tools:replace="android:name">
         <uses-library
             android:name="com.google.android.wearable"
             android:required="${wearableSharedLibraryRequired}"
             tools:replace="android:required" />
-        <activity
-            android:name="com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureActivity"
-            android:enabled="${dittoUiDemo}"
-            android:exported="true"
-            android:label="Ditto diagnostics - SYNTHETIC"
-            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
         <provider
             android:name="com.aitech.weartak_civ.debug.DevBadgeInitializer"
             android:authorities="${applicationId}.devbadge"

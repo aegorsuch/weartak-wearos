@@ -64,6 +64,7 @@ internal class HostCommunityIdentityControl(
 
 internal object TrustedCommunityPlugin {
     const val PACKAGE = "com.weartak.plugin.ditto"
+    const val GATE_VERSION_NAME = "5.8.4-p35+d981f7a5"
     private val releaseDigest = "1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
         .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
@@ -91,7 +92,35 @@ internal object TrustedCommunityPlugin {
         }
     }
 
+    fun supportsQuiescentReplacement(context: Context, uid: Int): Boolean {
+        val pm = context.packageManager
+        return try {
+            val packages = pm.getPackagesForUid(uid)?.toSet() ?: return false
+            val info = if (Build.VERSION.SDK_INT >= 33) {
+                pm.getPackageInfo(PACKAGE, PackageManager.PackageInfoFlags.of(
+                    PackageManager.GET_SIGNING_CERTIFICATES.toLong()))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(PACKAGE, PackageManager.GET_SIGNING_CERTIFICATES)
+            }
+            val signers = info.signingInfo?.apkContentsSigners ?: return false
+            val digests = signers.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()) }
+            matchesQuiescentReplacement(uid, packages, info.applicationInfo?.uid, digests,
+                info.longVersionCode, info.versionName)
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
+    }
+
     internal fun matches(uid: Int, packages: Set<String>, packageUid: Int?, digests: List<ByteArray>): Boolean =
         packages == setOf(PACKAGE) && packageUid == uid && digests.size == 1 &&
             MessageDigest.isEqual(releaseDigest, digests.single())
+
+    internal fun matchesQuiescentReplacement(
+        uid: Int, packages: Set<String>, packageUid: Int?, digests: List<ByteArray>,
+        versionCode: Long, versionName: String?,
+    ): Boolean = matches(uid, packages, packageUid, digests) &&
+        versionCode == 5840035L && versionName == GATE_VERSION_NAME
 }

@@ -18,7 +18,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w192dp-h192dp-round", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class RouteDetailsViewTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val route = TakRoute("route", "Test route", listOf(
         TakRoutePoint(34.0, -117.0, name = "Start"),
         TakRoutePoint(34.5, -117.5),

@@ -18,6 +18,10 @@ data class CotOutboundMessage(
     val companionPayload: CotCompanionPayload,
     /** Associates the no-fix GeoChat notification with its emergency delivery receipt. */
     val emergencyDelivery: DataRepository.EmergencyEventSnapshot? = null,
+    val dittoCompletion: ((Boolean) -> Unit)? = null,
+    val onDittoOffered: (() -> Unit)? = null,
+    val excludeDittoPlugin: Boolean = false,
+    val alertActivationId: String? = null,
 )
 
 class CotEndpointDispatcher(
@@ -28,6 +32,8 @@ class CotEndpointDispatcher(
     private val sendPliMulticast: (xml: String) -> Unit,
     private val sendCompanion: suspend (payload: CotCompanionPayload) -> Unit,
     private val sendPlugin: (xml: String) -> Unit = {},
+    private val sendPluginWithoutDitto: (xml: String) -> Unit = sendPlugin,
+    private val sendTrackedDitto: ((collection: String, xml: String, completion: (Boolean) -> Unit) -> Unit)? = null,
 ) {
     private val emergencyMutex = Mutex()
     /**
@@ -38,6 +44,7 @@ class CotEndpointDispatcher(
      */
     private data class DeliveryKey(
         val uid: String, val state: DataRepository.AlertState, val route: CotRoute, val positional: Boolean,
+        val activationId: String?,
     )
     private val emergencyDeliveries = object : LinkedHashMap<DeliveryKey, Unit>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<DeliveryKey, Unit>?) = size > 1024
@@ -49,7 +56,7 @@ class CotEndpointDispatcher(
             ?: return send()
         return emergencyMutex.withLock {
             val positional = message.kind == CotMessageKind.EMERGENCY && snapshot.location != null
-            val key = DeliveryKey(snapshot.uid, snapshot.alertState, route, positional)
+            val key = DeliveryKey(snapshot.uid, snapshot.alertState, route, positional, message.alertActivationId)
             if (key in emergencyDeliveries) return@withLock true
             send().also { accepted -> if (accepted) emergencyDeliveries[key] = Unit }
         }
@@ -97,17 +104,24 @@ class CotEndpointDispatcher(
                 when (route) {
                     CotRoute.TAK -> sendTak(message.xml, message.kind != CotMessageKind.PLI)
                     CotRoute.SITX -> sendSitx(message.xml)
-                    CotRoute.DITTO -> sendDitto(
-                        if (message.kind == CotMessageKind.CHAT) "chat" else "mapitem",
-                        message.xml
-                    )
+                    CotRoute.DITTO -> {
+                        message.onDittoOffered?.invoke()
+                        val collection = if (message.kind == CotMessageKind.CHAT) "chat" else "mapitem"
+                        val completion = message.dittoCompletion
+                        if (completion != null && sendTrackedDitto != null) {
+                            sendTrackedDitto.invoke(collection, message.xml, completion)
+                        } else {
+                            sendDitto(collection, message.xml)
+                        }
+                    }
                     CotRoute.MULTICAST -> if (message.kind == CotMessageKind.PLI) {
                         sendPliMulticast(message.xml)
                     } else {
                         sendMulticast(message.xml)
                     }
                     CotRoute.COMPANION -> sendCompanion(message.companionPayload)
-                    CotRoute.PLUGIN -> sendPlugin(message.xml)
+                    CotRoute.PLUGIN -> if (message.excludeDittoPlugin) sendPluginWithoutDitto(message.xml)
+                        else sendPlugin(message.xml)
                 }
                 true
             }

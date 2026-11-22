@@ -30,7 +30,8 @@ import java.util.Locale
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class PluginBondLockTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     private val lockedKinds = setOf(BuiltInPlugin.DITTO, BuiltInPlugin.EVERYWHERE_COMMS,
         BuiltInPlugin.SOMEWEAR_LABS, BuiltInPlugin.DATA_SYNC)

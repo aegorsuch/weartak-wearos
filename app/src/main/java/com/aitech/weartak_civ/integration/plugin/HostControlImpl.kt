@@ -38,6 +38,8 @@ class HostControlImpl(
     private val expectedPluginUid: Int,
     private val mapLayer: HostMapLayerControlImpl = HostMapLayerControlImpl(),
     private val isActive: () -> Boolean = { true },
+    private val requireDittoLeaseForStatus: Boolean = false,
+    private val dittoLeaseConfirmed: () -> Boolean = { false },
 ) : IWearTakPluginControl.Stub() {
 
     private fun verifyCaller(): Boolean {
@@ -222,6 +224,7 @@ class HostControlImpl(
             is ContractValidationResult.Ok -> {
                 val parsed = PluginMarkerMapping.fromParcel(v.value)
                 val timeMillis = System.currentTimeMillis()
+                try {
                 runBlocking {
                     when (lifecycle) {
                         MarkerLifecycle.PUBLISH -> {
@@ -258,8 +261,13 @@ class HostControlImpl(
                                 )
                             }
                         }
-                        MarkerLifecycle.CLEAR -> app.repo.requestMarkerClear(parsed.uid)
+                        MarkerLifecycle.CLEAR -> if (!app.repo.requestMarkerClear(parsed.uid)) {
+                            Log.w(TAG, "requestMarkerClear: marker not found uid=${parsed.uid}")
+                        }
                     }
+                }
+                } catch (error: Exception) {
+                    Log.e(TAG, "Marker ${lifecycle.name} admission failed; no durable acknowledgement", error)
                 }
             }
         }
@@ -285,8 +293,21 @@ class HostControlImpl(
         if (!verifyCaller()) {
             return DeviceStatusParcel(online = false, summary = "denied")
         }
+        if (requireDittoLeaseForStatus && pluginPackage == TrustedCommunityPlugin.PACKAGE) {
+            if (!dittoLeaseConfirmed()) return DeviceStatusParcel(online = false, summary = "denied")
+            val uid = app.repo.androidDeviceUid
+            if (!verifyCaller() || !dittoLeaseConfirmed()) {
+                return DeviceStatusParcel(online = false, summary = "denied")
+            }
+            val telemetry = Bundle()
+            if (isValidTakUid(uid)) telemetry.putString(DeviceStatusContract.KEY_TAK_UID, uid)
+            return DeviceStatusParcel(online = false, summary = "identity", telemetry = telemetry)
+        }
         return runBlocking { buildDeviceStatus() }
     }
+
+    private fun isValidTakUid(uid: String): Boolean =
+        uid.isNotBlank() && uid != "WEAROS_null" && uid != "WEAROS_"
 
     private suspend fun buildDeviceStatus(): DeviceStatusParcel {
         val tak = TAKConnectService.isAnyTakConnected
@@ -306,7 +327,7 @@ class HostControlImpl(
             telemetry.putInt(DeviceStatusContract.KEY_HEART_RATE_BPM, it)
         }
         val takUid = app.repo.androidDeviceUid
-        if (takUid.isNotBlank() && takUid != "WEAROS_null" && takUid != "WEAROS_") {
+        if (isValidTakUid(takUid)) {
             telemetry.putString(DeviceStatusContract.KEY_TAK_UID, takUid)
         } else {
             Log.w(TAG, "Device status local TAK identity unavailable")

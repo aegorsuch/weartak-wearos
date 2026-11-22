@@ -94,6 +94,22 @@ class PluginManagerLifecycleMockTest {
     }
 
     @Test
+    fun discoveredEnabledDittoRemainsSelectedBeforeBindingButDisabledOrAbsentDoesNot() {
+        val packageName = TrustedCommunityPlugin.PACKAGE
+        val state = mockk<PluginStateStore>()
+        every { state.isEnabled(packageName) } returns true
+        val app = mockHostApp(listOf(resolveInfoFor(packageName, ".Service")))
+        val manager = PluginManager(app, mockk(relaxed = true), noopPluginTrust(), pluginStateStore = state)
+        assertTrue(manager.dittoCotSelected())
+        every { state.isEnabled(packageName) } returns false
+        assertFalse(manager.dittoCotSelected())
+        val absent = PluginManager(mockHostApp(emptyList()), mockk(relaxed = true), noopPluginTrust(),
+            pluginStateStore = state)
+        every { state.isEnabled(packageName) } returns true
+        assertFalse(absent.dittoCotSelected())
+    }
+
+    @Test
     fun refreshBindings_bindsDiscoveredPluginsOnce() {
         val ri = resolveInfoFor(pluginPkg, ".FakeSvc")
         val captured = mutableListOf<ServiceConnection>()

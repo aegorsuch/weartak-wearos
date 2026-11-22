@@ -25,8 +25,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w227dp-h227dp-round-340dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MarketPluginEntryTest {
-    @get:Rule
     val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test
     fun downloadShowsSpinnerThenInlineFailureAndRetryAction() {

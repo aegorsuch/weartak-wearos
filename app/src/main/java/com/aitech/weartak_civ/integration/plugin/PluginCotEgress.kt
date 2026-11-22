@@ -50,7 +50,7 @@ object PluginCotEgress {
      * come back around. If ingest is ever made to feed egress, this needs an origin tag to break the
      * cycle.
      */
-    fun offer(app: WearTakApplication, cotXml: String?) {
+    fun offer(app: WearTakApplication, cotXml: String?, excludeDitto: Boolean = false) {
         if (cotXml.isNullOrBlank()) return
         runCatching {
             val args = Bundle().apply { putString(KEY_COT_XML, cotXml) }
@@ -60,6 +60,7 @@ object PluginCotEgress {
                 args = args,
                 senderUid = MainActivity.device_uid,
                 senderCallsign = MainActivity.callsign,
+                excludedPluginId = if (excludeDitto) TrustedCommunityPlugin.PACKAGE else null,
             )
         }.onFailure { Log.w(TAG, "offer failed", it) }
     }

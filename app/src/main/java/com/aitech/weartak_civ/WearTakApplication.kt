@@ -7,13 +7,6 @@
  * See the LICENSE file in the repository root for the full license text.
  */
 
-/*
- * Moving Ditto initialization to onCreate of DittoService as initializing Ditto takes a lot of resources and
- * causes ANR when the Application is started on boot. Also Ditto initialization should be done only if Ditto service
- * is started.
- * Use WearTakApplication to create a single, globally accessible instance that persists for the app's entire lifecycle.
- */
-
 package com.aitech.weartak_civ
 
 import android.app.Application
@@ -64,10 +57,6 @@ import com.aitech.weartak_civ.service.audio.startAudioDetectionFeedback
 import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
 import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import kotlinx.coroutines.flow.Flow
-import live.ditto.Ditto
-import live.ditto.DittoError
-import live.ditto.DittoIdentity
-import live.ditto.android.DefaultAndroidDittoDependencies
 
 class WearTakApplication : Application() {
 

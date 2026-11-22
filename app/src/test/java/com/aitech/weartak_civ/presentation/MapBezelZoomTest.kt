@@ -25,7 +25,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w227dp-h227dp-round", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MapBezelZoomTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test fun clockwiseZoomsInAndCounterclockwiseZoomsOut() {
         val deltas = mutableListOf<Double>()

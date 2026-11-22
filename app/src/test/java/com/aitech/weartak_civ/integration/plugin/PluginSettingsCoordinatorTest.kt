@@ -366,6 +366,30 @@ class PluginSettingsCoordinatorTest {
     }
 
     @Test
+    fun outboundCotExcludesOnlyTrackedPlugin() {
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        val schema = SettingsSchemaParcel(fields = listOf(
+            SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+        ))
+        val other = FakeWearTakPlugin("com.plugin.other").apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(schema)
+        }
+        fakePlugin.setSettingsSchemaForTest(schema)
+        coordinator.onPluginConnected("com.plugin.settings", fakePlugin)
+        coordinator.onPluginConnected("com.plugin.other", other)
+        val on = Bundle().apply { putBoolean(field, true) }
+        assertTrue(coordinator.applyPluginSettings("com.plugin.settings", on).success)
+        assertTrue(coordinator.applyPluginSettings("com.plugin.other", on).success)
+        coordinator.invokeCotOnPluginsWithSetting(
+            field, PluginCotEgress.ACTION_COT_OUTBOUND, Bundle().apply { putString("xml", "<event/>") },
+            senderUid = "watch", excludedPluginId = "com.plugin.settings",
+        )
+        assertTrue(fakePlugin.mainUiActions.isEmpty())
+        assertEquals(1, other.mainUiActions.size)
+    }
+
+    @Test
     fun outboundReadinessVersionsReconnectsAndSecondPluginsWithoutUnchangedRepeats() {
         val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
         val schema = SettingsSchemaParcel(fields = listOf(

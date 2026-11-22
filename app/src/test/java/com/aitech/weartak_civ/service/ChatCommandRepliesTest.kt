@@ -34,20 +34,19 @@ class ChatCommandRepliesTest {
         val snapshot = mockk<DataRepository.ChatEventSnapshot>()
         every { repo.isCompanionConnected } returns MutableStateFlow(false)
         coEvery { repo.snapshotChatEvent(any(), any(), any(), any(), any()) } returns snapshot
-        mockkObject(CotMessageBuilder, DittoService.Companion, TAKConnectService.Companion,
+        mockkObject(CotMessageBuilder, TAKConnectService.Companion,
             NetworkUtils.MulticastPublisher, SitxServiceCommandBus)
         every { CotMessageBuilder.chat(snapshot, any(), any(), any(), any()) } returns "<safe-ack/>"
-        every { DittoService.publishCommandReply("<safe-ack/>") } returns true
         every { TAKConnectService.sendCommandReply("server-one", "<safe-ack/>") } returns true
         every { NetworkUtils.MulticastPublisher.sendCommandReply("<safe-ack/>", "224.10.10.1", 17012) } returns true
         every { SitxServiceCommandBus.trySend(any()) } returns true
         val request = ChatCommandRequest("sender", "ALPHA", "", "id", 1, 1, "",
             "team", "Team", true, listOf("watch", "sender"))
-        listOf("ditto:peer", "server-one", "multicast:224.10.10.1:17012", "sitx:flow").forEach {
+        listOf("server-one", "multicast:224.10.10.1:17012", "sitx:flow").forEach {
             assertTrue(ChatCommandReplies.send(app, repo, request.copy(sourceServerId = it), "status"))
         }
+        assertFalse(ChatCommandReplies.send(app, repo, request.copy(sourceServerId = "ditto:peer"), "status"))
         coVerify(exactly = 4) { repo.snapshotChatEvent("team", "Team", "status", true, listOf("watch", "sender")) }
-        verify(exactly = 1) { DittoService.publishCommandReply(any()) }
         verify(exactly = 1) { TAKConnectService.sendCommandReply(any(), any()) }
         verify(exactly = 1) { NetworkUtils.MulticastPublisher.sendCommandReply(any(), any(), any()) }
         verify(exactly = 1) { SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot("<safe-ack/>", "flow")) }
@@ -60,16 +59,15 @@ class ChatCommandRepliesTest {
         val snapshot = mockk<DataRepository.ChatEventSnapshot>()
         coEvery { repo.snapshotChatEvent(any(), any(), any(), any(), any()) } returns snapshot
         mockkObject(CotMessageBuilder, TAKConnectService.Companion, NetworkUtils.MulticastPublisher,
-            DittoService.Companion, SitxServiceCommandBus)
+            SitxServiceCommandBus)
         every { CotMessageBuilder.chat(snapshot, any(), any(), any(), any()) } returns "<warning/>"
         coEvery { TAKConnectService.sendCommandReplyWritten("server", "<warning/>") } returns true
         every { NetworkUtils.MulticastPublisher.sendCommandReply("<warning/>", "239.2.3.1", 6969) } returns true
-        every { DittoService.publishCommandReply("<warning/>") } returns true
         val request = ChatCommandRequest("sender", "ALPHA", "", "id", 1, 1, "server")
-        for (source in listOf("server", "multicast:239.2.3.1:6969", "ditto:peer")) {
+        for (source in listOf("server", "multicast:239.2.3.1:6969")) {
             assertTrue(ChatCommandReplies.sendConfirmedWrite(app, repo, request.copy(sourceServerId = source), "warning"))
         }
-        for (source in listOf("sitx:flow", "companion-gateway", "companion-bluetooth")) {
+        for (source in listOf("sitx:flow", "companion-gateway", "companion-bluetooth", "ditto:peer")) {
             assertFalse(ChatCommandReplies.sendConfirmedWrite(app, repo, request.copy(sourceServerId = source), "warning"))
         }
         coVerify(exactly = 1) { TAKConnectService.sendCommandReplyWritten("server", "<warning/>") }
@@ -77,7 +75,6 @@ class ChatCommandRepliesTest {
         verify(exactly = 0) { SitxServiceCommandBus.trySend(any()) }
         coEvery { TAKConnectService.sendCommandReplyWritten(any(), any()) } returns false
         every { NetworkUtils.MulticastPublisher.sendCommandReply(any(), any(), any()) } returns false
-        every { DittoService.publishCommandReply(any()) } returns false
         for (source in listOf("server", "multicast:239.2.3.1:6969", "ditto:peer")) {
             assertFalse(ChatCommandReplies.sendConfirmedWrite(app, repo, request.copy(sourceServerId = source), "warning"))
         }

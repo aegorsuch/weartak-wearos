@@ -769,7 +769,6 @@ class ReactiveServiceManager : Service() {
             put(ServiceType.SKIN_TEMP,             SkinTempService.isRunning.get())
             put(ServiceType.PRESSURE, PressureService.isRunning.get())
             put(ServiceType.PHYSIO,                desiredServicesStateMap.get(ServiceType.PHYSIO))
-            put(ServiceType.DITTO,                 DittoService.isRunning.get())
             put(ServiceType.CHAT,                  ChatService.isRunning.get())
             put(ServiceType.AUDIO_CAP,             AudioCaptureService.isRunning.get())
             put(ServiceType.ONNX_UAS,              UasOnnxService.isRunning.get())

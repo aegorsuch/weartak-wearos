@@ -15,6 +15,7 @@ import android.content.Intent
 import android.location.Location
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -524,6 +525,7 @@ fun LongPressScreen(navController: NavController, droppedMarkerListSetting: List
 @SuppressLint("CoroutineCreationDuringComposition")
 @Composable
 fun DroppedMarkerSetting(navController: NavController, viewModel: MarkerViewModel, droppedMarkerListSetting: List<DataRepository.DroppedMarker>, shouldShowDialog: MutableState<Boolean>, shouldShowSuccess: MutableState<Boolean>) {
+    val context = LocalContext.current
 
     Log.d(TAG, "DropMarkerSetting called")
 
@@ -585,7 +587,9 @@ fun DroppedMarkerSetting(navController: NavController, viewModel: MarkerViewMode
                                 onPrimaryActionClick = {
                                     Log.d(TAG, "Request clear for marker uid=${droppedMarker.uid}")
                                     CoroutineScope(Dispatchers.Main).launch {
-                                        viewModel.requestClearSpecificMarker(droppedMarker.uid)
+                                        showMarkerJournalResult(context) {
+                                            viewModel.requestClearSpecificMarker(droppedMarker.uid)
+                                        }
                                     }
                                 },
                                 onSecondaryActionClick = {
@@ -944,14 +948,29 @@ fun MarkerSuccessDialog(
     }
 }
 
+private suspend fun showMarkerJournalResult(context: Context, operation: suspend () -> Boolean): Boolean {
+    return try {
+        val saved = operation()
+        Toast.makeText(context, if (saved) R.string.marker_saved_locally else R.string.marker_request_invalid,
+            Toast.LENGTH_LONG).show()
+        saved
+    } catch (error: kotlinx.coroutines.CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.e(TAG, "Marker journal admission failed", error)
+        Toast.makeText(context, R.string.marker_save_unconfirmed, Toast.LENGTH_LONG).show()
+        false
+    }
+}
+
 @Composable
 fun DropMarkerConfirmationDialog(
     viewModel: MarkerViewModel,
     shouldShowDialog: MutableState<Boolean>,
     isConfirmed: MutableState<Boolean>,
-    confirmFunction: () -> Unit,
 ) {
-    val markerScope = CoroutineScope(Dispatchers.IO)
+    val markerScope = rememberCoroutineScope()
+    val context = LocalContext.current
     if (shouldShowDialog.value) {
         WearTAKCIVTheme {
             Box(
@@ -1018,16 +1037,17 @@ fun DropMarkerConfirmationDialog(
                         TextButton(
                             onClick = {
                                 shouldShowDialog.value = false
-                                isConfirmed.value = true
+                                isConfirmed.value = false
                                 markerTitleSettingsState.value = textFieldTitle.text
                                 markerRemarkSettingsState.value = textFieldRemark.text
                                 val time = System.currentTimeMillis()
                                 markerScope.launch {
-                                    viewModel.requestMarkerDrop(markerType,
-                                        textFieldTitle.text, textFieldRemark.text, time)
+                                    showMarkerJournalResult(context) {
+                                        viewModel.requestMarkerDrop(markerType,
+                                            textFieldTitle.text, textFieldRemark.text, time)
+                                    }
                                 }
                                 Log.d(TAG, "${markerTitleSettingsState.value}")
-                                confirmFunction()
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = colors.primary,
@@ -1411,6 +1431,8 @@ fun MarkerTitleRemarkSetting(
     viewModel: MarkerViewModel) {
 
     var item by remember { mutableStateOf(string) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val uid = droppedMarkerListSetting.getOrNull(index)?.uid.orEmpty()
 
@@ -1438,14 +1460,16 @@ fun MarkerTitleRemarkSetting(
                 },
                 onClickConfirm = {
                     if (item != newItem) {
-                        if (remarkOrTitle == "title") {
-                            viewModel.requestChangeMarkerTitle(uid, newItem)
-                        } else if (remarkOrTitle == "remark"){
-                            viewModel.requestChangeMarkerRemark(uid, newItem)
+                        scope.launch {
+                            val saved = showMarkerJournalResult(context) {
+                                if (remarkOrTitle == "title") viewModel.requestChangeMarkerTitle(uid, newItem)
+                                else viewModel.requestChangeMarkerRemark(uid, newItem)
+                            }
+                            if (saved) navController.popBackStack()
                         }
+                    } else {
+                        navController.popBackStack()
                     }
-                    Log.i(TAG, "Settings saved with marker title or remark: $newItem")
-                    navController.popBackStack()
                 })
         }
     }
@@ -1660,11 +1684,6 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                 viewModel = viewModel,
                 shouldShowDialog = shouldShowConfirm,
                 isConfirmed = shouldShowDropMarkerConfirm,
-                // TODO Senni: Should UI check for location?? We are anyway queuing it to be sent later
-                // TODO Senni: Also if anyEndpointConnected is false, backend will send it later. So UI should just say that it will be sent later
-                confirmFunction = {
-                    successBoolean.value = (location != null && locationEnabled && anyEndpointConnected)
-                }
             )
 
             SuccessfulCotSentCheck(
@@ -1753,12 +1772,10 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                         )
                     }, shouldShowClearLastConfirm,
                     {
-                        // Trigger backend clear-last;
+                        shouldShowClearLastConfirm.value = false
                         CoroutineScope(Dispatchers.Main).launch {
-                            viewModel.requestClearLast()
+                            showMarkerJournalResult(context) { viewModel.requestClearLast() }
                         }
-                        // dialog UX logic
-                        successBoolean.value = (location != null && locationEnabled && anyEndpointConnected)
                     }
                 )
             }
@@ -1808,12 +1825,10 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                 },
                 shouldShowClearAllConfirm,
                 {
-                    // Trigger backend clear-last;
+                    shouldShowClearAllConfirm.value = false
                     CoroutineScope(Dispatchers.Main).launch {
-                        viewModel.requestClearAllMarkers()
+                        showMarkerJournalResult(context) { viewModel.requestClearAllMarkers() }
                     }
-                    // dialog UX logic
-                    successBoolean.value = (location != null && locationEnabled && anyEndpointConnected)
                 }
             )
 
@@ -1987,11 +2002,10 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                 droppedMarkerListSetting = droppedMarkerListSetting,
                 isConfirmed = showLocationChangeConfirm,
                 confirmFunction = {
+                    showLocationChangeConfirm.value = false
                     CoroutineScope(Dispatchers.Main).launch {
-                        viewModel.requestUpdateMarkerLocation(uid)
+                        showMarkerJournalResult(context) { viewModel.requestUpdateMarkerLocation(uid) }
                     }
-                    successBoolean.value =
-                        (location != null && locationEnabled && anyEndpointConnected)
                 }
             )
 
@@ -2033,13 +2047,10 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                     )
                 }, shouldShowClearMarkerConfirm,
                 {
-                    // Trigger backend clear-last;
+                    shouldShowClearMarkerConfirm.value = false
                     CoroutineScope(Dispatchers.Main).launch {
-                        viewModel.requestClearSpecificMarker(uid)
+                        showMarkerJournalResult(context) { viewModel.requestClearSpecificMarker(uid) }
                     }
-                    // dialog UX logic
-                    successBoolean.value =
-                        (location != null && locationEnabled && anyEndpointConnected)
                 }
             )
 
@@ -2111,36 +2122,29 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
             Log.i(TAG, "edit_marker_title index: $index")
             var markerType by remember { mutableStateOf(droppedMarkerListSetting.getOrNull(index)?.markerType?.type.orEmpty()) }
             val uid = droppedMarkerListSetting.getOrNull(index)?.uid.orEmpty()
+            fun changeType(type: MarkerType) {
+                CoroutineScope(Dispatchers.Main).launch {
+                    if (showMarkerJournalResult(context) { viewModel.requestChangeMarkerType(uid, type) }) {
+                        markerType = type.type
+                        MarkerActivity.Constants.markerType = markerType
+                        navController.popBackStack()
+                    }
+                }
+            }
             RadialSelectionScreen(
                 exitActivity = exitActivity,
                 shouldShowDialog = showTypeChangeConfirm,
                 onClickRightButton = {
-                    markerType = MarkerType.FRIENDLY.type
-                    showTypeChangeConfirm.value = true
-                    viewModel.requestChangeMarkerType(uid, MarkerType.FRIENDLY)
-                    MarkerActivity.Constants.markerType = markerType
-                    Log.i(TAG, "Marker Button Clicked! Sending Marker Change request for $markerType ...")
+                    changeType(MarkerType.FRIENDLY)
                 },
                 onClickBottomButton = {
-                    markerType = MarkerType.UNKNOWN.type
-                    showTypeChangeConfirm.value = true
-                    viewModel.requestChangeMarkerType(uid, MarkerType.UNKNOWN)
-                    MarkerActivity.Constants.markerType = markerType
-                    Log.i(TAG, "Marker Button Clicked! Sending Marker Change request for $markerType ...")
+                    changeType(MarkerType.UNKNOWN)
                 },
                 onClickLeftButton = {
-                    markerType = MarkerType.NEUTRAL.type
-                    showTypeChangeConfirm.value = true
-                    viewModel.requestChangeMarkerType(uid, MarkerType.NEUTRAL)
-                    MarkerActivity.Constants.markerType = markerType
-                    Log.i(TAG, "Marker Button Clicked! Sending Marker Change request for $markerType ...")
+                    changeType(MarkerType.NEUTRAL)
                 },
                 onClickTopButton = {
-                    markerType = MarkerType.HOSTILE.type
-                    showTypeChangeConfirm.value = true
-                    viewModel.requestChangeMarkerType(uid, MarkerType.HOSTILE)
-                    MarkerActivity.Constants.markerType = markerType
-                    Log.i(TAG, "Marker Button Clicked! Sending Marker Change request for $markerType ...")
+                    changeType(MarkerType.HOSTILE)
                 },
                 longPressBoolean = false,
                 navController = navController

@@ -60,7 +60,8 @@ import java.io.File
 @Config(application = Application::class, sdk = [34], qualifiers = "w227dp-h227dp-round-340dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class AudioDetectionWarningTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val repo = mockk<DataRepository> {
         every { latestLocation } returns MutableStateFlow(null)
         coEvery { snapshotLocation(any()) } returns null

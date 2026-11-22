@@ -33,7 +33,8 @@ import android.content.Intent
 @Config(sdk = [34], qualifiers = "w227dp-h227dp-round", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MapUserActionsTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     private fun user(uid: String = "alice") = DataRepository.ReceivedUser(
         uid, "a-f-G-U-C", "Blue", "Alice", "Team Member", 1, 100,

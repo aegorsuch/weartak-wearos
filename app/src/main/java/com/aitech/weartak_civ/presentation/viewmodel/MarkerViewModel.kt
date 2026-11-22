@@ -133,35 +133,27 @@ class MarkerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    suspend fun requestUpdateMarkerLocation(uid: String) {
+    suspend fun requestUpdateMarkerLocation(uid: String): Boolean =
         dataRepository.requestUpdateMarkerLocation(uid)
-    }
 
-    fun requestChangeMarkerTitle(uid: String, title: String) {
+    fun requestChangeMarkerTitle(uid: String, title: String): Boolean =
         dataRepository.requestChangeMarkerTitle(uid, title)
-    }
 
-    fun requestChangeMarkerRemark(uid: String, remark: String) {
+    fun requestChangeMarkerRemark(uid: String, remark: String): Boolean =
         dataRepository.requestChangeMarkerRemark(uid, remark)
-    }
 
-    fun requestChangeMarkerType(uid: String, type: DataRepository.MarkerType){
+    fun requestChangeMarkerType(uid: String, type: DataRepository.MarkerType): Boolean =
         dataRepository.requestChangeMarkerType(uid, type)
-    }
 
-    suspend fun requestClearAllMarkers() {
+    suspend fun requestClearAllMarkers(): Boolean =
         dataRepository.requestClearAll()
-    }
 
-    suspend fun requestClearSpecificMarker(uid: String) {
+    suspend fun requestClearSpecificMarker(uid: String): Boolean =
         dataRepository.requestClearSpecific(uid)
-    }
 
-    suspend fun requestClearLast() {
+    suspend fun requestClearLast(): Boolean =
         dataRepository.requestClearLast()
-    }
 
-    suspend fun requestMarkerDrop(markerTypeRaw: String, title: String, remark: String, timeMillis: Long) {
+    suspend fun requestMarkerDrop(markerTypeRaw: String, title: String, remark: String, timeMillis: Long): Boolean =
         dataRepository.requestMarkerDrop(markerTypeRaw, title, remark, timeMillis)
-    }
 }

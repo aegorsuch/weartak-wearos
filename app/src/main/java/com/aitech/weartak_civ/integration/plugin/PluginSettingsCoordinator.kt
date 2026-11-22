@@ -159,6 +159,13 @@ class PluginSettingsCoordinator(
                 state.schema.fields.any { it.fieldId == fieldId } && state.values.getBoolean(fieldId, false)
         }
 
+    internal fun pluginHasSettingEnabled(pluginId: String, fieldId: String): Boolean {
+        val state = cache[pluginId] ?: return false
+        return pluginRefs.containsKey(pluginId) &&
+            state.schema.fields.any { it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE } &&
+            state.values.getBoolean(fieldId, false)
+    }
+
     /**
      * Fire [actionId] at every connected plugin that declares [fieldId] and currently has it set.
      *
@@ -201,10 +208,11 @@ class PluginSettingsCoordinator(
         sourceEnvelope: TakServerCotEnvelope? = null,
         senderUid: String? = null,
         senderCallsign: String? = null,
+        excludedPluginId: String? = null,
     ) {
         val targets = cache.entries
-            .filter { (_, state) ->
-                state.schema.fields.any {
+            .filter { (pluginId, state) ->
+                pluginId != excludedPluginId && state.schema.fields.any {
                     it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE
                 } && state.values.getBoolean(fieldId, false)
             }

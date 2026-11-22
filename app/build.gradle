@@ -132,18 +132,6 @@ android {
         if (lpFile.exists()) lp.load(lpFile.newDataInputStream())
         def owKey = lp.getProperty("OPENWEATHER_API_KEY", "")
         buildConfigField "String", "OPENWEATHER_API_KEY", "\"${owKey}\""
-        // CI supplies the authorized Community PDL without exposing it in command arguments.
-        def communityPdl = System.getenv("DITTO_COMMUNITY_IDENTITY")?.trim()
-        def dittoCommunityIdentity = communityPdl
-                ? groovy.json.JsonOutput.toJson(communityPdl)
-                : (project.findProperty("dittoCommunityIdentity") ?: "\"\"")
-
-        buildConfigField(
-                "String",
-                "DITTO_COMMUNITY_IDENTITY",
-                dittoCommunityIdentity
-        )
-
         def marketCatalogUrl = (
                 System.getenv("WEARTAK_MARKET_CATALOG_URL") ?:
                         providers.gradleProperty("weartakMarketCatalogUrl").orElse("").get()
@@ -298,9 +286,8 @@ android {
             def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true"
             applicationIdSuffix dittoUiDemo ? ".ditto.diagnostics.fixture" : ".dev"
             manifestPlaceholders.debugApplication = dittoUiDemo
-                    ? "com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureApplication"
+                    ? "com.aitech.weartak_civ.debug.InertIpcFixtureApplication"
                     : "com.aitech.weartak_civ.WearTakApplication"
-            manifestPlaceholders.dittoUiDemo = dittoUiDemo.toString()
             manifestPlaceholders.wearableSharedLibraryRequired = (!dittoUiDemo).toString()
             buildConfigField "boolean", "DITTO_UI_DEMO", dittoUiDemo.toString()
             minifyEnabled false
@@ -412,7 +399,6 @@ dependencies {
     implementation 'net.i2p.crypto:eddsa:0.3.0'
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0"
 
-    implementation "live.ditto:ditto:4.14.6"
     implementation libs.play.services.wearable
     implementation platform(libs.compose.bom)
     implementation libs.ui

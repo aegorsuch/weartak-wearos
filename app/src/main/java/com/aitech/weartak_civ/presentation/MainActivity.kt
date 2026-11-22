@@ -3108,7 +3108,6 @@ fun TroubleshootingIcons(sitxVm: SitxViewModel, settingsVm: WearTAKSettingsViewM
         val sitxEvent by sitxVm.lastEvent.collectAsStateWithLifecycle(initialValue=null)
 
         val sitxStatus by dataRepository.sitxStatus.collectAsStateWithLifecycle()
-        val dittoSyncActive by com.aitech.weartak_civ.service.DittoService.syncActive.collectAsStateWithLifecycle()
         val priority by dataRepository.connectionStatusPreferences.priority
             .collectAsStateWithLifecycle(initialValue = com.aitech.weartak_civ.data.defaultConnectionPriority)
         val app = context.applicationContext as WearTakApplication
@@ -3135,10 +3134,6 @@ fun TroubleshootingIcons(sitxVm: SitxViewModel, settingsVm: WearTAKSettingsViewM
             }
             if (multicastConnected) add(HomeConnectionStatus("multicast", R.drawable.multicast_connected,
                 R.string.tak_sa_multicast, R.string.plugin_route_connected))
-            if (dittoSyncActive && DataRepository.Endpoint.DITTO in endpoints) {
-                add(HomeConnectionStatus("ditto", R.drawable.ic_integration_ditto,
-                    R.string.ditto, R.string.ditto_sync_active))
-            }
             plugins.filter { it.isLoaded && pluginToggles[it.packageName]?.enabled != false }.forEach { plugin ->
                 pluginRouteStatuses[plugin.packageName].orEmpty().values.forEach { route ->
                     if (pluginRouteIsActive(route.state)) {

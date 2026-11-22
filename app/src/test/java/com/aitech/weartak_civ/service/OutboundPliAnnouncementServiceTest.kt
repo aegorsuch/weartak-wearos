@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit
 class OutboundPliAnnouncementServiceTest {
     private val locationEnabled = MutableStateFlow(true)
     private val dittoEnabled = MutableStateFlow(false)
+    private val pluginRoutes = MutableStateFlow<Map<String, Long>>(emptyMap())
     private val companionEnabled = MutableStateFlow(false)
     private val companionConnected = MutableStateFlow(false)
     private val routes = MutableStateFlow<Map<String, DataRepository.OutboundReadyRoute>>(emptyMap())
@@ -78,8 +79,8 @@ class OutboundPliAnnouncementServiceTest {
         every { repo.requestInteractionPliRefresh(any()) } answers { requests.add(firstArg()); Unit }
         coEvery { repo.snapshotOutboundAnnouncement(any()) } coAnswers { realRepo.snapshotOutboundAnnouncement(firstArg()) }
         val hostApp = mockk<WearTakApplication>(relaxed = true)
-        every { hostApp.pluginManager.settingsCoordinator.outboundCotReadyRoutes } returns MutableStateFlow(emptyMap())
-        every { hostApp.pluginManager.settingsCoordinator.anyPluginHasSettingEnabled(any()) } returns false
+        every { hostApp.pluginManager.settingsCoordinator.outboundCotReadyRoutes } returns pluginRoutes
+        every { hostApp.pluginManager.settingsCoordinator.anyPluginHasSettingEnabled(any()) } answers { pluginRoutes.value.isNotEmpty() }
         val companion = mockk<CompanionAppRepository>(relaxed = true)
         every { companion.gateway } returns CompanionGatewaySession()
         dispatcher = mockk<CotEndpointDispatcher>()
@@ -118,11 +119,11 @@ class OutboundPliAnnouncementServiceTest {
         routes.value = routes.value + ("${endpoint.name}:test" to DataRepository.OutboundReadyRoute(endpoint, generation))
     }
 
-    @Test fun enablingBeforeSdkReadyWaitsThenAnnouncesOneCurrentTrackWithoutFlushingOtherWork() {
+    @Test fun enablingBeforePluginReadyWaitsThenAnnouncesOneCurrentTrackWithoutFlushingOtherWork() {
         service.collectOutboundReadyRoutes(service.outboundReadyRouteFlow())
         dittoEnabled.value = true
         assertNull(requests.poll(250, TimeUnit.MILLISECONDS))
-        ready(Endpoint.DITTO)
+        pluginRoutes.value = mapOf("ditto.plugin" to 1L)
         assertEquals(PliRefreshReason.OUTBOUND_ROUTE_READY, requests.poll(3, TimeUnit.SECONDS))
         val fix = freshFix()
         service.onInteractionLocationRcvd(InteractionLocationRcvd(fix, setOf(PliRefreshReason.OUTBOUND_ROUTE_READY)))
@@ -131,8 +132,7 @@ class OutboundPliAnnouncementServiceTest {
         val snapshot = (message!!.first.companionPayload as CotCompanionPayload.Pli).snapshot
         assertEquals(fix.time, snapshot.time.time)
         assertEquals(fix.latitude, snapshot.loc!!.lat, 0.0)
-        assertTrue(message.second.ditto)
-        assertEquals(fix.time, observer.tracks.poll(3, TimeUnit.SECONDS)!!.location.time)
+        assertTrue(message.second.plugin)
         service.onInteractionLocationRcvd(InteractionLocationRcvd(fix, setOf(PliRefreshReason.OUTBOUND_ROUTE_READY)))
         assertNull(sent.poll(200, TimeUnit.MILLISECONDS))
         assertNull(observer.tracks.poll(100, TimeUnit.MILLISECONDS))
@@ -160,11 +160,11 @@ class OutboundPliAnnouncementServiceTest {
         assertNotNull(sent.poll(3, TimeUnit.SECONDS))
     }
 
-    @Test fun connectedCompanionSuppressesDirectKeysAndDittoTrackPublication() {
+    @Test fun connectedCompanionSuppressesDirectKeysAndPluginPublication() {
         dittoEnabled.value = true
         companionEnabled.value = true
         companionConnected.value = true
-        ready(Endpoint.DITTO)
+        pluginRoutes.value = mapOf("ditto.plugin" to 1L)
         ready(Endpoint.MULTICAST)
         ready(Endpoint.COMPANION_APP)
         val eligible = runBlocking { service.outboundReadyRouteFlow().first() }
@@ -172,7 +172,9 @@ class OutboundPliAnnouncementServiceTest {
         service.collectOutboundReadyRoutes(service.outboundReadyRouteFlow())
         assertEquals(PliRefreshReason.OUTBOUND_ROUTE_READY, requests.poll(3, TimeUnit.SECONDS))
         service.onInteractionLocationRcvd(InteractionLocationRcvd(freshFix(), setOf(PliRefreshReason.OUTBOUND_ROUTE_READY)))
-        assertTrue(sent.poll(3, TimeUnit.SECONDS)!!.second.companion)
+        val availability = sent.poll(3, TimeUnit.SECONDS)!!.second
+        assertTrue(availability.companion)
+        assertEquals(listOf(CotRoute.COMPANION), CotDispatchPolicy.routesFor(CotMessageKind.PLI, availability))
         assertNull(observer.tracks.poll(150, TimeUnit.MILLISECONDS))
     }
 
