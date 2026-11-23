@@ -9,12 +9,22 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
 import android.os.Looper
+import android.os.Process
 import androidx.test.core.app.ApplicationProvider
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.service.TAKConnectService
 import com.weartak.plugin.sdk.aidl.IWearTakHostCallback
 import com.weartak.plugin.sdk.host.v1.HostServicesContract as C
+import com.weartak.plugin.sdk.transport.TransportContract
+import com.weartak.plugin.sdk.transport.TransportPayloadKind
+import com.weartak.plugin.sdk.transport.TransportResultCode
+import com.weartak.plugin.sdk.transport.aidl.IPluginTransportCallbackV1
+import com.weartak.plugin.sdk.transport.aidl.IPluginTransportHostV1
+import com.weartak.plugin.sdk.transport.model.TransportCapabilitiesParcel
+import com.weartak.plugin.sdk.transport.model.TransportResultParcel
+import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
 import io.mockk.*
 import org.junit.Assert.*
 import org.junit.Before
@@ -190,6 +200,132 @@ class PluginLifecycleIsolationTest {
         } finally {
             manager.shutdownAll()
             awaitPluginLifecycle(pkg)
+        }
+    }
+
+    @Test fun disablingDittoQuiescesTransportUntilStopAndFencesReenableDuringCleanup() = runBlocking {
+        pkg = TrustedCommunityPlugin.PACKAGE
+        discoveredService.serviceInfo.packageName = pkg
+        val repository = DataRepository(ApplicationProvider.getApplicationContext<Application>())
+        repository.storeNetworkPreferencesLocked(false)
+        assertNull(repository.storeDittoPluginNetworkEnabled(true))
+        val manager = manager(repository)
+        val stopEntered = CountDownLatch(1)
+        val releaseStop = CountDownLatch(1)
+        var oldHostCallback: IWearTakHostCallback? = null
+        val capabilities = TransportCapabilitiesParcel(
+            channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
+            outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            inboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
+            runtimeAvailable = true,
+        )
+        val callback = object : IPluginTransportCallbackV1.Stub() {
+            override fun sendMessage(request: TransportSendRequestParcel?) =
+                TransportResultParcel(TransportResultCode.ACCEPTED, request?.sessionId)
+            override fun cancelMessage(sessionId: String?, messageId: String?) =
+                TransportResultParcel(TransportResultCode.ACCEPTED, sessionId)
+            override fun onSessionClosed(sessionId: String?, reason: Int) = Unit
+        }
+        fun dittoPlugin(blockStop: Boolean): FakeWearTakPlugin {
+            return object : FakeWearTakPlugin(pkg, apiVersion = 2) {
+                private lateinit var transport: IPluginTransportHostV1
+                private var sessionId: String? = null
+                var registeredSessionId: String? = null
+                var staleUnregister: TransportResultParcel? = null
+                var currentUnregister: TransportResultParcel? = null
+                var registrationWhileStopping: TransportResultParcel? = null
+
+                override fun getPluginInfo() = com.weartak.plugin.sdk.model.PluginInfoParcel(
+                    pluginId = pkg,
+                    displayName = "Fake Ditto",
+                    versionName = TrustedCommunityPlugin.GATE_VERSION_NAME,
+                    packageName = pkg,
+                )
+
+                override fun registerHostCallback(callback: IWearTakHostCallback?) {
+                    if (blockStop) oldHostCallback = callback
+                    super.registerHostCallback(callback)
+                }
+
+                override fun startPlugin() {
+                    val extras = requireNotNull(lastInit).hostExtras
+                    transport = IPluginTransportHostV1.Stub.asInterface(
+                        extras.getBinder(TransportContract.EXTRA_CONTROL),
+                    )
+                    val registration = transport.registerTransport(capabilities, callback)
+                    check(registration.code == TransportResultCode.ACCEPTED)
+                    sessionId = requireNotNull(registration.sessionId)
+                    registeredSessionId = sessionId
+                    super.startPlugin()
+                }
+
+                override fun stopPlugin() {
+                    if (blockStop) {
+                        stopEntered.countDown()
+                        releaseStop.await(10, TimeUnit.SECONDS)
+                        registrationWhileStopping = transport.registerTransport(capabilities, callback)
+                    }
+                    sessionId?.let { activeSession ->
+                        staleUnregister = transport.unregisterTransport("stale-session")
+                        currentUnregister = transport.unregisterTransport(activeSession)
+                    }
+                    super.stopPlugin()
+                }
+            }
+        }
+        val oldPlugin = dittoPlugin(blockStop = true)
+        nextPlugin = oldPlugin
+        mockkObject(TrustedCommunityPlugin)
+        mockkObject(TAKConnectService.Companion)
+        every { TAKConnectService.isAnyTakConnected } returns false
+        every { TrustedCommunityPlugin.verify(app, Process.myUid()) } returns true
+        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid()) } returns true
+        try {
+            withTimeout(5_000) { manager.dittoNetworkPolicyLoaded.first { it } }
+            manager.refreshBindings()
+            awaitPluginLifecycle(pkg)
+            assertEquals(1, captured.size)
+            assertEquals(1, oldPlugin.startCount())
+            val extras = requireNotNull(oldPlugin.lastInit).hostExtras
+            val oldTransport = IPluginTransportHostV1.Stub.asInterface(
+                extras.getBinder(TransportContract.EXTRA_CONTROL),
+            )
+            val oldSession = requireNotNull(oldPlugin.registeredSessionId)
+
+            assertTrue(manager.setDittoNetworkEnabled(false))
+            assertTrue(stopEntered.await(5, TimeUnit.SECONDS))
+            assertTrue(PluginLifecycleWork.isBusy(pkg))
+            oldHostCallback!!.onPluginMainUiStateChanged()
+            assertNull(PluginDiagnostics.hostCallbackState.value.mainUiStateChangeCountByPlugin[pkg])
+
+            val replacement = dittoPlugin(blockStop = false)
+            nextPlugin = replacement
+            assertTrue(manager.setDittoNetworkEnabled(true))
+            assertTrue(PluginLifecycleWork.isBusy(pkg))
+            assertEquals("Cleanup must fence replacement binding", 1, captured.size)
+
+            releaseStop.countDown()
+            awaitPluginLifecycle(pkg)
+            assertEquals(TransportResultCode.INACTIVE_SESSION, oldPlugin.registrationWhileStopping?.code)
+            assertEquals(TransportResultCode.INACTIVE_SESSION, oldPlugin.staleUnregister?.code)
+            assertEquals(TransportResultCode.ACCEPTED, oldPlugin.currentUnregister?.code)
+            assertEquals(TransportResultCode.INACTIVE_SESSION,
+                oldTransport.unregisterTransport(oldSession).code)
+            assertFalse(oldTransport.getHostCapabilities().runtimeAvailable)
+            assertNull(PluginDiagnostics.hostCallbackState.value.mainUiStateChangeCountByPlugin[pkg])
+
+            manager.refreshBindings()
+            awaitPluginLifecycle(pkg)
+            assertEquals(2, captured.size)
+            assertEquals(1, replacement.startCount())
+        } finally {
+            releaseStop.countDown()
+            manager.shutdownAll()
+            awaitPluginLifecycle(pkg)
+            repository.storeNetworkPreferencesLocked(false)
+            repository.storeDittoPluginNetworkEnabled(true)
+            unmockkObject(TrustedCommunityPlugin)
+            unmockkObject(TAKConnectService.Companion)
         }
     }
 

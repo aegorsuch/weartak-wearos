@@ -53,7 +53,7 @@ class PluginConnection(
     private val dittoTrafficAdmission: (() -> AutoCloseable?)? =
         if (pluginPackage == TrustedCommunityPlugin.PACKAGE) {
             {
-                if (manager.dittoTrafficAllowed()) {
+                if (!closed && manager.dittoTrafficAllowed()) {
                     dittoTrafficGeneration?.let(manager.dittoTrafficFence::enter)
                 } else null
             }
@@ -723,6 +723,14 @@ class PluginConnection(
         revokeCertificateSessions()
         Log.i(TAG, "tearDownBinder pkg=$pluginPackage reason=$reason")
         var pointToDrain: HostPointEndpointV1? = null
+        var transportToClose: PluginTransportHostV1Impl? = null
+        val transportCloseReason = if (reason.contains("disconnect", ignoreCase = true) ||
+            reason.contains("death", ignoreCase = true)
+        ) {
+            TransportCloseReason.DISCONNECTED
+        } else {
+            TransportCloseReason.STOPPED
+        }
         val cleanup = synchronized(stateLock) {
             if (closed) return
             closed = true
@@ -741,16 +749,9 @@ class PluginConnection(
             hostServicesV1?.close()
             hostOpenVpnServicesV1?.close()
             hostPcmControlV3?.close()
-            hostTransportV1?.closeBinding(
-                if (reason.contains("disconnect", ignoreCase = true) ||
-                    reason.contains("death", ignoreCase = true)
-                ) {
-                    TransportCloseReason.DISCONNECTED
-                } else {
-                    TransportCloseReason.STOPPED
-                },
-            )
-            hostTransportV1?.let {
+            transportToClose = hostTransportV1
+            transportToClose?.prepareForPluginStop()
+            transportToClose?.let {
                 manager.settingsCoordinator.unregisterTransportHost(pluginPackage, it)
             }
             val iface = plugin
@@ -771,7 +772,9 @@ class PluginConnection(
             pluginBinder = null
             val cleanupReservation = if (pluginPackage == TrustedCommunityPlugin.PACKAGE &&
                 (iface != null || binder != null)) PluginLifecycleWork.reserveCleanup(pluginPackage) else null
-            val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) null else ({
+            val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) {
+                transportToClose?.let { transport -> { transport.closeBinding(transportCloseReason) } }
+            } else ({
                 var cleanupSucceeded = true
                 fun attempt(method: String, block: () -> Unit) {
                     runCatching(block).onFailure {
@@ -782,6 +785,7 @@ class PluginConnection(
                 attempt("unregisterHostCallback") { if (iface != null && cb != null) iface.unregisterHostCallback(cb) }
                 attempt("stopPlugin") { iface?.stopPlugin() }
                 if (shutdownRemotePlugin) attempt("shutdownPlugin") { iface?.shutdownPlugin() }
+                attempt("closeTransport") { transportToClose?.closeBinding(transportCloseReason) }
                 runCatching { binder?.unlinkToDeath(deathRecipient, 0) }.onFailure {
                     Log.w(TAG, "unlinkToDeath failed pkg=$pluginPackage", it)
                 }

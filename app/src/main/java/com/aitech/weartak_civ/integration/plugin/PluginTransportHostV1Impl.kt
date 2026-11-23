@@ -105,11 +105,12 @@ internal class PluginTransportHostV1Impl(
     private val deliveryUpdates = LinkedHashMap<String, TransportDeliveryParcel>()
     private var registration: Registration? = null
     private var bindingActive = false
+    private var bindingStopping = false
     private var bindingClosed = false
     private var transportNegotiated = false
 
     override fun getHostCapabilities(): TransportCapabilitiesParcel {
-        if (!verifyCaller() || synchronized(lock) { bindingClosed }) {
+        if (!verifyCaller() || synchronized(lock) { bindingStopping || bindingClosed }) {
             return hostCapabilities(runtimeAvailable = false)
         }
         return hostCapabilities(runtimeAvailable = true)
@@ -123,8 +124,8 @@ internal class PluginTransportHostV1Impl(
         if (capabilities == null || callback == null) {
             return result(TransportResultCode.INVALID_REQUEST, detail = "Capabilities and callback are required")
         }
-        if (synchronized(lock) { bindingClosed }) {
-            return result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin binding is closed")
+        if (synchronized(lock) { bindingStopping || bindingClosed }) {
+            return result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin binding is stopping")
         }
 
         val validation = TransportValidator.capabilities(capabilities)
@@ -171,7 +172,7 @@ internal class PluginTransportHostV1Impl(
         val pliSession = if (pliProfile && !preactivation) DittoPliTransportSession(sessionId, expectedPluginUid, negotiated, clock) else null
         val next = Registration(sessionId, negotiated, session, pliSession, pliProfile, preactivation, callback, binder, recipient)
         val (installed, previous, blocked) = synchronized(lock) {
-            if (bindingClosed || (preactivation && bindingActive)) {
+            if (bindingStopping || bindingClosed || (preactivation && bindingActive)) {
                 Triple(false, null, null)
             } else {
                 val old = registration
@@ -476,7 +477,16 @@ internal class PluginTransportHostV1Impl(
 
     fun activateBinding() {
         synchronized(lock) {
-            if (!bindingClosed && registration?.preactivation != true) bindingActive = true
+            if (!bindingStopping && !bindingClosed && registration?.preactivation != true) bindingActive = true
+        }
+    }
+
+    fun prepareForPluginStop() {
+        synchronized(lock) {
+            if (bindingClosed || bindingStopping) return
+            bindingStopping = true
+            bindingActive = false
+            deliveryUpdates.clear()
         }
     }
 
