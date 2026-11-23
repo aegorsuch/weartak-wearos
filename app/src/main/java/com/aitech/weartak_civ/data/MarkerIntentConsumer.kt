@@ -12,6 +12,7 @@ internal class MarkerIntentConsumer(private val journal: MarkerIntentJournal) {
         payload: (T) -> String,
         execute: suspend (MarkerIntentJournal.Intent, T) -> MarkerIntentJournal.Outcome?,
         executeOtherRoutes: (suspend (MarkerIntentJournal.Intent, T) -> Boolean)? = null,
+        onTransition: () -> Unit = {},
         onError: (Exception) -> Unit,
     ): Boolean = mutex.withLock {
         val deferred = mutableSetOf<String>()
@@ -63,6 +64,7 @@ internal class MarkerIntentConsumer(private val journal: MarkerIntentJournal) {
                     execute(started, prepared)
                 } catch (error: CancellationException) {
                     journal.markUncertain(started.sequence)
+                    onTransition()
                     throw error
                 } catch (error: Exception) {
                     onError(error)
@@ -70,11 +72,13 @@ internal class MarkerIntentConsumer(private val journal: MarkerIntentJournal) {
                 }
                 if (outcome == MarkerIntentJournal.Outcome.RETRY_LATER) {
                     journal.deferNotSent(started.sequence)
+                    onTransition()
                     deferred.add(started.uid)
                     continue
                 }
                 if (outcome == null) journal.markUncertain(started.sequence)
                 else journal.markCommitted(started.sequence, outcome)
+                onTransition()
                 progressed = true
             }
             if (!progressed && (executeOtherRoutes == null ||

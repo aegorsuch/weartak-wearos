@@ -153,10 +153,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.roundToInt
@@ -968,8 +970,10 @@ fun DropMarkerConfirmationDialog(
     viewModel: MarkerViewModel,
     shouldShowDialog: MutableState<Boolean>,
     isConfirmed: MutableState<Boolean>,
+    onSubmitted: (String, String, String) -> Unit,
 ) {
     val markerScope = rememberCoroutineScope()
+    val currentDrop = remember { MutableStateFlow<String?>(null) }
     val context = LocalContext.current
     if (shouldShowDialog.value) {
         WearTAKCIVTheme {
@@ -1041,10 +1045,15 @@ fun DropMarkerConfirmationDialog(
                                 markerTitleSettingsState.value = textFieldTitle.text
                                 markerRemarkSettingsState.value = textFieldRemark.text
                                 val time = System.currentTimeMillis()
-                                markerScope.launch {
-                                    showMarkerJournalResult(context) {
-                                        viewModel.requestMarkerDrop(markerType,
-                                            textFieldTitle.text, textFieldRemark.text, time)
+                                val uid = UUID.randomUUID().toString()
+                                val type = markerType
+                                val title = textFieldTitle.text
+                                val remark = textFieldRemark.text
+                                currentDrop.value = uid
+                                markerScope.launch(Dispatchers.IO) {
+                                    showMarkerDropJournalResult(context, MainActivity.dataRepository, uid,
+                                        currentDrop, { onSubmitted(type, title, remark) }) {
+                                        viewModel.requestMarkerDrop(type, title, remark, time, uid)
                                     }
                                 }
                                 Log.d(TAG, "${markerTitleSettingsState.value}")
@@ -1650,6 +1659,7 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
         startDestination = if (!isLicenseValid()) "invalid_license_screen" else actualStartDestination
     ) {
         composable("marker_screen" ) {
+            var submittedMarker by remember { mutableStateOf<Triple<String, String, String>?>(null) }
             RadialSelectionScreen(
                 exitActivity = { exitActivity() },
                 shouldShowDialog = shouldShowConfirm,
@@ -1677,70 +1687,51 @@ fun NewMarkerCivApp(exitActivity: () -> Unit, context: Context, viewModel: Marke
                 navController = navController
             )
 //            MarkerSelectionScreen(exitActivity = {exitActivity()}, shouldShowConfirm, navController)
-            markerTitleSettingsState.value = ""
-            markerRemarkSettingsState.value = ""
+            LaunchedEffect(Unit) {
+                markerTitleSettingsState.value = ""
+                markerRemarkSettingsState.value = ""
+            }
 
             DropMarkerConfirmationDialog(
                 viewModel = viewModel,
                 shouldShowDialog = shouldShowConfirm,
                 isConfirmed = shouldShowDropMarkerConfirm,
+                onSubmitted = { type, title, remark ->
+                    submittedMarker = Triple(type, title, remark)
+                    successBoolean.value = true
+                    shouldShowDropMarkerConfirm.value = true
+                },
             )
 
-            SuccessfulCotSentCheck(
-                shouldShowDropMarkerConfirm,
-                anyEndpointConnected,
-                context,
-                {
+            if (shouldShowDropMarkerConfirm.value) {
+                val (submittedType, submittedTitle, submittedRemark) = requireNotNull(submittedMarker)
+                LaunchedEffect(Unit) {
+                    delay(1000)
+                    shouldShowDropMarkerConfirm.value = false
                     exitActivity()
                     context.startActivity(Intent(context, MainActivity::class.java))
-                },
-                successBoolean,
-                location,
-                locationEnabled,
-                {
-                    MarkerSuccessDialog(
-                        shouldShowConfirm,
-                        successBoolean,
-                        {
-                            Image(
-                                painter =
-                                    markerIconFromString(markerType),
-                                contentDescription = "Marker Type",
-                            )
-                        },
-                        {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            when {
-                                markerTitleSettingsState.value.isNullOrEmpty() && markerRemarkSettingsState.value.isNullOrEmpty() ->
-                                    Text(
-                                    text = "$markerType Marker Dropped",
-                                    textAlign = TextAlign.Center,
-                                    color = Color.White
-                                )
-                                !markerTitleSettingsState.value.isNullOrEmpty() && markerRemarkSettingsState.value.isNullOrEmpty() ->
-                                    Text(
-                                        text = "Dropped $markerType: ${markerTitleSettingsState.value}",
-                                        textAlign = TextAlign.Center,
-                                        color = Color.White
-                                    )
-                                markerTitleSettingsState.value.isNullOrEmpty() && !markerRemarkSettingsState.value.isNullOrEmpty() ->
-                                    Text(
-                                        text = "Dropped $markerType\nRemark: ${markerRemarkSettingsState.value}",
-                                        textAlign = TextAlign.Center,
-                                        color = Color.White
-                                    )
-                                else ->
-                                    Text(
-                                        text = "Dropped $markerType: ${markerTitleSettingsState.value}\nRemark: ${markerRemarkSettingsState.value}",
-                                        textAlign = TextAlign.Center,
-                                        color = Color.White
-                                    )
-                            }
+                }
+                MarkerSuccessDialog(
+                    shouldShowDropMarkerConfirm,
+                    successBoolean,
+                    {
+                        Image(
+                            painter = markerIconFromString(submittedType),
+                            contentDescription = "Marker Type",
+                        )
+                    },
+                    {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val detail = when {
+                            submittedTitle.isEmpty() && submittedRemark.isEmpty() -> "$submittedType Marker Dropped"
+                            submittedRemark.isEmpty() -> "Dropped $submittedType: $submittedTitle"
+                            submittedTitle.isEmpty() -> "Dropped $submittedType\nRemark: $submittedRemark"
+                            else -> "Dropped $submittedType: $submittedTitle\nRemark: $submittedRemark"
                         }
-                    )
-                },
-                {}
-            )
+                        Text(text = detail, textAlign = TextAlign.Center, color = Color.White)
+                    }
+                )
+            }
         }
 //        composable(
 //            "license_setting_screen") {

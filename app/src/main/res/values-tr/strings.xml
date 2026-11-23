@@ -254,7 +254,7 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
     <string name="marker_save_unconfirmed">İşaretçinin kaydedildiği doğrulanamadı. Yeniden denemeden önce işaretçi listesini kontrol edin.</string>
     <string name="marker_saved_locally">İşaretçi yerel olarak kaydedildi. İletim hâlâ bekliyor olabilir.</string>
     <string name="marker_request_invalid">Geçersiz işaretçi isteği.</string>

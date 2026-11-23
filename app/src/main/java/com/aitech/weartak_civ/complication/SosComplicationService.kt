@@ -20,8 +20,9 @@ import androidx.wear.watchface.complications.data.SmallImageType
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
 import com.aitech.weartak_civ.R
+import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.presentation.MainActivity.Constants.dataRepository
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.mainActivityIsInit
-import com.aitech.weartak_civ.presentation.SosActivity
 import com.aitech.weartak_civ.service.LicenseManager.isLicenseValid
 
 class SosComplicationService : SuspendingComplicationDataSourceService() {
@@ -29,7 +30,6 @@ class SosComplicationService : SuspendingComplicationDataSourceService() {
         val TAG = "WearTAK-" + SosComplicationService::class.java.simpleName
         var sosActiveComplicationData: SmallImageComplicationData? = null
         var sosInactiveComplicationData: SmallImageComplicationData? = null
-        val isAlertActive = SosActivity.isAlertingLiveData
     }
 
     override fun getPreviewData(type: ComplicationType): ComplicationData? {
@@ -49,7 +49,9 @@ class SosComplicationService : SuspendingComplicationDataSourceService() {
             return null
         }
         return when (isLicenseValid()) {
-            true -> return when (isAlertActive.value) {
+            true -> return when (dataRepository.manualAlertList.value.any {
+                it.alertState == DataRepository.AlertState.ALERT
+            }) {
                 true -> when (null != sosActiveComplicationData) {
                     true -> return sosActiveComplicationData
                     false -> {
@@ -77,7 +79,6 @@ class SosComplicationService : SuspendingComplicationDataSourceService() {
                         return sosInactiveComplicationData
                     }
                 }
-                else -> return null
             }
 
             false -> when (null != sosInactiveComplicationData) {

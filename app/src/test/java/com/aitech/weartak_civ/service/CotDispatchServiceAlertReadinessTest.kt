@@ -375,6 +375,74 @@ class CotDispatchServiceAlertReadinessTest {
     }
 
     @Test
+    fun locallyAcceptedAlertIsVisibleBeforeDispatchCompletes() = runTest {
+        val fixture = Fixture(this)
+        val snapshotGate = CompletableDeferred<Unit>()
+        fixture.snapshotGate = snapshotGate
+        fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+        fixture.multicast.value = true
+        fixture.startManualAlertCollector()
+        runCurrent()
+
+        fixture.manualRequests.emit(DataRepository.ManualAlertRequest(
+            category = "Alert", description = "Test", timeMillis = 1,
+        ))
+        runCurrent()
+        assertEquals(1, fixture.manualAlertUpdates.size)
+        assertEquals(DataRepository.AlertState.ALERT, fixture.manualAlertUpdates.single().alertState)
+        assertTrue(fixture.manualAlertUpdates.single().enqueuedToBeSent)
+        assertTrue(fixture.sent.isEmpty())
+
+        snapshotGate.complete(Unit)
+        runCurrent()
+        assertEquals(1, fixture.sent.size)
+        assertFalse(fixture.manualAlertUpdates.last().enqueuedToBeSent)
+        fixture.stopRecoveryCollector()
+    }
+
+    @Test
+    fun submittedPluginAlertClearsQueueEvenIfPluginIsDeselectedBeforeReconciliation() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            val release = CompletableDeferred<Unit>()
+            var attempts = 0
+            fixture.enableTrackedPlugin { _, _ ->
+                attempts++
+                release.await()
+                Submission.SUBMITTED
+            }
+            val alert = fixture.alert("submitted-then-deselected")
+            fixture.activeAlerts(false)[alert.uuid] = alert
+            fixture.send(false, alert)
+            runCurrent()
+            assertEquals(1, fixture.queue(false).size)
+            assertEquals(1, attempts)
+
+            fixture.pluginSelected.value = false
+            release.complete(Unit)
+            runCurrent()
+            assertTrue(fixture.queue(false).isEmpty())
+            assertEquals(1, attempts)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun updatingManualAlertDoesNotDuplicateItsLocalActiveState() = runTest {
+        val repo = DataRepository(RuntimeEnvironment.getApplication())
+        val alert = DataRepository.CustomEmergencyAlert(
+            "uid", DataRepository.AlertState.ALERT, "Alert", "Test", 1, false, 1, true,
+        )
+        repo.appendManualAlert(alert)
+        repo.appendManualAlert(alert.copy(enqueuedToBeSent = false))
+        assertEquals(listOf(alert.copy(enqueuedToBeSent = false)), repo.manualAlertList.value)
+    }
+
+    @Test
     fun otherRouteReceivesAlertBeforeSuppressedPluginIsReady() = runTest {
         mockkObject(PluginOnlyDittoHost)
         try {
@@ -437,6 +505,86 @@ class CotDispatchServiceAlertReadinessTest {
                 assertTrue(it.contains("<weartak_location"))
             }
             assertEquals(2, fixture.sent.count { it.contains("type='b-a-o-can'") })
+        }
+    }
+
+    @Test
+    fun clearingOneQueuedManualAlertKeepsOtherActivationQueued() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns false
+            val fixture = Fixture(this)
+            val first = fixture.alert("first")
+            val second = fixture.alert("second")
+            fixture.activeAlerts(false)[first.uuid] = first
+            fixture.activeAlerts(false)[second.uuid] = second
+            fixture.send(false, first)
+            fixture.send(false, second)
+
+            fixture.clear(false, first.uuid)
+
+            val queued = fixture.queue(false).map { it.alert }
+            assertEquals(2, queued.size)
+            assertTrue(queued.any {
+                it.uuid == first.uuid && it.activationId == first.activationId &&
+                    it.alertState == DataRepository.AlertState.CANCEL
+            })
+            assertTrue(queued.any {
+                it.uuid == second.uuid && it.activationId == second.activationId &&
+                    it.alertState == DataRepository.AlertState.ALERT
+            })
+            assertEquals(setOf(second.uuid), fixture.activeAlerts(false).keys)
+            assertTrue(fixture.sent.isEmpty())
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun staleManualCancellationCannotClearReplacementActivation() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns false
+            val fixture = Fixture(this)
+            val previous = fixture.alert("reused")
+            val replacement = fixture.alert("reused")
+            fixture.activeAlerts(false)[replacement.uuid] = replacement
+            fixture.send(false, replacement)
+
+            fixture.clearActivation(previous.uuid, previous.activationId)
+            assertEquals(replacement, fixture.activeAlerts(false)[replacement.uuid])
+            assertEquals(DataRepository.AlertState.ALERT, fixture.queue(false).single().alert.alertState)
+
+            fixture.clearActivation(replacement.uuid, replacement.activationId)
+            assertTrue(fixture.activeAlerts(false).isEmpty())
+            assertEquals(DataRepository.AlertState.CANCEL, fixture.queue(false).single().alert.alertState)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun failedCancellationFencePreservesQueuedManualAlert() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            var pluginOnly = false
+            every { PluginOnlyDittoHost.enabled() } answers { pluginOnly }
+            val fixture = Fixture(this)
+            val alert = fixture.alert("fence-failure")
+            fixture.activeAlerts(false)[alert.uuid] = alert
+            fixture.send(false, alert)
+            val tracker = mockk<TrackedPluginAlert>()
+            every { tracker.cancel(alert.uuid, alert.activationId) } returns false
+            fixture.setTracker(tracker)
+            pluginOnly = true
+
+            fixture.clear(false, alert.uuid)
+
+            assertEquals(alert, fixture.activeAlerts(false)[alert.uuid])
+            assertEquals(DataRepository.AlertState.ALERT, fixture.queue(false).single().alert.alertState)
+            assertTrue(fixture.sent.isEmpty())
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
         }
     }
 
@@ -610,6 +758,8 @@ class CotDispatchServiceAlertReadinessTest {
         val pluginReady = MutableStateFlow(true)
         val verifiedSession = MutableStateFlow<String?>("test-session")
         val automaticAlerts = MutableSharedFlow<DataRepository.PhysioAndAutoGenAlertRequest>()
+        val manualRequests = MutableSharedFlow<DataRepository.ManualAlertRequest>()
+        val manualAlertUpdates = mutableListOf<DataRepository.CustomEmergencyAlert>()
         val takEnabled = MutableStateFlow(true)
         val sent = mutableListOf<String>()
         val pluginDispatches = mutableListOf<String>()
@@ -621,6 +771,7 @@ class CotDispatchServiceAlertReadinessTest {
         val payloads = mutableListOf<CotCompanionPayload.Emergency>()
         val chats = mutableListOf<CotCompanionPayload.Chat>()
         var snapshotLocation: DataRepository.LocationSnapshot? = null
+        var snapshotGate: CompletableDeferred<Unit>? = null
         private val repo = mockk<DataRepository>(relaxed = true)
         private val companion = mockk<CompanionAppRepository>(relaxed = true)
         private val service: CotDispatchService
@@ -648,8 +799,13 @@ class CotDispatchServiceAlertReadinessTest {
             every { companion.companionAppReady } returns companionReady
             every { repo.isCompanionConnected } returns companionReady
             every { repo.addPhysioAndAutoGenAlert } returns automaticAlerts
+            every { repo.addManualAlert } returns manualRequests
+            coEvery { repo.appendManualAlert(any()) } coAnswers {
+                manualAlertUpdates += firstArg<DataRepository.CustomEmergencyAlert>()
+            }
             coEvery { repo.snapshotEmergencyEvent(any()) } coAnswers {
                 yield()
+                snapshotGate?.await()
                 val alert = firstArg<DataRepository.CustomEmergencyAlert>()
                 DataRepository.EmergencyEventSnapshot(
                     alert.uuid, alert.alertState, alert.category, alert.description, alert.priority, false,
@@ -713,6 +869,10 @@ class CotDispatchServiceAlertReadinessTest {
             every { app.pluginManager.connectionFor(TrustedCommunityPlugin.PACKAGE) } returns null
         }
 
+        fun setTracker(tracker: TrackedPluginAlert) {
+            field("trackedPluginAlert\$delegate").set(service, lazyOf(tracker))
+        }
+
         fun enableTrackedPlugin(
             waitForReadiness: Boolean = false,
             preservePreferences: Boolean = false,
@@ -761,6 +921,11 @@ class CotDispatchServiceAlertReadinessTest {
                 .apply { isAccessible = true }.invoke(service)
         }
 
+        fun startManualAlertCollector() {
+            CotDispatchService::class.java.getDeclaredMethod("startAddManualAlertCollector")
+                .apply { isAccessible = true }.invoke(service)
+        }
+
         fun persistedClears(): List<TrackedPluginAlert.PendingClear> {
             val preferences = RuntimeEnvironment.getApplication().getSharedPreferences(
                 "alert-readiness-test", android.content.Context.MODE_PRIVATE
@@ -781,6 +946,14 @@ class CotDispatchServiceAlertReadinessTest {
         suspend fun drain(automatic: Boolean) { call(sendMethod(automatic), null) }
         suspend fun clear(automatic: Boolean, uid: String) {
             call(if (automatic) "handleClearPhysioAndAutoGenAlertUid" else "handleClearManualAlertUid", uid)
+        }
+        suspend fun clearActivation(uid: String, activationId: String) {
+            suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
+                CotDispatchService::class.java.getDeclaredMethod(
+                    "handleClearManualAlertActivation", String::class.java, String::class.java,
+                    kotlin.coroutines.Continuation::class.java,
+                ).apply { isAccessible = true }.invoke(service, uid, activationId, continuation)
+            }
         }
         @Suppress("UNCHECKED_CAST")
         fun activeAlerts(automatic: Boolean) = field(if (automatic) "physioAndAutoGenAlertMap" else "manualAlertMap")

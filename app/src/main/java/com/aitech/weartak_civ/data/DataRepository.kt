@@ -2273,7 +2273,7 @@ class DataRepository(
 
     // Backend-only use
     suspend fun appendManualAlert(item: CustomEmergencyAlert) {
-        _manualAlertList.emit(_manualAlertList.value + item)
+        _manualAlertList.emit(_manualAlertList.value.filterNot { it.uuid == item.uuid } + item)
     }
 
     suspend fun changeManualAlertEnqueueStatusUid(uid: String, enqueuedToBeSent: Boolean) {
@@ -2312,7 +2312,7 @@ class DataRepository(
      *
     */
     sealed interface ClearRequest {
-        data class Specific(val uid: String) : ClearRequest
+        data class Specific(val uid: String, val activationId: String? = null) : ClearRequest
         data object Last : ClearRequest
         data object All : ClearRequest
     }
@@ -2336,8 +2336,8 @@ class DataRepository(
         _addManualAlert.emit(ManualAlertRequest(alertState, category, description, timeMillis))
     }
 
-    suspend fun clearManualAlertRequestUid(uid: String) {
-        _clearManualAlert.emit(ClearRequest.Specific(uid))
+    suspend fun clearManualAlertRequestUid(uid: String, activationId: String? = null) {
+        _clearManualAlert.emit(ClearRequest.Specific(uid, activationId))
         requestInteractionPliRefresh(PliRefreshReason.MANUAL_ALERT_CLEARED)
     }
 
@@ -2626,6 +2626,29 @@ class DataRepository(
     private val markerJournalLock = Any()
     private val _markerJournalRevision = MutableStateFlow(0L)
     internal val markerJournalRevision: StateFlow<Long> = _markerJournalRevision
+    private val markerProjectionRevision = MutableStateFlow(0L)
+    private val automaticMarkerLocationUpdates = mutableSetOf<Long>()
+
+    internal enum class MarkerDropStatus { PENDING, SUBMITTED, UNCERTAIN, SUPERSEDED }
+
+    internal fun markerDropStatus(uid: String) = markerProjectionRevision.map {
+        synchronized(markerJournalLock) {
+            val entries = markerIntentJournal.read().intents.filter { it.uid == uid }
+            val first = entries.firstOrNull()
+            when {
+                first == null || first.marker?.cotType != MarkerCotType.DROP ||
+                    entries.drop(1).any { it.sequence !in automaticMarkerLocationUpdates } -> MarkerDropStatus.SUPERSEDED
+                first.phase == MarkerIntentJournal.Phase.UNCERTAIN -> MarkerDropStatus.UNCERTAIN
+                first.phase != MarkerIntentJournal.Phase.ACKNOWLEDGED -> MarkerDropStatus.PENDING
+                first.outcome == MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED ||
+                    first.outcome == MarkerIntentJournal.Outcome.NATIVE_COMMITTED ||
+                    (first.outcome == MarkerIntentJournal.Outcome.LOCAL_ONLY &&
+                        first.otherRoutes == MarkerIntentJournal.OtherRoutes.OFFERED) -> MarkerDropStatus.SUBMITTED
+                else -> MarkerDropStatus.UNCERTAIN
+            }
+        }
+    }.distinctUntilChanged()
+
     private fun journalMarkers(state: MarkerIntentJournal.State): List<DroppedMarker> =
         state.intents.groupBy { it.uid }.values.mapNotNull { entries ->
             val last = entries.last()
@@ -2641,23 +2664,28 @@ class DataRepository(
 
     internal fun refreshJournalMarkerProjection() = synchronized(markerJournalLock) {
         val state = markerIntentJournal.read()
+        automaticMarkerLocationUpdates.retainAll(state.intents.map { it.sequence }.toSet())
         _droppedMarkerList.value = _droppedMarkerList.value.filterNot { state.effective.containsKey(it.uid) } +
             journalMarkers(state)
+        markerProjectionRevision.value += 1
     }
 
     private fun publishMarkerIntent(intent: MarkerIntentJournal.Intent) {
         _droppedMarkerList.value = _droppedMarkerList.value.filterNot { it.uid == intent.uid } +
             listOfNotNull(intent.marker)
         _markerJournalRevision.value += 1
+        markerProjectionRevision.value += 1
     }
 
     private fun updateJournalMarker(
         uid: String,
         refreshSelf: Boolean = false,
+        automaticLocationUpdate: Boolean = false,
         transform: (DroppedMarker) -> DroppedMarker?,
     ): Boolean = synchronized(markerJournalLock) {
         val fallback = _droppedMarkerList.value.firstOrNull { it.uid == uid }
         val intent = markerIntentJournal.update(uid, fallback, refreshSelf, transform) ?: return@synchronized false
+        if (automaticLocationUpdate) automaticMarkerLocationUpdates.add(intent.sequence)
         publishMarkerIntent(intent)
         true
     }
@@ -3307,7 +3335,7 @@ class DataRepository(
     }
 
     internal fun admitMarkerLocation(uid: String, loc: LocationSnapshot?): Boolean =
-        updateJournalMarker(uid) { marker ->
+        updateJournalMarker(uid, automaticLocationUpdate = true) { marker ->
             marker.copy(cotType = MarkerCotType.EDIT, location = loc,
                 enqueuedToBeSent = true, waitingForUpdatedLocation = loc == null)
         }

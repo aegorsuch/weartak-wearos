@@ -12,7 +12,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsPropertiesAndroid
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.lifecycle.MutableLiveData
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.presentation.theme.WearTAKCIVTheme
 import org.junit.Assert.*
@@ -143,11 +142,10 @@ class AccessibilitySemanticsTest {
     fun sosConfirmationCancelNeverDispatchesAndConfirmDispatchesOnlyInjectedCallback() {
         val show = mutableStateOf(true)
         val confirmed = mutableStateOf(false)
-        val alerting = MutableLiveData(false)
         var dispatches = 0
         compose.setContent {
             WearTAKCIVTheme {
-                ConfirmationAlertPage(show, confirmed, alerting, { dispatches++ }, {})
+                ConfirmationAlertPage(show, confirmed, false, "", { dispatches++ }, {})
             }
         }
         compose.onNodeWithTag("sos_confirmation").assert(
@@ -164,6 +162,26 @@ class AccessibilitySemanticsTest {
             assertTrue(confirmed.value)
             assertEquals(1, dispatches)
         }
+    }
+
+    @Test
+    fun sosActiveAlertOffersCancellationWithoutClaimingDelivery() {
+        val show = mutableStateOf(true)
+        val confirmed = mutableStateOf(false)
+        var clears = 0
+        compose.setContent {
+            WearTAKCIVTheme {
+                if (confirmed.value) {
+                    SuccessDialogActivity(true)
+                } else {
+                    ConfirmationAlertPage(show, confirmed, true, "Test alert", { clears++ }, {})
+                }
+            }
+        }
+        compose.onNodeWithText("Cancel Alert: Test alert?").assertExists()
+        compose.onNodeWithTag("sos_confirm").performClick()
+        compose.runOnIdle { assertEquals(1, clears) }
+        compose.onNodeWithText("Requesting cancellation. Delivery is not confirmed.").assertExists()
     }
 
     @Test

@@ -4,11 +4,18 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import com.aitech.weartak_civ.presentation.MainActivity
+import com.aitech.weartak_civ.presentation.currentMarkerDropStatus
+import com.aitech.weartak_civ.presentation.observeMarkerDropFeedback
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -61,6 +68,210 @@ class MarkerJournalRepositoryTest {
         )
         assertEquals(listOf("<event time='1'/>", "<event time='1'/>"), seen)
         assertEquals(MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED, repo.markerIntentJournal.read().intents.single().outcome)
+    }
+
+    @Test fun pluginSubmissionUpdatesProjectionButUncertainSubmissionStaysPending() = runBlocking {
+        val prefs = preferences()
+        val repo = repository(prefs)
+        assertTrue(repo.requestMarkerDrop("friendly", "accepted", "", 1, 1.0, 2.0, "accepted"))
+        assertTrue(repo.requestMarkerDrop("friendly", "uncertain", "", 2, 1.0, 2.0, "uncertain"))
+        MarkerIntentConsumer(repo.markerIntentJournal).drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { intent, _ ->
+                if (intent.uid == "accepted") MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED else null
+            },
+            onError = { throw it },
+        )
+        repo.refreshJournalMarkerProjection()
+        val markers = repo.droppedMarkerList.value.associateBy { it.uid }
+        assertFalse(markers.getValue("accepted").enqueuedToBeSent)
+        assertTrue(markers.getValue("uncertain").enqueuedToBeSent)
+        assertEquals(MarkerIntentJournal.Phase.UNCERTAIN,
+            repo.markerIntentJournal.read().intents.single { it.uid == "uncertain" }.phase)
+        assertTrue(repository(prefs).droppedMarkerList.value.single { it.uid == "uncertain" }.enqueuedToBeSent)
+        var retries = 0
+        MarkerIntentConsumer(repo.markerIntentJournal).drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { _, _ -> retries++; MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED },
+            onError = { throw it },
+        )
+        assertEquals(0, retries)
+    }
+
+    @Test fun olderPluginSubmissionDoesNotClearNewerMarkerEdit() = runBlocking {
+        val repo = repository(preferences())
+        assertTrue(repo.requestMarkerDrop("friendly", "original", "", 1, 1.0, 2.0, "uid"))
+        MarkerIntentConsumer(repo.markerIntentJournal).drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { intent, _ ->
+                if (intent.marker?.title == "original") {
+                    assertTrue(repo.requestChangeMarkerTitle("uid", "newer"))
+                    MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED
+                } else {
+                    MarkerIntentJournal.Outcome.RETRY_LATER
+                }
+            },
+            onError = { throw it },
+        )
+        repo.refreshJournalMarkerProjection()
+        val marker = repo.droppedMarkerList.value.single()
+        assertEquals("newer", marker.title)
+        assertTrue(marker.enqueuedToBeSent)
+    }
+
+    @Test fun dropFeedbackWaitsForSubmissionAndDoesNotRepeatPending() = runBlocking {
+        val repo = repository(preferences())
+        assertTrue(repo.requestMarkerDrop("friendly", "point", "", 1, 1.0, 2.0, "uid"))
+        val seen = mutableListOf<DataRepository.MarkerDropStatus>()
+        val feedback = async(start = CoroutineStart.UNDISPATCHED) {
+            observeMarkerDropFeedback(repo.markerDropStatus("uid")) { seen += it }
+        }
+        val consumer = MarkerIntentConsumer(repo.markerIntentJournal)
+        consumer.drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { _, _ -> MarkerIntentJournal.Outcome.RETRY_LATER },
+            onTransition = repo::refreshJournalMarkerProjection,
+            onError = { throw it },
+        )
+        yield()
+        assertEquals(listOf(DataRepository.MarkerDropStatus.PENDING), seen)
+        consumer.drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { _, _ -> MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED },
+            onTransition = repo::refreshJournalMarkerProjection,
+            onError = { throw it },
+        )
+        feedback.await()
+        assertEquals(listOf(DataRepository.MarkerDropStatus.PENDING, DataRepository.MarkerDropStatus.SUBMITTED), seen)
+    }
+
+    @Test fun uncertainDropShowsUnknownAndNeverSuccess() = runBlocking {
+        val repo = repository(preferences())
+        assertTrue(repo.requestMarkerDrop("friendly", "point", "", 1, 1.0, 2.0, "uid"))
+        val seen = mutableListOf<DataRepository.MarkerDropStatus>()
+        val feedback = async(start = CoroutineStart.UNDISPATCHED) {
+            observeMarkerDropFeedback(repo.markerDropStatus("uid")) { seen += it }
+        }
+        MarkerIntentConsumer(repo.markerIntentJournal).drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { _, _ -> null },
+            onTransition = repo::refreshJournalMarkerProjection,
+            onError = { throw it },
+        )
+        feedback.await()
+        assertEquals(listOf(DataRepository.MarkerDropStatus.PENDING, DataRepository.MarkerDropStatus.UNCERTAIN), seen)
+    }
+
+    @Test fun alreadySubmittedDropShowsOnlySuccess() = runBlocking {
+        val seen = mutableListOf<DataRepository.MarkerDropStatus>()
+        observeMarkerDropFeedback(flowOf(DataRepository.MarkerDropStatus.SUBMITTED)) { seen += it }
+        assertEquals(listOf(DataRepository.MarkerDropStatus.SUBMITTED), seen)
+    }
+
+    @Test fun newerDropSuppressesOlderOperationFeedback() = runBlocking {
+        val repo = repository(preferences())
+        assertTrue(repo.requestMarkerDrop("friendly", "point", "", 1, 1.0, 2.0, "old"))
+        val current = MutableStateFlow<String?>("old")
+        val seen = mutableListOf<DataRepository.MarkerDropStatus>()
+        val pendingShown = CompletableDeferred<Unit>()
+        val feedback = async {
+            observeMarkerDropFeedback(currentMarkerDropStatus("old", repo.markerDropStatus("old"), current)) {
+                seen += it
+                if (it == DataRepository.MarkerDropStatus.PENDING) pendingShown.complete(Unit)
+            }
+        }
+        pendingShown.await()
+        assertEquals(listOf(DataRepository.MarkerDropStatus.PENDING), seen)
+        current.value = "new"
+        feedback.await()
+        MarkerIntentConsumer(repo.markerIntentJournal).drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { _, _ -> MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED },
+            onTransition = repo::refreshJournalMarkerProjection,
+            onError = { throw it },
+        )
+        assertEquals(listOf(DataRepository.MarkerDropStatus.PENDING, DataRepository.MarkerDropStatus.SUPERSEDED), seen)
+    }
+
+    @Test fun olderDropResultCannotReportSuccessAfterEditOrDeletion() = runBlocking {
+        for (delete in listOf(false, true)) {
+            val repo = repository(preferences())
+            assertTrue(repo.requestMarkerDrop("friendly", "point", "", 1, 1.0, 2.0, "uid"))
+            val seen = mutableListOf<DataRepository.MarkerDropStatus>()
+            val feedback = async(start = CoroutineStart.UNDISPATCHED) {
+                observeMarkerDropFeedback(repo.markerDropStatus("uid")) { seen += it }
+            }
+            MarkerIntentConsumer(repo.markerIntentJournal).drain(
+                prepare = { _, _ -> "<event/>" },
+                payload = { it },
+                execute = { intent, _ ->
+                    if (intent.marker?.cotType == DataRepository.MarkerCotType.DROP) {
+                        if (delete) assertTrue(repo.requestClearSpecific("uid"))
+                        else assertTrue(repo.requestChangeMarkerTitle("uid", "edited"))
+                        MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED
+                    } else MarkerIntentJournal.Outcome.RETRY_LATER
+                },
+                onTransition = repo::refreshJournalMarkerProjection,
+                onError = { throw it },
+            )
+            feedback.await()
+            assertEquals(listOf(DataRepository.MarkerDropStatus.PENDING, DataRepository.MarkerDropStatus.SUPERSEDED), seen)
+            assertEquals(DataRepository.MarkerDropStatus.SUPERSEDED, repo.markerDropStatus("uid").first())
+        }
+    }
+
+    @Test fun automaticLocationRefreshDoesNotSuppressOriginalDropSuccess() = runBlocking {
+        val repo = repository(preferences())
+        assertTrue(repo.requestMarkerDrop("friendly", "point", "", 1, 1.0, 2.0, "uid"))
+        MarkerIntentConsumer(repo.markerIntentJournal).drain(
+            prepare = { _, _ -> "<event/>" },
+            payload = { it },
+            execute = { intent, _ ->
+                if (intent.marker?.cotType == DataRepository.MarkerCotType.DROP) {
+                    assertTrue(repo.admitMarkerLocation("uid",
+                        DataRepository.LocationSnapshot(2, 1.1, 2.1, null, null, null, null, null)))
+                    MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED
+                } else MarkerIntentJournal.Outcome.RETRY_LATER
+            },
+            onTransition = repo::refreshJournalMarkerProjection,
+            onError = { throw it },
+        )
+        assertEquals(DataRepository.MarkerDropStatus.SUBMITTED, repo.markerDropStatus("uid").first())
+    }
+
+    @Test fun completedPointFeedbackIsNotDelayedByAnotherPendingSubmission() = runBlocking {
+        val repo = repository(preferences())
+        assertTrue(repo.requestMarkerDrop("friendly", "first", "", 1, 1.0, 2.0, "first"))
+        assertTrue(repo.requestMarkerDrop("friendly", "second", "", 2, 1.0, 2.0, "second"))
+        val seen = mutableListOf<DataRepository.MarkerDropStatus>()
+        val feedback = async(start = CoroutineStart.UNDISPATCHED) {
+            observeMarkerDropFeedback(repo.markerDropStatus("first")) { seen += it }
+        }
+        val wait = CompletableDeferred<Unit>()
+        val drain = async {
+            MarkerIntentConsumer(repo.markerIntentJournal).drain(
+                prepare = { _, _ -> "<event/>" },
+                payload = { it },
+                execute = { intent, _ ->
+                    if (intent.uid == "second") wait.await()
+                    MarkerIntentJournal.Outcome.PLUGIN_SUBMITTED
+                },
+                onTransition = repo::refreshJournalMarkerProjection,
+                onError = { throw it },
+            )
+        }
+        feedback.await()
+        assertEquals(DataRepository.MarkerDropStatus.SUBMITTED, seen.last())
+        assertFalse(drain.isCompleted)
+        wait.complete(Unit)
+        drain.await()
     }
 
     init {
