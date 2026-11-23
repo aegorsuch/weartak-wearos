@@ -64,7 +64,7 @@ internal class HostCommunityIdentityControl(
 
 internal object TrustedCommunityPlugin {
     const val PACKAGE = "com.weartak.plugin.ditto"
-    const val GATE_VERSION_NAME = "5.8.4-p62+b5ab0265"
+    const val GATE_VERSION_NAME = "5.8.4-p71+e06256e0"
     private val releaseDigest = "1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
         .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
@@ -122,5 +122,5 @@ internal object TrustedCommunityPlugin {
         uid: Int, packages: Set<String>, packageUid: Int?, digests: List<ByteArray>,
         versionCode: Long, versionName: String?,
     ): Boolean = matches(uid, packages, packageUid, digests) &&
-        versionCode == 5840062L && versionName == GATE_VERSION_NAME
+        versionCode == 5840071L && versionName == GATE_VERSION_NAME
 }
