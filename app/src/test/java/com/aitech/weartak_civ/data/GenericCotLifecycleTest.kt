@@ -58,7 +58,10 @@ class GenericCotLifecycleTest {
         )
         val file = java.io.File.createTempFile("point-test-", ".cot", RuntimeEnvironment.getApplication().cacheDir)
         var inputXml = xml
-        val host = HostPointEndpointV1(42, { true }, { it == "session" }, repo, bloodhounds, { 42 }) { _, _ -> inputXml }
+        val host = HostPointEndpointV1(
+            42, { true }, { it == "session" }, repo, bloodhounds, { 42 },
+            payloadReader = { _, _ -> inputXml },
+        )
         val plugin = object : IPointEndpointV1.Stub() {
             override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
                 PointResultV1(PointContractV1.RETRYABLE)
@@ -211,9 +214,10 @@ class GenericCotLifecycleTest {
             authorCallsign = null, payloadKind = PointContractV1.PAYLOAD_COT_UTF8, payloadLength = bytes.size,
         )
         val file = java.io.File.createTempFile("point-test-", ".cot", RuntimeEnvironment.getApplication().cacheDir)
-        val host = HostPointEndpointV1(42, { true }, { it == "session" }, repo, bloodhounds, { 42 }) { _, _ ->
-            file.readText(Charsets.UTF_8)
-        }
+        val host = HostPointEndpointV1(
+            42, { true }, { it == "session" }, repo, bloodhounds, { 42 },
+            payloadReader = { _, _ -> file.readText(Charsets.UTF_8) },
+        )
 
         val plugin = object : IPointEndpointV1.Stub() {
             override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
@@ -248,11 +252,14 @@ class GenericCotLifecycleTest {
             override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
                 PointResultV1(PointContractV1.RETRYABLE)
         }
-        val old = HostPointEndpointV1(42, { true }, { it == "old" }, repo, bloodhounds, { 42 }) { _, _ ->
-            entered.countDown()
-            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
-            xml
-        }
+        val old = HostPointEndpointV1(
+            42, { true }, { it == "old" }, repo, bloodhounds, { 42 },
+            payloadReader = { _, _ ->
+                entered.countDown()
+                check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                xml
+            },
+        )
         val replacement = HostPointEndpointV1(42, { true }, { it == "new" }, repo, bloodhounds, { 42 })
         val file = java.io.File.createTempFile("point-test-", ".cot", RuntimeEnvironment.getApplication().cacheDir)
         var oldResult: Int? = null
