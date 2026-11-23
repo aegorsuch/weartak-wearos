@@ -147,6 +147,7 @@ import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.ImportedMapShapeRecord
 import com.aitech.weartak_civ.data.observePassiveSaDemand
 import com.aitech.weartak_civ.data.RemoteEmergencyMapItem
+import com.aitech.weartak_civ.data.StaleItemPolicy
 import androidx.compose.ui.res.stringResource
 import com.aitech.weartak_civ.data.DataRepository.MarkerType
 import com.aitech.weartak_civ.events.PliRefreshReason
@@ -504,6 +505,7 @@ fun rememberMarkerFeatures(markers: List<MapMarkerItem>) =
                             "title" to JsonPrimitive(m.mapLabel ?: m.title.ifBlank { markerTextFromString(m.markerType) }.ellipsizeMarkerTitle()),
                             "markerType" to JsonPrimitive(m.markerType),
                             "enQueuedToBeSent" to JsonPrimitive(m.enQueuedToBeSent),
+                            "stale" to JsonPrimitive(m.stale),
                             "cotType" to JsonPrimitive(m.cotType.name),
                             "sourceServerId" to JsonPrimitive(m.sourceServerId ?: "unattributed"))
                     )
@@ -536,7 +538,9 @@ data class MapMarkerItem(
     val mapLabel: String? = null,
     val selectionKey: String? = null,
     val hae: Double? = null,
-    val le: Double? = null
+    val le: Double? = null,
+    /** Past its CoT stale time: drawn dimmed, as ATAK does, until the repository removes it. */
+    val stale: Boolean = false
 )
 
 // Selects the gray icon used for cleared markers
@@ -594,6 +598,7 @@ internal fun MarkersOnMap(
                     fallback = image(iconRes)
                 ),
             iconOpacity = switch(
+                condition(get("stale").asBoolean(), const(STALE_ICON_OPACITY)),
                 condition(
                     get("enQueuedToBeSent").asBoolean(),
                     const(.5F)
@@ -797,6 +802,7 @@ fun rememberOtherUsersFeatures(users: List<MapUserItem>) =
                             "title" to JsonPrimitive(m.mapLabel ?: m.title),
                             "type" to JsonPrimitive(m.type),
                             "team" to JsonPrimitive(m.team),
+                            "stale" to JsonPrimitive(m.stale),
                             "sourceServerId" to JsonPrimitive(m.sourceServerId ?: "unattributed")),
                     )
                 )
@@ -817,7 +823,9 @@ data class MapUserItem(
     val mapLabel: String? = null,
     val selectionKey: String? = null,
     val hae: Double? = null,
-    val le: Double? = null
+    val le: Double? = null,
+    /** Past its CoT stale time: drawn dimmed, as ATAK does, until the repository removes it. */
+    val stale: Boolean = false
 )
 
 internal fun mapUserMatchesFilters(
@@ -886,6 +894,10 @@ fun UsersOnMap(
                 condition(eq(get("team").asString(), const("Brown"), c), image(painterResource(R.drawable.user_brown))),
                 fallback = image(painterResource(R.drawable.user_orange)),
             ),
+            iconOpacity = switch(
+                condition(get("stale").asBoolean(), const(STALE_ICON_OPACITY)),
+                fallback = const(1F)
+            ),
             iconAllowOverlap = const(true),
             iconIgnorePlacement = const(true),
             iconHaloColor = const(Color.Black),
@@ -906,13 +918,19 @@ fun UsersOnMap(
             },
             textSize = const(0.6.em),
             textAnchor = const(SymbolAnchor.Bottom),
-            textColor = const(Color.White),
+            textColor = switch(
+                condition(get("stale").asBoolean(), const(Color.Gray)),
+                fallback = const(Color.White)
+            ),
             textHaloColor = const(Color.Black),
             textHaloWidth =const(2.dp),
             textOffset = offset(0f.em, (-1f).em),
         )
     }
 }
+
+// Opacity of a contact or marker past its stale time
+private const val STALE_ICON_OPACITY = 0.4F
 
 // Converts a team color name into the matching Compose color
 fun TeamColors(team: String) : Color {
@@ -2320,6 +2338,21 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     val receivedUserListSetting by dataRepository
         .receivedUserList
         .collectAsStateWithLifecycle(initialValue = emptyList())
+
+    // Advances when the next received contact or marker reaches its stale time, so it is redrawn dimmed
+    val staleClock by produceState(
+        System.currentTimeMillis(), receivedUserListSetting, receivedMarkerListSetting
+    ) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            value = now
+            val next = (receivedUserListSetting.asSequence().map { it.staleTime } +
+                receivedMarkerListSetting.asSequence().map { it.staleTime })
+                .filter { it > now }
+                .minOrNull() ?: break
+            delay(next - now)
+        }
+    }
     val selectRoutePoint: (String, String, Int) -> Unit = { serverId, routeUid, index ->
         val point = findRoutePoint(takRoutes, serverId, routeUid, index)
         if (point != null) {
@@ -2372,7 +2405,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     }
 
     // Convert received markers and skip markers without a location
-    val receivedMapMarkers = remember(receivedMarkerListSetting) {
+    val receivedMapMarkers = remember(receivedMarkerListSetting, staleClock) {
         Log.i(
             TAG,
             "Map render marker snapshot count=${receivedMarkerListSetting.size} " +
@@ -2411,8 +2444,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         circleRadiusMeters = marker.circleRadiusMeters,
                         mapShape = marker.mapShape,
                         hae = location.hae,
-                        le = location.le?.toDouble()
-
+                        le = location.le?.toDouble(),
+                        stale = StaleItemPolicy.isStale(marker.staleTime, staleClock)
                     )
                 }
             )
@@ -2462,7 +2495,7 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     }
 
     // Convert connected users while excluding contacts already rendered as ATOS
-    val receivedMapUsers = remember(receivedUserListSetting, renderedAtosUids) {
+    val receivedMapUsers = remember(receivedUserListSetting, renderedAtosUids, staleClock) {
         Log.i(
             TAG,
             "Map render user snapshot count=${receivedUserListSetting.size} " +
@@ -2506,7 +2539,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                         role = user.role,
                         sourceServerId = user.sourceServerId,
                         hae = location.hae,
-                        le = location.le?.toDouble()
+                        le = location.le?.toDouble(),
+                        stale = StaleItemPolicy.isStale(user.staleTime, staleClock)
                     )
                 }
             )
