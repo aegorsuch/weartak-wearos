@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">معلّق</string>
     <string name="network_preferences_checklist">قائمة التحقق من تفضيلات الشبكة</string>
     <string name="network_plugin_forwarding">إعادة توجيه CoT الصادر</string>
+    <string name="ditto_network_off_unconfirmed">تم حظر حركة مرور المضيف الجديدة؛ قد يستمر العمل السابق أو اتصال الإضافة</string>
+    <string name="ditto_network_policy_pending">السياسة غير محسومة؛ تم إيقاف حركة مرور المضيف الجديدة مؤقتًا</string>
     <string name="network_preferences_checklist_save_failed">تعذّر حفظ قائمة التحقق من تفضيلات الشبكة</string>
     <string name="open_transport_settings">فتح إعدادات %1$s</string>
     <string name="invalid_managed_network_configuration">إعداد الشبكة المُدار غير صالح. لم تُطبّق الإعدادات. اتصل بالمسؤول.</string>

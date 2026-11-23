@@ -37,6 +37,7 @@ internal class HostPointEndpointV1(
     private val bloodhounds: BloodhoundRepository,
     private val callingUid: () -> Int = Binder::getCallingUid,
     private val payloadReader: ((ParcelFileDescriptor, Int) -> String)? = null,
+    private val trafficAdmission: (() -> AutoCloseable?)? = null,
 ) : IPointHostV1.Stub() {
     private val closed = AtomicBoolean(false)
     private val gate = ReentrantReadWriteLock()
@@ -92,7 +93,9 @@ internal class HostPointEndpointV1(
     }
 
     override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?): PointResultV1 {
+        val admission = trafficAdmission?.invoke()
         try {
+            if (trafficAdmission != null && admission == null) return result(Contract.RETRYABLE)
             val uid = callingUid()
             if (uid != expectedUid || !authorized()) return result(Contract.REJECTED)
             if (sessionId == null || operation == null ||
@@ -190,6 +193,7 @@ internal class HostPointEndpointV1(
                 read.unlock()
             }
         } finally {
+            admission?.close()
             payload?.close()
         }
     }

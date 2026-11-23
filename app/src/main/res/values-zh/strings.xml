@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">已抑制</string>
     <string name="network_preferences_checklist">网络偏好设置检查清单</string>
     <string name="network_plugin_forwarding">转发出站 CoT</string>
+    <string name="ditto_network_off_unconfirmed">已阻止新的主机流量；现有任务或插件网络可能继续运行</string>
+    <string name="ditto_network_policy_pending">策略尚未确定；新主机流量暂缓</string>
     <string name="network_preferences_checklist_save_failed">无法保存网络偏好设置检查清单</string>
     <string name="open_transport_settings">打开 %1$s 设置</string>
     <string name="invalid_managed_network_configuration">托管网络配置无效。未应用设置。请联系管理员。</string>

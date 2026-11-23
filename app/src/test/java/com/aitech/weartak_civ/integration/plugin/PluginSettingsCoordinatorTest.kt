@@ -346,6 +346,42 @@ class PluginSettingsCoordinatorTest {
     }
 
     @Test
+    fun legacyDittoNetworkPolicyUsesSavedForwardingChoiceAndFailsClosedOnUnreadableValues() {
+        val id = TrustedCommunityPlugin.PACKAGE
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        fun plugin(enabled: Boolean) = FakeWearTakPlugin(id).apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, enabled) })
+        }
+
+        coordinator.onPluginConnected(id, plugin(false))
+        assertEquals(false, coordinator.legacyDittoNetworkEnabled())
+
+        coordinator.unregisterPlugin(id)
+        coordinator.onPluginConnected(id, plugin(true))
+        assertEquals(true, coordinator.legacyDittoNetworkEnabled())
+
+        coordinator.unregisterPlugin(id)
+        coordinator.onPluginConnected(id, FakeWearTakPlugin(id))
+        assertEquals(null, coordinator.legacyDittoNetworkEnabled())
+
+        coordinator.unregisterPlugin(id)
+        val unreadable = object : FakeWearTakPlugin(id) {
+            override fun getSettingsValues(): Bundle = error("Settings unavailable")
+        }.apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+        }
+        coordinator.onPluginConnected(id, unreadable)
+        assertEquals(null, coordinator.legacyDittoNetworkEnabled())
+    }
+
+    @Test
     fun outboundCotReadinessTracksOptInAndDisconnect() {
         val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
         fakePlugin.setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
@@ -365,6 +401,31 @@ class PluginSettingsCoordinatorTest {
         coordinator.unregisterPlugin("com.plugin.settings")
         assertFalse(coordinator.anyPluginHasSettingEnabled(field))
         assertFalse(coordinator.outboundCotAvailable.value)
+    }
+
+    @Test
+    fun disabledDittoNetworkFencesOutboundWithoutChangingSavedForwardingChoice() {
+        val id = TrustedCommunityPlugin.PACKAGE
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        val plugin = FakeWearTakPlugin(id).apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, true) })
+        }
+        coordinator.onPluginConnected(id, plugin)
+        coordinator.networkEnabledForPlugin = { false }
+        coordinator.refreshOutboundCotAvailability()
+
+        assertTrue(coordinator.pluginHasSettingEnabled(id, field))
+        assertFalse(coordinator.anyPluginHasSettingEnabled(field))
+        assertFalse(coordinator.outboundCotAvailable.value)
+
+        coordinator.networkEnabledForPlugin = { true }
+        coordinator.refreshOutboundCotAvailability()
+        assertTrue(coordinator.pluginHasSettingEnabled(id, field))
+        assertTrue(coordinator.outboundCotAvailable.value)
     }
 
     @Test

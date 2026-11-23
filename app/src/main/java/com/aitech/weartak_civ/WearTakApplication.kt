@@ -194,7 +194,10 @@ class WearTakApplication : Application() {
                 com.aitech.weartak_civ.service.TAKConnectService.onOpenVpnProviderChanged()
             }
         pluginIngress = PluginIngressPort(this)
-        pluginManager = PluginManager(this, pluginIngress, pluginStateStore = pluginStateStore)
+        pluginManager = PluginManager(
+            this, pluginIngress, pluginStateStore = pluginStateStore,
+            dittoNetworkPolicyRepository = repo,
+        )
         pluginRepository = HostPluginRepository(this, pluginManager, pluginStateStore)
         diagnostics.bindConnectivity(repo, pluginManager.settingsCoordinator)
         registerPluginPackageReceiver()

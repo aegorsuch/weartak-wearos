@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">억제됨</string>
     <string name="network_preferences_checklist">네트워크 환경설정 체크리스트</string>
     <string name="network_plugin_forwarding">발신 CoT 전달</string>
+    <string name="ditto_network_off_unconfirmed">새 호스트 트래픽 차단됨; 진행 중 작업이나 플러그인 네트워크는 계속될 수 있음</string>
+    <string name="ditto_network_policy_pending">정책 미확정; 새 호스트 트래픽 보류 중</string>
     <string name="network_preferences_checklist_save_failed">네트워크 환경설정 체크리스트를 저장하지 못했습니다</string>
     <string name="open_transport_settings">%1$s 설정 열기</string>
     <string name="invalid_managed_network_configuration">관리형 네트워크 구성이 잘못되었습니다. 설정을 적용하지 않았습니다. 관리자에게 문의하세요.</string>

@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.aitech.weartak_civ.cot.*
 import com.aitech.weartak_civ.integration.plugin.HostPointEndpointV1
+import com.aitech.weartak_civ.integration.plugin.DittoTrafficFence
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.weartak.plugin.sdk.point.v1.IPointEndpointV1
 import com.weartak.plugin.sdk.point.v1.PointContractV1
@@ -114,6 +115,35 @@ class GenericCotLifecycleTest {
         verify(exactly = 0) { bloodhounds.removeMarkerCopy(any(), any(), any(), any()) }
         assertEquals(PointContractV1.LOCAL_PROCESSED, host.apply("session", deletion, null).code)
         assertTrue(host.closeAndDrain(1000))
+    }
+
+    @Test fun disabledAndStaleTrafficGenerationRejectsPointIngress() {
+        val fence = DittoTrafficFence(initiallyEnabled = true)
+        val generation = requireNotNull(fence.currentGeneration())
+        val host = HostPointEndpointV1(
+            42, { true }, { it == "session" }, repo, bloodhounds, { 42 },
+            trafficAdmission = { fence.enter(generation) },
+        )
+        val plugin = object : IPointEndpointV1.Stub() {
+            override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
+                PointResultV1(PointContractV1.RETRYABLE)
+        }
+        val deletion = PointOperationV1(
+            direction = PointContractV1.PLUGIN_TO_HOST, kind = PointContractV1.DELETE,
+            operationId = "network-disabled-delete", peer = "peer", owner = "remote",
+            pointUid = "remote-point", revision = "a".repeat(64), eventTimeMillis = now,
+            deletedAtMillis = now, authorCallsign = null,
+            payloadKind = PointContractV1.PAYLOAD_NONE, payloadLength = 0,
+        )
+        try {
+            assertEquals(PointContractV1.REGISTERED, host.register("session", plugin))
+            fence.disable()
+            assertEquals(PointContractV1.RETRYABLE, host.apply("session", deletion, null).code)
+            assertNotNull(fence.enable())
+            assertEquals(PointContractV1.RETRYABLE, host.apply("session", deletion, null).code)
+        } finally {
+            assertTrue(host.closeAndDrain(1000))
+        }
     }
 
     @Test fun pointRegistrationCanReplaceOnlyAnInactiveSession() {

@@ -13,11 +13,25 @@ import java.util.concurrent.RejectedExecutionException
  */
 internal object PluginLifecycleWork {
     private val packages = ConcurrentHashMap.newKeySet<String>()
+    private val cleanupLock = Any()
+    private val pendingCleanup = mutableMapOf<String, MutableSet<Any>>()
     private val workers = ThreadPoolExecutor(0, 4, 30, TimeUnit.SECONDS, SynchronousQueue(), { task ->
         Thread(task, "WearTAK-PluginLifecycle").apply { isDaemon = true }
     })
 
-    fun isBusy(packageName: String): Boolean = packageName in packages
+    fun isBusy(packageName: String): Boolean =
+        packageName in packages || synchronized(cleanupLock) { !pendingCleanup[packageName].isNullOrEmpty() }
+
+    fun reserveCleanup(packageName: String): Any = synchronized(cleanupLock) {
+        Any().also { pendingCleanup.getOrPut(packageName) { mutableSetOf() }.add(it) }
+    }
+
+    fun finishCleanup(packageName: String, reservation: Any) = synchronized(cleanupLock) {
+        pendingCleanup[packageName]?.let { pending ->
+            pending.remove(reservation)
+            if (pending.isEmpty()) pendingCleanup.remove(packageName)
+        }
+    }
 
     fun execute(packageName: String, work: () -> Unit): Boolean {
         if (!packages.add(packageName)) return false

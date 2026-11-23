@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">Bị tạm chặn</string>
     <string name="network_preferences_checklist">Danh sách kiểm tra tùy chọn mạng</string>
     <string name="network_plugin_forwarding">Chuyển tiếp CoT gửi đi</string>
+    <string name="ditto_network_off_unconfirmed">Đã chặn lưu lượng máy chủ mới; tác vụ cũ hoặc mạng plugin có thể tiếp tục</string>
+    <string name="ditto_network_policy_pending">Chưa xác định chính sách; lưu lượng máy chủ mới đang bị giữ lại</string>
     <string name="network_preferences_checklist_save_failed">Không thể lưu danh sách kiểm tra tùy chọn mạng</string>
     <string name="open_transport_settings">Mở cài đặt %1$s</string>
     <string name="invalid_managed_network_configuration">Cấu hình mạng được quản lý không hợp lệ. Chưa áp dụng cài đặt. Hãy liên hệ quản trị viên.</string>

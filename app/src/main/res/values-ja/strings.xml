@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">抑制中</string>
     <string name="network_preferences_checklist">ネットワーク設定チェックリスト</string>
     <string name="network_plugin_forwarding">送信CoTを転送</string>
+    <string name="ditto_network_off_unconfirmed">新規ホスト通信を遮断。処理中の通信やプラグイン通信は継続する可能性あり</string>
+    <string name="ditto_network_policy_pending">ポリシー未確定。新しいホスト通信は保留中</string>
     <string name="network_preferences_checklist_save_failed">ネットワーク設定チェックリストを保存できませんでした</string>
     <string name="open_transport_settings">%1$sの設定を開く</string>
     <string name="invalid_managed_network_configuration">管理対象ネットワークの構成が無効です。設定は適用されませんでした。管理者にお問い合わせください。</string>

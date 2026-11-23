@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">Suprimido</string>
     <string name="network_preferences_checklist">Lista de preferencias de red</string>
     <string name="network_plugin_forwarding">Reenviar CoT saliente</string>
+    <string name="ditto_network_off_unconfirmed">Nuevo tráfico del host bloqueado; el trabajo previo o la red del complemento pueden continuar</string>
+    <string name="ditto_network_policy_pending">Política sin resolver; el nuevo tráfico del host queda bloqueado</string>
     <string name="network_preferences_checklist_save_failed">No se pudo guardar la lista de preferencias de red</string>
     <string name="open_transport_settings">Abrir ajustes de %1$s</string>
     <string name="invalid_managed_network_configuration">Configuración de red administrada no válida. No se aplicaron los ajustes. Contacte con su administrador.</string>

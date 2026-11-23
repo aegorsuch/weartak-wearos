@@ -1476,6 +1476,9 @@ fun WearTAKSettingsNav(
                 }, offBodyWaiting)
             val takSubtitleOverride = takStatusOverride?.let { stringResource(it) }
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
+            val dittoNetworkEnabled by pluginVm.dittoNetworkEnabled.collectAsStateWithLifecycle()
+            val dittoPolicyLoaded by pluginVm.dittoNetworkPolicyLoaded.collectAsStateWithLifecycle()
+            val dittoPolicyMigrationFailed by pluginVm.dittoNetworkPolicyMigrationFailed.collectAsStateWithLifecycle()
             val pluginRouteStatuses by pluginVm.connectionStatuses.collectAsStateWithLifecycle()
             val companionStatus = companionPluginStatus(enableCompanionAppService)
             val enabledLabel = stringResource(R.string.enabled)
@@ -1508,9 +1511,26 @@ fun WearTAKSettingsNav(
                     "", enableCompanionAppService, settingsVm::storeEnableCompanionAppService,
                     statusDescription = companionStatus)
             ) + pluginList.mapNotNull { plugin ->
-                if (!plugin.isLoaded) return@mapNotNull null
+               val isDitto = plugin.packageName == TrustedCommunityPlugin.PACKAGE
+               if (!plugin.isLoaded && !(isDitto && plugin.isEnabled)) return@mapNotNull null
                 val toggle = pluginToggles[plugin.packageName]
                 val routes = pluginRouteStatuses[plugin.packageName].orEmpty().values
+               if (isDitto) {
+                    val subtitle = when {
+                        !dittoPolicyLoaded -> stringResource(R.string.ditto_network_policy_pending)
+                        !dittoNetworkEnabled -> stringResource(R.string.ditto_network_off_unconfirmed)
+                        else -> pluginNetworkSubtitle(true, disabledLabel, enabledLabel, dittoSubtitle,
+                            if (routes.isNotEmpty()) pluginRouteSummary(routes) else null)
+                    }
+                   return@mapNotNull NetworkConnectivityRow(
+                        "plugin:${plugin.packageName}", plugin.title, subtitle,
+                        dittoPolicyLoaded && dittoNetworkEnabled,
+                       pluginVm::setDittoNetworkEnabled,
+                       statusDescription = subtitle,
+                       pluginIcon = plugin.icon,
+                        toggleAvailable = dittoPolicyLoaded || dittoPolicyMigrationFailed,
+                   )
+               }
                 if (toggle == null && routes.isEmpty()) return@mapNotNull null
                 val enabled = toggle?.enabled != false
                 NetworkConnectivityRow("plugin:${plugin.packageName}", plugin.title,

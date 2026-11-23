@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">Bastırıldı</string>
     <string name="network_preferences_checklist">Ağ Tercihleri Kontrol Listesi</string>
     <string name="network_plugin_forwarding">Giden CoT iletilerini aktar</string>
+    <string name="ditto_network_off_unconfirmed">Yeni ana makine trafiği engellendi; önceki işler veya eklenti ağı sürebilir</string>
+    <string name="ditto_network_policy_pending">İlke çözümlenmedi; yeni ana makine trafiği bekletiliyor</string>
     <string name="network_preferences_checklist_save_failed">Ağ Tercihleri Kontrol Listesi kaydedilemedi</string>
     <string name="open_transport_settings">%1$s ayarlarını aç</string>
     <string name="invalid_managed_network_configuration">Yönetilen ağ yapılandırması geçersiz. Ayarlar uygulanmadı. Yöneticinize başvurun.</string>

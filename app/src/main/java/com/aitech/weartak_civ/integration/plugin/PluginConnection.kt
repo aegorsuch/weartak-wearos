@@ -47,10 +47,25 @@ class PluginConnection(
 ) : ServiceConnection {
 
     private val pluginPackage: String = component.packageName
+    private val dittoTrafficGeneration = if (pluginPackage == TrustedCommunityPlugin.PACKAGE) {
+        manager.dittoTrafficFence.currentGeneration()
+    } else null
+    private val dittoTrafficAdmission: (() -> AutoCloseable?)? =
+        if (pluginPackage == TrustedCommunityPlugin.PACKAGE) {
+            {
+                if (manager.dittoTrafficAllowed()) {
+                    dittoTrafficGeneration?.let(manager.dittoTrafficFence::enter)
+                } else null
+            }
+        } else null
 
     /** Package key for diagnostics when the connection is not yet in [PluginManager]'s map. */
     internal val connectionPackageName: String get() = pluginPackage
     internal val connectionComponent: ComponentName get() = component
+    internal fun hasCurrentDittoTrafficGeneration(): Boolean =
+        pluginPackage != TrustedCommunityPlugin.PACKAGE ||
+            dittoTrafficGeneration != null &&
+            manager.dittoTrafficFence.currentGeneration() == dittoTrafficGeneration
 
     @Volatile private var pluginBinder: IBinder? = null
     private var plugin: IWearTakPlugin? = null
@@ -78,7 +93,8 @@ class PluginConnection(
     internal val dittoMeshStatus = dittoPdlModeState.mesh
 
     internal fun dittoCotAvailable(): Boolean = synchronized(stateLock) {
-        ready && hasVerifiedTrust && dittoRuntimeAllowed && pluginPackage == TrustedCommunityPlugin.PACKAGE &&
+        ready && hasVerifiedTrust && manager.dittoTrafficAllowed() && dittoRuntimeAllowed &&
+            pluginPackage == TrustedCommunityPlugin.PACKAGE &&
             pluginBinder?.isBinderAlive == true && manager.connectionFor(pluginPackage) === this &&
             hostTransportV1?.isActiveGeneralDittoTransport() == true &&
             manager.settingsCoordinator.pluginHasSettingEnabled(pluginPackage, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)
@@ -120,7 +136,8 @@ class PluginConnection(
     }
 
     internal fun resumeDittoForAlert() {
-        if (ready && hasVerifiedTrust && pluginPackage == TrustedCommunityPlugin.PACKAGE &&
+        if (ready && hasVerifiedTrust && manager.dittoTrafficAllowed() &&
+            pluginPackage == TrustedCommunityPlugin.PACKAGE &&
             pluginBinder?.isBinderAlive == true && manager.connectionFor(pluginPackage) === this &&
             manager.settingsCoordinator.pluginHasSettingEnabled(pluginPackage, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)) {
             pluginOnlyPliProducer?.resumeForAlert()
@@ -339,12 +356,16 @@ class PluginConnection(
 
         val dittoBindingAuthorized = {
             pluginOnlyProfile && pluginOnlyEnabled() &&
+                manager.dittoTrafficAllowed() &&
+                dittoTrafficGeneration != null &&
+                manager.dittoTrafficFence.currentGeneration() == dittoTrafficGeneration &&
                 !closed && trustVerified && pluginBinder === service && service.isBinderAlive &&
                 manager.connectionFor(pluginPackage) === this &&
                 TrustedCommunityPlugin.supportsQuiescentReplacement(app, pluginUid)
         }
         val control = HostControlImpl(
             app, ingress, pluginPackage, pluginUid, isActive = { !closed },
+            trafficAdmission = dittoTrafficAdmission,
         )
         val controlV2 = if (api >= WearTakPluginV2Contract.CONTRACT_API_VERSION) {
             HostControlV2Impl(
@@ -459,6 +480,7 @@ class PluginConnection(
             pluginOnlyPli = pluginOnlyProfile,
             restartablePluginOnly = pluginOnlyProfile,
             trustedDittoPlugin = dittoBindingAuthorized,
+            trafficAdmission = dittoTrafficAdmission,
             onPliUnavailable = { reason ->
                 mainHandler.post { if (!closed) manager.onConnectionFailed(this, reason) }
             },
@@ -469,6 +491,7 @@ class PluginConnection(
             sessionActive = transportV1::isActiveDittoSession,
             repository = app.repo,
             bloodhounds = app.bhRepo,
+            trafficAdmission = dittoTrafficAdmission,
         ) else null
         synchronized(stateLock) {
             if (closed) {
@@ -532,6 +555,26 @@ class PluginConnection(
             }
             if (closed) return
             manager.settingsCoordinator.onPluginConnected(pluginPackage, iface) { !closed }
+            if (closed) return
+            if (pluginOnlyProfile && manager.isDittoNetworkPolicyMigrationPending()) {
+                val legacyEnabled = runCatching {
+                    manager.settingsCoordinator.legacyDittoNetworkEnabled()
+                }.getOrNull()
+                if (legacyEnabled == null) {
+                    Log.e(TAG, "Ditto network policy migration unavailable: legacy forwarding setting unresolved")
+                    runBlocking { manager.failDittoNetworkPolicyMigration() }
+                    postFailure("ditto_network_policy_migration_failed")
+                    return
+                }
+                try {
+                    runBlocking { manager.migrateLegacyDittoNetworkPolicy(legacyEnabled) }
+                } catch (error: Exception) {
+                    Log.e(TAG, "Ditto network policy migration failed", error)
+                    runBlocking { manager.failDittoNetworkPolicyMigration() }
+                    postFailure("ditto_network_policy_migration_failed")
+                    return
+                }
+            }
             if (closed) return
             iface.registerHostCallback(callback)
             if (closed) return
@@ -606,7 +649,7 @@ class PluginConnection(
     private fun requestDittoRuntime(iface: IWearTakPlugin, allowed: Boolean) {
         synchronized(stateLock) {
             if (closed) return
-            dittoRuntimeAllowed = allowed
+            dittoRuntimeAllowed = allowed && manager.dittoTrafficAllowed()
         }
         scheduleDittoLifecycle(iface)
     }
@@ -672,7 +715,7 @@ class PluginConnection(
         serverPackages?.close()
     }
 
-    fun tearDownBinder(reason: String) {
+    fun tearDownBinder(reason: String, shutdownRemotePlugin: Boolean = true) {
         ready = false
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
@@ -726,14 +769,24 @@ class PluginConnection(
             hostOpenVpnServicesV1 = null
             hostTransportV1 = null
             pluginBinder = null
+            val cleanupReservation = if (pluginPackage == TrustedCommunityPlugin.PACKAGE &&
+                (iface != null || binder != null)) PluginLifecycleWork.reserveCleanup(pluginPackage) else null
             val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) null else ({
+                var cleanupSucceeded = true
                 fun attempt(method: String, block: () -> Unit) {
-                    runCatching(block).onFailure { Log.w(TAG, "$method failed pkg=$pluginPackage", it) }
+                    runCatching(block).onFailure {
+                        cleanupSucceeded = false
+                        Log.w(TAG, "$method failed pkg=$pluginPackage", it)
+                    }
                 }
                 attempt("unregisterHostCallback") { if (iface != null && cb != null) iface.unregisterHostCallback(cb) }
                 attempt("stopPlugin") { iface?.stopPlugin() }
-                attempt("shutdownPlugin") { iface?.shutdownPlugin() }
+                if (shutdownRemotePlugin) attempt("shutdownPlugin") { iface?.shutdownPlugin() }
                 attempt("unlinkToDeath") { binder?.unlinkToDeath(deathRecipient, 0) }
+                if (cleanupReservation != null) {
+                    if (cleanupSucceeded) PluginLifecycleWork.finishCleanup(pluginPackage, cleanupReservation)
+                    else Log.e(TAG, "Ditto cleanup uncertain; replacement binding remains fenced")
+                }
             })
             if (initializing || dittoLifecycleInProgress) {
                 pendingRemoteCleanup = remoteCleanup
@@ -754,10 +807,11 @@ class PluginConnection(
 
     internal fun isCurrentDittoConnection(): Boolean =
         pluginPackage == TrustedCommunityPlugin.PACKAGE && ready && hasVerifiedTrust &&
+            manager.dittoTrafficAllowed() &&
             pluginBinder?.isBinderAlive == true && manager.connectionFor(pluginPackage) === this
 
     internal fun mayRequestDittoMeshPermissions(): Boolean =
-        isCurrentDittoConnection() &&
+        isCurrentDittoConnection() && manager.dittoTrafficAllowed() &&
             (!dittoUsesPluginOnlyLifecycle || (pluginOnlyEnabled() && dittoRuntimeAllowed))
 
     internal fun readFreshDittoMeshStatus(callback: (DittoMeshStatus?) -> Unit): Boolean {

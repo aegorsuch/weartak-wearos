@@ -98,6 +98,8 @@
     <string name="connection_route_suppressed">Suppressed</string>
     <string name="network_preferences_checklist">Network Preferences Checklist</string>
     <string name="network_plugin_forwarding">Forward outbound CoT</string>
+    <string name="ditto_network_off_unconfirmed">New host traffic blocked; prior work or plugin networking may continue</string>
+    <string name="ditto_network_policy_pending">Policy unresolved; new host traffic held off</string>
     <string name="network_preferences_checklist_save_failed">Could not save Network Preferences Checklist</string>
     <string name="open_transport_settings">Open %1$s settings</string>
     <string name="invalid_managed_network_configuration">Invalid managed network configuration. Settings were not applied. Contact your administrator.</string>

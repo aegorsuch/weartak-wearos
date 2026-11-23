@@ -26,6 +26,7 @@ import io.mockk.unmockkObject
 import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,6 +35,34 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class HostControlImplTest {
+    @Test
+    fun legacyCotRejectsDisabledAndStaleBinding() {
+        mockkObject(TAKConnectService.Companion)
+        try {
+            coEvery { TAKConnectService.handleInboundCot(any(), any()) } returns Unit
+            val fence = DittoTrafficFence(initiallyEnabled = true)
+            val generation = requireNotNull(fence.currentGeneration())
+            val app = mockk<WearTakApplication>(relaxed = true)
+            val control = HostControlImpl(app, mockk(relaxed = true), "com.plugin.pkg", Process.myUid(),
+                trafficAdmission = { fence.enter(generation) })
+            val request = mockk<CotRequestParcel>()
+            val xml = "<event uid='test' type='a-f-G-U-C'><detail/></event>"
+            every { request.payloadFormat } returns "cot_xml"
+            every { request.payload } returns Bundle().apply {
+                putString("xml", xml)
+                putBoolean(HostControlImpl.KEY_RELAY_TO_NETWORK, false)
+            }
+            control.requestCotDispatch(request)
+            fence.disable()
+            control.requestCotDispatch(request)
+            assertNotNull(fence.enable())
+            control.requestCotDispatch(request)
+            coVerify(exactly = 1) { TAKConnectService.handleInboundCot(xml, "plugin:com.plugin.pkg") }
+        } finally {
+            unmockkObject(TAKConnectService.Companion)
+        }
+    }
+
     @Test
     fun offlineDeviceStatusReportsActualTakUidAndCurrentCallsignWithoutTraffic() {
         mockkObject(TAKConnectService.Companion)

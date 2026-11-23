@@ -4164,6 +4164,29 @@ class DataRepository(
         storeNetworkToggle(ENABLE_DITTO_SERVICE, enableDittoService)
     }
 
+    val getDittoPluginNetworkPolicy: Flow<Boolean?> = context.dataStore.data.map { prefs ->
+        prefs[ENABLE_DITTO_PLUGIN_NETWORK]
+    }.distinctUntilChanged()
+
+    val getDittoPluginNetworkEnabled: Flow<Boolean> =
+        getDittoPluginNetworkPolicy.map { it ?: true }.distinctUntilChanged()
+
+    suspend fun storeDittoPluginNetworkEnabled(enabled: Boolean): String? =
+        storeNetworkToggle(ENABLE_DITTO_PLUGIN_NETWORK, enabled)
+
+    suspend fun initializeDittoPluginNetworkPolicy(legacyEnabled: Boolean): Boolean {
+        var enabled = legacyEnabled
+        context.dataStore.edit { prefs ->
+            val current = prefs[ENABLE_DITTO_PLUGIN_NETWORK]
+            if (current != null) {
+                enabled = current
+            } else {
+                prefs[ENABLE_DITTO_PLUGIN_NETWORK] = legacyEnabled
+            }
+        }
+        return enabled
+    }
+
     val getEnableChatService: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[ENABLE_CHAT_SERVICE] ?: DEFAULT_ENABLE_CHAT_SERVICE
     }
@@ -5897,6 +5920,7 @@ class DataRepository(
                     prefs.advanceDittoEnablePolicy()
                 }
                 prefs[ENABLE_DITTO_SERVICE] = it
+                prefs[ENABLE_DITTO_PLUGIN_NETWORK] = it
             }
             companion?.let { prefs[ENABLE_COMPANION_APP_SERVICE] = it }
         }
@@ -6918,6 +6942,7 @@ class DataRepository(
         private val HIGH_ATM_PRESSURE_ALERT_THRESHOLD = intPreferencesKey("high_atm_pressure_alert_threshold")
         private val ENABLE_ACTIVITY_RECOGNITION_SERVICE = booleanPreferencesKey("enable_activity_recognition_service")
         private val ENABLE_DITTO_SERVICE = booleanPreferencesKey("enable_ditto_service")
+        private val ENABLE_DITTO_PLUGIN_NETWORK = booleanPreferencesKey("enable_ditto_plugin_network")
         private val DITTO_ENABLE_POLICY_REVISION = longPreferencesKey("ditto_enable_policy_revision")
         private val DITTO_ENABLE_POLICY_APPLICATION = intPreferencesKey("ditto_enable_policy_application")
         private val DITTO_ENABLE_POLICY_PROCESS = stringPreferencesKey("ditto_enable_policy_process")

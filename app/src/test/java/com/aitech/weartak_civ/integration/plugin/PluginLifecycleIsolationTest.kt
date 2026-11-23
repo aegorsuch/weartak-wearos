@@ -12,6 +12,7 @@ import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
+import com.aitech.weartak_civ.data.DataRepository
 import com.weartak.plugin.sdk.aidl.IWearTakHostCallback
 import com.weartak.plugin.sdk.host.v1.HostServicesContract as C
 import io.mockk.*
@@ -25,18 +26,24 @@ import org.robolectric.shadows.ShadowLooper
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class PluginLifecycleIsolationTest {
-    private val pkg = "com.example.isolation"
+    private var pkg = "com.example.isolation"
     private val app = mockk<WearTakApplication>(relaxed = true)
     private val ingress = mockk<PluginIngressPort>(relaxed = true)
     private val settings = mockk<PluginSettingsCoordinator>(relaxed = true)
     private val trust = mockk<PluginTrust>(relaxed = true)
     private val captured = mutableListOf<PluginConnection>()
     private var nextPlugin: FakeWearTakPlugin? = null
-    private fun manager() = PluginManager(app, ingress, trust, settings)
+    private lateinit var discoveredService: ResolveInfo
+    private fun manager(repository: DataRepository? = null) = PluginManager(
+        app, ingress, trust, settings, dittoNetworkPolicyRepository = repository,
+    )
 
     @Before fun setup() {
         PluginDiagnostics.resetForTest()
@@ -46,17 +53,17 @@ class PluginLifecycleIsolationTest {
         every { app.getSharedPreferences(any(), any()) } returns prefs
         every { app.packageName } returns "host"
         val pm = mockk<PackageManager>(relaxed = true)
-        val service = ResolveInfo().apply {
+        discoveredService = ResolveInfo().apply {
             serviceInfo = ServiceInfo().apply {
                 packageName = pkg
                 name = ".Service"
                 permission = com.weartak.plugin.sdk.WearTakPluginContract.PERMISSION_BIND_PLUGIN
             }
         }
-        every { pm.queryIntentServices(any<Intent>(), any<PackageManager.ResolveInfoFlags>()) } returns listOf(service)
+        every { pm.queryIntentServices(any<Intent>(), any<PackageManager.ResolveInfoFlags>()) } returns listOf(discoveredService)
         every { pm.getPackageUid(any(), any<PackageManager.PackageInfoFlags>()) } returns android.os.Process.myUid()
         every { app.packageManager } returns pm
-        every { ingress.packagesForUid(any(), any()) } returns setOf(pkg)
+        every { ingress.packagesForUid(any(), any()) } answers { setOf(pkg) }
         every { app.bindService(any<Intent>(), any<ServiceConnection>(), any<Int>()) } answers {
             val connection = secondArg<PluginConnection>()
             if (connection !in captured) captured += connection
@@ -75,6 +82,7 @@ class PluginLifecycleIsolationTest {
                 oldCallback = callback
                 super.registerHostCallback(callback)
             }
+
             override fun unregisterHostCallback(callback: IWearTakHostCallback?) {
                 cleanupOnMain = Looper.myLooper() == Looper.getMainLooper()
                 entered.countDown()
@@ -122,6 +130,88 @@ class PluginLifecycleIsolationTest {
             release.countDown()
             manager.shutdownAll()
             awaitPluginLifecycle(pkg)
+        }
+    }
+
+    @Test fun pendingCleanupBlocksReplacementEvenBeforeWorkerAdmission() {
+        val workers = List(4) { "cleanup-saturation-$it" }
+        val entered = CountDownLatch(workers.size)
+        val release = CountDownLatch(1)
+        val first = PluginLifecycleWork.reserveCleanup(pkg)
+        val second = PluginLifecycleWork.reserveCleanup(pkg)
+        nextPlugin = FakeWearTakPlugin(pkg)
+        val manager = manager()
+        try {
+            workers.forEach { id ->
+                assertTrue(PluginLifecycleWork.execute(id) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                })
+            }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertFalse(PluginLifecycleWork.execute(pkg) {})
+            assertTrue(PluginLifecycleWork.isBusy(pkg))
+            manager.refreshBindings()
+            assertFalse(manager.hasConnectionForTest(pkg))
+            assertTrue(captured.isEmpty())
+
+            PluginLifecycleWork.finishCleanup(pkg, first)
+            PluginLifecycleWork.finishCleanup(pkg, first)
+            assertTrue(PluginLifecycleWork.isBusy(pkg))
+            PluginLifecycleWork.finishCleanup(pkg, second)
+            assertFalse(PluginLifecycleWork.isBusy(pkg))
+            release.countDown()
+            workers.forEach(::awaitPluginLifecycle)
+            ShadowLooper.shadowMainLooper().idleFor(Duration.ofSeconds(1))
+            awaitPluginLifecycle(pkg)
+            assertEquals(1, captured.size)
+        } finally {
+            release.countDown()
+            manager.shutdownAll()
+            PluginLifecycleWork.finishCleanup(pkg, first)
+            PluginLifecycleWork.finishCleanup(pkg, second)
+            workers.forEach(::awaitPluginLifecycle)
+            awaitPluginLifecycle(pkg)
+        }
+    }
+
+    @Test fun networkTeardownStopsRuntimeWithoutRetiringPluginLifecycle() {
+        val plugin = FakeWearTakPlugin(pkg)
+        nextPlugin = plugin
+        val manager = manager()
+        try {
+            manager.refreshBindings()
+            awaitPluginLifecycle(pkg)
+            manager.detachPackage(pkg, shutdownRemotePlugin = false)
+            awaitPluginLifecycle(pkg)
+            assertTrue(plugin.lifecycleCalls.contains("stopPlugin"))
+            assertFalse(plugin.lifecycleCalls.contains("shutdownPlugin"))
+            assertTrue(manager.isEnabled(pkg))
+        } finally {
+            manager.shutdownAll()
+            awaitPluginLifecycle(pkg)
+        }
+    }
+
+    @Test fun persistedDittoOffPreventsStartupBindingWithoutDisablingPlugin() = runBlocking {
+        pkg = TrustedCommunityPlugin.PACKAGE
+        discoveredService.serviceInfo.packageName = pkg
+        val repository = DataRepository(ApplicationProvider.getApplicationContext<Application>())
+        repository.storeNetworkPreferencesLocked(false)
+        assertNull(repository.storeDittoPluginNetworkEnabled(true))
+        assertTrue(repository.getDittoPluginNetworkEnabled.first())
+        assertNull(repository.storeDittoPluginNetworkEnabled(false))
+        val manager = manager(repository)
+        try {
+            withTimeout(5_000) { manager.dittoNetworkPolicyLoaded.first { it } }
+            manager.refreshBindings()
+            assertTrue(manager.isEnabled(pkg))
+            assertFalse(manager.dittoNetworkEnabled.first())
+            assertFalse(manager.hasConnectionForTest(pkg))
+            assertTrue(captured.isEmpty())
+            assertFalse(manager.dittoCotSelected())
+        } finally {
+            manager.shutdownAll()
         }
     }
 

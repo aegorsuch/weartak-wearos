@@ -60,6 +60,15 @@ class PluginSettingsCoordinator(
     internal val connectionStatuses = routeStatuses.statuses
     private val mainUiChangeRevisionsState = MutableStateFlow<Map<String, Long>>(emptyMap())
     val mainUiChangeRevisions = mainUiChangeRevisionsState.asStateFlow()
+    internal var trafficAdmissionForPlugin: (String) -> (() -> AutoCloseable?)? = { null }
+    internal var networkEnabledForPlugin: (String) -> Boolean = { true }
+
+    private data class ActionTarget(
+        val pluginId: String,
+        val plugin: IWearTakPlugin,
+        val token: Long?,
+        val trafficAdmission: (() -> AutoCloseable?)?,
+    )
 
     fun setConnectivityEnabled(pluginId: String, expected: ConnectivityToggle, enabled: Boolean): SettingsApplyResultParcel {
         if (pluginRefs[pluginId] !== expected.binding || connectivityToggles.value[pluginId] != expected) {
@@ -143,7 +152,14 @@ class PluginSettingsCoordinator(
                 ?: return HostedPluginMainUiResult.Failed("Plugin action is unavailable")
             if (!action.enabled) return HostedPluginMainUiResult.Failed("Plugin action is disabled")
             if (pluginRefs[pluginId] !== plugin) return HostedPluginMainUiResult.NotConnected
-            plugin.invokeMainUiAction(action.actionId, action.args)
+            val admission = trafficAdmissionForPlugin(pluginId)
+            val ticket = admission?.invoke()
+            if (admission != null && ticket == null) return HostedPluginMainUiResult.Failed("Plugin network is disabled")
+            try {
+                plugin.invokeMainUiAction(action.actionId, action.args)
+            } finally {
+                ticket?.close()
+            }
             if (pluginRefs[pluginId] !== plugin) return HostedPluginMainUiResult.NotConnected
         } catch (e: RemoteException) {
             Log.w(TAG, "main UI action failed for $pluginId", e)
@@ -157,10 +173,24 @@ class PluginSettingsCoordinator(
 
     fun getState(pluginId: String): PluginSettingsState? = cache[pluginId]
 
+    internal fun legacyDittoNetworkEnabled(): Boolean? {
+        if (dittoSettingsReadFailed) return null
+        val state = cache[TrustedCommunityPlugin.PACKAGE] ?: return null
+        if (state.lastValidationErrors.isNotEmpty()) return null
+        val field = state.schema.fields.firstOrNull {
+            it.fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        } ?: return null
+        if (field.fieldType != SettingsFieldTypes.TOGGLE ||
+            !state.values.containsKey(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)
+        ) return null
+        return state.values.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false)
+    }
+
     /** True when any connected plugin declares [fieldId] and currently has it set. */
     fun anyPluginHasSettingEnabled(fieldId: String): Boolean =
         cache.entries.any { (pluginId, state) ->
-            !forwardingFenced(pluginId, fieldId) && pluginRefs.containsKey(pluginId) &&
+            !forwardingFenced(pluginId, fieldId) && networkSettingEnabled(pluginId, fieldId) &&
+                pluginRefs.containsKey(pluginId) &&
                 state.schema.fields.any { it.fieldId == fieldId } && state.values.getBoolean(fieldId, false)
         }
 
@@ -175,6 +205,13 @@ class PluginSettingsCoordinator(
         pluginId == TrustedCommunityPlugin.PACKAGE &&
             fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT &&
             (dittoForwardingFenced || dittoSettingsReadFailed)
+
+    private fun networkSettingEnabled(pluginId: String, fieldId: String): Boolean =
+        pluginId != TrustedCommunityPlugin.PACKAGE ||
+            fieldId != PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT ||
+            networkEnabledForPlugin(pluginId)
+
+    internal fun refreshOutboundCotAvailability() = updateOutboundCotAvailability()
 
     private fun dittoReadRevision(pluginId: String): Long? = synchronized(pluginRefs) {
         dittoForwardingRevision.takeIf { pluginId == TrustedCommunityPlugin.PACKAGE }
@@ -224,12 +261,12 @@ class PluginSettingsCoordinator(
                     fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) {
                     dittoForwardingToken() ?: return@mapNotNull null
                 } else null
-                Triple(pluginId, plugin, token)
+                ActionTarget(pluginId, plugin, token, trafficAdmissionForPlugin(pluginId))
             }
         if (targets.isEmpty()) return
 
         scope.launch {
-            for ((pluginId, plugin, token) in targets) {
+            for ((pluginId, plugin, token, trafficAdmission) in targets) {
                 if (pluginRefs[pluginId] !== plugin) continue
                 if (forwardingFenced(pluginId, fieldId)) continue
                 if (token != null && !isDittoForwardingTokenCurrent(token)) continue
@@ -239,8 +276,14 @@ class PluginSettingsCoordinator(
                             it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE
                         } != false ||
                         cache[pluginId]?.values?.getBoolean(fieldId, false) != true)) continue
-                runCatching { plugin.invokeMainUiAction(actionId, args) }
-                    .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+                val ticket = trafficAdmission?.invoke()
+                if (trafficAdmission != null && ticket == null) continue
+                try {
+                    runCatching { plugin.invokeMainUiAction(actionId, args) }
+                        .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+                } finally {
+                    ticket?.close()
+                }
             }
         }
     }
@@ -266,12 +309,12 @@ class PluginSettingsCoordinator(
                     fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) {
                     dittoForwardingToken() ?: return@mapNotNull null
                 } else null
-                Triple(pluginId, plugin, token)
+                ActionTarget(pluginId, plugin, token, trafficAdmissionForPlugin(pluginId))
             }
         if (targets.isEmpty()) return
 
         scope.launch {
-            for ((pluginId, plugin, token) in targets) {
+            for ((pluginId, plugin, token, trafficAdmission) in targets) {
                 val state = cache[pluginId]
                 if (pluginRefs[pluginId] !== plugin || forwardingFenced(pluginId, fieldId) ||
                     (token != null && !isDittoForwardingTokenCurrent(token)) ||
@@ -294,8 +337,14 @@ class PluginSettingsCoordinator(
                             eligible = token?.let { captured -> { isDittoForwardingTokenCurrent(captured) } })
                     }
                 } else {
-                    runCatching { plugin.invokeMainUiAction(actionId, args) }
-                        .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+                    val ticket = trafficAdmission?.invoke()
+                    if (trafficAdmission != null && ticket == null) continue
+                    try {
+                        runCatching { plugin.invokeMainUiAction(actionId, args) }
+                            .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+                    } finally {
+                        ticket?.close()
+                    }
                 }
             }
         }
@@ -304,10 +353,17 @@ class PluginSettingsCoordinator(
     /** Deliver a best-effort host action to one currently connected plugin. */
     fun invokeActionOnPlugin(pluginId: String, actionId: String, args: Bundle) {
         val plugin = pluginRefs[pluginId] ?: return
+        val trafficAdmission = trafficAdmissionForPlugin(pluginId)
         scope.launch {
             if (pluginRefs[pluginId] !== plugin) return@launch
-            runCatching { plugin.invokeMainUiAction(actionId, args) }
-                .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+            val ticket = trafficAdmission?.invoke()
+            if (trafficAdmission != null && ticket == null) return@launch
+            try {
+                runCatching { plugin.invokeMainUiAction(actionId, args) }
+                    .onFailure { Log.w(TAG, "action $actionId failed for $pluginId: ${it.message}") }
+            } finally {
+                ticket?.close()
+            }
         }
     }
 
@@ -907,6 +963,7 @@ class PluginSettingsCoordinator(
         }.toMap()
         val ready = cache.entries.filter { (pluginId, state) ->
             !forwardingFenced(pluginId, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) &&
+                networkSettingEnabled(pluginId, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) &&
                 pluginRefs.containsKey(pluginId) &&
                 state.schema.fields.any { it.fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT } &&
                 state.values.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false)

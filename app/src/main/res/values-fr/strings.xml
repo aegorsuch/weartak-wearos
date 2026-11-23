@@ -369,6 +369,8 @@
     <string name="connection_route_suppressed">Suspendu</string>
     <string name="network_preferences_checklist">Liste des préférences réseau</string>
     <string name="network_plugin_forwarding">Transmettre le CoT sortant</string>
+    <string name="ditto_network_off_unconfirmed">Nouveau trafic hôte bloqué ; le travail en cours ou le réseau du plugin peut continuer</string>
+    <string name="ditto_network_policy_pending">Politique non résolue ; le nouveau trafic hôte reste bloqué</string>
     <string name="network_preferences_checklist_save_failed">Impossible d’enregistrer la liste des préférences réseau</string>
     <string name="open_transport_settings">Ouvrir les paramètres de %1$s</string>
     <string name="invalid_managed_network_configuration">Configuration réseau gérée non valide. Les paramètres n’ont pas été appliqués. Contactez votre administrateur.</string>
