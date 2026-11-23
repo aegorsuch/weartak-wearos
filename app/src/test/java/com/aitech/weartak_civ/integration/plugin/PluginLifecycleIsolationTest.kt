@@ -213,6 +213,10 @@ class PluginLifecycleIsolationTest {
         val stopEntered = CountDownLatch(1)
         val releaseStop = CountDownLatch(1)
         var oldHostCallback: IWearTakHostCallback? = null
+        var oldSessionId: String? = null
+        var staleUnregister: TransportResultParcel? = null
+        var currentUnregister: TransportResultParcel? = null
+        var registrationWhileStopping: TransportResultParcel? = null
         val capabilities = TransportCapabilitiesParcel(
             channelIds = listOf(DittoPliTransportSession.GENERAL_CHANNEL),
             outboundPayloadKinds = listOf(TransportPayloadKind.COT_XML_UTF8),
@@ -230,10 +234,6 @@ class PluginLifecycleIsolationTest {
             return object : FakeWearTakPlugin(pkg, apiVersion = 2) {
                 private lateinit var transport: IPluginTransportHostV1
                 private var sessionId: String? = null
-                var registeredSessionId: String? = null
-                var staleUnregister: TransportResultParcel? = null
-                var currentUnregister: TransportResultParcel? = null
-                var registrationWhileStopping: TransportResultParcel? = null
 
                 override fun getPluginInfo() = com.weartak.plugin.sdk.model.PluginInfoParcel(
                     pluginId = pkg,
@@ -255,7 +255,7 @@ class PluginLifecycleIsolationTest {
                     val registration = transport.registerTransport(capabilities, callback)
                     check(registration.code == TransportResultCode.ACCEPTED)
                     sessionId = requireNotNull(registration.sessionId)
-                    registeredSessionId = sessionId
+                    if (blockStop) oldSessionId = sessionId
                     super.startPlugin()
                 }
 
@@ -266,8 +266,12 @@ class PluginLifecycleIsolationTest {
                         registrationWhileStopping = transport.registerTransport(capabilities, callback)
                     }
                     sessionId?.let { activeSession ->
-                        staleUnregister = transport.unregisterTransport("stale-session")
-                        currentUnregister = transport.unregisterTransport(activeSession)
+                        val stale = transport.unregisterTransport("stale-session")
+                        val current = transport.unregisterTransport(activeSession)
+                        if (blockStop) {
+                            staleUnregister = stale
+                            currentUnregister = current
+                        }
                     }
                     super.stopPlugin()
                 }
@@ -290,7 +294,7 @@ class PluginLifecycleIsolationTest {
             val oldTransport = IPluginTransportHostV1.Stub.asInterface(
                 extras.getBinder(TransportContract.EXTRA_CONTROL),
             )
-            val oldSession = requireNotNull(oldPlugin.registeredSessionId)
+            val oldSession = requireNotNull(oldSessionId)
 
             assertTrue(manager.setDittoNetworkEnabled(false))
             assertTrue(stopEntered.await(5, TimeUnit.SECONDS))
@@ -306,9 +310,9 @@ class PluginLifecycleIsolationTest {
 
             releaseStop.countDown()
             awaitPluginLifecycle(pkg)
-            assertEquals(TransportResultCode.INACTIVE_SESSION, oldPlugin.registrationWhileStopping?.code)
-            assertEquals(TransportResultCode.INACTIVE_SESSION, oldPlugin.staleUnregister?.code)
-            assertEquals(TransportResultCode.ACCEPTED, oldPlugin.currentUnregister?.code)
+            assertEquals(TransportResultCode.INACTIVE_SESSION, registrationWhileStopping?.code)
+            assertEquals(TransportResultCode.INACTIVE_SESSION, staleUnregister?.code)
+            assertEquals(TransportResultCode.ACCEPTED, currentUnregister?.code)
             assertEquals(TransportResultCode.INACTIVE_SESSION,
                 oldTransport.unregisterTransport(oldSession).code)
             assertFalse(oldTransport.getHostCapabilities().runtimeAvailable)
