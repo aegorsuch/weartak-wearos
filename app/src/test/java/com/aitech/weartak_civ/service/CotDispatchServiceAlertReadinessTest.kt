@@ -853,6 +853,7 @@ class CotDispatchServiceAlertReadinessTest {
             every { coordinator.anyPluginHasSettingEnabled(any()) } answers { pluginAvailable.value }
             app = mockk<WearTakApplication>(relaxed = true)
             every { app.pluginManager.settingsCoordinator } returns coordinator
+            every { app.pluginManager.connectionFor(any()) } returns null
             service = spyk(CotDispatchService())
             every { service.applicationContext } returns app
             val preferences = RuntimeEnvironment.getApplication().getSharedPreferences(

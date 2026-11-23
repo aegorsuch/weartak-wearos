@@ -272,6 +272,7 @@ class MarkerJournalRepositoryTest {
         assertFalse(drain.isCompleted)
         wait.complete(Unit)
         drain.await()
+        Unit
     }
 
     init {
