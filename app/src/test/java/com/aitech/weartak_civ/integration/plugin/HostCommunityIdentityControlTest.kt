@@ -344,6 +344,7 @@ class HostCommunityIdentityControlTest {
             pluginOnlyEnabled = false
             assertEquals(PointContractV1.REGISTER_UNAUTHORIZED, pointHost.register("stale", pointPlugin))
         } finally {
+            if (plugin.sessionId != null) plugin.stopPlugin()
             connection.tearDownBinder("test")
             awaitPluginLifecycle(packageName)
             unmockkObject(TrustedCommunityPlugin)
