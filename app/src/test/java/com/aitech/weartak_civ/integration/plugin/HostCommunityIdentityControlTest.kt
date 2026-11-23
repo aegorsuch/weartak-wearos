@@ -132,18 +132,19 @@ class HostCommunityIdentityControlTest {
         val packages = setOf(TrustedCommunityPlugin.PACKAGE)
         fun matches(code: Long, name: String?, signers: List<ByteArray> = listOf(digest)) =
             TrustedCommunityPlugin.matchesQuiescentReplacement(42, packages, 42, signers, code, name)
-        assertTrue(matches(5840051, "5.8.4-p51+fb070252"))
+        assertTrue(matches(5840056, "5.8.4-p56+e966b948"))
         assertFalse(matches(5840035, "5.8.4-p35+d981f7a5"))
-        assertFalse(matches(5840050, "5.8.4-p50+fb070252"))
-        assertFalse(matches(5840052, "5.8.4-p52+fb070252"))
-        assertFalse(matches(5840051, "5.8.4-p51+different"))
-        assertFalse(matches(5840051, "5.8.4-p51+fb070252", listOf(ByteArray(32))))
-        assertFalse(matches(5840051, null))
-        assertFalse(matches(5840051, "5.8.4-p51+fb070252", listOf(digest, digest)))
+        assertFalse(matches(5840051, "5.8.4-p51+fb070252"))
+        assertFalse(matches(5840055, "5.8.4-p55+e966b948"))
+        assertFalse(matches(5840057, "5.8.4-p57+e966b948"))
+        assertFalse(matches(5840056, "5.8.4-p56+different"))
+        assertFalse(matches(5840056, "5.8.4-p56+e966b948", listOf(ByteArray(32))))
+        assertFalse(matches(5840056, null))
+        assertFalse(matches(5840056, "5.8.4-p56+e966b948", listOf(digest, digest)))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages + "other", 42, listOf(digest), 5840051, "5.8.4-p51+fb070252"))
+            42, packages + "other", 42, listOf(digest), 5840056, "5.8.4-p56+e966b948"))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages, 43, listOf(digest), 5840051, "5.8.4-p51+fb070252"))
+            42, packages, 43, listOf(digest), 5840056, "5.8.4-p56+e966b948"))
     }
 
     @Test fun boundDittoPluginDoesNotReceiveLegacyIdentityControl() {
