@@ -37,6 +37,8 @@ import org.robolectric.shadows.ShadowLooper
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -299,6 +301,20 @@ class PluginLifecycleIsolationTest {
             assertEquals("Ditto runtime did not start", 0L, latch.count)
             awaitPluginLifecycle(pkg)
         }
+        suspend fun setNetworkEnabled(enabled: Boolean): Boolean {
+            val change = async(Dispatchers.IO) { manager.setDittoNetworkEnabled(enabled) }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (!change.isCompleted && System.nanoTime() < deadline) {
+                ShadowLooper.shadowMainLooper().idle()
+                Thread.sleep(5)
+            }
+            if (!change.isCompleted) {
+                change.cancel()
+                ShadowLooper.shadowMainLooper().idle()
+                fail("Ditto network policy update did not finish: enabled=$enabled")
+            }
+            return change.await()
+        }
         var failure: Throwable? = null
         try {
             withTimeout(5_000) { manager.dittoNetworkPolicyLoaded.first { it } }
@@ -313,7 +329,7 @@ class PluginLifecycleIsolationTest {
             )
             val oldSession = requireNotNull(oldSessionId)
 
-            assertTrue(manager.setDittoNetworkEnabled(false))
+            assertTrue(setNetworkEnabled(false))
             assertTrue(stopEntered.await(5, TimeUnit.SECONDS))
             assertTrue(PluginLifecycleWork.isBusy(pkg))
             oldHostCallback!!.onPluginMainUiStateChanged()
@@ -333,7 +349,7 @@ class PluginLifecycleIsolationTest {
                 }
             }
             nextPlugin = replacement
-            assertTrue(manager.setDittoNetworkEnabled(true))
+            assertTrue(setNetworkEnabled(true))
             assertTrue(PluginLifecycleWork.isBusy(pkg))
             assertEquals("Cleanup must fence replacement binding", 1, captured.size)
 
