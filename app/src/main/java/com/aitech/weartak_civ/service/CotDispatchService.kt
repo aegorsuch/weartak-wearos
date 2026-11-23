@@ -1671,32 +1671,40 @@ class CotDispatchService : Service() {
             if (pluginAlertJobs.containsKey(key)) return
             val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                 val submitted = try {
-                    trackedPluginAlert.submit(
-                        key.uid, key.activationId, key.state, key.positional, payload,
-                        selected = {
-                            dittoAlertSelected().also { selected ->
-                                if (selected) manager.connectionFor(
+                    var completed = false
+                    do {
+                        completed = trackedPluginAlert.submit(
+                            key.uid, key.activationId, key.state, key.positional, payload,
+                            selected = {
+                                dittoAlertSelected().also { selected ->
+                                    if (selected) manager.connectionFor(
+                                        com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                                    )?.resumeDittoForAlert()
+                                }
+                            },
+                            ready = {
+                                manager.connectionFor(
                                     com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                                )?.resumeDittoForAlert()
-                            }
-                        },
-                        ready = {
-                            manager.connectionFor(
-                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                            )?.dittoCotAvailable() == true
-                        },
-                        verifiedSession = {
-                            manager.connectionFor(
-                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                            )?.quiescentReplacementSession()
-                        },
-                        offer = { xml, messageId, eligible, session ->
-                            manager.connectionFor(
-                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                            )?.offerTrackedDittoCoT(xml, senderUid, senderCallsign, messageId, eligible, session)
-                                ?: { com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.NOT_ADMITTED }
-                        },
-                    )
+                                )?.dittoCotAvailable() == true
+                            },
+                            verifiedSession = {
+                                manager.connectionFor(
+                                    com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                                )?.quiescentReplacementSession()
+                            },
+                            offer = { xml, messageId, eligible, session ->
+                                manager.connectionFor(
+                                    com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                                )?.offerTrackedDittoCoT(xml, senderUid, senderCallsign, messageId, eligible, session)
+                                    ?: { com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.NOT_ADMITTED }
+                            },
+                        )
+                        if (completed || !trackedPluginAlert.retryableWithoutAdmission(
+                                key.uid, key.activationId, key.state, key.positional,
+                            ) || !dittoAlertSelected()) break
+                        kotlinx.coroutines.delay(ALERT_ADMISSION_RETRY_INTERVAL_MS)
+                    } while (true)
+                    completed
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -2199,6 +2207,7 @@ class CotDispatchService : Service() {
     companion object {
         private val TAG = "WearTAK-" + CotDispatchService::class.java.simpleName
         private const val DISPATCH_INTERVAL = 2_000L // 2 seconds
+        private const val ALERT_ADMISSION_RETRY_INTERVAL_MS = 5_000L
         private const val COMPANION_HANDOFF_PLI_FLUSH_WAIT_MS = 500L
         // Marker queue freshness; emergencies retain the best known fix with aged uncertainty.
         private const val FRESH_GPS_INTERVAL_MILLIS = 3_000L

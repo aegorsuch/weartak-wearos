@@ -79,6 +79,30 @@ class TrackedPluginAlertTest {
         })
     }
 
+    @Test fun automaticRetryRequiresKnownNonAdmissionAndCurrentActivation() = runTest {
+        val tracker = tracker()
+        assertTrue(tracker.activate("alert", "first"))
+        assertFalse(tracker.testSubmit("alert", "first", AlertState.ALERT, true, "payload", { true }) { _, _ ->
+            Submission.NOT_ADMITTED
+        })
+        assertTrue(tracker.retryableWithoutAdmission("alert", "first", AlertState.ALERT, true))
+        assertTrue(tracker.cancel("alert", "first"))
+        assertFalse(tracker.retryableWithoutAdmission("alert", "first", AlertState.ALERT, true))
+
+        assertTrue(tracker.activate("other", "first"))
+        assertFalse(tracker.testSubmit("other", "first", AlertState.ALERT, true, "payload", { true }) { _, _ ->
+            Submission.UNCERTAIN
+        })
+        assertFalse(tracker.retryableWithoutAdmission("other", "first", AlertState.ALERT, true))
+
+        assertTrue(tracker.activate("third", "first"))
+        assertFalse(tracker.testSubmit("third", "first", AlertState.ALERT, true, "payload", { true }) { _, _ ->
+            Submission.NOT_ADMITTED
+        })
+        assertTrue(tracker.activate("third", "second"))
+        assertFalse(tracker.retryableWithoutAdmission("third", "first", AlertState.ALERT, true))
+    }
+
     @Test fun waitsForColdRuntimeBeforeAdmission() = runTest {
         var sends = 0
         assertTrue(tracker().testSubmit("alert", "first", AlertState.ALERT, true, "payload",

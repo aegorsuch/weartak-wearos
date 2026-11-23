@@ -369,6 +369,38 @@ class CotDispatchServiceAlertReadinessTest {
             fixture.drain(false)
             assertEquals(2, attempts)
             assertEquals(1, fixture.queue(false).size)
+            advanceTimeBy(30_000)
+            runCurrent()
+            assertEquals(2, attempts)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost)
+        }
+    }
+
+    @Test
+    fun pluginOnlyAlertRetriesProlongedKnownNonAdmissionWithoutRouteChange() = runTest {
+        mockkObject(PluginOnlyDittoHost)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            val fixture = Fixture(this)
+            fixture.snapshotLocation = fixture.location(System.currentTimeMillis())
+            var attempts = 0
+            fixture.enableTrackedPlugin(waitForReadiness = true) { _, _ ->
+                attempts++
+                if (attempts <= 45) Submission.NOT_ADMITTED else Submission.SUBMITTED
+            }
+            val alert = fixture.alert("busy-plugin")
+            fixture.activeAlerts(false)[alert.uuid] = alert
+            fixture.send(false, alert)
+            runCurrent()
+            advanceTimeBy(11_000)
+            runCurrent()
+            assertEquals(41, attempts)
+            assertEquals(1, fixture.queue(false).size)
+            advanceTimeBy(10_000)
+            runCurrent()
+            assertEquals(46, attempts)
+            assertTrue(fixture.queue(false).isEmpty())
         } finally {
             unmockkObject(PluginOnlyDittoHost)
         }
