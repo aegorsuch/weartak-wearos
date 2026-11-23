@@ -132,23 +132,24 @@ class HostCommunityIdentityControlTest {
         val packages = setOf(TrustedCommunityPlugin.PACKAGE)
         fun matches(code: Long, name: String?, signers: List<ByteArray> = listOf(digest)) =
             TrustedCommunityPlugin.matchesQuiescentReplacement(42, packages, 42, signers, code, name)
-        assertTrue(matches(5840062, "5.8.4-p62+b5ab0265"))
+        assertTrue(matches(5840071, "5.8.4-p71+e06256e0"))
         assertFalse(matches(5840035, "5.8.4-p35+d981f7a5"))
         assertFalse(matches(5840051, "5.8.4-p51+fb070252"))
         assertFalse(matches(5840056, "5.8.4-p56+e966b948"))
         assertFalse(matches(5840058, "5.8.4-p58+9471a6d8"))
         assertFalse(matches(5840059, "5.8.4-p59+9471a6d8"))
         assertFalse(matches(5840060, "5.8.4-p60+9471a6d8"))
-        assertFalse(matches(5840059, "5.8.4-p62+b5ab0265"))
-        assertFalse(matches(5840062, "5.8.4-p59+9471a6d8"))
-        assertFalse(matches(5840062, "5.8.4-p62+different"))
-        assertFalse(matches(5840062, "5.8.4-p62+b5ab0265", listOf(ByteArray(32))))
-        assertFalse(matches(5840062, null))
-        assertFalse(matches(5840062, "5.8.4-p62+b5ab0265", listOf(digest, digest)))
+        assertFalse(matches(5840062, "5.8.4-p62+b5ab0265"))
+        assertFalse(matches(5840062, "5.8.4-p71+e06256e0"))
+        assertFalse(matches(5840071, "5.8.4-p62+b5ab0265"))
+        assertFalse(matches(5840071, "5.8.4-p71+different"))
+        assertFalse(matches(5840071, "5.8.4-p71+e06256e0", listOf(ByteArray(32))))
+        assertFalse(matches(5840071, null))
+        assertFalse(matches(5840071, "5.8.4-p71+e06256e0", listOf(digest, digest)))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages + "other", 42, listOf(digest), 5840062, "5.8.4-p62+b5ab0265"))
+            42, packages + "other", 42, listOf(digest), 5840071, "5.8.4-p71+e06256e0"))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages, 43, listOf(digest), 5840062, "5.8.4-p62+b5ab0265"))
+            42, packages, 43, listOf(digest), 5840071, "5.8.4-p71+e06256e0"))
     }
 
     @Test fun boundDittoPluginDoesNotReceiveLegacyIdentityControl() {
