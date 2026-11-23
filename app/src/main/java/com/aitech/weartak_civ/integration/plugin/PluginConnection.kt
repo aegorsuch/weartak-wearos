@@ -87,10 +87,13 @@ class PluginConnection(
     internal suspend fun submitDittoCoT(
         xml: String, senderUid: String, senderCallsign: String?, messageId: String,
     ): PluginTransportHostV1Impl.Submission {
+        val token = manager.settingsCoordinator.dittoForwardingToken()
+            ?: return PluginTransportHostV1Impl.Submission.NOT_ADMITTED
         val transport = synchronized(stateLock) {
             hostTransportV1.takeIf { dittoCotAvailable() }
         } ?: return PluginTransportHostV1Impl.Submission.NOT_ADMITTED
-        return transport.submitDittoCoT(xml, senderUid, senderCallsign, messageId)
+        return transport.offerTrackedDittoCoT(xml, senderUid, senderCallsign, messageId,
+            eligible = { manager.settingsCoordinator.isDittoForwardingTokenCurrent(token) })()
     }
 
     internal fun offerTrackedDittoCoT(
@@ -98,11 +101,15 @@ class PluginConnection(
         eligible: () -> Boolean,
         expectedSessionId: String,
     ): suspend () -> PluginTransportHostV1Impl.Submission {
+        val token = manager.settingsCoordinator.dittoForwardingToken()
+            ?: return { PluginTransportHostV1Impl.Submission.NOT_ADMITTED }
         val transport = synchronized(stateLock) {
             hostTransportV1.takeIf { dittoCotAvailable() }
         } ?: return { PluginTransportHostV1Impl.Submission.NOT_ADMITTED }
         return transport.offerTrackedDittoCoT(xml, senderUid, senderCallsign, messageId,
-            expectedSessionId, eligible)
+            expectedSessionId, {
+                manager.settingsCoordinator.isDittoForwardingTokenCurrent(token) && eligible()
+            })
     }
 
     internal fun quiescentReplacementSession(): String? = synchronized(stateLock) {

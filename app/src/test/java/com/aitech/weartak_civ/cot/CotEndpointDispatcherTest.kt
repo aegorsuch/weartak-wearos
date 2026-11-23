@@ -10,6 +10,22 @@ import org.junit.Test
 
 class CotEndpointDispatcherTest {
     @Test
+    fun chatCanExcludeDittoWithoutExcludingOtherPlugins() = runBlocking {
+        val calls = mutableListOf<String>()
+        val dispatcher = CotEndpointDispatcher(
+            sendTak = { _, _ -> }, sendSitx = {}, sendDitto = { _, _ -> },
+            sendMulticast = {}, sendPliMulticast = {}, sendCompanion = {},
+            sendPlugin = { calls += "all plugins" },
+            sendPluginWithoutDitto = { calls += "other plugins" },
+        )
+        val message = CotOutboundMessage("<chat/>", CotMessageKind.CHAT,
+            CotCompanionPayload.Chat(chatSnapshot()), excludeDittoPlugin = true)
+        assertTrue(dispatcher.dispatch(message,
+            CotEndpointAvailability(false, false, false, false, false, plugin = true)))
+        assertEquals(listOf("other plugins"), calls)
+    }
+
+    @Test
     fun trackedDittoOfferDoesNotCompleteUntilReceiverCallsBack() = runBlocking {
         var completion: ((Boolean) -> Unit)? = null
         var result: Boolean? = null

@@ -10,6 +10,7 @@ import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
 import com.aitech.weartak_civ.cot.CotCompanionPayload
 import com.aitech.weartak_civ.cot.CotEndpointDispatcher
 import com.aitech.weartak_civ.cot.CotEventTime
+import com.aitech.weartak_civ.cot.CotMessageBuilder
 import com.aitech.weartak_civ.data.CompanionAppRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.presentation.MainActivity
@@ -49,6 +50,40 @@ import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class CotDispatchServiceAlertReadinessTest {
+    @Test
+    fun chatRetriesRegistrationAndAdmissionWithoutGenericDittoFanout() = runTest {
+        mockkObject(PluginOnlyDittoHost, CotMessageBuilder)
+        try {
+            every { PluginOnlyDittoHost.enabled() } returns true
+            every { CotMessageBuilder.chat(any(), any(), any(), any(), any()) } returns "<event/>"
+            MainActivity.device_uid = "watch"
+            val fixture = Fixture(this)
+            fixture.pluginAvailable.value = true
+            fixture.verifiedSession.value = null
+            val attempts = mutableListOf<String>()
+            fixture.enableTrackedPlugin { _, id ->
+                attempts += id
+                if (attempts.size == 1) Submission.NOT_ADMITTED else Submission.SUBMITTED
+            }
+            fixture.sendChat()
+            runCurrent()
+            assertTrue(attempts.isEmpty())
+            assertEquals(1, fixture.pluginWithoutDittoDispatches.size)
+            assertTrue(fixture.pluginGenericDispatches.isEmpty())
+            fixture.verifiedSession.value = "test-session"
+            advanceTimeBy(1_000)
+            runCurrent()
+            assertEquals(1, attempts.size)
+            advanceTimeBy(2_000)
+            runCurrent()
+            assertEquals(2, attempts.size)
+            assertEquals(attempts.first(), attempts.last())
+            assertEquals(1, fixture.pluginWithoutDittoDispatches.size)
+        } finally {
+            unmockkObject(PluginOnlyDittoHost, CotMessageBuilder)
+        }
+    }
+
     @Test
     fun repeatedActivationWithSameUidSendsNewAlertAfterClear() = runTest {
         val fixture = Fixture(this)
@@ -577,6 +612,8 @@ class CotDispatchServiceAlertReadinessTest {
         val takEnabled = MutableStateFlow(true)
         val sent = mutableListOf<String>()
         val pluginDispatches = mutableListOf<String>()
+        val pluginGenericDispatches = mutableListOf<String>()
+        val pluginWithoutDittoDispatches = mutableListOf<String>()
         val gateway = com.aitech.weartak_civ.cot.CompanionGatewaySession()
         val gatewaySent = mutableListOf<String>()
         private val firstSend = CompletableDeferred<Unit>()
@@ -619,6 +656,7 @@ class CotDispatchServiceAlertReadinessTest {
                     snapshotLocation, null, mockk(relaxed = true),
                 )
             }
+            coEvery { repo.snapshotChatEvent(any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
             val coordinator = mockk<PluginSettingsCoordinator>(relaxed = true)
             every { coordinator.outboundCotAvailable } returns pluginAvailable
             every { coordinator.outboundCotReadyRoutes } returns pluginRoutes
@@ -649,11 +687,13 @@ class CotDispatchServiceAlertReadinessTest {
                     }
                 },
                 sendPlugin = {
+                    pluginGenericDispatches += it
                     pluginDispatches += it
                     sent += it
                     firstSend.complete(Unit)
                 },
                 sendPluginWithoutDitto = {
+                    pluginWithoutDittoDispatches += it
                     pluginDispatches += it
                     sent += it
                     firstSend.complete(Unit)
@@ -728,6 +768,9 @@ class CotDispatchServiceAlertReadinessTest {
         fun location(time: Long) = DataRepository.LocationSnapshot(time, 41.0, -87.0, 100.0, 4f, 5f, null, null)
         suspend fun send(automatic: Boolean, alert: DataRepository.CustomEmergencyAlert) {
             call(sendMethod(automatic), CotDispatchService.CustomEmergencyAlertWithAddedState(alert = alert))
+        }
+        suspend fun sendChat() {
+            call("sendAllChatMessages", DataRepository.SendChatRequest("room", "Room", "hello", 0))
         }
         suspend fun drain(automatic: Boolean) { call(sendMethod(automatic), null) }
         suspend fun clear(automatic: Boolean, uid: String) {
