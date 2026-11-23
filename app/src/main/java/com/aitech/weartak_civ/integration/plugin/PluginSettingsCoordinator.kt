@@ -50,6 +50,9 @@ class PluginSettingsCoordinator(
     private val outboundCotReadyRoutesState = MutableStateFlow<Map<String, Long>>(emptyMap())
     val outboundCotReadyRoutes = outboundCotReadyRoutesState.asStateFlow()
     private var outboundCotGeneration = 0L
+    @Volatile private var dittoForwardingFenced = false
+    @Volatile private var dittoSettingsReadFailed = false
+    private var dittoForwardingRevision = 0L
     data class ConnectivityToggle(val enabled: Boolean, val binding: IWearTakPlugin)
     private val connectivityTogglesState = MutableStateFlow<Map<String, ConnectivityToggle>>(emptyMap())
     val connectivityToggles = connectivityTogglesState.asStateFlow()
@@ -75,11 +78,13 @@ class PluginSettingsCoordinator(
     )
 
     fun registerPlugin(pluginId: String, plugin: IWearTakPlugin) = synchronized(pluginRefs) {
+        if (pluginId == TrustedCommunityPlugin.PACKAGE) ++dittoForwardingRevision
         pluginRefs[pluginId] = plugin
         updateOutboundCotAvailability()
     }
 
     fun unregisterPlugin(pluginId: String) = synchronized(pluginRefs) {
+        if (pluginId == TrustedCommunityPlugin.PACKAGE) ++dittoForwardingRevision
         pluginRefs.remove(pluginId)
         transportHosts.remove(pluginId)
         cache.remove(pluginId)
@@ -155,15 +160,44 @@ class PluginSettingsCoordinator(
     /** True when any connected plugin declares [fieldId] and currently has it set. */
     fun anyPluginHasSettingEnabled(fieldId: String): Boolean =
         cache.entries.any { (pluginId, state) ->
-            pluginRefs.containsKey(pluginId) &&
+            !forwardingFenced(pluginId, fieldId) && pluginRefs.containsKey(pluginId) &&
                 state.schema.fields.any { it.fieldId == fieldId } && state.values.getBoolean(fieldId, false)
         }
 
     internal fun pluginHasSettingEnabled(pluginId: String, fieldId: String): Boolean {
         val state = cache[pluginId] ?: return false
-        return pluginRefs.containsKey(pluginId) &&
+        return !forwardingFenced(pluginId, fieldId) && pluginRefs.containsKey(pluginId) &&
             state.schema.fields.any { it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE } &&
             state.values.getBoolean(fieldId, false)
+    }
+
+    private fun forwardingFenced(pluginId: String, fieldId: String): Boolean =
+        pluginId == TrustedCommunityPlugin.PACKAGE &&
+            fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT &&
+            (dittoForwardingFenced || dittoSettingsReadFailed)
+
+    private fun dittoReadRevision(pluginId: String): Long? = synchronized(pluginRefs) {
+        dittoForwardingRevision.takeIf { pluginId == TrustedCommunityPlugin.PACKAGE }
+    }
+
+    private fun fenceFailedDittoRead(pluginId: String, plugin: IWearTakPlugin, revision: Long?) = synchronized(pluginRefs) {
+        if (pluginId == TrustedCommunityPlugin.PACKAGE && pluginRefs[pluginId] === plugin &&
+            revision == dittoForwardingRevision) {
+            dittoSettingsReadFailed = true
+            ++dittoForwardingRevision
+            updateOutboundCotAvailability()
+        }
+    }
+
+    internal fun dittoForwardingToken(): Long? = synchronized(pluginRefs) {
+        dittoForwardingRevision.takeIf {
+            pluginHasSettingEnabled(TrustedCommunityPlugin.PACKAGE, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)
+        }
+    }
+
+    internal fun isDittoForwardingTokenCurrent(token: Long): Boolean = synchronized(pluginRefs) {
+        token == dittoForwardingRevision &&
+            pluginHasSettingEnabled(TrustedCommunityPlugin.PACKAGE, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)
     }
 
     /**
@@ -180,15 +214,25 @@ class PluginSettingsCoordinator(
      */
     fun invokeActionOnPluginsWithSetting(fieldId: String, actionId: String, args: Bundle) {
         val targets = cache.entries
-            .filter { (_, state) ->
-                state.schema.fields.any { it.fieldId == fieldId } && state.values.getBoolean(fieldId, false)
+            .filter { (pluginId, state) ->
+                !forwardingFenced(pluginId, fieldId) &&
+                    state.schema.fields.any { it.fieldId == fieldId } && state.values.getBoolean(fieldId, false)
             }
-            .mapNotNull { (pluginId, _) -> pluginRefs[pluginId]?.let { pluginId to it } }
+            .mapNotNull { (pluginId, _) ->
+                val plugin = pluginRefs[pluginId] ?: return@mapNotNull null
+                val token = if (pluginId == TrustedCommunityPlugin.PACKAGE &&
+                    fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) {
+                    dittoForwardingToken() ?: return@mapNotNull null
+                } else null
+                Triple(pluginId, plugin, token)
+            }
         if (targets.isEmpty()) return
 
         scope.launch {
-            for ((pluginId, plugin) in targets) {
+            for ((pluginId, plugin, token) in targets) {
                 if (pluginRefs[pluginId] !== plugin) continue
+                if (forwardingFenced(pluginId, fieldId)) continue
+                if (token != null && !isDittoForwardingTokenCurrent(token)) continue
                 if (fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT &&
                     (pluginRefs[pluginId] !== plugin ||
                         cache[pluginId]?.schema?.fields?.none {
@@ -212,17 +256,25 @@ class PluginSettingsCoordinator(
     ) {
         val targets = cache.entries
             .filter { (pluginId, state) ->
-                pluginId != excludedPluginId && state.schema.fields.any {
+                pluginId != excludedPluginId && !forwardingFenced(pluginId, fieldId) && state.schema.fields.any {
                     it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE
                 } && state.values.getBoolean(fieldId, false)
             }
-            .mapNotNull { (pluginId, _) -> pluginRefs[pluginId]?.let { pluginId to it } }
+            .mapNotNull { (pluginId, _) ->
+                val plugin = pluginRefs[pluginId] ?: return@mapNotNull null
+                val token = if (pluginId == TrustedCommunityPlugin.PACKAGE &&
+                    fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) {
+                    dittoForwardingToken() ?: return@mapNotNull null
+                } else null
+                Triple(pluginId, plugin, token)
+            }
         if (targets.isEmpty()) return
 
         scope.launch {
-            for ((pluginId, plugin) in targets) {
+            for ((pluginId, plugin, token) in targets) {
                 val state = cache[pluginId]
-                if (pluginRefs[pluginId] !== plugin ||
+                if (pluginRefs[pluginId] !== plugin || forwardingFenced(pluginId, fieldId) ||
+                    (token != null && !isDittoForwardingTokenCurrent(token)) ||
                     state?.schema?.fields?.none {
                         it.fieldId == fieldId && it.fieldType == SettingsFieldTypes.TOGGLE
                     } != false ||
@@ -238,7 +290,8 @@ class PluginSettingsCoordinator(
                         transport.offerInboundCoT(envelope)
                     } else {
                         val uid = senderUid?.takeIf(String::isNotBlank) ?: continue
-                        transport.offerCoT(xml, uid, senderCallsign)
+                        transport.offerCoT(xml, uid, senderCallsign,
+                            eligible = token?.let { captured -> { isDittoForwardingTokenCurrent(captured) } })
                     }
                 } else {
                     runCatching { plugin.invokeMainUiAction(actionId, args) }
@@ -495,12 +548,40 @@ class PluginSettingsCoordinator(
             runBlocking { app.repo.networkSettingsLocked.first() }) {
             return connectivityRejected("Network settings are locked")
         }
-        val remote = invokePluginApply(plugin, incoming, applyMode)
-        return synchronized(pluginRefs) {
+        val forwardingRevision = synchronized(pluginRefs) {
             if (pluginRefs[pluginId] !== plugin || cache[pluginId] !== state) {
+                return connectivityRejected("Plugin settings changed")
+            }
+            if (pluginId == TrustedCommunityPlugin.PACKAGE &&
+                incoming.containsKey(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)) {
+                dittoForwardingFenced = true
+                (++dittoForwardingRevision).also { updateOutboundCotAvailability() }
+            } else null
+        }
+        val remote = if (forwardingRevision != null) {
+            runCatching { checkNotNull(plugin.applySettingsWithResult(incoming, applyMode)) }
+                .getOrElse {
+                    Log.w(TAG, "Ditto forwarding apply unavailable: ${it.javaClass.simpleName}")
+                    connectivityRejected("Plugin forwarding apply unavailable")
+                }
+        } else invokePluginApply(plugin, incoming, applyMode)
+        return synchronized(pluginRefs) {
+            if (pluginRefs[pluginId] !== plugin || cache[pluginId] !== state ||
+                (forwardingRevision != null && forwardingRevision != dittoForwardingRevision)) {
                 return@synchronized connectivityRejected("Plugin connection changed")
             }
+            if (remote.success && forwardingRevision != null &&
+                (!remote.values.containsKey(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) ||
+                    remote.values.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false) !=
+                    incoming.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false))) {
+                return@synchronized connectivityRejected("Plugin forwarding state not confirmed")
+            }
             if (remote.success) {
+                if (forwardingRevision != null &&
+                    incoming.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false)) {
+                    dittoForwardingFenced = false
+                    dittoSettingsReadFailed = false
+                }
                 updateCache(
                     pluginId,
                     state.copy(
@@ -520,12 +601,14 @@ class PluginSettingsCoordinator(
 
     private suspend fun refreshFromPluginLocked(pluginId: String, plugin: IWearTakPlugin) {
         if (pluginRefs[pluginId] !== plugin) return
+        val readRevision = dittoReadRevision(pluginId)
         val caps = runCatching { plugin.capabilities }.getOrDefault(PluginCapabilitiesParcel())
         val settingsSupported = caps.hostedSettingsUi || caps.externalSettingsActivity
         val audioSettingsFields = legacyAudioSettingsFields(pluginId)
         val shouldLoadSchema = settingsSupported || audioSettingsFields != null
         var schema = SettingsSchemaParcel()
         var values = Bundle()
+        var readSucceeded = false
         var errors = emptyList<com.weartak.plugin.sdk.model.SettingsValidationErrorParcel>()
         if (shouldLoadSchema) {
             val rawSchema = runCatching { plugin.settingsSchema }.getOrDefault(SettingsSchemaParcel())
@@ -541,7 +624,11 @@ class PluginSettingsCoordinator(
                     Log.w(TAG, "settings schema validation failed pluginId=$pluginId errors=$errors")
                 }
             }
-            values = runCatching { plugin.settingsValues }.getOrDefault(Bundle())
+            values = runCatching { plugin.settingsValues }.onSuccess { readSucceeded = true }.getOrElse {
+                fenceFailedDittoRead(pluginId, plugin, readRevision)
+                Log.w(TAG, "Settings values unavailable for $pluginId: ${it.javaClass.simpleName}")
+                Bundle()
+            }
         }
         val hostManagedSettingsSupported = audioSettingsFields?.expectedFieldTypes?.all { (fieldId, fieldType) ->
             schema.fields.any { it.fieldId == fieldId && it.fieldType == fieldType }
@@ -567,6 +654,8 @@ class PluginSettingsCoordinator(
                 hostManagedSettingsSupported = hostManagedSettingsSupported,
                 lastSyncedAtMillis = System.currentTimeMillis(),
             ),
+            readSucceeded = readSucceeded,
+            readRevision = readRevision,
         )
         PluginDiagnostics.recordSettingsCache(pluginId, cache[pluginId])
         Log.i(
@@ -578,9 +667,15 @@ class PluginSettingsCoordinator(
 
     private suspend fun refreshValuesFromPluginLocked(pluginId: String, plugin: IWearTakPlugin) {
         if (pluginRefs[pluginId] !== plugin) return
+        val readRevision = dittoReadRevision(pluginId)
         val prior = cache[pluginId] ?: return
         if (!prior.settingsSupported && !prior.hostManagedSettingsSupported) return
-        val values = runCatching { plugin.settingsValues }.getOrDefault(Bundle())
+        var readSucceeded = false
+        val values = runCatching { plugin.settingsValues }.onSuccess { readSucceeded = true }.getOrElse {
+            fenceFailedDittoRead(pluginId, plugin, readRevision)
+            Log.w(TAG, "Settings values unavailable for $pluginId: ${it.javaClass.simpleName}")
+            Bundle()
+        }
         if (pluginRefs[pluginId] !== plugin) return
         updateConnectionCache(
             pluginId,
@@ -589,6 +684,8 @@ class PluginSettingsCoordinator(
                 values = values,
                 lastSyncedAtMillis = System.currentTimeMillis(),
             ),
+            readSucceeded = readSucceeded,
+            readRevision = readRevision,
         )
         PluginDiagnostics.recordSettingsCache(pluginId, cache[pluginId])
     }
@@ -782,9 +879,19 @@ class PluginSettingsCoordinator(
         updateOutboundCotAvailability()
     }
 
-    private fun updateConnectionCache(pluginId: String, plugin: IWearTakPlugin, state: PluginSettingsState) =
+    private fun updateConnectionCache(
+        pluginId: String,
+        plugin: IWearTakPlugin,
+        state: PluginSettingsState,
+        readSucceeded: Boolean = false,
+        readRevision: Long? = null,
+    ) =
         synchronized(pluginRefs) {
-            if (pluginRefs[pluginId] === plugin) updateCache(pluginId, state)
+            if (pluginRefs[pluginId] === plugin &&
+                (readRevision == null || readRevision == dittoForwardingRevision)) {
+                if (readSucceeded && pluginId == TrustedCommunityPlugin.PACKAGE) dittoSettingsReadFailed = false
+                updateCache(pluginId, state)
+            }
         }
 
     private fun updateOutboundCotAvailability() = synchronized(outboundCotReadyRoutesState) {
@@ -794,10 +901,13 @@ class PluginSettingsCoordinator(
                 it.fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT &&
                     it.fieldType == SettingsFieldTypes.TOGGLE
             }) return@mapNotNull null
-            id to ConnectivityToggle(state.values.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false), plugin)
+            id to ConnectivityToggle(
+                !forwardingFenced(id, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) &&
+                    state.values.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false), plugin)
         }.toMap()
         val ready = cache.entries.filter { (pluginId, state) ->
-            pluginRefs.containsKey(pluginId) &&
+            !forwardingFenced(pluginId, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) &&
+                pluginRefs.containsKey(pluginId) &&
                 state.schema.fields.any { it.fieldId == PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT } &&
                 state.values.getBoolean(PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT, false)
         }.map { it.key }

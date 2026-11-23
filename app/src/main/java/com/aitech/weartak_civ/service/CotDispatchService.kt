@@ -143,6 +143,8 @@ class CotDispatchService : Service() {
     private val pendingMarkerCotList = java.util.concurrent.CopyOnWriteArrayList<DataRepository.DroppedMarker>()
 
     private val pendingChatMsgQueue = java.util.concurrent.ConcurrentLinkedDeque<DataRepository.SendChatRequest>()
+    private val chatDispatchMutex = Mutex()
+    private val pendingDittoChat by lazy { PendingDittoChat(serviceScope, ::offerPendingDittoChat) }
 
     private var combatId: Int = 0
 
@@ -961,7 +963,11 @@ class CotDispatchService : Service() {
         }
     }
 
-    private suspend fun sendPendingChatMessages(): Boolean {
+    private suspend fun sendPendingChatMessages(): Boolean = chatDispatchMutex.withLock {
+        sendPendingChatMessagesLocked()
+    }
+
+    private suspend fun sendPendingChatMessagesLocked(): Boolean {
         pendingChatMsgQueue.removeAll {
             com.aitech.weartak_civ.command.SensitiveEnrollment.isSensitiveText(it.message)
         }
@@ -995,17 +1001,51 @@ class CotDispatchService : Service() {
             Log.w(TAG, "Cannot route chat to ${chatSnap.roomUid}: ${error.message}")
             return false
         }
+        if (com.aitech.weartak_civ.command.SensitiveEnrollment.containsSensitiveXml(chatCotXml)) {
+            Log.w(TAG, "Sensitive enrollment command excluded from outbound chat")
+            return false
+        }
+        val manager = (applicationContext as WearTakApplication).pluginManager
+        val pluginOnly = com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()
+        val dittoQueued = pluginOnly && !companionAppAvailable() && manager.dittoCotSelected()
+        if (dittoQueued) {
+            pendingDittoChat.enqueue(chatCotXml, MainActivity.device_uid, callsign)
+        }
         val sent = dispatch(
-            CotOutboundMessage(chatCotXml, CotMessageKind.CHAT, CotCompanionPayload.Chat(chatSnap)),
+            CotOutboundMessage(chatCotXml, CotMessageKind.CHAT, CotCompanionPayload.Chat(chatSnap),
+                excludeDittoPlugin = pluginOnly),
         )
 
-        if (sent) {
-            Log.i(TAG, "sendChatMessage: Sent chat message")
+        if (dittoQueued) {
+            Log.i(TAG, "sendChatMessage: Queued for Ditto")
+        } else if (sent) {
+            Log.i(TAG, "sendChatMessage: Selected outbound route")
         } else {
             Log.i(TAG, "sendChatMessage: Could NOT send chat message")
         }
 
-        return sent
+        return sent || dittoQueued
+    }
+
+    private suspend fun offerPendingDittoChat(
+        message: PendingDittoChat.Message,
+    ): com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission {
+        val manager = (applicationContext as WearTakApplication).pluginManager
+        val unavailable = com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.NOT_ADMITTED
+        if (companionAppAvailable() || !manager.dittoCotSelected()) return unavailable
+        val connection = manager.connectionFor(
+            com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+        ) ?: return unavailable
+        val session = connection.quiescentReplacementSession() ?: return unavailable
+        return connection.offerTrackedDittoCoT(
+            message.xml, message.senderUid, message.senderCallsign, message.id,
+            eligible = {
+                !dataRepository.shouldSuppressWatchTransportNow() &&
+                    manager.connectionFor(com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE) === connection &&
+                    manager.dittoCotSelected() && connection.dittoCotAvailable()
+            },
+            expectedSessionId = session,
+        )()
     }
 
     @Subscribe
@@ -1016,17 +1056,15 @@ class CotDispatchService : Service() {
         }
     }
 
-    private suspend fun sendAllChatMessages(chatReq: DataRepository.SendChatRequest?) {
-        val sentPendingChatMessages = sendPendingChatMessages()
+    private suspend fun sendAllChatMessages(chatReq: DataRepository.SendChatRequest?) = chatDispatchMutex.withLock {
+        val sentPendingChatMessages = sendPendingChatMessagesLocked()
 
-        if (null == chatReq) return
-        if (com.aitech.weartak_civ.command.SensitiveEnrollment.isSensitiveText(chatReq.message)) return
+        if (null == chatReq) return@withLock
+        if (com.aitech.weartak_civ.command.SensitiveEnrollment.isSensitiveText(chatReq.message)) return@withLock
 
-        if (sentPendingChatMessages) {
-            if (!sendChatMessage(chatReq)) {
-                pendingChatMsgQueue.addLast(chatReq)
-                Log.i(TAG, "pendingChatMsgQueue=${pendingChatMsgQueue.size}")
-            }
+        if (!sentPendingChatMessages || !sendChatMessage(chatReq)) {
+            pendingChatMsgQueue.addLast(chatReq)
+            Log.i(TAG, "pendingChatMsgQueue=${pendingChatMsgQueue.size}")
         }
     }
 

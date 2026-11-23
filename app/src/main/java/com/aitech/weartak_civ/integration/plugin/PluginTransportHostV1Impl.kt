@@ -455,8 +455,10 @@ internal class PluginTransportHostV1Impl(
         workspaceId: String? = null,
         externalId: String? = null,
         sentAtEpochMillis: Long? = null,
+        eligible: (() -> Boolean)? = null,
     ) {
-        offerCoTInternal(xml, senderUid, senderCallsign, workspaceId, externalId, sentAtEpochMillis, null, false)
+        offerCoTInternal(xml, senderUid, senderCallsign, workspaceId, externalId, sentAtEpochMillis,
+            null, false, outboundEligible = eligible)
     }
 
     internal enum class Submission { NOT_ADMITTED, CANCELLED_BEFORE_EFFECT, SUBMITTED, UNCERTAIN }

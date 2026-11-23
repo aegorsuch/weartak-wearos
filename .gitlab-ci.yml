@@ -43,7 +43,7 @@ android_host_regression:
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
       --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
       --tests '*CotDispatchTransportResumeTest'
-      --tests '*CotDispatchServiceAlertReadinessTest' --tests '*TrackedPluginAlertTest'
+      --tests '*CotDispatchServiceAlertReadinessTest' --tests '*TrackedPluginAlertTest' --tests '*PendingDittoChatTest'
       --tests '*CotEndpointDispatcherTest' --tests '*GroupChatIntegrationTest' --tests '*CotMessageBuilderTest'
       --tests '*DittoReceiveIntegrationTest' --tests '*MulticastChatCommandsTest'
       --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
@@ -447,6 +447,8 @@ arm64_qualification:
 
 main_release:
   extends: .release_build
+  # Artifact is restricted; publication and external use wait for the pipeline gates.
+  needs: []
   variables:
     GIT_DEPTH: "0"
   environment:
@@ -454,8 +456,9 @@ main_release:
     action: prepare
 
   artifacts:
-    when: always
+    when: on_success
     expire_in: 30 days
+    access: developer
     paths:
       - app/build/outputs/apk/release/*.apk
       - app/build/outputs/apk/release/verified-apk.sha256
@@ -467,7 +470,7 @@ main_release:
       - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
 
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
 
 
 # ---------------------------------------------------------------------------

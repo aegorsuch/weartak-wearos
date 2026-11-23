@@ -31,6 +31,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -363,6 +365,198 @@ class PluginSettingsCoordinatorTest {
         coordinator.unregisterPlugin("com.plugin.settings")
         assertFalse(coordinator.anyPluginHasSettingEnabled(field))
         assertFalse(coordinator.outboundCotAvailable.value)
+    }
+
+    @Test
+    fun failedDittoDisableFencesInFlightAndSurvivesRefreshAndReconnect() {
+        val id = TrustedCommunityPlugin.PACKAGE
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        val started = CountDownLatch(1)
+        val finish = CountDownLatch(1)
+        val result = AtomicReference<SettingsApplyResultParcel>()
+        val plugin = object : FakeWearTakPlugin(id) {
+            override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel {
+                if (values?.containsKey(field) == true && !values.getBoolean(field)) {
+                    started.countDown()
+                    check(finish.await(3, TimeUnit.SECONDS))
+                    return SettingsApplyResultParcel(success = false)
+                }
+                return super.applySettingsWithResult(values, applyMode)
+            }
+        }.apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, true) })
+        }
+        coordinator.onPluginConnected(id, plugin)
+        val otherId = "com.plugin.other"
+        val other = FakeWearTakPlugin(otherId).apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, true) })
+        }
+        coordinator.onPluginConnected(otherId, other)
+        val oldToken = checkNotNull(coordinator.dittoForwardingToken())
+        val thread = Thread {
+            result.set(coordinator.applyPluginSettings(id, Bundle().apply { putBoolean(field, false) }))
+        }
+        thread.start()
+        try {
+            assertTrue(started.await(3, TimeUnit.SECONDS))
+            assertFalse(coordinator.isDittoForwardingTokenCurrent(oldToken))
+            assertFalse(coordinator.connectivityToggles.value.getValue(id).enabled)
+            coordinator.onPluginSettingsValuesChanged(id)
+            assertFalse(coordinator.pluginHasSettingEnabled(id, field))
+            assertTrue(coordinator.pluginHasSettingEnabled(otherId, field))
+        } finally {
+            finish.countDown()
+            thread.join(3_000)
+        }
+        assertFalse(thread.isAlive)
+        assertFalse(result.get().success)
+        coordinator.unregisterPlugin(id)
+        coordinator.onPluginConnected(id, plugin)
+        assertFalse(coordinator.pluginHasSettingEnabled(id, field))
+        assertTrue(coordinator.outboundCotAvailable.value)
+        coordinator.unregisterPlugin(otherId)
+        assertFalse(coordinator.outboundCotAvailable.value)
+        assertTrue(coordinator.applyPluginSettings(id, Bundle().apply { putBoolean(field, true) }).success)
+        assertTrue(coordinator.pluginHasSettingEnabled(id, field))
+        assertFalse(coordinator.isDittoForwardingTokenCurrent(oldToken))
+    }
+
+    @Test
+    fun staleEnableResultCannotUndoNewerDisable() {
+        val id = TrustedCommunityPlugin.PACKAGE
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        val started = CountDownLatch(1)
+        val finish = CountDownLatch(1)
+        val result = AtomicReference<SettingsApplyResultParcel>()
+        val plugin = object : FakeWearTakPlugin(id) {
+            override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel {
+                if (values?.containsKey(field) == true && values.getBoolean(field)) {
+                    started.countDown()
+                    check(finish.await(3, TimeUnit.SECONDS))
+                }
+                return super.applySettingsWithResult(values, applyMode)
+            }
+        }.apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, true) })
+        }
+        coordinator.onPluginConnected(id, plugin)
+        val thread = Thread {
+            result.set(coordinator.applyPluginSettings(id, Bundle().apply { putBoolean(field, true) }))
+        }
+        thread.start()
+        try {
+            assertTrue(started.await(3, TimeUnit.SECONDS))
+            assertTrue(coordinator.applyPluginSettings(id, Bundle().apply { putBoolean(field, false) }).success)
+        } finally {
+            finish.countDown()
+            thread.join(3_000)
+        }
+        assertFalse(thread.isAlive)
+        assertFalse(result.get().success)
+        coordinator.onPluginSettingsValuesChanged(id)
+        assertFalse(coordinator.pluginHasSettingEnabled(id, field))
+    }
+
+    @Test
+    fun failedSettingsReadDisablesCachedForwarding() {
+        val id = TrustedCommunityPlugin.PACKAGE
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        var failRead = false
+        val plugin = object : FakeWearTakPlugin(id) {
+            override fun getSettingsValues(): Bundle {
+                check(!failRead)
+                return super.getSettingsValues()
+            }
+        }.apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, true) })
+        }
+        coordinator.onPluginConnected(id, plugin)
+        assertTrue(coordinator.pluginHasSettingEnabled(id, field))
+        val token = checkNotNull(coordinator.dittoForwardingToken())
+        failRead = true
+        coordinator.onPluginSettingsValuesChanged(id)
+        assertFalse(coordinator.pluginHasSettingEnabled(id, field))
+        assertFalse(coordinator.outboundCotAvailable.value)
+        failRead = false
+        coordinator.onPluginSettingsValuesChanged(id)
+        assertTrue(coordinator.pluginHasSettingEnabled(id, field))
+        assertFalse(coordinator.isDittoForwardingTokenCurrent(token))
+    }
+
+    @Test
+    fun throwingDittoApplyNeverFallsBackToUnconfirmedLegacyApply() {
+        val id = TrustedCommunityPlugin.PACKAGE
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        val plugin = object : FakeWearTakPlugin(id) {
+            override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel {
+                throw IllegalStateException("unavailable")
+            }
+        }.apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, true) })
+        }
+        coordinator.onPluginConnected(id, plugin)
+        assertFalse(coordinator.applyPluginSettings(id, Bundle().apply { putBoolean(field, false) }).success)
+        assertTrue(plugin.settingsValues.getBoolean(field))
+        assertFalse(coordinator.pluginHasSettingEnabled(id, field))
+    }
+
+    @Test
+    fun staleReadCannotOverwriteNewerDittoDisable() {
+        val id = TrustedCommunityPlugin.PACKAGE
+        val field = PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT
+        val started = CountDownLatch(1)
+        val finish = CountDownLatch(1)
+        val blockRead = AtomicBoolean(false)
+        val plugin = object : FakeWearTakPlugin(id) {
+            override fun getSettingsValues(): Bundle {
+                val captured = super.getSettingsValues()
+                if (blockRead.get()) {
+                    started.countDown()
+                    check(finish.await(3, TimeUnit.SECONDS))
+                }
+                return captured
+            }
+        }.apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true)
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(fieldId = field, label = "Forward CoT", fieldType = SettingsFieldTypes.TOGGLE)
+            )))
+            applySettings(Bundle().apply { putBoolean(field, true) })
+        }
+        coordinator.onPluginConnected(id, plugin)
+        blockRead.set(true)
+        val thread = Thread { coordinator.onPluginSettingsValuesChanged(id) }
+        thread.start()
+        try {
+            assertTrue(started.await(3, TimeUnit.SECONDS))
+            assertTrue(coordinator.applyPluginSettings(id, Bundle().apply { putBoolean(field, false) }).success)
+        } finally {
+            finish.countDown()
+            thread.join(3_000)
+        }
+        assertFalse(thread.isAlive)
+        assertFalse(coordinator.pluginHasSettingEnabled(id, field))
+        assertFalse(coordinator.getState(id)!!.values.getBoolean(field))
     }
 
     @Test

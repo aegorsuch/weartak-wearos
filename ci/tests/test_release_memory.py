@@ -127,6 +127,25 @@ class ReleaseMemoryTests(unittest.TestCase):
             release,
         )
 
+    def test_parallel_main_build_keeps_publish_after_test_and_build_stages(self):
+        ci = (ROOT / ".gitlab-ci.yml").read_text()
+        stages = ci.split("\nstages:", 1)[1].split("\n.artifactory_credentials:", 1)[0]
+        self.assertRegex(stages, r"(?s)- test.*- build.*- publish.*- draft.*- sync")
+        main = ci.split("\nmain_release:", 1)[1].split("\n# ---------------------------------------------------------------------------", 1)[0]
+        self.assertIn("needs: []", main)
+        self.assertIn("extends: .release_build", main)
+        self.assertIn("when: on_success", main)
+        self.assertIn("access: developer", main)
+        self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', main)
+        publisher = ci.split("\npublish_personal_github_main:", 1)[1].split("\nchangelog_draft:", 1)[0]
+        self.assertIn("stage: publish", publisher)
+        self.assertIn("- main_release", publisher)
+        self.assertNotRegex(publisher, r"(?m)^\s+needs:")
+        self.assertIn('CI_COMMIT_REF_PROTECTED == "true"', publisher)
+        draft = ci.split("\nchangelog_draft:", 1)[1]
+        self.assertIn("stage: draft", draft)
+        self.assertIn("- publish_personal_github_main", draft)
+
     def test_arm64_qualification_is_protected_manual_and_nonpublishing(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
         qualification = ci.split("\narm64_qualification:", 1)[1].split("\n# ---------------------------------------------------------------------------", 1)[0]
