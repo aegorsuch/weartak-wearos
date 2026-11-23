@@ -35,7 +35,7 @@ class PluginPackageChangedReceiver : BroadcastReceiver() {
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 Log.i(TAG, "retrying plugin discovery after package change: $pkg")
-                app.pluginRepository.onPackageChanged(pkg)
+                app.pluginRepository.retryPackageDiscovery(pkg)
             } finally {
                 pendingResult.finish()
             }

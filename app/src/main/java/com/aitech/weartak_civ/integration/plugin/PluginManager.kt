@@ -87,6 +87,12 @@ open class PluginManager(
         notifyTopologyChanged()
     }
 
+    internal fun retryPackageDiscovery(packageName: String) {
+        if (stopped || !isEnabled(packageName) || connections.containsKey(packageName)) return
+        val target = discoverPluginComponents().firstOrNull { it.packageName == packageName } ?: return
+        bind(target)
+    }
+
     fun bindPackage(packageName: String): Boolean {
         if (connections.containsKey(packageName)) return true
         stopped = false
