@@ -255,6 +255,9 @@
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
     <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">Demande d’alerte en cours. L’envoi n’est pas confirmé.</string>
+    <string name="manual_alert_cancel_requested">Demande d’annulation en cours. L’envoi n’est pas confirmé.</string>
+    <string name="marker_submission_unknown">Marqueur enregistré localement. Le résultat de l’envoi est inconnu.</string>
     <string name="marker_save_unconfirmed">Enregistrement du marqueur non confirmé. Vérifiez la liste des marqueurs avant de réessayer.</string>
     <string name="marker_saved_locally">Marqueur enregistré localement. La livraison peut être encore en attente.</string>
     <string name="marker_request_invalid">Demande de marqueur non valide.</string>
