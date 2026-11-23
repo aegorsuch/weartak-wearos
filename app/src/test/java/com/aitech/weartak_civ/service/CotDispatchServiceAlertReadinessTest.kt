@@ -673,6 +673,11 @@ class CotDispatchServiceAlertReadinessTest {
             field("trackedPluginAlert\$delegate").set(service, lazyOf(TrackedPluginAlert(preferences)))
             field("dataRepository").set(service, repo)
             field("serviceScope").set(service, collectorScope)
+            field("pendingDittoChat\$delegate").set(service, lazyOf(
+                PendingDittoChat(collectorScope, offer = { message ->
+                    call("offerPendingDittoChat", message) as Submission
+                })
+            ))
             field("capRepo\$delegate").set(service, lazyOf(companion))
             val dispatcher = CotEndpointDispatcher(
                 sendTak = { _, _ -> error("Unexpected TAK route") },
