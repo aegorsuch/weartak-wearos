@@ -233,6 +233,9 @@ class HostCommunityIdentityControlTest {
         val ingress = mockk<PluginIngressPort>(relaxed = true)
         every { ingress.packagesForUid(app, Process.myUid()) } returns setOf(packageName)
         val manager = mockk<PluginManager>(relaxed = true)
+        val trafficFence = DittoTrafficFence(initiallyEnabled = true)
+        every { manager.dittoTrafficFence } returns trafficFence
+        every { manager.dittoTrafficAllowed() } returns true
         every { manager.onConnectionReady(any()) } returns true
         every { manager.settingsCoordinator.pluginHasSettingEnabled(
             packageName, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) } returns true
