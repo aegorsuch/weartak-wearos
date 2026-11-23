@@ -563,6 +563,8 @@
     <string name="network_toggle_failed">연결을 변경할 수 없습니다. 플러그인 설정과 네트워크 잠금을 확인하세요.</string>
     <string name="ditto_custom_subtitle">사용자 지정 PDL</string>
     <string name="ditto_no_pdl_subtitle">없음</string>
+    <string name="ditto_private_pdl">비공개 PDL</string>
+    <string name="ditto_pdl_not_configured">구성되지 않음</string>
     <string name="toggle_state_on">켜짐</string>
     <string name="toggle_state_off">꺼짐</string>
     <plurals name="network_server_count">

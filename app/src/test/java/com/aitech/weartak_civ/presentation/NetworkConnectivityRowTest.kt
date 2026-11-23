@@ -5,6 +5,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NetworkConnectivityRowTest {
+    @Test fun disabledPluginRouteTakesPriorityOverDittoMode() {
+        assertEquals("Disabled", pluginNetworkSubtitle(false, "Disabled", "Enabled", "Community PDL", "Connected"))
+        assertEquals("Community PDL", pluginNetworkSubtitle(true, "Disabled", "Enabled", "Community PDL", "Connected"))
+        assertEquals("Connected", pluginNetworkSubtitle(true, "Disabled", "Enabled", null, "Connected"))
+        assertEquals("Enabled", pluginNetworkSubtitle(true, "Disabled", "Enabled", null, null))
+    }
+
     @Test fun nativeAndDynamicRowsShareLocalizedOrderingRegardlessOfToggleState() {
         val names = listOf("WearTAK Companion", "TAK Servers", "Somewear", "Ditto Edge Sync", "Sit(x) TAK", "TAK SA Multicast")
         val rows = names.mapIndexed { index, name ->

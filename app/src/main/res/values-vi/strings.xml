@@ -563,6 +563,8 @@
     <string name="network_toggle_failed">Không thể đổi kết nối. Kiểm tra cài đặt tiện ích và khóa mạng.</string>
     <string name="ditto_custom_subtitle">PDL tùy chỉnh</string>
     <string name="ditto_no_pdl_subtitle">Không có</string>
+    <string name="ditto_private_pdl">PDL riêng tư</string>
+    <string name="ditto_pdl_not_configured">Chưa cấu hình</string>
     <string name="toggle_state_on">Bật</string>
     <string name="toggle_state_off">Tắt</string>
     <plurals name="network_server_count">

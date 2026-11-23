@@ -191,6 +191,18 @@ class PluginMenuEntryTest {
             .menuLabel(MoppStatus.LEVEL_2, "None"))
     }
 
+    @Test
+    fun dittoSubtitleRequiresLoadedExactPackageAndFallsBackWhenUnknown() {
+        val plugin = pluginUi("id", "Ditto").copy(
+            packageName = "com.weartak.plugin.ditto", isLoaded = true)
+        assertEquals("Community PDL", plugin.dittoMenuLabel("Community PDL", "fallback"))
+        assertEquals("Private PDL", plugin.dittoMenuLabel("Private PDL", "fallback"))
+        assertEquals("fallback", plugin.dittoMenuLabel(null, "fallback"))
+        assertEquals("fallback", plugin.copy(isLoaded = false).dittoMenuLabel("Private PDL", "fallback"))
+        assertEquals("fallback", plugin.copy(packageName = "com.weartak.plugin.ditto.other")
+            .dittoMenuLabel("Private PDL", "fallback"))
+    }
+
     private fun installed(id: String, title: String) = PluginMenuEntry.Installed(
         pluginUi(id, title),
     )

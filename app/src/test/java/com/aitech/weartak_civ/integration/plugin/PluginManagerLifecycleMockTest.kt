@@ -134,6 +134,44 @@ class PluginManagerLifecycleMockTest {
     }
 
     @Test
+    fun initializedConnectionNotifiesRepositoryOfLoadedState() {
+        val packageName = TrustedCommunityPlugin.PACKAGE
+        val store = PluginStateStore(RuntimeEnvironment.getApplication())
+        store.setEnabled(packageName, true)
+        val app = mockHostApp(listOf(resolveInfoFor(packageName, ".FakeSvc")))
+        val manager = PluginManager(app, mockk(relaxed = true), noopPluginTrust(), pluginStateStore = store)
+        val repository = HostPluginRepository(app, manager, store)
+        try {
+            manager.refreshBindings()
+            val before = repository.plugins.value
+            assertFalse(before.single().isLoaded)
+            val first = manager.connectionForTest(packageName)!!
+            assertEquals(null, manager.dittoReadyConnection.value)
+            PluginDiagnostics.markConnected(packageName)
+            manager.onConnectionInitialized(first)
+            val after = repository.plugins.value
+            assertTrue(after.single().isLoaded)
+            assertEquals(PluginLoadingStatus.LOADED, after.single().loadingStatus)
+            assertTrue(before != after)
+            assertTrue(manager.dittoReadyConnection.value === first)
+
+            manager.detachPackage(packageName)
+            assertEquals(null, manager.dittoReadyConnection.value)
+            manager.refreshBindings()
+            val replacement = manager.connectionForTest(packageName)!!
+            PluginDiagnostics.markConnected(packageName)
+            manager.onConnectionInitialized(replacement)
+            assertTrue(manager.dittoReadyConnection.value === replacement)
+            manager.onConnectionInitialized(first)
+            assertTrue(manager.dittoReadyConnection.value === replacement)
+        } finally {
+            repository.close()
+            manager.shutdownAll()
+            store.remove(packageName)
+        }
+    }
+
+    @Test
     fun refreshBindings_skipsPersistedDisabledPlugin() {
         val ri = resolveInfoFor(pluginPkg, ".FakeSvc")
         val app = mockHostApp(listOf(ri))

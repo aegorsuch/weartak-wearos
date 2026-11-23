@@ -563,6 +563,8 @@
     <string name="network_toggle_failed">无法更改连接。请检查插件设置和网络锁定。</string>
     <string name="ditto_custom_subtitle">自定义 PDL</string>
     <string name="ditto_no_pdl_subtitle">无</string>
+    <string name="ditto_private_pdl">私有 PDL</string>
+    <string name="ditto_pdl_not_configured">未配置</string>
     <string name="toggle_state_on">开启</string>
     <string name="toggle_state_off">关闭</string>
     <plurals name="network_server_count">
