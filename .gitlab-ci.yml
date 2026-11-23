@@ -37,7 +37,7 @@ android_host_regression:
       :app:assembleDebug :app:testDebugUnitTest
       --tests '*HostMoppPpeControlTest' --tests '*CompanionSelfStatusTest'
       --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
-      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest' --tests '*DittoPdlModeTest' --tests '*DittoMeshPermissionsTest'
+      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest' --tests '*HostCommunityIdentityControlTest' --tests '*DittoPdlModeTest' --tests '*DittoMeshPermissionsTest'
       --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
       --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
