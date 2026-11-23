@@ -182,6 +182,11 @@ class HostPluginRepository(
         refresh()
     }
 
+    internal fun retryPackageDiscovery(packageName: String) {
+        manager.retryPackageDiscovery(packageName)
+        refresh()
+    }
+
     override fun close() {
         manager.removeTopologyListener(this)
     }
