@@ -75,7 +75,9 @@ open class PluginManager(
 
     init {
         settingsCoordinator.trafficAdmissionForPlugin = ::captureDittoTrafficAdmission
-        settingsCoordinator.networkEnabledForPlugin = ::dittoTrafficAllowed
+        settingsCoordinator.networkEnabledForPlugin = { pluginId ->
+            pluginId != TrustedCommunityPlugin.PACKAGE || dittoTrafficAllowed()
+        }
         dittoNetworkPolicyRepository?.let { repository ->
             dittoPolicyScope.launch {
                 repository.getDittoPluginNetworkPolicy
