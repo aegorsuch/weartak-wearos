@@ -782,7 +782,9 @@ class PluginConnection(
                 attempt("unregisterHostCallback") { if (iface != null && cb != null) iface.unregisterHostCallback(cb) }
                 attempt("stopPlugin") { iface?.stopPlugin() }
                 if (shutdownRemotePlugin) attempt("shutdownPlugin") { iface?.shutdownPlugin() }
-                attempt("unlinkToDeath") { binder?.unlinkToDeath(deathRecipient, 0) }
+                runCatching { binder?.unlinkToDeath(deathRecipient, 0) }.onFailure {
+                    Log.w(TAG, "unlinkToDeath failed pkg=$pluginPackage", it)
+                }
                 if (cleanupReservation != null) {
                     if (cleanupSucceeded) PluginLifecycleWork.finishCleanup(pluginPackage, cleanupReservation)
                     else Log.e(TAG, "Ditto cleanup uncertain; replacement binding remains fenced")
