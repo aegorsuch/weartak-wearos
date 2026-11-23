@@ -59,6 +59,7 @@ class CotDispatchServiceAlertReadinessTest {
             MainActivity.device_uid = "watch"
             val fixture = Fixture(this)
             fixture.pluginAvailable.value = true
+            fixture.pluginRoutes.value = mapOf(TrustedCommunityPlugin.PACKAGE to 1L, "com.plugin.other" to 2L)
             fixture.verifiedSession.value = null
             val attempts = mutableListOf<String>()
             fixture.enableTrackedPlugin { _, id ->
