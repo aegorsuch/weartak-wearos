@@ -90,6 +90,7 @@ android_host_regression:
       --tests '*HostPkcs12ImportControlTest' --tests '*ReviewedCertificateApplyTest'
       --tests '*SettingsImeInputConnectionTest' --tests '*ChatP12*Test'
       --tests '*CompanionWatchInfoTest' --tests '*CompanionSettingsChangedTest'
+      --tests '*CotMessageParserTest' --tests '*CompanionPhoneUserRelayTest'
       :app:compileDebugAndroidTestKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
     - sh ci/verify_host_services_aar.sh
