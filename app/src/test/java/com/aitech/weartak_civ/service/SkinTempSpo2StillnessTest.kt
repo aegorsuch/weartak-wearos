@@ -133,6 +133,15 @@ class SkinTempSpo2StillnessTest {
         assertEquals(true, get("crmPpgSamplingActive"))
     }
 
+    @Test fun queuedPpgCleanupReleasesOriginalTrackerAfterReplacement() {
+        val replacement = mockk<HealthTracker>(relaxed = true)
+        crmAction("stopPpgTracker")
+        set("ppgTracker", replacement)
+        drain()
+        verify(exactly = 1) { ppg.unsetEventListener() }
+        verify { replacement wasNot Called }
+    }
+
     @Test fun confirmedMotionSkipsWithoutSpendingAttemptOrTouchingOpticalTrackersAndRetriesNextOpportunity() {
         motion.confirm(SystemClock.elapsedRealtimeNanos() + 60_000_000_000L, null)
         opportunity()

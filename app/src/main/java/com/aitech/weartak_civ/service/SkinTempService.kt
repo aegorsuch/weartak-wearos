@@ -339,6 +339,7 @@ class SkinTempService : Service() {
         override fun onConnectionEnded() {
             noteSamsungCleanupUncertain()
             Log.w(TAG, "SkinTempService onConnectionEnded(): HealthPlatform DISCONNECTED")
+            ppgAvailable = false
             if (crmPpgSamplingRequested) {
                 crmPpgSamplingActive = false
                 crmRepo.updateSamplingState(CrmSamplingState.UNAVAILABLE)
@@ -1088,10 +1089,10 @@ class SkinTempService : Service() {
     }
 
     private fun stopPpgTracker() {
-        if (ppgTracker == null) return
+        val tracker = ppgTracker ?: return
         ppgControlHandler.post {
             try {
-                ppgTracker?.let { tracker -> DiagnosticResources.release(DiagnosticResource.SAMSUNG_PPG, tracker) { tracker.unsetEventListener() } }
+                DiagnosticResources.release(DiagnosticResource.SAMSUNG_PPG, tracker) { tracker.unsetEventListener() }
                 ppgRunning = false
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to stop PPG tracker", t)
