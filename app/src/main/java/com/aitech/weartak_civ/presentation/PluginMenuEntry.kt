@@ -8,6 +8,7 @@ import androidx.compose.ui.res.stringResource
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.MoppStatus
 import com.aitech.weartak_civ.integration.plugin.HandlerExertion
+import com.aitech.weartak_civ.integration.plugin.CRM_PLUGIN_PACKAGE
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
 import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.integration.plugin.PluginUI
@@ -17,7 +18,6 @@ internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
     BATDOK(R.drawable.batdok),
     COMMANDS(R.drawable.ic_commands_megaphone),
     COMPANION(R.drawable.weartak_companion_plugin),
-    CRM(R.drawable.ic_plugin_gauge),
     DART(R.drawable.ic_integration_certus),
     DATA_SYNC(R.drawable.ic_data_sync),
     DITTO(R.drawable.ic_integration_ditto),
@@ -107,7 +107,11 @@ internal sealed interface PluginMenuEntry {
 
     data class Installed(val plugin: PluginUI) : PluginMenuEntry {
         override val key = "installed:${plugin.pluginId}"
-        override val title = if (plugin.packageName == HandlerExertion.PACKAGE) "Handler" else plugin.title
+        override val title = when (plugin.packageName) {
+            HandlerExertion.PACKAGE -> "Handler"
+            CRM_PLUGIN_PACKAGE -> "CRM"
+            else -> plugin.title
+        }
     }
 }
 

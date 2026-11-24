@@ -11,73 +11,20 @@ package com.aitech.weartak_civ.data
 
 import com.aitech.weartak_civ.DEFAULT_CRM_MODERATE_MAX_THRESHOLD
 import com.aitech.weartak_civ.DEFAULT_CRM_POOR_MAX_THRESHOLD
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class CrmDataRepository(private val dataRepository: DataRepository) {
-
-    val latestCrmInference: StateFlow<CrmInferenceState> =
-        dataRepository.latestCrmInference
-
-    val rawPpgSamples: SharedFlow<CrmRawPpgSample> =
-        dataRepository.crmRawPpgSamples
-
-    val thresholdRanges: Flow<CrmThresholdRanges> =
-        dataRepository.crmThresholdRanges
-
-    fun tryPublish(state: CrmInferenceState): Boolean =
-        dataRepository.tryStoreCrmInference(state)
-
-    suspend fun publish(state: CrmInferenceState) =
-        dataRepository.storeCrmInference(state)
-
-    suspend fun storeThresholdRanges(
-        poorMax: Int,
-        moderateMax: Int,
-    ) = dataRepository.storeCrmThresholdRanges(
-        poorMax = poorMax,
-        moderateMax = moderateMax,
-    )
-
-    private val _samplingCommands = MutableSharedFlow<CrmSamplingCommand>(
-        replay = 0,
-        extraBufferCapacity = 8,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-
-    val samplingCommands: SharedFlow<CrmSamplingCommand> =
-        _samplingCommands.asSharedFlow()
-
+class CrmDataRepository {
     private val _samplingState =
         MutableStateFlow(CrmSamplingState.IDLE)
 
     val samplingState: StateFlow<CrmSamplingState> =
         _samplingState.asStateFlow()
 
-    fun requestSamplingStart(): Boolean {
-        _samplingState.value = CrmSamplingState.STARTING
-        return _samplingCommands.tryEmit(CrmSamplingCommand.START)
-    }
-
-    fun requestSamplingStop(): Boolean {
-        _samplingState.value = CrmSamplingState.STOPPING
-        return _samplingCommands.tryEmit(CrmSamplingCommand.STOP)
-    }
-
     fun updateSamplingState(state: CrmSamplingState) {
         _samplingState.value = state
-    }
-
-    enum class CrmSamplingCommand {
-        START,
-        STOP,
     }
 
     enum class CrmSamplingState {
@@ -90,42 +37,7 @@ class CrmDataRepository(private val dataRepository: DataRepository) {
         ERROR,
     }
 
-    fun tryPublishRawPpgSample(
-        uptimeMillis: Long,
-        rawValue: Float,
-        sourceAvailable: Boolean,
-        deviceWorn: Boolean,
-    ): Boolean = dataRepository.tryStoreCrmRawPpgSample(
-        CrmRawPpgSample(
-            uptimeMillis = uptimeMillis,
-            rawValue = rawValue,
-            sourceAvailable = sourceAvailable,
-            deviceWorn = deviceWorn,
-        )
-    )
-
-    fun tryPublishPpgSourceUnavailable(
-        uptimeMillis: Long,
-        reason: String,
-    ): Boolean = dataRepository.tryStoreCrmRawPpgSample(
-        CrmRawPpgSample(
-            uptimeMillis = uptimeMillis,
-            rawValue = null,
-            sourceAvailable = false,
-            deviceWorn = false,
-            reason = reason,
-        )
-    )
 }
-
-data class CrmRawPpgSample(
-    val uptimeMillis: Long,
-    val rawValue: Float?,
-    val sourceAvailable: Boolean,
-    val deviceWorn: Boolean,
-    val emittedAtMillis: Long = System.currentTimeMillis(),
-    val reason: String? = null,
-)
 
 enum class CrmInferenceStatus {
     IDLE,

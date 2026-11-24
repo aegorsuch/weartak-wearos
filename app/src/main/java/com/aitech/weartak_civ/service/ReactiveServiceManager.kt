@@ -772,7 +772,6 @@ class ReactiveServiceManager : Service() {
             put(ServiceType.CHAT,                  ChatService.isRunning.get())
             put(ServiceType.AUDIO_CAP,             AudioCaptureService.isRunning.get())
             put(ServiceType.ONNX_UAS,              UasOnnxService.isRunning.get())
-            put(ServiceType.CRM_INFERENCE,         CrmInferenceService.isRunning.get())
             put(ServiceType.BLE_BEACON,            BleBeaconService.isRunning.get())
             put(ServiceType.MOVEMENT_DETECTION,    MovementDetectionService.isRunning.get())
             put(ServiceType.ACTIVITY_RECOGNITION,  ActivityRecognitionService.isRunning.get())
@@ -919,7 +918,6 @@ class ReactiveServiceManager : Service() {
         WEATHER(true, dependencies = listOf(LOCATION), isKnoxMgdService = false),
         AUDIO_CAP(true, isKnoxMgdService = false),
         ONNX_UAS(true, isKnoxMgdService = false, dependencies = listOf(AUDIO_CAP)),
-        CRM_INFERENCE(true, isKnoxMgdService = false, dependencies = listOf(SKIN_TEMP)),
         COMPANION_APP(isForegroundService = true, isKnoxMgdService = false),
         CEP_SIMULATION(isForegroundService = true, isKnoxMgdService = false)
     }

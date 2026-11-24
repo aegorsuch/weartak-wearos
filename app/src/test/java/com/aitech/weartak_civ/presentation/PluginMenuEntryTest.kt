@@ -25,7 +25,7 @@ class PluginMenuEntryTest {
             PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, "FALCON"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, "DART"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, "Data Sync"),
-            PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
+            installed("com.weartak.plugin.crm", "CRM"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, "Tablet Command"),
             PluginMenuEntry.Market("TAKwerx Market"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, "ESRI"),
@@ -146,6 +146,15 @@ class PluginMenuEntryTest {
 
         assertEquals(listOf("Handler", "MOPP", "WearTAK Handler"), entries.map { it.title })
         assertEquals("installed:handler-id", entries.first().key)
+    }
+
+    @Test
+    fun crmUsesLegacyMenuTitleOnlyForCrmPackage() {
+        val crm = pluginUi("crm-id", "WearTAK CRM").copy(packageName = "com.weartak.plugin.crm")
+        val other = pluginUi("com.weartak.plugin.crm", "WearTAK CRM")
+            .copy(packageName = "org.example.crm")
+        assertEquals(listOf("CRM", "WearTAK CRM"),
+            listOf(crm, other).installedPluginMenuEntries().map { it.title })
     }
 
     @Test

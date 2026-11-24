@@ -621,4 +621,6 @@
     <string name="market_download_verifying">جارٍ التنزيل والتحقق…</string>
     <string name="market_installer_confirmation">أكّد التثبيت في أداة تثبيت Android.</string>
     <string name="market_install_error">تعذّر تجهيز الحزمة للتثبيت.</string>
+    <string name="crm_settings_change_failed">تعذر تغيير CRM. تحقق من اتصال المكون الإضافي وحاول مرة أخرى.</string>
+    <string name="crm_settings_open_failed">تعذر فتح إعدادات CRM. تحقق من اتصال المكون الإضافي وحاول مرة أخرى.</string>
 </resources>

@@ -13,6 +13,8 @@ import com.aitech.weartak_civ.data.CrmDisplayState
 import com.aitech.weartak_civ.data.CrmInferenceState
 import com.aitech.weartak_civ.data.CrmInferenceStatus
 import com.aitech.weartak_civ.data.CrmThresholdRanges
+import com.aitech.weartak_civ.integration.plugin.CrmPluginSettings
+import com.aitech.weartak_civ.integration.plugin.CrmPluginStatus
 import kotlinx.coroutines.delay
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -23,6 +25,16 @@ internal data class CrmHomeWarning(val score: Int, val status: CrmDisplayState) 
     val chipState: AlertChipState
         get() = if (status == CrmDisplayState.POOR) AlertChipState.Emergency else AlertChipState.Warning
 }
+
+internal fun crmPluginInference(status: CrmPluginStatus?): CrmInferenceState =
+    CrmInferenceState(
+        status = if (status?.status == "ACCEPTED") CrmInferenceStatus.ACCEPTED else CrmInferenceStatus.IDLE,
+        value = status?.value?.toFloat(),
+        updatedAtMillis = status?.updatedAtMillis ?: 0L,
+    )
+
+internal fun crmPluginWarningEnabled(status: CrmPluginStatus?, settings: CrmPluginSettings?): Boolean =
+    status?.enabled == true && settings?.enabled == true
 
 internal fun crmHomeWarning(
     inference: CrmInferenceState,

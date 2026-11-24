@@ -45,7 +45,6 @@ internal object RoutineServiceNotification {
         "PowerManagerService" to Capability(555, R.string.notification_power),
         "BloodhoundService" to Capability(848, R.string.notification_bloodhound),
         "UasOnnxService" to Capability(920, R.string.notification_uas),
-        "CrmInferenceService" to Capability(921, R.string.notification_crm),
         "CompanionAppService" to Capability(999, R.string.notification_companion),
         "ReportingIntervalStrategyService" to Capability(1123, R.string.notification_reporting_policy),
         "WeatherService" to Capability(1137, R.string.notification_weather),

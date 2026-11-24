@@ -118,7 +118,6 @@ class ServiceConfiguration(
         ) { enabled, delegates ->
             enabled && PluginDetectionEventBridge.FALCON_PACKAGE !in delegates
         }.distinctUntilChanged()
-        ServiceType.CRM_INFERENCE -> dataRepository.getEnableCrmService.distinctUntilChanged()
 
         // Core consumers remain live; BATTERY is now a process-owned virtual observer.
         ServiceType.TAK_CONNECT,
@@ -155,8 +154,7 @@ class ServiceConfiguration(
         )
 
         ServiceType.HEART_RATE,
-        ServiceType.SKIN_TEMP,
-        ServiceType.CRM_INFERENCE -> requiredPerms(ServiceType.PHYSIO)
+        ServiceType.SKIN_TEMP -> requiredPerms(ServiceType.PHYSIO)
         ServiceType.ACTIVITY_RECOGNITION -> listOf(android.Manifest.permission.ACTIVITY_RECOGNITION)
 
         ServiceType.BLE_BEACON -> buildList {

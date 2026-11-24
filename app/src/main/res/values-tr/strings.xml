@@ -609,4 +609,6 @@
     <string name="market_download_verifying">İndiriliyor ve doğrulanıyor…</string>
     <string name="market_installer_confirmation">Yüklemeyi Android yükleyicisinde onaylayın.</string>
     <string name="market_install_error">Paket yükleme için hazırlanamadı.</string>
+    <string name="crm_settings_change_failed">CRM değiştirilemiyor. Eklenti bağlantısını kontrol edip tekrar deneyin.</string>
+    <string name="crm_settings_open_failed">CRM ayarları açılamıyor. Eklenti bağlantısını kontrol edip tekrar deneyin.</string>
 </resources>

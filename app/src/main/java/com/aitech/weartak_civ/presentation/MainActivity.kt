@@ -144,6 +144,8 @@ import com.aitech.weartak_civ.complication.ChatComplicationService.Companion.CHA
 import com.aitech.weartak_civ.complication.ChatComplicationService.Companion.CHAT_ENABLED_NO_NEW_MESSAGE
 import com.aitech.weartak_civ.complication.StatusIconsComplicationService
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.data.CrmThresholdRanges
+import com.aitech.weartak_civ.integration.plugin.PluginActivityLauncher
 import com.aitech.weartak_civ.data.takserver.TakServerEndpointIdentity
 import com.aitech.weartak_civ.data.takserver.TakServerManagedReconciler
 import com.aitech.weartak_civ.events.MessageEvent
@@ -2513,9 +2515,12 @@ fun MainScreen(
     val pendingGunshot by gunshotDetectionRepo.pendingGunshot.collectAsStateWithLifecycle()
     val pendingUas by uasRepo.pendingUas.collectAsStateWithLifecycle()
     val dittoWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
-    val crmInference by dataRepository.latestCrmInference.collectAsStateWithLifecycle()
-    val crmThresholds by settingsVm.savedCrmThresholdRanges.collectAsStateWithLifecycle()
-    val crmEnabled by settingsVm.savedEnableCrmService.collectAsStateWithLifecycle()
+    val pluginManager = (context.applicationContext as WearTakApplication).pluginManager
+    val crmStatus by pluginManager.crmPluginStatus.status.collectAsStateWithLifecycle()
+    val crmSettings by pluginManager.settingsCoordinator.crmSettings.collectAsStateWithLifecycle()
+    val crmInference = crmPluginInference(crmStatus)
+    val crmThresholds = crmSettings?.thresholds ?: CrmThresholdRanges()
+    val crmEnabled = crmPluginWarningEnabled(crmStatus, crmSettings)
     val worn by dataRepository.latestIsDeviceWorn.collectAsStateWithLifecycle()
     val crmWarning = rememberCrmHomeWarning(crmInference, crmThresholds, crmEnabled, worn)
     val marketUpdateMonitor = remember(context.applicationContext) {
@@ -2553,7 +2558,7 @@ fun MainScreen(
                     gunshotDetectionRepo.tryEmitGunshotFeedback(feedback) else uasRepo.tryEmitUasFeedback(feedback)
             },
             crmWarning = crmWarning,
-            onCrmDetails = { context.startActivity(Intent(context, CrmReserveActivity::class.java)) },
+            onCrmDetails = { PluginActivityLauncher.launch(context, "com.weartak.plugin.crm") },
             physioWarning = if (physioState != Utils.AlertChipState.None)
                 HomeStatusWarning("physio", TopMetricAlertSource.PHYSIO,
                     physioAlert ?: stringResource(R.string.top_display_metric), physioState, openPhysio) else null,

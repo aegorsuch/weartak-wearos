@@ -609,4 +609,6 @@
     <string name="market_download_verifying">Wird heruntergeladen und überprüft…</string>
     <string name="market_installer_confirmation">Installation im Android-Installer bestätigen.</string>
     <string name="market_install_error">Paket konnte nicht für die Installation vorbereitet werden.</string>
+    <string name="crm_settings_change_failed">CRM konnte nicht geändert werden. Plugin-Verbindung prüfen und erneut versuchen.</string>
+    <string name="crm_settings_open_failed">CRM-Einstellungen konnten nicht geöffnet werden. Plugin-Verbindung prüfen und erneut versuchen.</string>
 </resources>

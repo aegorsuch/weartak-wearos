@@ -40,11 +40,19 @@ class PluginSdkTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "hash mismatch"):
                 SDK.verify_hash(path, "0" * 64)
 
+    def test_missing_platform_hash_fails_before_build(self):
+        with patch.object(SDK.os, "name", "posix"), \
+             patch.object(SDK.sys, "platform", "unsupported"), \
+             patch.object(SDK.sys, "argv", ["build_plugin_sdk.py"]):
+            with self.assertRaisesRegex(RuntimeError, "No verified combined plugin SDK artifact hash"):
+                SDK.main()
+
     def test_pin_is_immutable_and_default_has_no_legacy_fallback(self):
         pin = json.loads((ROOT / "ci" / "plugin-sdk.json").read_text())
         self.assertRegex(pin["commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(pin["tree"], r"^[0-9a-f]{40}$")
-        self.assertEqual({"windows", "linux"}, pin["release_sha256"].keys())
+        platforms = set(pin["release_sha256"])
+        self.assertTrue({"linux"} <= platforms <= {"linux", "windows"})
         for expected in pin["release_sha256"].values():
             self.assertRegex(expected, r"^[0-9a-f]{64}$")
         app_gradle = (ROOT / "app" / "build.gradle").read_text()

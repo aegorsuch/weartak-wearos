@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.SystemClock
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.events.IsDeviceWornEvent
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.service.ActivityRecognitionService.Companion.ActivityRecognized
 import com.samsung.android.service.health.tracking.HealthTracker
@@ -35,6 +36,7 @@ import java.time.Duration
 class SkinTempSpo2StillnessTest {
     private lateinit var service: SkinTempService
     private val handler = Handler(Looper.getMainLooper())
+    private val ppgControlHandler = Handler(Looper.getMainLooper())
     private val tracker = mockk<HealthTracker>(relaxed = true)
     private val ppg = mockk<HealthTracker>(relaxed = true)
     private val repo = mockk<DataRepository>(relaxed = true)
@@ -58,6 +60,7 @@ class SkinTempSpo2StillnessTest {
         every { CepProvider.getProfile(any()) } returns mockk(relaxed = true)
         service = Robolectric.buildService(SkinTempService::class.java).get()
         set("backgroundHandler", handler)
+        set("ppgControlHandler", ppgControlHandler)
         set("spo2Tracker", tracker)
         set("ppgTracker", ppg)
         set("ppgTrackerType", HealthTrackerType.PPG_CONTINUOUS)
@@ -68,7 +71,12 @@ class SkinTempSpo2StillnessTest {
     }
 
     @After fun cleanup() {
+        if (get("crmPpgSamplingActive") == true) {
+            crmAction("stopCrmPpgSampling")
+            drain()
+        }
         handler.removeCallbacksAndMessages(null)
+        ppgControlHandler.removeCallbacksAndMessages(null)
         (get("serviceScope") as CoroutineScope).cancel()
         unmockkObject(AppDiagnostics)
         unmockkObject(CepProvider)
@@ -87,6 +95,97 @@ class SkinTempSpo2StillnessTest {
     }
 
     private fun drain() = shadowOf(Looper.getMainLooper()).idle()
+
+    private fun crmAction(name: String) {
+        SkinTempService::class.java.getDeclaredMethod(name)
+            .apply { isAccessible = true }.invoke(service)
+    }
+
+    @Test fun crmStopBeforeQueuedStartDoesNotStartTracker() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        crmAction("startCrmPpgSampling")
+        crmAction("stopCrmPpgSampling")
+        drain()
+        verify { ppg wasNot Called }
+        assertEquals(false, get("crmPpgSamplingActive"))
+    }
+
+    @Test fun crmRapidStopAndRestartRetainsOnlyNewSamplingSession() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        crmAction("startCrmPpgSampling")
+        crmAction("stopCrmPpgSampling")
+        crmAction("startCrmPpgSampling")
+        drain()
+        verify(exactly = 2) { ppg.setEventListener(any()) }
+        verify(exactly = 1) { ppg.unsetEventListener() }
+        assertEquals(true, get("crmPpgSamplingRequested"))
+        assertEquals(true, get("crmPpgSamplingActive"))
+    }
+
+    @Test fun clearingSkinCallbacksDoesNotCancelCrmStart() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        crmAction("startCrmPpgSampling")
+        handler.removeCallbacksAndMessages(null)
+        drain()
+        verify(exactly = 1) { ppg.setEventListener(any()) }
+        assertEquals(true, get("crmPpgSamplingActive"))
+    }
+
+    @Test fun queuedPpgCleanupReleasesOriginalTrackerAfterReplacement() {
+        val replacement = mockk<HealthTracker>(relaxed = true)
+        crmAction("stopPpgTracker")
+        set("ppgTracker", replacement)
+        drain()
+        verify(exactly = 1) { ppg.unsetEventListener() }
+        verify { replacement wasNot Called }
+    }
+
+    @Test fun duplicateWornEventDoesNotCancelSpo2TimeoutOrWaitingCrm() {
+        startOnDemand()
+        crmAction("startCrmPpgSampling")
+        service.onIsDeviceWornEvent(IsDeviceWornEvent(true))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+        verify(exactly = 1) { tracker.unsetEventListener() }
+        verify(exactly = 1) { ppg.setEventListener(any()) }
+        assertEquals(true, get("crmPpgSamplingActive"))
+    }
+
+    @Test fun crmWaitsForActiveSpo2AndPpgBurstBeforeSampling() {
+        val listener = startOnDemand()
+        crmAction("startCrmPpgSampling")
+        val point = mockk<DataPoint>()
+        every { point.getValue(ValueKey.SpO2Set.STATUS) } returns 2
+        every { point.getValue(ValueKey.SpO2Set.SPO2) } returns 98
+        listener.onDataReceived(listOf(point))
+        drain()
+        verify(exactly = 1) { ppg.setEventListener(any()) }
+        assertEquals(false, get("crmPpgSamplingActive"))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(20))
+        verify(exactly = 1) { ppg.unsetEventListener() }
+        verify(exactly = 2) { ppg.setEventListener(any()) }
+        assertEquals(true, get("crmPpgSamplingActive"))
+    }
+
+    @Test fun stalePpgPhaseCannotStartAfterWatchIsRemoved() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        set("deviceWorn", false)
+        crmAction("startPpgPhase")
+        drain()
+        verify { ppg wasNot Called }
+    }
+
+    @Test fun queuedSkinStartCannotRunAfterWatchIsRemoved() {
+        val skin = mockk<HealthTracker>(relaxed = true)
+        set("skinTracker", skin)
+        crmAction("startSkinTracker")
+        set("deviceWorn", false)
+        drain()
+        verify { skin wasNot Called }
+    }
 
     @Test fun confirmedMotionSkipsWithoutSpendingAttemptOrTouchingOpticalTrackersAndRetriesNextOpportunity() {
         motion.confirm(SystemClock.elapsedRealtimeNanos() + 60_000_000_000L, null)

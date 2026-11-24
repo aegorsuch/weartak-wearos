@@ -54,6 +54,7 @@ open class PluginManager(
     private val audioDetectionClaimOwners = ConcurrentHashMap<String, PluginConnection>()
     private val audioDetectionDelegatesState = MutableStateFlow<Set<String>>(emptySet())
     val audioDetectionDelegates = audioDetectionDelegatesState.asStateFlow()
+    internal val crmPluginStatus = CrmPluginStatusStore()
     private val dittoConnectionState = MutableStateFlow<PluginConnection?>(null)
     internal val dittoReadyConnection = dittoConnectionState.asStateFlow()
     private val topologyListeners = CopyOnWriteArraySet<PluginTopologyListener>()

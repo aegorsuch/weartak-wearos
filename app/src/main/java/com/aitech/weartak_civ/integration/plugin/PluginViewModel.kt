@@ -8,9 +8,12 @@ import android.widget.Toast
 import com.aitech.weartak_civ.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class PluginViewModel(
     application: Application
@@ -30,6 +33,9 @@ class PluginViewModel(
     internal val dittoNetworkPolicyMigrationFailed = pluginManager.dittoNetworkPolicyMigrationFailed
     internal val connectionStatuses = coordinator.connectionStatuses
     internal val mainUiChangeRevisions = coordinator.mainUiChangeRevisions
+    internal val crmSettings = coordinator.crmSettings
+    private val crmOperationPendingState = MutableStateFlow(false)
+    internal val crmOperationPending = crmOperationPendingState.asStateFlow()
     private val hostedMainUiState = MutableStateFlow<Map<String, HostedPluginMainUiResult>>(emptyMap())
     internal val hostedMainUi = hostedMainUiState.asStateFlow()
 
@@ -49,6 +55,45 @@ class PluginViewModel(
             }
             if (!succeeded) {
                 Toast.makeText(getApplication(), R.string.network_toggle_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    internal fun setCrmEnabled(pluginId: String, loadedByHost: Boolean, enabled: Boolean) {
+        if (crmOperationPendingState.value) return
+        crmOperationPendingState.value = true
+        viewModelScope.launch {
+            try {
+                if (!loadedByHost) repository.loadPlugin(pluginId)
+                val settings = withTimeoutOrNull(10_000) { crmSettings.filterNotNull().first() }
+                val result = if (settings != null) withContext(Dispatchers.IO) {
+                    coordinator.setCrmEnabled(enabled)
+                } else null
+                if (result == null || !result.success ||
+                    !result.values.containsKey("enable_crm") ||
+                    result.values.getBoolean("enable_crm") != enabled
+                ) {
+                    Toast.makeText(getApplication(), R.string.crm_settings_change_failed, Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                crmOperationPendingState.value = false
+            }
+        }
+    }
+
+    internal fun openCrmThresholds() {
+        if (crmOperationPendingState.value) return
+        crmOperationPendingState.value = true
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    coordinator.invokeHostedMainUiAction(CRM_PLUGIN_PACKAGE, "crm-thresholds")
+                }
+                if (result !is HostedPluginMainUiResult.Ready) {
+                    Toast.makeText(getApplication(), R.string.crm_settings_open_failed, Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                crmOperationPendingState.value = false
             }
         }
     }

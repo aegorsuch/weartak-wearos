@@ -1398,6 +1398,14 @@ class DataRepository(
         prefs[ENABLE_CRM_SERVICE] ?: DEFAULT_ENABLE_CRM_SERVICE
     }
 
+    internal val crmLegacyMigrationSettings: Flow<Pair<Boolean, CrmThresholdRanges>> =
+        context.dataStore.data.map { prefs ->
+            (prefs[ENABLE_CRM_SERVICE] ?: DEFAULT_ENABLE_CRM_SERVICE) to sanitizeCrmThresholdRanges(
+                poorMax = prefs[CRM_RED_MAX_THRESHOLD] ?: DEFAULT_CRM_POOR_MAX_THRESHOLD,
+                moderateMax = prefs[CRM_YELLOW_MAX_THRESHOLD] ?: DEFAULT_CRM_MODERATE_MAX_THRESHOLD,
+            )
+        }
+
     val getEnableMopp: Flow<Boolean> = context.dataStore.data.map { true }
     internal val moppPpeStore = MoppPpeStore(context.dataStore, available = {
         com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available.value
@@ -1434,16 +1442,6 @@ class DataRepository(
         }
     }
 
-    private val _latestCrmInference = MutableStateFlow(CrmInferenceState.idle())
-    val latestCrmInference: StateFlow<CrmInferenceState> = _latestCrmInference
-
-    private val _crmRawPpgSamples = MutableSharedFlow<CrmRawPpgSample>(extraBufferCapacity = 256)
-    val crmRawPpgSamples: SharedFlow<CrmRawPpgSample> = _crmRawPpgSamples
-
-    suspend fun storeCrmInference(state: CrmInferenceState) {
-        _latestCrmInference.emit(state)
-    }
-
     val crmThresholdRanges: Flow<CrmThresholdRanges> =
         context.dataStore.data.map { prefs ->
             val poorMax = prefs[CRM_RED_MAX_THRESHOLD]
@@ -1472,10 +1470,6 @@ class DataRepository(
             prefs[CRM_YELLOW_MAX_THRESHOLD] = sanitized.moderateMax
         }
     }
-
-    fun tryStoreCrmInference(state: CrmInferenceState): Boolean = _latestCrmInference.tryEmit(state)
-
-    fun tryStoreCrmRawPpgSample(sample: CrmRawPpgSample): Boolean = _crmRawPpgSamples.tryEmit(sample)
 
     private val _restingHeartRate = MutableStateFlow<Int>(DEFAULT_RESTING_HR)
     val restingHeartRate: StateFlow<Int> = _restingHeartRate

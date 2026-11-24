@@ -499,8 +499,6 @@ fun WearTAKSettingsNav(
     val gunshotTriggerThreshold by settingsVm.savedOnnxGunshotTriggerThresholdPercent.collectAsState()
     val enableUasDetection by settingsVm.savedEnableOnnxUasService.collectAsState()
     val uasTriggerThreshold by settingsVm.savedOnnxUasTriggerThresholdPercent.collectAsState()
-    val crmThresholdValues by settingsVm.savedCrmThresholdRanges.collectAsState()
-    val enableCrm by settingsVm.savedEnableCrmService.collectAsState()
     val wearTakInfo by settingsVm.wearTakInfo.collectAsState()
 
     LaunchedEffect(phoneManagedSettings, networkPreferencesLocked) {
@@ -3206,6 +3204,8 @@ fun WearTAKSettingsNav(
 
         composable("plugins") {
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
+            val crmSettings by pluginVm.crmSettings.collectAsStateWithLifecycle()
+            val crmOperationPending by pluginVm.crmOperationPending.collectAsStateWithLifecycle()
             val moppStatus by dataRepository.getMoppStatus.collectAsStateWithLifecycle(initialValue = null)
             val companionStatus = companionPluginStatus(enableCompanionAppService)
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
@@ -3215,7 +3215,6 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.BATDOK, stringResource(R.string.batdok)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMMANDS, stringResource(R.string.chat_commands)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMPANION, stringResource(R.string.companion_app)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, stringResource(R.string.gunshot_detection)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, stringResource(R.string.data_sync)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, stringResource(R.string.esri)),
@@ -3371,17 +3370,6 @@ fun WearTAKSettingsNav(
                                         },
                                     )
                                 }
-                                BuiltInPlugin.CRM -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = stringResource(R.string.unfunded_request),
-                                        checked = enableCrm,
-                                        onCheckedChange = { settingsVm.storeEnableCrmService(it) },
-                                        onClick = { navController.navigate("crm_thresholds") }
-                                    )
-                                }
                                 BuiltInPlugin.ESRI -> {
                                     BuiltInPluginToggleChip(
                                         kind = entry.kind,
@@ -3420,7 +3408,10 @@ fun WearTAKSettingsNav(
                                 val item = entry.plugin
                                 val needsDittoPermission = item.packageName == TrustedCommunityPlugin.PACKAGE &&
                                     item.isLoaded && dittoPermissionRecovery
-                                val menuLabel = if (needsDittoPermission) {
+                                val isCrm = item.packageName == com.aitech.weartak_civ.integration.plugin.CRM_PLUGIN_PACKAGE
+                                val menuLabel = if (isCrm) {
+                                    stringResource(R.string.unfunded_request)
+                                } else if (needsDittoPermission) {
                                     stringResource(R.string.companion_status_permission)
                                 } else item.dittoMenuLabel(
                                     dittoSubtitle, item.menuLabel(moppStatus, stringResource(R.string.mopp_none)))
@@ -3436,7 +3427,13 @@ fun WearTAKSettingsNav(
                                     chipType = { reveal ->
                                         WearTAKSplitToggleChip(
                                             appIcon = {
-                                                item.icon.let {
+                                                if (isCrm) {
+                                                    Image(
+                                                        painter = painterResource(R.drawable.ic_plugin_gauge),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.padding(end = 4.dp).size(24.dp),
+                                                    )
+                                                } else item.icon.let {
                                                     AndroidView(
                                                         modifier = Modifier
                                                             .size(25.dp)
@@ -3456,15 +3453,22 @@ fun WearTAKSettingsNav(
                                                     contentDescription = item.desc
                                                 }
                                             },
-                                            checked = item.isEnabled,
+                                            checked = if (isCrm) crmSettings?.enabled == true else item.isEnabled,
                                             onCheckedChange = {
-                                                when (it) {
-                                                    true -> pluginVm.loadPlugin(item.pluginId)
-                                                    false -> pluginVm.unloadPlugin(item.pluginId)
+                                                if (isCrm) {
+                                                    pluginVm.setCrmEnabled(item.pluginId, item.isEnabled, it)
+                                                } else {
+                                                    when (it) {
+                                                        true -> pluginVm.loadPlugin(item.pluginId)
+                                                        false -> pluginVm.unloadPlugin(item.pluginId)
+                                                    }
                                                 }
                                             },
+                                            enabled = !isCrm || !crmOperationPending,
                                             onClick = {
-                                                pluginMenuScope.launch {
+                                                if (isCrm) {
+                                                    pluginVm.openCrmThresholds()
+                                                } else pluginMenuScope.launch {
                                                     if (needsDittoPermission) {
                                                         if (!PluginActivityLauncher.launch(context, item.packageName)) {
                                                             reveal.first.launch {
@@ -3790,61 +3794,6 @@ fun WearTAKSettingsNav(
                 minimum = 0,
                 context = context,
                 confirmFunction = { settingsVm.storeOnnxUasTriggerThresholdPercent(it)}
-            )
-        }
-
-        composable("crm_thresholds") {
-            WearTAKPageWithBackArrow(
-                "CRM Thresholds",
-                columnContent = {
-                    item {
-                        Chip(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { context.startActivity(Intent(context, CrmReserveActivity::class.java)) },
-                            label = { Text(stringResource(R.string.crm_reserve)) })
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "poor_max_crm_threshold",
-                            title = "Poor Maximum",
-                            state = crmThresholdValues.poorMax,
-                            navController = navController,
-                            formatState = { value -> "${value ?: 0}%" }
-                        )
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "moderate_max_crm_threshold",
-                            title = "Moderate Maximum",
-                            state = crmThresholdValues.moderateMax,
-                            navController = navController,
-                            formatState = { value -> "${value ?: 0}%" }
-                        )
-                    }
-                },
-                navController,
-            )
-        }
-        composable("poor_max_crm_threshold"){
-            WearTAKIntEntryPage(
-                navController = navController,
-                item = crmThresholdValues.poorMax,
-                label = "Poor Maximum",
-                maximum = 100,
-                minimum = 0,
-                context = context,
-                confirmFunction = { settingsVm.storeCrmThresholdRanges(it, crmThresholdValues.moderateMax,)}
-            )
-        }
-        composable("moderate_max_crm_threshold"){
-            WearTAKIntEntryPage(
-                navController = navController,
-                item = crmThresholdValues.moderateMax,
-                label = "Moderate Maximum",
-                maximum = 100,
-                minimum = 0,
-                context = context,
-                confirmFunction = { settingsVm.storeCrmThresholdRanges(crmThresholdValues.poorMax, it)}
             )
         }
 

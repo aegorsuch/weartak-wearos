@@ -50,7 +50,7 @@ android_host_regression:
       --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
       --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
       --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
-      --tests '*PluginSettingsCoordinatorTest'
+      --tests '*PluginSettingsCoordinatorTest' --tests '*CrmPluginStatusTest' --tests '*CrmHomeWarningTest' --tests '*HostCallbackIngressRoutingTest' --tests '*PpgSampleDeliveryTest' --tests '*PpgHostV1ImplTest' --tests '*SkinTempSpo2StillnessTest'
       --tests '*Market*Test'
       --tests '*HostControlImplTest' --tests '*HostControlVerifyCallerTest'
       --tests '*PluginTransportHostV1ImplTest' --tests '*ChatServicePreferenceTest'
@@ -108,6 +108,7 @@ android_host_regression:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-alert-point-feedback" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-333-remove-core-crm" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
 verify_tak_sdk_source_access:

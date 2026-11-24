@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.Process
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cot.TakServerCotIngestResult
+import com.aitech.weartak_civ.data.CrmThresholdRanges
 import com.aitech.weartak_civ.data.DataRepository
 import com.weartak.plugin.sdk.HostSettingsContract
 import com.weartak.plugin.sdk.model.MainUiCardParcel
@@ -101,6 +102,161 @@ class PluginSettingsCoordinatorTest {
             else -> SettingsSchemaParcel()
         }
         fakePlugin.setSettingsSchemaForTest(schema)
+    }
+
+    private fun crmPlugin(marker: Boolean): FakeWearTakPlugin =
+        FakeWearTakPlugin("com.weartak.plugin.crm").apply {
+            setSettingsSchemaForTest(
+                SettingsSchemaParcel(fields = listOf(
+                    SettingsFieldParcel(fieldId = "enable_crm", label = "Enabled", fieldType = SettingsFieldTypes.TOGGLE,
+                        defaultValueLiteral = "false"),
+                    SettingsFieldParcel(fieldId = "crm_poor_max", label = "Poor", fieldType = SettingsFieldTypes.NUMBER,
+                        defaultValueLiteral = "33"),
+                    SettingsFieldParcel(fieldId = "crm_moderate_max", label = "Moderate", fieldType = SettingsFieldTypes.NUMBER,
+                        defaultValueLiteral = "66"),
+                    SettingsFieldParcel(fieldId = "crm_legacy_migration_complete", label = "Migration", fieldType = SettingsFieldTypes.TOGGLE,
+                        defaultValueLiteral = "false"),
+                ))
+            )
+            applySettings(Bundle().apply { putBoolean("crm_legacy_migration_complete", marker) })
+        }
+
+    @Test
+    fun crmMigrationTransfersLegacySettingsOnlyOnce() {
+        every { app.repo.crmLegacyMigrationSettings } returns flowOf(true to CrmThresholdRanges(20, 70))
+        val plugin = crmPlugin(false)
+
+        coordinator.onPluginConnected("com.weartak.plugin.crm", plugin)
+        val migrated = plugin.getSettingsValues()
+        assertTrue(migrated.getBoolean("crm_legacy_migration_complete"))
+        assertTrue(migrated.getBoolean("enable_crm"))
+        assertEquals(20.0, migrated.getDouble("crm_poor_max"), 0.0)
+        assertEquals(70.0, migrated.getDouble("crm_moderate_max"), 0.0)
+
+        plugin.applySettings(Bundle().apply { putDouble("crm_poor_max", 25.0) })
+        coordinator.onPluginConnected("com.weartak.plugin.crm", plugin)
+        assertEquals(25.0, plugin.getSettingsValues().getDouble("crm_poor_max"), 0.0)
+    }
+
+    @Test
+    fun crmMigrationPreservesConcurrentPluginEdit() {
+        every { app.repo.crmLegacyMigrationSettings } returns flowOf(true to CrmThresholdRanges(20, 70))
+        val configured = crmPlugin(false)
+        val plugin = object : FakeWearTakPlugin("com.weartak.plugin.crm") {
+            init {
+                setSettingsSchemaForTest(configured.getSettingsSchema())
+                applySettings(configured.getSettingsValues())
+            }
+
+            override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel {
+                applySettings(Bundle().apply {
+                    putDouble("crm_poor_max", 25.0)
+                    putBoolean("crm_legacy_migration_complete", true)
+                })
+                return SettingsApplyResultParcel(success = false)
+            }
+        }
+
+        coordinator.onPluginConnected("com.weartak.plugin.crm", plugin)
+        assertEquals(25.0, plugin.getSettingsValues().getDouble("crm_poor_max"), 0.0)
+        assertTrue(plugin.getSettingsValues().getBoolean("crm_legacy_migration_complete"))
+    }
+
+    @Test
+    fun crmMigrationFailsClosedWhenMarkerMissing() {
+        val plugin = FakeWearTakPlugin("com.weartak.plugin.crm")
+        val failure = runCatching { coordinator.onPluginConnected("com.weartak.plugin.crm", plugin) }
+        assertTrue(failure.isFailure)
+    }
+
+    @Test
+    fun crmMigrationRejectsIncompleteSchemaEvenAfterMigration() {
+        val plugin = crmPlugin(true).apply {
+            setSettingsSchemaForTest(SettingsSchemaParcel(fields = listOf(
+                SettingsFieldParcel(
+                    fieldId = "crm_legacy_migration_complete",
+                    label = "Migration",
+                    fieldType = SettingsFieldTypes.TOGGLE,
+                    defaultValueLiteral = "false",
+                ),
+            )))
+        }
+        val failure = runCatching { coordinator.onPluginConnected("com.weartak.plugin.crm", plugin) }
+        assertTrue(failure.isFailure)
+    }
+
+    @Test
+    fun crmToggleChangesPluginSettingWithoutUnloadingOrChangingThresholds() {
+        val plugin = crmPlugin(true).apply {
+            applySettings(Bundle().apply {
+                putBoolean("enable_crm", false)
+                putDouble("crm_poor_max", 33.0)
+                putDouble("crm_moderate_max", 66.0)
+            })
+        }
+        coordinator.onPluginConnected(CRM_PLUGIN_PACKAGE, plugin)
+        assertTrue(coordinator.setCrmEnabled(true).success)
+        assertTrue(plugin.getSettingsValues().getBoolean("enable_crm"))
+        assertTrue(coordinator.crmSettings.value!!.enabled)
+        assertTrue(coordinator.setCrmEnabled(false).success)
+        assertFalse(plugin.getSettingsValues().getBoolean("enable_crm"))
+        assertEquals(33.0, plugin.getSettingsValues().getDouble("crm_poor_max"), 0.0)
+        assertEquals(66.0, plugin.getSettingsValues().getDouble("crm_moderate_max"), 0.0)
+        assertTrue(plugin.getSettingsValues().getBoolean("crm_legacy_migration_complete"))
+        assertEquals(0, plugin.stopCalls)
+        coordinator.unregisterPlugin(CRM_PLUGIN_PACKAGE)
+        assertFalse(coordinator.setCrmEnabled(true).success)
+    }
+
+    @Test
+    fun crmThresholdActionOpensWhileCrmIsDisabled() {
+        val plugin = crmPlugin(true).apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true, hostedMainUi = true)
+            applySettings(Bundle().apply {
+                putBoolean("enable_crm", false)
+                putDouble("crm_poor_max", 33.0)
+                putDouble("crm_moderate_max", 66.0)
+            })
+            setMainUiSchemaForTest(PluginMainUiSchemaParcel(cards = listOf(
+                MainUiCardParcel(
+                    cardType = "ACTION",
+                    cardId = "crm-thresholds",
+                    title = "CRM Thresholds",
+                    content = hostedActionContent("crm.thresholds", "Edit thresholds"),
+                ),
+            )))
+        }
+        coordinator.onPluginConnected(CRM_PLUGIN_PACKAGE, plugin)
+        assertFalse(plugin.getSettingsValues().getBoolean("enable_crm"))
+        assertTrue(coordinator.invokeHostedMainUiAction(CRM_PLUGIN_PACKAGE, "crm-thresholds")
+            is HostedPluginMainUiResult.Ready)
+        assertEquals("crm.thresholds", plugin.mainUiActions.single().first)
+    }
+
+    @Test
+    fun crmToggleAcceptsSettingsChangedCallbackDuringApply() {
+        val configured = crmPlugin(true).apply {
+            applySettings(Bundle().apply {
+                putBoolean("enable_crm", false)
+                putDouble("crm_poor_max", 33.0)
+                putDouble("crm_moderate_max", 66.0)
+            })
+        }
+        val plugin = object : FakeWearTakPlugin(CRM_PLUGIN_PACKAGE) {
+            init {
+                setSettingsSchemaForTest(configured.getSettingsSchema())
+                applySettings(configured.getSettingsValues())
+            }
+
+            override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel {
+                val result = super.applySettingsWithResult(values, applyMode)
+                coordinator.onPluginSettingsValuesChanged(CRM_PLUGIN_PACKAGE)
+                return result
+            }
+        }
+        coordinator.onPluginConnected(CRM_PLUGIN_PACKAGE, plugin)
+        assertTrue(coordinator.setCrmEnabled(true).success)
+        assertTrue(coordinator.crmSettings.value!!.enabled)
     }
 
     @Test
