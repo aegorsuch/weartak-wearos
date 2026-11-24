@@ -12,7 +12,6 @@ package com.aitech.weartak_civ.data
 import android.content.Context
 import com.aitech.weartak_civ.Utils
 import com.aitech.weartak_civ.WearTakApplication
-import com.aitech.weartak_civ.data.audio.AudioClassificationResult
 import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
 import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import com.aitech.weartak_civ.data.audio.AudioDetectionStore
@@ -29,26 +28,6 @@ class UasOnnxRepository(private val context: Context) {
     }
 
     private val store by lazy { AudioDetectionStore(DETECTOR_KEY, repo) }
-
-    suspend fun createUasEvent(
-        uid: String,
-        confidence: Float,
-        pcmChunk: AudioCaptureRepository.AudioPcmChunk,
-        triggerPcmPath: String?,
-        audioSource: String?,
-        inferStart: Long? = null,
-        inferEnd: Long? = null,
-        classification: AudioClassificationResult? = null
-    ): AudioDetectionEvent = store.createEvent(
-        uid = uid,
-        confidence = confidence,
-        pcmChunk = pcmChunk,
-        triggerPcmPath = triggerPcmPath,
-        audioSource = audioSource,
-        inferStart = inferStart,
-        inferEnd = inferEnd,
-        classification = classification
-    )
 
     val uasFeedback = store.feedback
     fun tryEmitUasFeedback(feedback: AudioDetectionFeedback): Boolean = store.tryEmitFeedback(feedback)

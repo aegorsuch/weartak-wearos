@@ -52,13 +52,6 @@
 # Useful if you use reflection-based Gson adapters
 -keep class com.aitech.weartak_civ.** { *; }
 
-# ONNX Runtime minify crash prevention in release build (Java API + JNI bindings)
--keep class ai.onnxruntime.** { *; }
--keepclassmembers class ai.onnxruntime.** { *; }
--dontwarn ai.onnxruntime.**
-
-# JNI resolves these instance native methods by their generated symbol names.
-
 # Jackson optional Java desktop APIs
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient

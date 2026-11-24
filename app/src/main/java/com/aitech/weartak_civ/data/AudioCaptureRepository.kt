@@ -63,7 +63,7 @@ class AudioCaptureRepository(private val context: Context) {
     /**
      * Acquires an idempotent lease on the single microphone capture session.
      *
-     * Stable owner keys let local detectors and trusted plugins coexist without duplicate starts.
+     * Stable owner keys let trusted plugins coexist without duplicate starts.
      */
     fun acquireConsumer(consumerId: String): Boolean {
         if (consumerId.isBlank()) return false

@@ -152,7 +152,6 @@ class ReactiveServiceManager : Service() {
             applicationContext,
             repo,
             audioRepo,
-            audioDetectionDelegates = (application as WearTakApplication).pluginManager.audioDetectionDelegates,
         )
         runnableServicesList = registry.getAllServiceTypes()
 
@@ -771,7 +770,6 @@ class ReactiveServiceManager : Service() {
             put(ServiceType.PHYSIO,                desiredServicesStateMap.get(ServiceType.PHYSIO))
             put(ServiceType.CHAT,                  ChatService.isRunning.get())
             put(ServiceType.AUDIO_CAP,             AudioCaptureService.isRunning.get())
-            put(ServiceType.ONNX_UAS,              UasOnnxService.isRunning.get())
             put(ServiceType.BLE_BEACON,            BleBeaconService.isRunning.get())
             put(ServiceType.MOVEMENT_DETECTION,    MovementDetectionService.isRunning.get())
             put(ServiceType.ACTIVITY_RECOGNITION,  ActivityRecognitionService.isRunning.get())
@@ -917,7 +915,6 @@ class ReactiveServiceManager : Service() {
         MOVEMENT_DETECTION(true, isKnoxMgdService = false, dependencies = listOf(BLOOD_HOUND)),
         WEATHER(true, dependencies = listOf(LOCATION), isKnoxMgdService = false),
         AUDIO_CAP(true, isKnoxMgdService = false),
-        ONNX_UAS(true, isKnoxMgdService = false, dependencies = listOf(AUDIO_CAP)),
         COMPANION_APP(isForegroundService = true, isKnoxMgdService = false),
         CEP_SIMULATION(isForegroundService = true, isKnoxMgdService = false)
     }

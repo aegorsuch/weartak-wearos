@@ -171,7 +171,7 @@ class WearTakApplication : Application() {
         }
         startFeedback("WearTAK-GunshotDetection", "GS", "gunshot_debug",
             gunshotDetectionRepo.gunshotFeedback, gunshotDetectionRepo::getEventFromUid)
-        startFeedback("WearTAK-UasOnnxService", "UAS", "uas_debug",
+        startFeedback("WearTAK-UasDetection", "UAS", "uas_debug",
             uasOnnxRepo.uasFeedback, uasOnnxRepo::getEventFromUid)
         Log.i(TAG, "WearTakApplication Created")
 

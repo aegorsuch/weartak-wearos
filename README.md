@@ -93,7 +93,7 @@ of production persistence.
 - Provides Wear OS activities, a Tile, and watch-face complications for common operations and status.
 - Supports managed configuration, allowing an enterprise mobility/MDM provider to apply settings and service enablement.
 - Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
-- Provides optional plugin-based gunshot detection, built-in or plugin-based UAS detection, and optional CRM inference.
+- Provides optional plugin-based gunshot detection, UAS detection, and CRM inference.
 - Hosts supported WearTAK plugins through the included plugin SDK contract.
 - Provides the optional watch-native TAKwerx Market for signed, curated
   first-party and approved community plugin releases. See
@@ -106,14 +106,12 @@ Gunshot detection requires the separately installed
 [DART plugin](https://github.com/aegorsuch/weartak-plugin-dart/releases/tag/TAK.gov-Forge-CI-CD-Pipeline-Release);
 there is no built-in gunshot fallback. Existing DART enable and threshold settings
 remain in WearTAK and are synchronized to the plugin when it connects. The host
-captures audio only when a plugin requests it or built-in UAS detection is enabled.
-Built-in UAS detection remains available until the trusted FALCON plugin reports an
-active PCM stream and successful inference. The host resumes built-in UAS detection
-if the plugin fails, disconnects, or stops reporting healthy inference for 15 seconds
-of handler uptime. UAS detectors can overlap during handoff; their events lack a
-shared capture identity, so duplicate alerts remain possible. An exact retry of the
-latest accepted plugin event on the same binding is acknowledged without creating
-another event.
+captures audio only when a plugin requests it. UAS detection requires the separately
+installed [FALCON plugin](https://git.tak.gov/weartak-plugins/weartak-plugin-falcon);
+there is no built-in UAS fallback. Existing FALCON enable and threshold settings
+remain in WearTAK and are synchronized to the plugin when it connects. An exact
+retry of the latest accepted plugin event on the same binding is acknowledged
+without creating another event.
 
 DART/FALCON detections show a yellow home top-display warning, not an automatic
 popup. Tap to review "Gunshot detected?" or "UAS detected?" with the model score.
