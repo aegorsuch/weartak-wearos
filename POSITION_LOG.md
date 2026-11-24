@@ -31,7 +31,8 @@ complete; an export is a snapshot. Relay information is not exposed and is blank
 
 A successful direct TAK Server or multicast socket write adds
 `TAK_SERVER` or `MULTICAST` to bearer and `socket_written` to its status;
-`not_written` includes failures and sends prevented before socket write. A
+`write_unconfirmed` means no successful write was observed; a failed write
+may have sent part of a message. A
 SITX WebSocket accepting a message into its send queue adds `SITX` and
 `api_accepted`; `not_accepted` means no socket accepted it or the command
 queue rejected it. A blank status means no result was observed, not failure.
@@ -45,6 +46,23 @@ same provider, fix timestamp, elapsed time and coordinates are deduplicated.
 The incomplete-storage warning persists after a queue or storage failure; an
 export remains available for recovering the records that were saved. Queued
 fixes may be lost on abrupt process termination.
+
+For tracked routes, `*_attempts` counts observed route submissions per fix,
+and `*_pending` counts submissions for which the journal has not observed a
+completion. TAK fan-out counts each eligible server separately. Pending does
+not prove work is still in flight: callbacks can be lost when a service stops,
+the process dies, or logging is disabled. A SITX command can also be dropped
+without a callback when no service is collecting its command bus. Pending
+records are retained across restart, bounded to 10,000, and deleted with their
+fix. At the limit, the oldest pending identity is replaced, its unresolved
+count remains visible, and the log is flagged incomplete because a late
+callback for that identity can no longer be correlated. Counts for fixes written
+before route accounting was introduced start at zero and do not describe older
+attempts. A missing fix or a zero count does not prove a route was unavailable.
+Plugin and companion offers remain untracked and do not contribute to these
+counts. Failed or pending attempts cannot establish `never_sent`. If any
+storage or correlation failure flags the log incomplete, exports suppress
+`never_sent` for all fixes because missing events could change that conclusion.
 
 Developer Options can export the CSV or create a ZIP with a TAK mission-package
 manifest, CSV, application diagnostics and a privacy note. The system document

@@ -169,10 +169,15 @@ class CotDispatchService : Service() {
                 if (snapshot == null || location == null) {
                     sendDataTAKServers(message.xml, false)
                 } else {
-                    sendDataTAKServers(message.xml, false) { written ->
-                        (applicationContext as WearTakApplication).positionLog
-                            .recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.TAK_SERVER, written, message.positionAttemptId)
-                    }
+                    val log = (applicationContext as WearTakApplication).positionLog
+                    sendDataTAKServers(message.xml, false, onWriteStart = {
+                        val routeId = log.startRoute(snapshot.systemData.deviceId, location, PositionBearer.TAK_SERVER)
+                        val callback: (Boolean) -> Unit = { written ->
+                            log.recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.TAK_SERVER,
+                                written, message.positionAttemptId, routeId)
+                        }
+                        callback
+                    })
                 }
             },
             sendSitx = { xml -> SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot(xml)) },
@@ -180,22 +185,28 @@ class CotDispatchService : Service() {
             sendMulticast = ::sendMulticastDatagram,
             sendPliMulticast = NetworkUtils.MulticastPublisher::send,
             sendTrackedMulticastPli = { message ->
-                val written = NetworkUtils.MulticastPublisher.sendPliWithResult(message.xml)
                 val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
                 val location = snapshot?.loc
+                val log = (applicationContext as WearTakApplication).positionLog
+                val routeId = if (snapshot != null && location != null)
+                    log.startRoute(snapshot.systemData.deviceId, location, PositionBearer.MULTICAST) else null
+                val written = NetworkUtils.MulticastPublisher.sendPliWithResult(message.xml)
                 if (snapshot != null && location != null) {
-                    (applicationContext as WearTakApplication).positionLog
-                        .recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.MULTICAST, written, message.positionAttemptId)
+                    log.recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.MULTICAST,
+                        written, message.positionAttemptId, routeId)
                 }
             },
             sendTrackedSitxPli = { message ->
                 val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
                 val location = snapshot?.loc
                 val callback: ((Boolean) -> Unit)? = if (snapshot != null && location != null) {
-                    { accepted ->
-                        (applicationContext as WearTakApplication).positionLog
-                            .recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.SITX, accepted, message.positionAttemptId)
+                    val log = (applicationContext as WearTakApplication).positionLog
+                    val routeId = log.startRoute(snapshot.systemData.deviceId, location, PositionBearer.SITX)
+                    val result: (Boolean) -> Unit = { accepted ->
+                        log.recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.SITX,
+                            accepted, message.positionAttemptId, routeId)
                     }
+                    result
                 } else null
                 if (!SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot(message.xml, onResult = callback))) {
                     callback?.invoke(false)

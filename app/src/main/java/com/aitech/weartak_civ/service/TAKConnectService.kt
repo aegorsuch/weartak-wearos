@@ -3817,7 +3817,11 @@ class TAKConnectService: Service() {
                 if (takServerDetail.runtime.generation != attempt.generation ||
                     socket.isClosed || !socket.isConnected) return false
             }
-            connectionScope.launch {
+            val callbackReported = AtomicBoolean(false)
+            fun reportWrite(written: Boolean) {
+                if (callbackReported.compareAndSet(false, true)) onWriteResult?.invoke(written)
+            }
+            val writeJob = connectionScope.launch {
                 var written = false
                 try {
                     written = writeConnection(
@@ -3827,9 +3831,10 @@ class TAKConnectService: Service() {
                     if (written && !isNotPli)
                         Log.i(TAG, "Outbound PLI write succeeded to ${takServerDetail.address}")
                 } finally {
-                    onWriteResult?.invoke(written)
+                    reportWrite(written)
                 }
             }
+            writeJob.invokeOnCompletion { reportWrite(false) }
             return true
         }
 
@@ -4283,7 +4288,9 @@ class TAKConnectService: Service() {
             return acceptedByAnyServer
         }
 
-        fun sendDataTAKServers(msg: String, isNotPli: Boolean, onWriteResult: ((Boolean) -> Unit)? = null) {
+        fun sendDataTAKServers(msg: String, isNotPli: Boolean,
+            onWriteStart: (() -> ((Boolean) -> Unit)?)? = null,
+            onWriteResult: ((Boolean) -> Unit)? = null) {
             if (dataRepository.shouldSuppressWatchTransportNow()) return
             if (isLicenseValid() && isNetworkConnected) {
                 val currTime = System.currentTimeMillis()
@@ -4294,14 +4301,15 @@ class TAKConnectService: Service() {
                     }
 
                     if (takServerDetail.isEnabled && !takServerDetail.duplicateEndpointSuppressed) {
+                        val resultCallback = onWriteStart?.invoke() ?: onWriteResult
                         if (isNotPli) {
                             // Send immediately
-                            if (!sendData(takServerDetail, msg, isNotPli, currTime, onWriteResult = onWriteResult))
-                                onWriteResult?.invoke(false)
+                            if (!sendData(takServerDetail, msg, isNotPli, currTime, onWriteResult = resultCallback))
+                                resultCallback?.invoke(false)
                             // TODO: We need to add for ESRI and TabletCommand
                         } else {
-                            if (!sendData(takServerDetail, msg, isNotPli, currTime, onWriteResult = onWriteResult))
-                                onWriteResult?.invoke(false)
+                            if (!sendData(takServerDetail, msg, isNotPli, currTime, onWriteResult = resultCallback))
+                                resultCallback?.invoke(false)
                             if (enableEsriEndpoint && !esriEndpoint.isNullOrEmpty() && !esriGeojsonMsg.isNullOrEmpty()) {
                                 sendEsriData(esriGeojsonMsg)
                             }

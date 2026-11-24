@@ -60,10 +60,14 @@ internal object DiagnosticsPackage {
                 untracked_offers lists plugin/companion offers, not successful transmission.
                 A blank route status means no result was observed. Relay status is not exposed.
                 TAK_SERVER and MULTICAST socket_written mean a socket write succeeded.
+                write_unconfirmed means no successful write was observed; partial writes are possible.
                 SITX api_accepted means its WebSocket accepted the message into its queue.
+                Route attempt counts are observed submissions; pending means no completion was observed,
+                not necessarily that work is still in flight. Pre-accounting attempts are not counted.
                 These handoffs do not confirm receipt. Plugin and companion routes are not tracked.
                 Only active Android location callbacks are recorded; abrupt termination can lose queued fixes.
                 Position log incomplete: ${positionLog.storageFailed.value}.
+                Incomplete logs suppress never_sent because missing events may change the result.
                 Position logging is opt-in and retention is bounded.
             """.trimIndent())
         }

@@ -46,8 +46,8 @@ class PositionLogTest {
             val csv = StringWriter().also(journal::export).toString()
             val lines = csv.trimEnd().split("\r\n")
             assertEquals(3, lines.size)
-            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:20Z,41.5,-87.25,6.5,,unknown,,,,,,,,,,", lines[1])
-            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:21Z,41.5,-87.25,,,unknown,,,,,,,,,,", lines[2])
+            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:20Z,41.5,-87.25,6.5,,unknown,,,,,,,,,,,0,0,0,0,0,0", lines[1])
+            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:21Z,41.5,-87.25,,,unknown,,,,,,,,,,,0,0,0,0,0,0", lines[2])
         } finally {
             journal.close()
         }
@@ -66,10 +66,72 @@ class PositionLogTest {
             journal.recordRouteResult(key, PositionBearer.SITX, false, 4_600)
             journal.recordRouteResult(key.copy(timeMs = 2_000, elapsedNanos = 2_000_000_000), PositionBearer.SITX, true, 6_000)
             val lines = StringWriter().also(journal::export).toString().trimEnd().split("\r\n")
-            assertTrue(lines[1].endsWith(",TAK_SERVER;MULTICAST,unknown,,socket_written,1970-01-01T00:00:04Z,socket_written,1970-01-01T00:00:04.500Z,not_accepted,,,,"))
-            assertTrue(lines[2].endsWith(",SITX,unknown,,,,,,api_accepted,1970-01-01T00:00:06Z,,,"))
+            assertTrue(lines[1].endsWith(",TAK_SERVER;MULTICAST,unknown,,socket_written,1970-01-01T00:00:04Z,socket_written,1970-01-01T00:00:04.500Z,not_accepted,,,,,0,0,0,0,0,0"))
+            assertTrue(lines[2].endsWith(",SITX,unknown,,,,,,api_accepted,1970-01-01T00:00:06Z,,,,0,0,0,0,0,0"))
         } finally {
             journal.close()
+        }
+    }
+
+    @Test fun routeAttemptsTrackFanoutAndUnobservedCompletions() {
+        val journal = PositionJournal(app)
+        try {
+            journal.append("watch", fix(1_000), generatedDuringCapture = true)
+            val key = PositionFixKey("watch", "gps", 1_000, 1_000_000_000, 41.5, -87.25)
+            journal.recordSelection(key, false)
+            assertTrue(journal.startRoute(key, PositionBearer.TAK_SERVER, "server-1"))
+            assertTrue(journal.startRoute(key, PositionBearer.TAK_SERVER, "server-2"))
+            assertTrue(journal.startRoute(key, PositionBearer.SITX, "sitx"))
+            fun row() = StringWriter().also(journal::export).toString().trimEnd().split("\r\n")[1].split(",")
+            assertEquals("unknown", row()[6])
+            assertEquals(listOf("2", "2", "0", "0", "1", "1"), row().takeLast(6))
+
+            journal.recordRouteResult(key, PositionBearer.TAK_SERVER, false, 2_000, routeId = "server-2")
+            journal.recordRouteResult(key, PositionBearer.TAK_SERVER, true, 3_000, routeId = "server-2")
+            assertEquals("write_unconfirmed", row()[8])
+            assertEquals(listOf("2", "1", "0", "0", "1", "1"), row().takeLast(6))
+            journal.recordRouteResult(key, PositionBearer.TAK_SERVER, true, 4_000, routeId = "server-1")
+            assertEquals("socket_written", row()[8])
+            assertEquals(listOf("2", "0", "0", "0", "1", "1"), row().takeLast(6))
+            assertEquals("unknown", row()[6])
+        } finally {
+            journal.close()
+        }
+    }
+
+    @Test fun pendingRoutesAreBoundedAndPrunedWithFixes() {
+        val journal = PositionJournal(app, maxRows = 1, maxPendingRoutes = 1)
+        try {
+            val first = PositionFixKey("watch", "gps", 1_000, 1_000_000_000, 41.5, -87.25)
+            val second = first.copy(timeMs = 2_000, elapsedNanos = 2_000_000_000)
+            journal.append("watch", fix(1_000))
+            assertTrue(journal.startRoute(first, PositionBearer.SITX, "pending"))
+            assertFalse(journal.startRoute(first, PositionBearer.SITX, "overflow"))
+            journal.recordRouteResult(first, PositionBearer.SITX, true, 1_500, routeId = "pending")
+            val beforePrune = StringWriter().also(journal::export).toString().trimEnd().split("\r\n")[1].split(",")
+            assertEquals(listOf("0", "0", "0", "0", "2", "2"), beforePrune.takeLast(6))
+            assertEquals("", beforePrune[12])
+            assertTrue(journal.append("watch", fix(2_000)))
+            assertTrue(journal.startRoute(second, PositionBearer.SITX, "replacement"))
+            journal.recordRouteResult(first, PositionBearer.SITX, true, 3_000, routeId = "pending")
+            val row = StringWriter().also(journal::export).toString().trimEnd().split("\r\n")[1].split(",")
+            assertEquals("unknown", row[6])
+            assertEquals(listOf("0", "0", "0", "0", "1", "1"), row.takeLast(6))
+        } finally {
+            journal.close()
+        }
+    }
+
+    @Test fun pendingRoutesSurviveJournalReopen() {
+        val key = PositionFixKey("watch", "gps", 1_000, 1_000_000_000, 41.5, -87.25)
+        PositionJournal(app).use { journal ->
+            journal.append("watch", fix(1_000))
+            assertTrue(journal.startRoute(key, PositionBearer.SITX, "pending"))
+        }
+        PositionJournal(app).use { journal ->
+            val row = StringWriter().also(journal::export).toString().trimEnd().split("\r\n")[1].split(",")
+            assertEquals("unknown", row[6])
+            assertEquals(listOf("0", "0", "0", "0", "1", "1"), row.takeLast(6))
         }
     }
 
@@ -184,6 +246,43 @@ class PositionLogTest {
         } finally {
             journal.close()
         }
+    }
+
+    @Test fun upgradeFromVersionSixPreservesOffersAndQualifiesFailedWrites() {
+        app.openOrCreateDatabase("position-log.db", Application.MODE_PRIVATE, null).use { db ->
+            db.execSQL("""CREATE TABLE fixes (
+                id INTEGER PRIMARY KEY, uid TEXT NOT NULL, provider TEXT NOT NULL, fix_ms INTEGER NOT NULL,
+                elapsed_ns INTEGER NOT NULL, latitude REAL NOT NULL, longitude REAL NOT NULL, accuracy_m REAL,
+                tak_status TEXT, tak_written_ms INTEGER, multicast_status TEXT, multicast_written_ms INTEGER,
+                sitx_status TEXT, sitx_written_ms INTEGER, capture_new INTEGER NOT NULL DEFAULT 0,
+                selected INTEGER NOT NULL DEFAULT 0, rejected INTEGER NOT NULL DEFAULT 0, first_attempt_id TEXT,
+                first_attempt_within_interval INTEGER NOT NULL DEFAULT 0, disposition TEXT, first_handoff_ms INTEGER,
+                first_handoff_bearer TEXT, untracked INTEGER NOT NULL DEFAULT 0, plugin_offered INTEGER NOT NULL DEFAULT 0,
+                companion_offered INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(uid, provider, fix_ms, elapsed_ns, latitude, longitude))""")
+            db.execSQL("""INSERT INTO fixes(uid, provider, fix_ms, elapsed_ns, latitude, longitude, tak_status,
+                untracked, plugin_offered) VALUES('watch','gps',1000,1000000000,41.5,-87.25,'not_written',1,1)""")
+            db.version = 6
+        }
+        PositionJournal(app).use { journal ->
+            val row = StringWriter().also(journal::export).toString().trimEnd().split("\r\n")[1].split(",")
+            assertEquals("write_unconfirmed", row[8])
+            assertEquals("PLUGIN", row[16])
+            assertEquals(listOf("0", "0", "0", "0", "0", "0"), row.takeLast(6))
+        }
+    }
+
+    @Test fun incompleteCorrelationSuppressesNeverSent() = runBlocking {
+        val log = PositionLog(app)
+        log.setEnabled(true)
+        val location = fix(1_000).apply { elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos() }
+        log.recordSelection("watch", location, false)
+        log.record("watch", location)
+        log.recordSelection("watch", location, false)
+        val csv = StringWriter().also { log.export(it) }.toString()
+        assertTrue(log.storageFailed.value)
+        assertTrue(csv.contains(",unknown,"))
+        assertFalse(csv.contains(",never_sent,"))
     }
 
     @Test fun captureRequiresExplicitOptIn() = runBlocking {
