@@ -606,4 +606,6 @@
     <string name="market_download_verifying">ダウンロードと検証中…</string>
     <string name="market_installer_confirmation">Androidインストーラーでインストールを確認してください。</string>
     <string name="market_install_error">インストール用にパッケージを準備できませんでした。</string>
+    <string name="crm_settings_change_failed">CRMを変更できません。プラグインの接続を確認して、もう一度お試しください。</string>
+    <string name="crm_settings_open_failed">CRM設定を開けません。プラグインの接続を確認して、もう一度お試しください。</string>
 </resources>

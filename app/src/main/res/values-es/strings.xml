@@ -612,4 +612,6 @@
     <string name="market_download_verifying">Descargando y verificando…</string>
     <string name="market_installer_confirmation">Confirma la instalación en el instalador de Android.</string>
     <string name="market_install_error">No se pudo preparar el paquete para la instalación.</string>
+    <string name="crm_settings_change_failed">No se pudo cambiar CRM. Comprueba la conexión del complemento y vuelve a intentarlo.</string>
+    <string name="crm_settings_open_failed">No se pudo abrir la configuración de CRM. Comprueba la conexión del complemento y vuelve a intentarlo.</string>
 </resources>

@@ -606,4 +606,6 @@
     <string name="market_download_verifying">Đang tải xuống và xác minh…</string>
     <string name="market_installer_confirmation">Xác nhận cài đặt trong trình cài đặt Android.</string>
     <string name="market_install_error">Không thể chuẩn bị gói để cài đặt.</string>
+    <string name="crm_settings_change_failed">Không thể thay đổi CRM. Kiểm tra kết nối tiện ích và thử lại.</string>
+    <string name="crm_settings_open_failed">Không thể mở cài đặt CRM. Kiểm tra kết nối tiện ích và thử lại.</string>
 </resources>

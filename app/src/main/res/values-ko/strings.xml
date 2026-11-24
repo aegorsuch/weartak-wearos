@@ -606,4 +606,6 @@
     <string name="market_download_verifying">다운로드 및 확인 중…</string>
     <string name="market_installer_confirmation">Android 설치 프로그램에서 설치를 확인하세요.</string>
     <string name="market_install_error">설치할 패키지를 준비하지 못했습니다.</string>
+    <string name="crm_settings_change_failed">CRM을 변경할 수 없습니다. 플러그인 연결을 확인하고 다시 시도하세요.</string>
+    <string name="crm_settings_open_failed">CRM 설정을 열 수 없습니다. 플러그인 연결을 확인하고 다시 시도하세요.</string>
 </resources>
