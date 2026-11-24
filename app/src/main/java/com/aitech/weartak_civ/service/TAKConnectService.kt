@@ -2098,6 +2098,24 @@ class TAKConnectService: Service() {
                 com.aitech.weartak_civ.integration.plugin.PluginTakServer(it.serverId, it.name)
             }
 
+        internal fun uploadDiagnosticsPackage(serverId: String, bytes: ByteArray): String {
+            val detail = takServerDetailsById[serverId] ?: throw IOException("TAK server is no longer configured")
+            val client = synchronized(detail.runtime.lock) {
+                if (!missionConnectionReady(detail) || detail.duplicateEndpointSuppressed)
+                    throw IOException("TAK server is not connected")
+                val attempt = detail.runtime.currentAttempt ?: throw IOException("TAK session unavailable")
+                val session = attempt.httpSession ?: throw IOException("TAK HTTP session unavailable")
+                TakDataPackageClient(
+                    address = detail.address,
+                    sslContext = detail.channelSslContext ?: throw IOException("TAK TLS context unavailable"),
+                    trustManager = detail.channelTrustManager ?: throw IOException("TAK trust manager unavailable"),
+                    hostnameVerifier = detail.channelHostnameVerifier ?: throw IOException("TAK hostname verifier unavailable"),
+                    session = session,
+                )
+            }
+            return client.upload(bytes, MainActivity.device_uid)
+        }
+
         internal fun pluginRestClient(serverId: String?): com.aitech.weartak_civ.integration.plugin.PluginTakHttpClient {
             val connected = takServerDetails.toList().filter { missionConnectionReady(it) }
             val detail = if (serverId == null) {
@@ -3786,6 +3804,7 @@ class TAKConnectService: Service() {
             isNotPli: Boolean,
             currTime: Long,
             allowFinalExpiryDuringCompanionGrace: Boolean = false,
+            onWriteResult: ((Boolean) -> Unit)? = null,
         ): Boolean {
             if (!offBodyAllowsConnection() || !takEndpointEnabled ||
                 (!allowFinalExpiryDuringCompanionGrace && dataRepository.shouldSuppressWatchTransportNow())) return false
@@ -3799,11 +3818,16 @@ class TAKConnectService: Service() {
                     socket.isClosed || !socket.isConnected) return false
             }
             connectionScope.launch {
-                if (writeConnection(
+                var written = false
+                try {
+                    written = writeConnection(
                         takServerDetail, attempt, socket, msg,
                         allowCompanionGraceForFinalExpiry = allowFinalExpiryDuringCompanionGrace,
-                    ) && !isNotPli) {
-                    Log.i(TAG, "Outbound PLI write succeeded to ${takServerDetail.address}")
+                    )
+                    if (written && !isNotPli)
+                        Log.i(TAG, "Outbound PLI write succeeded to ${takServerDetail.address}")
+                } finally {
+                    onWriteResult?.invoke(written)
                 }
             }
             return true
@@ -4259,7 +4283,7 @@ class TAKConnectService: Service() {
             return acceptedByAnyServer
         }
 
-        fun sendDataTAKServers(msg: String, isNotPli: Boolean) {
+        fun sendDataTAKServers(msg: String, isNotPli: Boolean, onWriteResult: ((Boolean) -> Unit)? = null) {
             if (dataRepository.shouldSuppressWatchTransportNow()) return
             if (isLicenseValid() && isNetworkConnected) {
                 val currTime = System.currentTimeMillis()
@@ -4272,10 +4296,12 @@ class TAKConnectService: Service() {
                     if (takServerDetail.isEnabled && !takServerDetail.duplicateEndpointSuppressed) {
                         if (isNotPli) {
                             // Send immediately
-                            sendData(takServerDetail, msg, isNotPli, currTime)
+                            if (!sendData(takServerDetail, msg, isNotPli, currTime, onWriteResult = onWriteResult))
+                                onWriteResult?.invoke(false)
                             // TODO: We need to add for ESRI and TabletCommand
                         } else {
-                            sendData(takServerDetail, msg, isNotPli, currTime)
+                            if (!sendData(takServerDetail, msg, isNotPli, currTime, onWriteResult = onWriteResult))
+                                onWriteResult?.invoke(false)
                             if (enableEsriEndpoint && !esriEndpoint.isNullOrEmpty() && !esriGeojsonMsg.isNullOrEmpty()) {
                                 sendEsriData(esriGeojsonMsg)
                             }

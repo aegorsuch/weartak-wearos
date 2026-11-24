@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteException
 import android.database.sqlite.SQLiteOpenHelper
 import android.location.Location
 import android.util.Log
+import com.aitech.weartak_civ.data.DataRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ internal class PositionLog(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private sealed interface Operation {
         data class Fix(val uid: String, val location: Location) : Operation
+        data class TakResult(val key: PositionFixKey, val written: Boolean, val atMs: Long) : Operation
         data class Barrier(val done: CompletableDeferred<Unit>) : Operation
     }
     private val queue = Channel<Operation>(256)
@@ -44,6 +46,13 @@ internal class PositionLog(context: Context) {
                     is Operation.Fix -> try {
                         if (journal.append(operation.uid, operation.location))
                             fail(IOException("Position log retention limit reached; older fixes discarded"))
+                    } catch (error: SQLiteException) {
+                        fail(error)
+                    } catch (error: SecurityException) {
+                        fail(error)
+                    }
+                    is Operation.TakResult -> try {
+                        journal.recordTakResult(operation.key, operation.written, operation.atMs)
                     } catch (error: SQLiteException) {
                         fail(error)
                     } catch (error: SecurityException) {
@@ -79,6 +88,16 @@ internal class PositionLog(context: Context) {
         mutableEnabled.value = value
     }
 
+    fun recordTakResult(uid: String, location: DataRepository.LocationSnapshot, written: Boolean) {
+        if (!enabled.value) return
+        val provider = location.provider ?: return
+        val elapsed = location.elapsedRealtimeNanos ?: return
+        if (location.coordinateSource != provider) return
+        val key = PositionFixKey(uid, provider, location.timeMillis, elapsed, location.lat, location.lon)
+        if (queue.trySend(Operation.TakResult(key, written, System.currentTimeMillis())).isFailure)
+            fail(IOException("Position log queue overflow"))
+    }
+
     suspend fun export(writer: Writer) {
         val barrier = CompletableDeferred<Unit>()
         queue.send(Operation.Barrier(barrier))
@@ -92,8 +111,13 @@ internal class PositionLog(context: Context) {
     }
 }
 
+internal data class PositionFixKey(
+    val uid: String, val provider: String, val timeMs: Long, val elapsedNanos: Long,
+    val latitude: Double, val longitude: Double
+)
+
 internal class PositionJournal(context: Context, private val maxRows: Int = 50_000) :
-    SQLiteOpenHelper(context, "position-log.db", null, 1) {
+    SQLiteOpenHelper(context, "position-log.db", null, 2) {
     init {
         require(maxRows > 0)
     }
@@ -103,13 +127,16 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
             id INTEGER PRIMARY KEY,
             uid TEXT NOT NULL, provider TEXT NOT NULL, fix_ms INTEGER NOT NULL,
             elapsed_ns INTEGER NOT NULL, latitude REAL NOT NULL, longitude REAL NOT NULL,
-            accuracy_m REAL,
+            accuracy_m REAL, tak_status TEXT, tak_written_ms INTEGER,
             UNIQUE(uid, provider, fix_ms, elapsed_ns, latitude, longitude)
         )""")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        throw SQLiteException("Unsupported position log upgrade")
+        if (oldVersion == 1 && newVersion == 2) {
+            db.execSQL("ALTER TABLE fixes ADD COLUMN tak_status TEXT")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN tak_written_ms INTEGER")
+        } else throw SQLiteException("Unsupported position log upgrade")
     }
 
     @Synchronized
@@ -137,17 +164,30 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
     }
 
     @Synchronized
+    fun recordTakResult(key: PositionFixKey, written: Boolean, atMs: Long) {
+        writableDatabase.execSQL(
+            """UPDATE fixes SET
+               tak_status = CASE WHEN tak_status = 'socket_written' OR ? = 1 THEN 'socket_written' ELSE 'not_written' END,
+               tak_written_ms = CASE WHEN ? = 1 THEN COALESCE(tak_written_ms, ?) ELSE tak_written_ms END
+               WHERE uid = ? AND provider = ? AND fix_ms = ? AND elapsed_ns = ? AND latitude = ? AND longitude = ?""",
+            arrayOf(if (written) 1 else 0, if (written) 1 else 0, atMs,
+                key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
+        )
+    }
+
+    @Synchronized
     fun export(writer: Writer) {
-        writer.write("device_id,fix_timestamp,latitude_wgs84_deg,longitude_wgs84_deg,horizontal_accuracy_m,bearer,disposition,relayed\r\n")
+        writer.write("device_id,fix_timestamp,latitude_wgs84_deg,longitude_wgs84_deg,horizontal_accuracy_m,bearer,disposition,relayed,tak_status,tak_first_write_timestamp\r\n")
         readableDatabase.rawQuery(
-            "SELECT uid, fix_ms, latitude, longitude, accuracy_m FROM fixes ORDER BY id", null
+            "SELECT uid, fix_ms, latitude, longitude, accuracy_m, tak_status, tak_written_ms FROM fixes ORDER BY id", null
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val fields = listOf(
                     cursor.getString(0), Instant.ofEpochMilli(cursor.getLong(1)).toString(),
                     cursor.getDouble(2).toString(), cursor.getDouble(3).toString(),
                     if (cursor.isNull(4)) "" else cursor.getDouble(4).toString(),
-                    "", "unknown", ""
+                    if (cursor.getString(5) == "socket_written") "TAK_SERVER" else "", "unknown", "",
+                    cursor.getString(5) ?: "", if (cursor.isNull(6)) "" else Instant.ofEpochMilli(cursor.getLong(6)).toString()
                 )
                 writer.write(fields.joinToString(",") { csvField(it) })
                 writer.write("\r\n")

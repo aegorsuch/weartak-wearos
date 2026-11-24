@@ -162,7 +162,19 @@ class CotDispatchService : Service() {
 
     private val endpointDispatcher by lazy {
         CotEndpointDispatcher(
-            sendTak = ::sendDataTAKServers,
+            sendTak = { xml, queued -> sendDataTAKServers(xml, queued) },
+            sendTrackedTakPli = { message ->
+                val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+                val location = snapshot?.loc
+                if (snapshot == null || location == null) {
+                    sendDataTAKServers(message.xml, false)
+                } else {
+                    sendDataTAKServers(message.xml, false) { written ->
+                        (applicationContext as WearTakApplication).positionLog
+                            .recordTakResult(snapshot.systemData.deviceId, location, written)
+                    }
+                }
+            },
             sendSitx = { xml -> SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot(xml)) },
             sendDitto = { _, _ -> error("Bundled Ditto route is unavailable") },
             sendMulticast = ::sendMulticastDatagram,

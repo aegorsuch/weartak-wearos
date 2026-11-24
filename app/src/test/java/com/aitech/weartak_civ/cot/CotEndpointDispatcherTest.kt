@@ -10,6 +10,22 @@ import org.junit.Test
 
 class CotEndpointDispatcherTest {
     @Test
+    fun pliUsesTrackedTakPathWithoutChangingOtherMessageDispatch() = runBlocking {
+        val calls = mutableListOf<String>()
+        val dispatcher = CotEndpointDispatcher(
+            sendTak = { _, _ -> calls += "untracked" }, sendSitx = {}, sendDitto = { _, _ -> },
+            sendMulticast = {}, sendPliMulticast = {}, sendCompanion = {},
+            sendTrackedTakPli = { calls += "tracked" }
+        )
+        val available = CotEndpointAvailability(true, false, false, false, false)
+        dispatcher.dispatch(CotOutboundMessage("<pli/>", CotMessageKind.PLI,
+            CotCompanionPayload.Pli(pliSnapshot())), available, readyPliOnly = true)
+        dispatcher.dispatch(CotOutboundMessage("<chat/>", CotMessageKind.CHAT,
+            CotCompanionPayload.Chat(chatSnapshot())), available)
+        assertEquals(listOf("tracked", "untracked"), calls)
+    }
+
+    @Test
     fun chatCanExcludeDittoWithoutExcludingOtherPlugins() = runBlocking {
         val calls = mutableListOf<String>()
         val dispatcher = CotEndpointDispatcher(

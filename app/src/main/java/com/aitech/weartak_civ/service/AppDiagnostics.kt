@@ -47,7 +47,8 @@ enum class DiagnosticEvent {
     MISSION_LIST, // RESULT: 0 paused, 1 fetched, 2 unchanged, 3 failed
     OFF_BODY_TAK,
     BLE_DISCOVERY, SPO2_SKIPPED_MOTION,
-    DITTO_LIFECYCLE, DITTO_STATE, DITTO_TRANSPORTS, DITTO_PEERS, DITTO_SDK_LOG
+    DITTO_LIFECYCLE, DITTO_STATE, DITTO_TRANSPORTS, DITTO_PEERS, DITTO_SDK_LOG,
+    SOS_TRIGGER, LOCATION_REPORTING_STATE
 }
 
 @Keep
@@ -93,8 +94,8 @@ internal data class DiagnosticRecord(
 
 internal class DiagnosticJournal(
     private val directory: () -> File,
-    private val maxBytes: Long = 2 * 1024 * 1024L,
-    private val retentionMs: Long = 3 * 24 * 60 * 60 * 1000L,
+    private val maxBytes: Long = 4 * 1024 * 1024L,
+    private val retentionMs: Long = 7 * 24 * 60 * 60 * 1000L,
     private val wallClock: () -> Long = System::currentTimeMillis
 ) {
     private val gson = Gson()
@@ -320,6 +321,21 @@ class AppDiagnostics internal constructor(private val application: Application) 
         scope.launch {
             enabled.collectLatest { recording ->
                 if (!recording) return@collectLatest
+                repo.getEnableLocationService.distinctUntilChanged().catch { error ->
+                    when (error) {
+                        is IOException -> storageFailure(error)
+                        is SecurityException -> storageFailure(error)
+                        else -> throw error
+                    }
+                }.collect { active ->
+                    capture(DiagnosticEvent.LOCATION_REPORTING_STATE,
+                        mapOf(DiagnosticMetric.ACTIVE to if (active) 1L else 0L))
+                }
+            }
+        }
+        scope.launch {
+            enabled.collectLatest { recording ->
+                if (!recording) return@collectLatest
                 val fields = listOf(
                     DiagnosticMetric.FOOT_SECONDS to repo.getOnFootReportingInterval.map { it.toLong() },
                     DiagnosticMetric.VEHICLE_SECONDS to repo.getVehicleReportingInterval.map { it.toLong() },
@@ -443,7 +459,8 @@ class AppDiagnostics internal constructor(private val application: Application) 
         synchronized(rateLock) {
             if (!enabled.value) return
             if (event == DiagnosticEvent.CONNECTIVITY_PATH || event == DiagnosticEvent.SAMSUNG_HR_CONTINUOUS ||
-                event == DiagnosticEvent.STAY_AWAKE_AUTO_DISABLED || event == DiagnosticEvent.STAY_AWAKE_START_REFUSED) {
+                event == DiagnosticEvent.STAY_AWAKE_AUTO_DISABLED || event == DiagnosticEvent.STAY_AWAKE_START_REFUSED ||
+                event == DiagnosticEvent.SOS_TRIGGER || event == DiagnosticEvent.LOCATION_REPORTING_STATE) {
                 enqueue(event, metrics + (DiagnosticMetric.COUNT to 1L))
                 return
             }

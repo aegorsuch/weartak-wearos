@@ -34,6 +34,7 @@ class CotEndpointDispatcher(
     private val sendPlugin: (xml: String) -> Unit = {},
     private val sendPluginWithoutDitto: (xml: String) -> Unit = sendPlugin,
     private val sendTrackedDitto: ((collection: String, xml: String, completion: (Boolean) -> Unit) -> Unit)? = null,
+    private val sendTrackedTakPli: ((message: CotOutboundMessage) -> Unit)? = null,
 ) {
     private val emergencyMutex = Mutex()
     /**
@@ -102,7 +103,8 @@ class CotEndpointDispatcher(
         routes.forEach { route ->
             deliver(message, route) {
                 when (route) {
-                    CotRoute.TAK -> sendTak(message.xml, message.kind != CotMessageKind.PLI)
+                    CotRoute.TAK -> if (message.kind == CotMessageKind.PLI && sendTrackedTakPli != null)
+                        sendTrackedTakPli.invoke(message) else sendTak(message.xml, message.kind != CotMessageKind.PLI)
                     CotRoute.SITX -> sendSitx(message.xml)
                     CotRoute.DITTO -> {
                         message.onDittoOffered?.invoke()
