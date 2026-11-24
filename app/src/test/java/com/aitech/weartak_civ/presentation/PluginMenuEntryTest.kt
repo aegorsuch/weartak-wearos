@@ -149,6 +149,15 @@ class PluginMenuEntryTest {
     }
 
     @Test
+    fun crmUsesLegacyMenuTitleOnlyForCrmPackage() {
+        val crm = pluginUi("crm-id", "WearTAK CRM").copy(packageName = "com.weartak.plugin.crm")
+        val other = pluginUi("com.weartak.plugin.crm", "WearTAK CRM")
+            .copy(packageName = "org.example.crm")
+        assertEquals(listOf("CRM", "WearTAK CRM"),
+            listOf(crm, other).installedPluginMenuEntries().map { it.title })
+    }
+
+    @Test
     fun hostedRouteEncodesArbitraryPluginId() {
         assertEquals(
             "plugin_main_ui/org.example.field%2Ftools",

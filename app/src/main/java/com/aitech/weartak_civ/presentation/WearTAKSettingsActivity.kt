@@ -3204,6 +3204,8 @@ fun WearTAKSettingsNav(
 
         composable("plugins") {
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
+            val crmSettings by pluginVm.crmSettings.collectAsStateWithLifecycle()
+            val crmOperationPending by pluginVm.crmOperationPending.collectAsStateWithLifecycle()
             val moppStatus by dataRepository.getMoppStatus.collectAsStateWithLifecycle(initialValue = null)
             val companionStatus = companionPluginStatus(enableCompanionAppService)
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
@@ -3406,7 +3408,10 @@ fun WearTAKSettingsNav(
                                 val item = entry.plugin
                                 val needsDittoPermission = item.packageName == TrustedCommunityPlugin.PACKAGE &&
                                     item.isLoaded && dittoPermissionRecovery
-                                val menuLabel = if (needsDittoPermission) {
+                                val isCrm = item.packageName == com.aitech.weartak_civ.integration.plugin.CRM_PLUGIN_PACKAGE
+                                val menuLabel = if (isCrm) {
+                                    stringResource(R.string.unfunded_request)
+                                } else if (needsDittoPermission) {
                                     stringResource(R.string.companion_status_permission)
                                 } else item.dittoMenuLabel(
                                     dittoSubtitle, item.menuLabel(moppStatus, stringResource(R.string.mopp_none)))
@@ -3422,7 +3427,13 @@ fun WearTAKSettingsNav(
                                     chipType = { reveal ->
                                         WearTAKSplitToggleChip(
                                             appIcon = {
-                                                item.icon.let {
+                                                if (isCrm) {
+                                                    Image(
+                                                        painter = painterResource(R.drawable.ic_plugin_gauge),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.padding(end = 4.dp).size(24.dp),
+                                                    )
+                                                } else item.icon.let {
                                                     AndroidView(
                                                         modifier = Modifier
                                                             .size(25.dp)
@@ -3442,15 +3453,22 @@ fun WearTAKSettingsNav(
                                                     contentDescription = item.desc
                                                 }
                                             },
-                                            checked = item.isEnabled,
+                                            checked = if (isCrm) crmSettings?.enabled == true else item.isEnabled,
                                             onCheckedChange = {
-                                                when (it) {
-                                                    true -> pluginVm.loadPlugin(item.pluginId)
-                                                    false -> pluginVm.unloadPlugin(item.pluginId)
+                                                if (isCrm) {
+                                                    pluginVm.setCrmEnabled(item.pluginId, item.isEnabled, it)
+                                                } else {
+                                                    when (it) {
+                                                        true -> pluginVm.loadPlugin(item.pluginId)
+                                                        false -> pluginVm.unloadPlugin(item.pluginId)
+                                                    }
                                                 }
                                             },
+                                            enabled = !isCrm || !crmOperationPending,
                                             onClick = {
-                                                pluginMenuScope.launch {
+                                                if (isCrm) {
+                                                    pluginVm.openCrmThresholds()
+                                                } else pluginMenuScope.launch {
                                                     if (needsDittoPermission) {
                                                         if (!PluginActivityLauncher.launch(context, item.packageName)) {
                                                             reveal.first.launch {

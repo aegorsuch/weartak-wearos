@@ -15,6 +15,8 @@ import com.weartak.plugin.sdk.model.SensorEventParcel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+internal const val CRM_PLUGIN_PACKAGE = "com.weartak.plugin.crm"
+
 internal data class CrmPluginStatus(
     val status: String,
     val value: Double?,

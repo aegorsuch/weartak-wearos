@@ -81,6 +81,13 @@ class PluginSettingsCoordinator(
         })
     }
 
+    internal fun setCrmEnabled(enabled: Boolean): SettingsApplyResultParcel {
+        if (crmSettingsState.value == null) return connectivityRejected("CRM settings are unavailable")
+        return applyPluginSettings(CRM_PLUGIN_PACKAGE, Bundle().apply {
+            putBoolean("enable_crm", enabled)
+        })
+    }
+
     private fun connectivityRejected(message: String) = SettingsApplyResultParcel(
         success = false,
         errors = listOf(com.weartak.plugin.sdk.model.SettingsValidationErrorParcel(

@@ -186,6 +186,54 @@ class PluginSettingsCoordinatorTest {
     }
 
     @Test
+    fun crmToggleChangesPluginSettingWithoutUnloadingOrChangingThresholds() {
+        val plugin = crmPlugin(true).apply {
+            applySettings(Bundle().apply {
+                putBoolean("enable_crm", false)
+                putDouble("crm_poor_max", 33.0)
+                putDouble("crm_moderate_max", 66.0)
+            })
+        }
+        coordinator.onPluginConnected(CRM_PLUGIN_PACKAGE, plugin)
+        assertTrue(coordinator.setCrmEnabled(true).success)
+        assertTrue(plugin.getSettingsValues().getBoolean("enable_crm"))
+        assertTrue(coordinator.crmSettings.value!!.enabled)
+        assertTrue(coordinator.setCrmEnabled(false).success)
+        assertFalse(plugin.getSettingsValues().getBoolean("enable_crm"))
+        assertEquals(33.0, plugin.getSettingsValues().getDouble("crm_poor_max"), 0.0)
+        assertEquals(66.0, plugin.getSettingsValues().getDouble("crm_moderate_max"), 0.0)
+        assertTrue(plugin.getSettingsValues().getBoolean("crm_legacy_migration_complete"))
+        assertEquals(0, plugin.stopCalls)
+        coordinator.unregisterPlugin(CRM_PLUGIN_PACKAGE)
+        assertFalse(coordinator.setCrmEnabled(true).success)
+    }
+
+    @Test
+    fun crmThresholdActionOpensWhileCrmIsDisabled() {
+        val plugin = crmPlugin(true).apply {
+            pluginCapabilities = PluginCapabilitiesParcel(hostedSettingsUi = true, hostedMainUi = true)
+            applySettings(Bundle().apply {
+                putBoolean("enable_crm", false)
+                putDouble("crm_poor_max", 33.0)
+                putDouble("crm_moderate_max", 66.0)
+            })
+            setMainUiSchemaForTest(PluginMainUiSchemaParcel(cards = listOf(
+                MainUiCardParcel(
+                    cardType = "ACTION",
+                    cardId = "crm-thresholds",
+                    title = "CRM Thresholds",
+                    content = hostedActionContent("crm.thresholds", "Edit thresholds"),
+                ),
+            )))
+        }
+        coordinator.onPluginConnected(CRM_PLUGIN_PACKAGE, plugin)
+        assertFalse(plugin.getSettingsValues().getBoolean("enable_crm"))
+        assertTrue(coordinator.invokeHostedMainUiAction(CRM_PLUGIN_PACKAGE, "crm-thresholds")
+            is HostedPluginMainUiResult.Ready)
+        assertEquals("crm.thresholds", plugin.mainUiActions.single().first)
+    }
+
+    @Test
     fun hostedMainUiDispatchesAnyPluginDefinedEnabledActionOnExplicitRequest() {
         val pluginId = "org.example.telemetry"
         fakePlugin.pluginCapabilities = PluginCapabilitiesParcel(hostedMainUi = true)
