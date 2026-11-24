@@ -1320,20 +1320,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun reconcileManagedTakServers(
-        configuredServers: List<DataRepository.TakServerItem>,
+        configuredServers: List<TakServerManagedReconciler.Configuration>,
         managedConfigurationIsAuthoritative: Boolean
     ): Boolean {
         var changed = false
         val handler = Handler(Looper.getMainLooper())
-        val uniqueManagedServers = configuredServers.distinctBy(TakServerEndpointIdentity::key)
+        val uniqueManagedServers = configuredServers.distinctBy {
+            TakServerEndpointIdentity.key(it.server)
+        }
         val existingServers = takServerList.toList()
         val existingMatches = TakServerManagedReconciler.matchExistingIndexes(
-            configured = uniqueManagedServers,
+            configured = uniqueManagedServers.map { it.server },
             existing = existingServers
         )
 
-        for ((managedIndex, managedServer) in uniqueManagedServers.withIndex()) {
-            val endpointKey = TakServerEndpointIdentity.key(managedServer)
+        for ((managedIndex, configuration) in uniqueManagedServers.withIndex()) {
+            val endpointKey = TakServerEndpointIdentity.key(configuration.server)
             val matchedExistingIndex = existingMatches[managedIndex]
             val matchedExisting = matchedExistingIndex?.let(existingServers::get)
             val index = matchedExisting?.serverId?.let { serverId ->
@@ -1341,7 +1343,7 @@ class MainActivity : ComponentActivity() {
             } ?: matchedExistingIndex ?: -1
             if (index >= 0) {
                 val existing = takServerList[index]
-                val managedWithStableId = managedServer.copy(serverId = existing.serverId)
+                val managedWithStableId = TakServerManagedReconciler.resolveServer(configuration, existing)
                 if (managedWithStableId != existing) {
                     changed = true
                     dataRepository.updateTakServerItem(index, managedWithStableId)
@@ -1352,7 +1354,9 @@ class MainActivity : ComponentActivity() {
                     }
                     takServerList = dataRepository.awaitTakServerList()
                 }
-            } else if (dataRepository.addTakServerItem(managedServer) == DataRepository.TakServerAddResult.ADDED) {
+            } else if (dataRepository.addTakServerItem(
+                    TakServerManagedReconciler.resolveServer(configuration, null)
+                ) == DataRepository.TakServerAddResult.ADDED) {
                 changed = true
                 takServerList = dataRepository.awaitTakServerList()
                 val addedIndex = takServerList.indexOfFirst {
@@ -1367,7 +1371,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (managedConfigurationIsAuthoritative) {
-            val managedKeys = uniqueManagedServers.map(TakServerEndpointIdentity::key).toSet()
+            val managedKeys = uniqueManagedServers.map { TakServerEndpointIdentity.key(it.server) }.toSet()
             val staleIndexes = takServerList.indices.filter {
                 TakServerEndpointIdentity.key(takServerList[it]) !in managedKeys
             }.sortedDescending()
@@ -1453,7 +1457,7 @@ class MainActivity : ComponentActivity() {
         val enableTabletCommandEndpointConfigUpdate =
             managedNetwork.tabletCommand ?: enableTabletCommandEndpoint
 
-        var serverEnableTAKConnectService: Boolean = true
+        var serverEnableTAKConnectService: Boolean? = null
         var serverName: String? = null
         var serverAddress: String? = null
         var serverPort: String? = null
@@ -1462,7 +1466,7 @@ class MainActivity : ComponentActivity() {
         var serverPassword: String? = null
         var serverCertPassword: String? = null
         var serverCertificate: String? = null
-        val takServerListConfig: MutableList<DataRepository.TakServerItem> = mutableListOf()
+        val takServerListConfig: MutableList<TakServerManagedReconciler.Configuration> = mutableListOf()
         val serverParcels = appRestrictions.getParcelableArray("tak_server_list")  // we don't know how many configurations will be set on the Knox Managed Configuration page, so we to loop through all the servers in the list.
         if (serverParcels != null) {
             val serverCount = serverParcels.size
@@ -1482,7 +1486,7 @@ class MainActivity : ComponentActivity() {
 
                     // set companion obj by looking for key in bundle, fallback on current
                     serverName = serverBundle.getString("tak_server_connection_name", null) // set companion obj by looking for key, fallback on current
-                    serverEnableTAKConnectService = serverBundle.getBoolean("tak_server_connection_enabled", true)
+                    serverEnableTAKConnectService = serverBundle.getNullableBoolean("tak_server_connection_enabled")
                     serverAddress = serverBundle.getString("tak_server_address", null)
                     serverUseCert = serverBundle.getBoolean("tak_server_use_certificate", false)
                     serverPort = (serverBundle.getInt("tak_server_port", 8089)).toString()
@@ -1490,7 +1494,12 @@ class MainActivity : ComponentActivity() {
                     serverPassword = serverBundle.getString("tak_server_password", null)
                     serverCertPassword = serverBundle.getString("tak_server_cert_password", null)
                     serverCertificate = serverBundle.getString("tak_server_cert", null)
-                    takServerListConfig.add(DataRepository.TakServerItem(serverEnableTAKConnectService, serverName, serverAddress, serverPort.toInt(), serverUseCert, serverUsername, serverPassword, serverCertificate, serverCertPassword))
+                    takServerListConfig.add(
+                        TakServerManagedReconciler.Configuration(
+                            DataRepository.TakServerItem(serverEnableTAKConnectService ?: true, serverName, serverAddress, serverPort.toInt(), serverUseCert, serverUsername, serverPassword, serverCertificate, serverCertPassword),
+                            enabled = serverEnableTAKConnectService
+                        )
+                    )
                     Log.v(TAG, "========================================")
                 } else {
                     Log.e(TAG, "Invalid server bundle at index $i")

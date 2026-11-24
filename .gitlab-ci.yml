@@ -60,7 +60,7 @@ android_host_regression:
       --tests '*LollipopGeometryTest' --tests '*LollipopOverlayTest'
       --tests '*ElevationTest' --tests '*AwsTerrainProviderTest'
       --tests '*RouteDetailsViewTest' --tests '*RoutePointDetailsViewTest'
-      --tests '*TakServerCaTrustTest' --tests '*TakServerCaStorageTest'
+      --tests '*TakServerCaTrustTest' --tests '*TakServerCaStorageTest' --tests '*TakServerManagedReconcilerTest'
       --tests '*ServerCaTrustEditorTest' --tests '*TakEnrollmentTest'
       --tests '*TakGovDeviceAuthorizationRepositoryTest' --tests '*TakGovUserInfoTest'
       --tests '*TakTransientRecoveryTest' --tests '*TakServerRegistrationServiceTest'
