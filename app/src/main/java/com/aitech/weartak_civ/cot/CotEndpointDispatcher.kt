@@ -35,6 +35,8 @@ class CotEndpointDispatcher(
     private val sendPluginWithoutDitto: (xml: String) -> Unit = sendPlugin,
     private val sendTrackedDitto: ((collection: String, xml: String, completion: (Boolean) -> Unit) -> Unit)? = null,
     private val sendTrackedTakPli: ((message: CotOutboundMessage) -> Unit)? = null,
+    private val sendTrackedMulticastPli: ((message: CotOutboundMessage) -> Unit)? = null,
+    private val sendTrackedSitxPli: ((message: CotOutboundMessage) -> Unit)? = null,
 ) {
     private val emergencyMutex = Mutex()
     /**
@@ -105,7 +107,8 @@ class CotEndpointDispatcher(
                 when (route) {
                     CotRoute.TAK -> if (message.kind == CotMessageKind.PLI && sendTrackedTakPli != null)
                         sendTrackedTakPli.invoke(message) else sendTak(message.xml, message.kind != CotMessageKind.PLI)
-                    CotRoute.SITX -> sendSitx(message.xml)
+                    CotRoute.SITX -> if (message.kind == CotMessageKind.PLI && sendTrackedSitxPli != null)
+                        sendTrackedSitxPli.invoke(message) else sendSitx(message.xml)
                     CotRoute.DITTO -> {
                         message.onDittoOffered?.invoke()
                         val collection = if (message.kind == CotMessageKind.CHAT) "chat" else "mapitem"
@@ -117,7 +120,8 @@ class CotEndpointDispatcher(
                         }
                     }
                     CotRoute.MULTICAST -> if (message.kind == CotMessageKind.PLI) {
-                        sendPliMulticast(message.xml)
+                        if (sendTrackedMulticastPli != null) sendTrackedMulticastPli.invoke(message)
+                        else sendPliMulticast(message.xml)
                     } else {
                         sendMulticast(message.xml)
                     }

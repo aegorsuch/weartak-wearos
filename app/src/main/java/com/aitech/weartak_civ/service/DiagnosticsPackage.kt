@@ -52,7 +52,11 @@ internal object DiagnosticsPackage {
                 Sensitive location history. Limit distribution.
                 Accuracy is Android Location.accuracy: estimated 68% horizontal radius in metres.
                 Empty accuracy means unavailable. Bearer and relay may be unknown.
-                A transport handoff is not confirmed receipt.
+                Disposition is unknown. A blank route status means no result was observed.
+                TAK_SERVER and MULTICAST socket_written mean a socket write succeeded.
+                SITX api_accepted means its WebSocket accepted the message into its queue.
+                These handoffs do not confirm receipt. Plugin and companion routes are not tracked.
+                Only active Android location callbacks are recorded; abrupt termination can lose queued fixes.
                 Position log incomplete: ${positionLog.storageFailed.value}.
                 Position logging is opt-in and retention is bounded.
             """.trimIndent())

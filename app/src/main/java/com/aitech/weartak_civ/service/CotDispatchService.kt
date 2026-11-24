@@ -171,7 +171,7 @@ class CotDispatchService : Service() {
                 } else {
                     sendDataTAKServers(message.xml, false) { written ->
                         (applicationContext as WearTakApplication).positionLog
-                            .recordTakResult(snapshot.systemData.deviceId, location, written)
+                            .recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.TAK_SERVER, written)
                     }
                 }
             },
@@ -179,6 +179,28 @@ class CotDispatchService : Service() {
             sendDitto = { _, _ -> error("Bundled Ditto route is unavailable") },
             sendMulticast = ::sendMulticastDatagram,
             sendPliMulticast = NetworkUtils.MulticastPublisher::send,
+            sendTrackedMulticastPli = { message ->
+                val written = NetworkUtils.MulticastPublisher.sendPliWithResult(message.xml)
+                val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+                val location = snapshot?.loc
+                if (snapshot != null && location != null) {
+                    (applicationContext as WearTakApplication).positionLog
+                        .recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.MULTICAST, written)
+                }
+            },
+            sendTrackedSitxPli = { message ->
+                val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+                val location = snapshot?.loc
+                val callback: ((Boolean) -> Unit)? = if (snapshot != null && location != null) {
+                    { accepted ->
+                        (applicationContext as WearTakApplication).positionLog
+                            .recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.SITX, accepted)
+                    }
+                } else null
+                if (!SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot(message.xml, onResult = callback))) {
+                    callback?.invoke(false)
+                }
+            },
             sendPlugin = { xml ->
                 PluginCotEgress.offer(applicationContext as WearTakApplication, xml)
             },

@@ -26,6 +26,23 @@ class CotEndpointDispatcherTest {
     }
 
     @Test
+    fun pliUsesTrackedSitxAndMulticastWithoutChangingChat() = runBlocking {
+        val calls = mutableListOf<String>()
+        val dispatcher = CotEndpointDispatcher(
+            sendTak = { _, _ -> }, sendSitx = { calls += "sitx" }, sendDitto = { _, _ -> },
+            sendMulticast = { calls += "multicast" }, sendPliMulticast = { calls += "pli multicast" },
+            sendCompanion = {}, sendTrackedSitxPli = { calls += "tracked sitx" },
+            sendTrackedMulticastPli = { calls += "tracked multicast" },
+        )
+        val available = CotEndpointAvailability(false, true, false, true, false)
+        dispatcher.dispatch(CotOutboundMessage("<pli/>", CotMessageKind.PLI,
+            CotCompanionPayload.Pli(pliSnapshot())), available, readyPliOnly = true)
+        dispatcher.dispatch(CotOutboundMessage("<chat/>", CotMessageKind.CHAT,
+            CotCompanionPayload.Chat(chatSnapshot())), available)
+        assertEquals(listOf("tracked sitx", "tracked multicast", "multicast", "sitx"), calls)
+    }
+
+    @Test
     fun chatCanExcludeDittoWithoutExcludingOtherPlugins() = runBlocking {
         val calls = mutableListOf<String>()
         val dispatcher = CotEndpointDispatcher(
