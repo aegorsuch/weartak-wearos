@@ -53,47 +53,47 @@ class PluginViewModel(
             val succeeded = withContext(Dispatchers.IO) {
                 pluginManager.setDittoNetworkEnabled(enabled)
             }
-
-            internal fun setCrmEnabled(pluginId: String, loadedByHost: Boolean, enabled: Boolean) {
-                if (crmOperationPendingState.value) return
-                crmOperationPendingState.value = true
-                viewModelScope.launch {
-                    try {
-                        if (!loadedByHost) repository.loadPlugin(pluginId)
-                        val settings = withTimeoutOrNull(10_000) { crmSettings.filterNotNull().first() }
-                        val result = if (settings != null) withContext(Dispatchers.IO) {
-                            coordinator.setCrmEnabled(enabled)
-                        } else null
-                        if (result == null || !result.success ||
-                            !result.values.containsKey("enable_crm") ||
-                            result.values.getBoolean("enable_crm") != enabled
-                        ) {
-                            Toast.makeText(getApplication(), R.string.crm_settings_change_failed, Toast.LENGTH_LONG).show()
-                        }
-                    } finally {
-                        crmOperationPendingState.value = false
-                    }
-                }
-            }
-
-            internal fun openCrmThresholds() {
-                if (crmOperationPendingState.value) return
-                crmOperationPendingState.value = true
-                viewModelScope.launch {
-                    try {
-                        val result = withContext(Dispatchers.IO) {
-                            coordinator.invokeHostedMainUiAction(CRM_PLUGIN_PACKAGE, "crm-thresholds")
-                        }
-                        if (result !is HostedPluginMainUiResult.Ready) {
-                            Toast.makeText(getApplication(), R.string.crm_settings_open_failed, Toast.LENGTH_LONG).show()
-                        }
-                    } finally {
-                        crmOperationPendingState.value = false
-                    }
-                }
-            }
             if (!succeeded) {
                 Toast.makeText(getApplication(), R.string.network_toggle_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    internal fun setCrmEnabled(pluginId: String, loadedByHost: Boolean, enabled: Boolean) {
+        if (crmOperationPendingState.value) return
+        crmOperationPendingState.value = true
+        viewModelScope.launch {
+            try {
+                if (!loadedByHost) repository.loadPlugin(pluginId)
+                val settings = withTimeoutOrNull(10_000) { crmSettings.filterNotNull().first() }
+                val result = if (settings != null) withContext(Dispatchers.IO) {
+                    coordinator.setCrmEnabled(enabled)
+                } else null
+                if (result == null || !result.success ||
+                    !result.values.containsKey("enable_crm") ||
+                    result.values.getBoolean("enable_crm") != enabled
+                ) {
+                    Toast.makeText(getApplication(), R.string.crm_settings_change_failed, Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                crmOperationPendingState.value = false
+            }
+        }
+    }
+
+    internal fun openCrmThresholds() {
+        if (crmOperationPendingState.value) return
+        crmOperationPendingState.value = true
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    coordinator.invokeHostedMainUiAction(CRM_PLUGIN_PACKAGE, "crm-thresholds")
+                }
+                if (result !is HostedPluginMainUiResult.Ready) {
+                    Toast.makeText(getApplication(), R.string.crm_settings_open_failed, Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                crmOperationPendingState.value = false
             }
         }
     }
