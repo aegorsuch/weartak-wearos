@@ -479,6 +479,9 @@ class PluginSettingsCoordinator(
             // A frozen plugin's handshake must not hold the shared settings sync mutex.
             refreshFromPluginLocked(pluginId, plugin)
             pushHostSettingsToPluginLocked(pluginId, plugin)
+            if (pluginId == CRM_PLUGIN_PACKAGE) {
+                migrateLegacyCrmSettings(pluginId, plugin)
+            }
             if (legacyAudioSettingsFields(pluginId) != null) {
                 if (cache[pluginId]?.hostManagedSettingsSupported != true) {
                     val errors = cache[pluginId]?.lastValidationErrors.orEmpty()
@@ -496,6 +499,55 @@ class PluginSettingsCoordinator(
             }
         }
         startHostSettingsWatcher()
+    }
+
+    private suspend fun migrateLegacyCrmSettings(pluginId: String, plugin: IWearTakPlugin) {
+        val state = cache[pluginId] ?: error("CRM plugin settings unavailable")
+        if (!state.settingsSupported && !state.hostManagedSettingsSupported) {
+            error("CRM plugin settings unsupported")
+        }
+        val requiredFields = mapOf(
+            CRM_ENABLE to SettingsFieldTypes.TOGGLE,
+            CRM_POOR_MAX to SettingsFieldTypes.NUMBER,
+            CRM_MODERATE_MAX to SettingsFieldTypes.NUMBER,
+            CRM_MIGRATION_COMPLETE to SettingsFieldTypes.TOGGLE,
+        )
+        check(requiredFields.all { (id, type) ->
+            state.schema.fields.any { it.fieldId == id && it.fieldType == type }
+        }) { "CRM plugin settings schema missing or mismatched" }
+        val marker = state.values.get(CRM_MIGRATION_COMPLETE) as? Boolean
+            ?: error("CRM migration marker unavailable")
+        if (marker) return
+        val (enabled, thresholds) = app.repo.crmLegacyMigrationSettings.first()
+        val patch = Bundle().apply {
+            putBoolean(CRM_ENABLE, enabled)
+            putDouble(CRM_POOR_MAX, thresholds.poorMax.toDouble())
+            putDouble(CRM_MODERATE_MAX, thresholds.moderateMax.toDouble())
+            putBoolean(CRM_MIGRATION_COMPLETE, true)
+        }
+        val validation = SettingsApplyValidator.applySettingsWithResult(
+            schema = state.schema,
+            previous = state.values,
+            incoming = patch,
+            hostSettings = state.hostSettings,
+            applyMode = SettingsApplyMode.PARTIAL_PATCH,
+        )
+        check(validation.success) { "CRM migration settings schema rejected" }
+        check(pluginRefs[pluginId] === plugin) { "CRM plugin connection changed" }
+        val result = checkNotNull(plugin.applySettingsWithResult(patch, SettingsApplyMode.PARTIAL_PATCH))
+        check(pluginRefs[pluginId] === plugin) { "CRM plugin connection changed" }
+        if (result.success) {
+            check(result.values.get(CRM_MIGRATION_COMPLETE) == true &&
+                result.values.get(CRM_ENABLE) == enabled &&
+                result.values.get(CRM_POOR_MAX) == thresholds.poorMax.toDouble() &&
+                result.values.get(CRM_MODERATE_MAX) == thresholds.moderateMax.toDouble()
+            ) { "CRM migration was not confirmed" }
+        } else {
+            val current = plugin.settingsValues
+            check(pluginRefs[pluginId] === plugin) { "CRM plugin connection changed" }
+            check(current?.get(CRM_MIGRATION_COMPLETE) == true) { "CRM migration rejected" }
+        }
+        refreshValuesFromPluginLocked(pluginId, plugin)
     }
 
     fun onPluginSettingsSchemaChanged(pluginId: String) {
@@ -989,6 +1041,11 @@ class PluginSettingsCoordinator(
         const val KEY_RECEIVED_AT = "receivedAt"
         const val KEY_REMOVED_AT = "removedAt"
 
+        private const val CRM_PLUGIN_PACKAGE = "com.weartak.plugin.crm"
+        private const val CRM_ENABLE = "enable_crm"
+        private const val CRM_POOR_MAX = "crm_poor_max"
+        private const val CRM_MODERATE_MAX = "crm_moderate_max"
+        private const val CRM_MIGRATION_COMPLETE = "crm_legacy_migration_complete"
         private const val PLUGIN_SOURCE_PREFIX = "plugin:"
         private const val TAG = "CEP-PluginSettings"
     }

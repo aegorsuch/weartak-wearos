@@ -186,6 +186,7 @@ class PluginConnection(
 
     private val deathRecipient = IBinder.DeathRecipient {
         ready = false
+        if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
@@ -202,6 +203,7 @@ class PluginConnection(
     }
 
     private fun onBinderDiedInternal() {
+        if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         hostPointEndpoint?.revoke()
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
@@ -442,7 +444,38 @@ class PluginConnection(
                     status.extras.getBoolean(PluginDetectionEventBridge.DETECTOR_READY_EXTRA, false)
                 postAudioHealth(healthy)
             },
-            onError = { postAudioHealth(false) },
+            onError = {
+                if (pluginPackage == CRM_PLUGIN_PACKAGE &&
+                    android.os.Binder.getCallingUid() == pluginUid
+                ) manager.crmPluginStatus.invalidate(this)
+                postAudioHealth(false)
+            },
+            interceptSensorEvent = { event ->
+                if (pluginPackage != CRM_PLUGIN_PACKAGE || event.sensorKey != CrmPluginStatusStore.SENSOR_KEY) {
+                    false
+                } else {
+                    if (android.os.Binder.getCallingUid() == pluginUid && ready && hasVerifiedTrust &&
+                        pluginBinder?.isBinderAlive == true && manager.connectionFor(pluginPackage) === this
+                    ) {
+                        try {
+                            runBlocking {
+                                pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+                            }
+                            manager.crmPluginStatus.publish(this, event, System.currentTimeMillis())
+                        } catch (error: ParserException) {
+                            Log.w(TAG, "CRM status trust rejected: ${error.reasonCode}")
+                        } catch (error: PackageManager.NameNotFoundException) {
+                            Log.w(TAG, "CRM status plugin package unavailable")
+                        } catch (error: SecurityException) {
+                            Log.w(TAG, "CRM status plugin package access denied")
+                        } catch (error: android.os.BadParcelableException) {
+                            manager.crmPluginStatus.invalidate(this)
+                            Log.w(TAG, "CRM status parcel invalid")
+                        }
+                    }
+                    true
+                }
+            },
         )
         val moppControl = if (pluginPackage == MoppPluginAvailability.PACKAGE) {
             HostMoppPpeControl(app.repo.moppPpeStore, pluginUid, authorize = {
@@ -602,6 +635,7 @@ class PluginConnection(
         mainHandler.post {
             if (!closed && manager.onConnectionReady(this)) {
                 ready = true
+                if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.activate(this)
                 mainHandler.removeCallbacks(handshakeTimeout)
                 PluginDiagnostics.markConnected(pluginPackage)
                 if (pluginPackage == TrustedCommunityPlugin.PACKAGE) manager.onConnectionInitialized(this)
@@ -625,6 +659,7 @@ class PluginConnection(
 
     override fun onServiceDisconnected(name: ComponentName?) {
         ready = false
+        if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
@@ -639,6 +674,7 @@ class PluginConnection(
 
     override fun onBindingDied(name: ComponentName?) {
         ready = false
+        if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
@@ -736,6 +772,7 @@ class PluginConnection(
         afterRemoteCleanup: (() -> Unit)? = null,
     ) {
         ready = false
+        if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
@@ -947,6 +984,7 @@ class PluginConnection(
 
     companion object {
         private const val TAG = "CEP-PluginConnection"
+        private const val CRM_PLUGIN_PACKAGE = "com.weartak.plugin.crm"
         private const val HANDSHAKE_TIMEOUT_MS = 10_000L
         private const val AUDIO_HEALTH_TIMEOUT_MS = 15_000L
         internal const val DITTO_PLUGIN_ONLY_KEY = "com.weartak.plugin.ditto.pluginOnly.version"

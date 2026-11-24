@@ -1398,6 +1398,14 @@ class DataRepository(
         prefs[ENABLE_CRM_SERVICE] ?: DEFAULT_ENABLE_CRM_SERVICE
     }
 
+    internal val crmLegacyMigrationSettings: Flow<Pair<Boolean, CrmThresholdRanges>> =
+        context.dataStore.data.map { prefs ->
+            (prefs[ENABLE_CRM_SERVICE] ?: DEFAULT_ENABLE_CRM_SERVICE) to sanitizeCrmThresholdRanges(
+                poorMax = prefs[CRM_RED_MAX_THRESHOLD] ?: DEFAULT_CRM_POOR_MAX_THRESHOLD,
+                moderateMax = prefs[CRM_YELLOW_MAX_THRESHOLD] ?: DEFAULT_CRM_MODERATE_MAX_THRESHOLD,
+            )
+        }
+
     val getEnableMopp: Flow<Boolean> = context.dataStore.data.map { true }
     internal val moppPpeStore = MoppPpeStore(context.dataStore, available = {
         com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability.available.value
