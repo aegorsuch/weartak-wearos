@@ -142,9 +142,9 @@ internal fun TakwerxMarketPage(
                             Log.e(TAG, "Cannot open unknown-source install settings", error)
                             operationMessage = permissionSettingsError
                         }
-                        MarketInstallResult.Locked -> {
-                            operationMessage = context.getString(R.string.market_locked)
-                        }
+                    }
+                    MarketInstallResult.Locked -> {
+                        operationMessage = context.getString(R.string.market_locked)
                     }
                     is MarketInstallResult.Blocked -> {
                         operationMessage = installStateMessages.getValue(result.state)
