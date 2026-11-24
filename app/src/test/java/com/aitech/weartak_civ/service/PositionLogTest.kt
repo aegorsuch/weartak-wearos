@@ -2,6 +2,8 @@ package com.aitech.weartak_civ.service
 
 import android.app.Application
 import android.location.Location
+import android.os.SystemClock
+import com.aitech.weartak_civ.data.DataRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -195,5 +197,22 @@ class PositionLogTest {
         assertFalse(csv.contains("1970-01-01T00:00:01Z"))
         assertTrue(csv.contains("1970-01-01T00:00:02Z"))
         assertFalse(csv.contains("1970-01-01T00:00:03Z"))
+    }
+
+    @Test fun captureCorrelatesSelectionAndHandoffs() = runBlocking {
+        val log = PositionLog(app)
+        log.setEnabled(true)
+        val location = fix(1_000).apply { elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos() }
+        val snapshot = DataRepository.LocationSnapshot(location.time, location.latitude, location.longitude,
+            null, null, null, null, null, location.provider, location.elapsedRealtimeNanos)
+        log.record("watch", location)
+        log.recordSelection("watch", location, false)
+        assertTrue(StringWriter().also { log.export(it) }.toString().contains(",never_sent,"))
+        log.recordSelection("watch", location, true)
+        val attempt = log.beginAttempt("watch", snapshot, 60_000)
+        log.recordRouteResult("watch", snapshot, PositionBearer.MULTICAST, true, attempt)
+        assertTrue(StringWriter().also { log.export(it) }.toString().contains(",sent_immediately,"))
+        log.recordUntracked("watch", snapshot)
+        assertTrue(StringWriter().also { log.export(it) }.toString().contains(",unknown,"))
     }
 }
