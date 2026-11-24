@@ -60,6 +60,7 @@ class PluginLifecycleIsolationTest {
     )
 
     @Before fun setup() {
+        com.aitech.weartak_civ.presentation.MainActivity.device_uid = "test-watch"
         PluginDiagnostics.resetForTest()
         val context = ApplicationProvider.getApplicationContext<Application>()
         val prefs = context.getSharedPreferences("isolation-test", Context.MODE_PRIVATE)
@@ -392,6 +393,34 @@ class PluginLifecycleIsolationTest {
             cleanup { unmockkObject(TrustedCommunityPlugin) }
             cleanup { unmockkObject(TAKConnectService.Companion) }
             cleanupFailure?.let { throw it }
+        }
+    }
+
+    @Test fun dittoPolicyChangesDoNotRestartShutdownManager() = runBlocking {
+        pkg = TrustedCommunityPlugin.PACKAGE
+        discoveredService.serviceInfo.packageName = pkg
+        val repository = DataRepository(ApplicationProvider.getApplicationContext<Application>())
+        repository.storeNetworkPreferencesLocked(false)
+        assertNull(repository.storeDittoPluginNetworkEnabled(true))
+        val manager = manager(repository)
+        try {
+            awaitCondition("Initial Ditto bind did not occur") { captured.size == 1 }
+            manager.shutdownAll()
+            assertFalse(manager.hasConnectionForTest(pkg))
+            assertNull(repository.storeDittoPluginNetworkEnabled(false))
+            awaitCondition("Disabled policy was not observed") { !manager.dittoNetworkEnabled.value }
+            assertNull(repository.storeDittoPluginNetworkEnabled(true))
+            awaitCondition("Enabled policy was not observed") { manager.dittoNetworkEnabled.value }
+            assertTrue(setDittoNetwork(manager, true))
+            assertEquals("Policy updates must not restart a shut-down manager", 1, captured.size)
+            assertFalse(manager.hasConnectionForTest(pkg))
+            manager.refreshBindings()
+            assertEquals("Explicit refresh may restart the manager", 2, captured.size)
+        } finally {
+            manager.shutdownAll()
+            awaitPluginLifecycle(pkg)
+            repository.storeNetworkPreferencesLocked(false)
+            repository.storeDittoPluginNetworkEnabled(true)
         }
     }
 

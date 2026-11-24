@@ -516,7 +516,7 @@ open class PluginManager(
         if (dittoPolicyLoaded || dittoLegacyMigrationPending) return
         dittoLegacyMigrationPending = true
         dittoPolicyMigrationFailedState.value = false
-        withContext(Dispatchers.Main.immediate) { refreshBindings() }
+        withContext(Dispatchers.Main.immediate) { if (!stopped) refreshBindings() }
     }
 
     private suspend fun applyDittoNetworkPolicy(enabled: Boolean) {
@@ -539,6 +539,7 @@ open class PluginManager(
         dittoNetworkEnabledState.value = true
         settingsCoordinator.refreshOutboundCotAvailability()
         withContext(Dispatchers.Main.immediate) {
+            if (stopped) return@withContext
             val bootstrap = connectionFor(TrustedCommunityPlugin.PACKAGE)
             if (bootstrap != null && !bootstrap.hasCurrentDittoTrafficGeneration()) {
                 detachPackage(TrustedCommunityPlugin.PACKAGE, shutdownRemotePlugin = false)
