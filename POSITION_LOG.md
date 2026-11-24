@@ -24,6 +24,8 @@ handoff. A newly generated callback rejected before selection for reporting is
 Cached fixes predating capture, fixes with unobserved results, and fixes offered
 to plugin or companion routes remain `unknown`. A successful handoff through
 another tracked route does not eliminate uncertainty from those routes.
+`untracked_offers` identifies these plugin and companion offers, not successful
+transmission; multiple routes are separated by semicolons.
 These classifications are incomplete and may change as asynchronous operations
 complete; an export is a snapshot. Relay information is not exposed and is blank.
 

@@ -13,6 +13,7 @@ import com.aitech.weartak_civ.service.DittoPowerState
 import com.aitech.weartak_civ.service.DittoTrackPublicationGate
 import com.aitech.weartak_civ.service.DittoTrackSnapshot
 import com.aitech.weartak_civ.service.OutboundPliAnnouncementGate
+import com.aitech.weartak_civ.service.PositionUntrackedRoute
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -154,7 +155,7 @@ internal class PluginOnlyPliProducer(
             snapshot.monitoredPhysio, snapshot.intervalSeconds)
         val now = SystemClock.elapsedRealtime()
         if (!gate.due(sample, now)) return
-        app.positionLog.recordUntracked(snapshot.uid, snapshot.location)
+        app.positionLog.recordUntracked(snapshot.uid, snapshot.location, PositionUntrackedRoute.PLUGIN)
         if (transport.offerPluginPli(snapshot) { eligible(snapshot) }) gate.published(sample, now)
     }
 

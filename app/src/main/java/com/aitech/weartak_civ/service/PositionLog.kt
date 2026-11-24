@@ -42,7 +42,7 @@ internal class PositionLog(context: Context) {
         data class Fix(val uid: String, val location: Location, val generatedDuringCapture: Boolean) : Operation
         data class Selection(val key: PositionFixKey, val selected: Boolean) : Operation
         data class Attempt(val key: PositionFixKey, val id: String, val withinInterval: Boolean) : Operation
-        data class Untracked(val key: PositionFixKey) : Operation
+        data class Untracked(val key: PositionFixKey, val route: PositionUntrackedRoute) : Operation
         data class RouteResult(val key: PositionFixKey, val bearer: PositionBearer, val accepted: Boolean,
             val atMs: Long, val attemptId: String?, val sameTick: Boolean) : Operation
         data class Barrier(val done: CompletableDeferred<Unit>) : Operation
@@ -76,7 +76,7 @@ internal class PositionLog(context: Context) {
                         fail(error)
                     }
                     is Operation.Untracked -> try {
-                        journal.recordUntracked(operation.key)
+                        journal.recordUntracked(operation.key, operation.route)
                     } catch (error: SQLiteException) {
                         fail(error)
                     } catch (error: SecurityException) {
@@ -153,10 +153,10 @@ internal class PositionLog(context: Context) {
         return id
     }
 
-    fun recordUntracked(uid: String, location: DataRepository.LocationSnapshot) {
+    fun recordUntracked(uid: String, location: DataRepository.LocationSnapshot, route: PositionUntrackedRoute) {
         if (!enabled.value) return
         val fix = key(uid, location) ?: return
-        if (queue.trySend(Operation.Untracked(fix)).isFailure)
+        if (queue.trySend(Operation.Untracked(fix, route)).isFailure)
             fail(IOException("Position log queue overflow"))
     }
 
@@ -195,8 +195,12 @@ internal enum class PositionBearer(val column: String, val success: String, val 
     SITX("sitx", "api_accepted", "not_accepted"),
 }
 
+internal enum class PositionUntrackedRoute(val column: String) {
+    PLUGIN("plugin"), COMPANION("companion")
+}
+
 internal class PositionJournal(context: Context, private val maxRows: Int = 50_000) :
-    SQLiteOpenHelper(context, "position-log.db", null, 5) {
+    SQLiteOpenHelper(context, "position-log.db", null, 6) {
     init {
         require(maxRows > 0)
     }
@@ -212,13 +216,14 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
             capture_new INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0,
             rejected INTEGER NOT NULL DEFAULT 0, first_attempt_id TEXT, first_attempt_within_interval INTEGER NOT NULL DEFAULT 0,
             disposition TEXT, first_handoff_ms INTEGER, first_handoff_bearer TEXT,
-            untracked INTEGER NOT NULL DEFAULT 0,
+            untracked INTEGER NOT NULL DEFAULT 0, plugin_offered INTEGER NOT NULL DEFAULT 0,
+            companion_offered INTEGER NOT NULL DEFAULT 0,
             UNIQUE(uid, provider, fix_ms, elapsed_ns, latitude, longitude)
         )""")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion < 1 || newVersion != 5) throw SQLiteException("Unsupported position log upgrade")
+        if (oldVersion < 1 || newVersion != 6) throw SQLiteException("Unsupported position log upgrade")
         if (oldVersion == 1) {
             db.execSQL("ALTER TABLE fixes ADD COLUMN tak_status TEXT")
             db.execSQL("ALTER TABLE fixes ADD COLUMN tak_written_ms INTEGER")
@@ -239,7 +244,10 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
             db.execSQL("ALTER TABLE fixes ADD COLUMN first_handoff_bearer TEXT")
             db.execSQL("ALTER TABLE fixes ADD COLUMN untracked INTEGER NOT NULL DEFAULT 0")
         }
-        db.execSQL("ALTER TABLE fixes ADD COLUMN first_attempt_within_interval INTEGER NOT NULL DEFAULT 0")
+        if (oldVersion < 5)
+            db.execSQL("ALTER TABLE fixes ADD COLUMN first_attempt_within_interval INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN plugin_offered INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN companion_offered INTEGER NOT NULL DEFAULT 0")
     }
 
     @Synchronized
@@ -288,9 +296,9 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
     }
 
     @Synchronized
-    fun recordUntracked(key: PositionFixKey) {
+    fun recordUntracked(key: PositionFixKey, route: PositionUntrackedRoute) {
         writableDatabase.execSQL(
-            """UPDATE fixes SET selected = 1, untracked = 1
+            """UPDATE fixes SET selected = 1, untracked = 1, ${route.column}_offered = 1
                WHERE uid = ? AND provider = ? AND fix_ms = ? AND elapsed_ns = ? AND latitude = ? AND longitude = ?""",
             arrayOf(key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
         )
@@ -323,11 +331,12 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
 
     @Synchronized
     fun export(writer: Writer) {
-        writer.write("device_id,fix_timestamp,latitude_wgs84_deg,longitude_wgs84_deg,horizontal_accuracy_m,bearer,disposition,relayed,tak_status,tak_first_write_timestamp,multicast_status,multicast_first_write_timestamp,sitx_status,sitx_first_accept_timestamp,first_handoff_timestamp,first_handoff_bearer\r\n")
+        writer.write("device_id,fix_timestamp,latitude_wgs84_deg,longitude_wgs84_deg,horizontal_accuracy_m,bearer,disposition,relayed,tak_status,tak_first_write_timestamp,multicast_status,multicast_first_write_timestamp,sitx_status,sitx_first_accept_timestamp,first_handoff_timestamp,first_handoff_bearer,untracked_offers\r\n")
         readableDatabase.rawQuery(
             """SELECT uid, fix_ms, latitude, longitude, accuracy_m, tak_status, tak_written_ms,
                multicast_status, multicast_written_ms, sitx_status, sitx_written_ms, disposition,
-               capture_new, selected, rejected, first_handoff_ms, first_handoff_bearer, untracked FROM fixes ORDER BY id""", null
+               capture_new, selected, rejected, first_handoff_ms, first_handoff_bearer, untracked,
+               plugin_offered, companion_offered FROM fixes ORDER BY id""", null
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val fields = listOf(
@@ -346,7 +355,11 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
                     cursor.getString(7) ?: "", if (cursor.isNull(8)) "" else Instant.ofEpochMilli(cursor.getLong(8)).toString(),
                     cursor.getString(9) ?: "", if (cursor.isNull(10)) "" else Instant.ofEpochMilli(cursor.getLong(10)).toString(),
                     if (cursor.isNull(15)) "" else Instant.ofEpochMilli(cursor.getLong(15)).toString(),
-                    cursor.getString(16) ?: ""
+                    cursor.getString(16) ?: "",
+                    buildList {
+                        if (cursor.getInt(18) == 1) add("PLUGIN")
+                        if (cursor.getInt(19) == 1) add("COMPANION")
+                    }.joinToString(";")
                 )
                 writer.write(fields.joinToString(",") { csvField(it) })
                 writer.write("\r\n")

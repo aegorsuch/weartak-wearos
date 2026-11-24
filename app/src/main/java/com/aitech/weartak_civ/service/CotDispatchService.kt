@@ -205,7 +205,7 @@ class CotDispatchService : Service() {
                 PluginCotEgress.offer(applicationContext as WearTakApplication, xml)
             },
             sendTrackedPluginPli = { message ->
-                recordUntrackedPosition(message)
+                recordUntrackedPosition(message, PositionUntrackedRoute.PLUGIN)
                 PluginCotEgress.offer(applicationContext as WearTakApplication, message.xml,
                     excludeDitto = message.excludeDittoPlugin)
             },
@@ -217,7 +217,7 @@ class CotDispatchService : Service() {
                     is CotCompanionPayload.Pli -> {
                         payload.snapshot.loc?.let { location ->
                             (applicationContext as WearTakApplication).positionLog
-                                .recordUntracked(payload.snapshot.systemData.deviceId, location)
+                                .recordUntracked(payload.snapshot.systemData.deviceId, location, PositionUntrackedRoute.COMPANION)
                         }
                         capRepo.enqueuePliSnapshotForBle(payload.snapshot)
                     }
@@ -502,7 +502,7 @@ class CotDispatchService : Service() {
             val available = readyPliAnnouncementAvailability()
             val trackedMessage = trackedPositionMessage(message)
             val accepted = if (available.companion && capRepo.gateway.session != null) {
-                recordUntrackedPosition(trackedMessage)
+                recordUntrackedPosition(trackedMessage, PositionUntrackedRoute.COMPANION)
                 endpointDispatcher.dispatchGateway(trackedMessage) { capRepo.offerGatewayCot(message.xml) }
             } else endpointDispatcher.dispatch(trackedMessage, available, readyPliOnly = true)
             if (accepted) {
@@ -1638,10 +1638,10 @@ class CotDispatchService : Service() {
         return message.copy(positionAttemptId = attempt)
     }
 
-    private fun recordUntrackedPosition(message: CotOutboundMessage) {
+    private fun recordUntrackedPosition(message: CotOutboundMessage, route: PositionUntrackedRoute) {
         val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot ?: return
         val location = snapshot.loc ?: return
-        (applicationContext as WearTakApplication).positionLog.recordUntracked(snapshot.systemData.deviceId, location)
+        (applicationContext as WearTakApplication).positionLog.recordUntracked(snapshot.systemData.deviceId, location, route)
     }
 
     private suspend fun dispatch(message: CotOutboundMessage): Boolean {
@@ -1690,7 +1690,7 @@ class CotDispatchService : Service() {
                     CotMessageKind.PLI, CotMessageKind.MARKER, CotMessageKind.MARKER_CLEAR,
                     CotMessageKind.CHAT, CotMessageKind.EMERGENCY
                 )) {
-                if (message.kind == CotMessageKind.PLI) recordUntrackedPosition(trackedMessage)
+                if (message.kind == CotMessageKind.PLI) recordUntrackedPosition(trackedMessage, PositionUntrackedRoute.COMPANION)
                 val gatewayAccepted = endpointDispatcher.dispatchGateway(trackedMessage) { capRepo.offerGatewayCot(message.xml) }
                 if (!gatewayAccepted) Log.w(TAG, "Gateway output queue full; CoT not sent")
                 accepted = gatewayAccepted

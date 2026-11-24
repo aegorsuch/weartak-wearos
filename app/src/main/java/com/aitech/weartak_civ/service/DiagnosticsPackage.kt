@@ -57,6 +57,7 @@ internal object DiagnosticsPackage {
                 sent_immediately means a first-attempt handoff within one reporting interval of the fix and before another PLI.
                 buffered_sent_later means a later attempt or a handoff after that interval or another PLI.
                 These classifications do not prove how long a transport buffered a message.
+                untracked_offers lists plugin/companion offers, not successful transmission.
                 A blank route status means no result was observed. Relay status is not exposed.
                 TAK_SERVER and MULTICAST socket_written mean a socket write succeeded.
                 SITX api_accepted means its WebSocket accepted the message into its queue.

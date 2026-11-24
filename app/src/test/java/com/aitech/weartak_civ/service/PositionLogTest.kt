@@ -46,8 +46,8 @@ class PositionLogTest {
             val csv = StringWriter().also(journal::export).toString()
             val lines = csv.trimEnd().split("\r\n")
             assertEquals(3, lines.size)
-            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:20Z,41.5,-87.25,6.5,,unknown,,,,,,,,,", lines[1])
-            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:21Z,41.5,-87.25,,,unknown,,,,,,,,,", lines[2])
+            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:20Z,41.5,-87.25,6.5,,unknown,,,,,,,,,,", lines[1])
+            assertEquals("\"watch,\"\"one\"\"\",2023-11-14T22:13:21Z,41.5,-87.25,,,unknown,,,,,,,,,,", lines[2])
         } finally {
             journal.close()
         }
@@ -66,8 +66,8 @@ class PositionLogTest {
             journal.recordRouteResult(key, PositionBearer.SITX, false, 4_600)
             journal.recordRouteResult(key.copy(timeMs = 2_000, elapsedNanos = 2_000_000_000), PositionBearer.SITX, true, 6_000)
             val lines = StringWriter().also(journal::export).toString().trimEnd().split("\r\n")
-            assertTrue(lines[1].endsWith(",TAK_SERVER;MULTICAST,unknown,,socket_written,1970-01-01T00:00:04Z,socket_written,1970-01-01T00:00:04.500Z,not_accepted,,,"))
-            assertTrue(lines[2].endsWith(",SITX,unknown,,,,,,api_accepted,1970-01-01T00:00:06Z,,"))
+            assertTrue(lines[1].endsWith(",TAK_SERVER;MULTICAST,unknown,,socket_written,1970-01-01T00:00:04Z,socket_written,1970-01-01T00:00:04.500Z,not_accepted,,,,"))
+            assertTrue(lines[2].endsWith(",SITX,unknown,,,,,,api_accepted,1970-01-01T00:00:06Z,,,"))
         } finally {
             journal.close()
         }
@@ -92,7 +92,8 @@ class PositionLogTest {
             journal.recordRouteResult(key(5_000), PositionBearer.SITX, true, 7_000, "queued", false)
             journal.recordAttempt(key(6_000), "mixed")
             journal.recordRouteResult(key(6_000), PositionBearer.MULTICAST, true, 8_000, "mixed", true)
-            journal.recordUntracked(key(6_000))
+            journal.recordUntracked(key(6_000), PositionUntrackedRoute.PLUGIN)
+            journal.recordUntracked(key(6_000), PositionUntrackedRoute.COMPANION)
             journal.recordSelection(key(7_000), false)
             journal.recordAttempt(key(8_000), "late-first", withinInterval = false)
             journal.recordRouteResult(key(8_000), PositionBearer.MULTICAST, true, 9_000, "late-first", true)
@@ -104,6 +105,7 @@ class PositionLogTest {
             assertEquals("MULTICAST", rows[2][15])
             assertEquals("1970-01-01T00:00:06Z", rows[3][14])
             assertEquals("TAK_SERVER", rows[3][15])
+            assertEquals("PLUGIN;COMPANION", rows[5][16])
         } finally {
             journal.close()
         }
@@ -212,7 +214,7 @@ class PositionLogTest {
         val attempt = log.beginAttempt("watch", snapshot, 60_000)
         log.recordRouteResult("watch", snapshot, PositionBearer.MULTICAST, true, attempt)
         assertTrue(StringWriter().also { log.export(it) }.toString().contains(",sent_immediately,"))
-        log.recordUntracked("watch", snapshot)
+        log.recordUntracked("watch", snapshot, PositionUntrackedRoute.PLUGIN)
         assertTrue(StringWriter().also { log.export(it) }.toString().contains(",unknown,"))
     }
 }
