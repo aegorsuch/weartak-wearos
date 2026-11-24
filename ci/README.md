@@ -24,7 +24,9 @@ your normal Git credential helper; never put credentials in the repository URL.
 Then run `python ci/build_plugin_sdk.py --local-source <checkout-path>`. The
 builder fetches the pinned commit from that local Git repository without
 credentials and independently verifies its commit, tree, overlay and final AAR
-hash. The local-source option is unavailable in CI.
+hash. The local-source option is unavailable in CI. The current SDK pin has only a
+verified Linux AAR hash; Windows builds fail closed until a verified Windows
+hash is added.
 The branch-scoped `verify_tak_sdk_source_access` job tests core CI repository
 read access against the expected immutable SDK commit/tree without building or
 logging credentials.
