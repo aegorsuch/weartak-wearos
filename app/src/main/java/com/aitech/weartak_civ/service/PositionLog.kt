@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteException
 import android.database.sqlite.SQLiteOpenHelper
 import android.location.Location
+import android.os.SystemClock
 import android.util.Log
 import com.aitech.weartak_civ.data.DataRepository
 import kotlinx.coroutines.CompletableDeferred
@@ -19,6 +20,8 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 import java.io.Writer
 import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Separate opt-in journal: unlike AppDiagnostics, these records contain location and identity.
@@ -31,10 +34,17 @@ internal class PositionLog(context: Context) {
     private val mutableFailure = MutableStateFlow(preferences.getBoolean("incomplete", false))
     val storageFailed = mutableFailure.asStateFlow()
     private val journal = PositionJournal(context.applicationContext)
+    @Volatile private var captureStartNanos = SystemClock.elapsedRealtimeNanos()
+    private data class Tick(val id: String, val deadlineElapsedMs: Long)
+    private val currentAttempt = AtomicReference<Tick?>(null)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private sealed interface Operation {
-        data class Fix(val uid: String, val location: Location) : Operation
-        data class RouteResult(val key: PositionFixKey, val bearer: PositionBearer, val accepted: Boolean, val atMs: Long) : Operation
+        data class Fix(val uid: String, val location: Location, val generatedDuringCapture: Boolean) : Operation
+        data class Selection(val key: PositionFixKey, val selected: Boolean) : Operation
+        data class Attempt(val key: PositionFixKey, val id: String) : Operation
+        data class Untracked(val key: PositionFixKey) : Operation
+        data class RouteResult(val key: PositionFixKey, val bearer: PositionBearer, val accepted: Boolean,
+            val atMs: Long, val attemptId: String?, val sameTick: Boolean) : Operation
         data class Barrier(val done: CompletableDeferred<Unit>) : Operation
     }
     private val queue = Channel<Operation>(256)
@@ -44,15 +54,37 @@ internal class PositionLog(context: Context) {
             for (operation in queue) {
                 when (operation) {
                     is Operation.Fix -> try {
-                        if (journal.append(operation.uid, operation.location))
+                        if (journal.append(operation.uid, operation.location, operation.generatedDuringCapture))
                             fail(IOException("Position log retention limit reached; older fixes discarded"))
                     } catch (error: SQLiteException) {
                         fail(error)
                     } catch (error: SecurityException) {
                         fail(error)
                     }
+                    is Operation.Selection -> try {
+                        journal.recordSelection(operation.key, operation.selected)
+                    } catch (error: SQLiteException) {
+                        fail(error)
+                    } catch (error: SecurityException) {
+                        fail(error)
+                    }
+                    is Operation.Attempt -> try {
+                        journal.recordAttempt(operation.key, operation.id)
+                    } catch (error: SQLiteException) {
+                        fail(error)
+                    } catch (error: SecurityException) {
+                        fail(error)
+                    }
+                    is Operation.Untracked -> try {
+                        journal.recordUntracked(operation.key)
+                    } catch (error: SQLiteException) {
+                        fail(error)
+                    } catch (error: SecurityException) {
+                        fail(error)
+                    }
                     is Operation.RouteResult -> try {
-                        journal.recordRouteResult(operation.key, operation.bearer, operation.accepted, operation.atMs)
+                        journal.recordRouteResult(operation.key, operation.bearer, operation.accepted, operation.atMs,
+                            operation.attemptId, operation.sameTick)
                     } catch (error: SQLiteException) {
                         fail(error)
                     } catch (error: SecurityException) {
@@ -78,23 +110,60 @@ internal class PositionLog(context: Context) {
             fail(IOException("Position callback has no valid identity, timestamp, or coordinates"))
             return
         }
-        if (queue.trySend(Operation.Fix(uid, Location(location))).isFailure)
+        if (queue.trySend(Operation.Fix(uid, Location(location),
+                location.elapsedRealtimeNanos >= captureStartNanos)).isFailure)
             fail(IOException("Position log queue overflow"))
     }
 
     fun setEnabled(value: Boolean) {
         if (!preferences.edit().putBoolean("enabled", value).commit())
             throw IOException("Cannot save position log preference")
+        if (value && !mutableEnabled.value) captureStartNanos = SystemClock.elapsedRealtimeNanos()
         mutableEnabled.value = value
     }
 
-    fun recordRouteResult(uid: String, location: DataRepository.LocationSnapshot, bearer: PositionBearer, accepted: Boolean) {
+    private fun key(uid: String, location: Location) =
+        PositionFixKey(uid, location.provider.orEmpty(), location.time, location.elapsedRealtimeNanos,
+            location.latitude, location.longitude)
+
+    fun recordSelection(uid: String, location: Location, selected: Boolean) {
         if (!enabled.value) return
-        val provider = location.provider ?: return
-        val elapsed = location.elapsedRealtimeNanos ?: return
-        if (location.coordinateSource != provider) return
-        val key = PositionFixKey(uid, provider, location.timeMillis, elapsed, location.lat, location.lon)
-        if (queue.trySend(Operation.RouteResult(key, bearer, accepted, System.currentTimeMillis())).isFailure)
+        if (queue.trySend(Operation.Selection(key(uid, location), selected)).isFailure)
+            fail(IOException("Position log queue overflow"))
+    }
+
+    private fun key(uid: String, location: DataRepository.LocationSnapshot): PositionFixKey? {
+        val provider = location.provider ?: return null
+        val elapsed = location.elapsedRealtimeNanos ?: return null
+        if (location.coordinateSource != provider) return null
+        return PositionFixKey(uid, provider, location.timeMillis, elapsed, location.lat, location.lon)
+    }
+
+    fun beginAttempt(uid: String, location: DataRepository.LocationSnapshot, tickDurationMs: Long): String? {
+        if (!enabled.value) return null
+        val id = UUID.randomUUID().toString()
+        currentAttempt.set(Tick(id, SystemClock.elapsedRealtime() + tickDurationMs.coerceAtLeast(1)))
+        val fix = key(uid, location) ?: return id
+        if (queue.trySend(Operation.Attempt(fix, id)).isFailure)
+            fail(IOException("Position log queue overflow"))
+        return id
+    }
+
+    fun recordUntracked(uid: String, location: DataRepository.LocationSnapshot) {
+        if (!enabled.value) return
+        val fix = key(uid, location) ?: return
+        if (queue.trySend(Operation.Untracked(fix)).isFailure)
+            fail(IOException("Position log queue overflow"))
+    }
+
+    fun recordRouteResult(uid: String, location: DataRepository.LocationSnapshot, bearer: PositionBearer,
+        accepted: Boolean, attemptId: String?) {
+        if (!enabled.value) return
+        val fix = key(uid, location) ?: return
+        val tick = currentAttempt.get()
+        if (queue.trySend(Operation.RouteResult(fix, bearer, accepted, System.currentTimeMillis(),
+                attemptId, attemptId != null && tick != null && tick.id == attemptId &&
+                    SystemClock.elapsedRealtime() <= tick.deadlineElapsedMs)).isFailure)
             fail(IOException("Position log queue overflow"))
     }
 
@@ -123,7 +192,7 @@ internal enum class PositionBearer(val column: String, val success: String, val 
 }
 
 internal class PositionJournal(context: Context, private val maxRows: Int = 50_000) :
-    SQLiteOpenHelper(context, "position-log.db", null, 3) {
+    SQLiteOpenHelper(context, "position-log.db", null, 4) {
     init {
         require(maxRows > 0)
     }
@@ -136,24 +205,38 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
             accuracy_m REAL, tak_status TEXT, tak_written_ms INTEGER,
             multicast_status TEXT, multicast_written_ms INTEGER,
             sitx_status TEXT, sitx_written_ms INTEGER,
+            capture_new INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0,
+            rejected INTEGER NOT NULL DEFAULT 0, first_attempt_id TEXT,
+            disposition TEXT, first_handoff_ms INTEGER, first_handoff_bearer TEXT,
+            untracked INTEGER NOT NULL DEFAULT 0,
             UNIQUE(uid, provider, fix_ms, elapsed_ns, latitude, longitude)
         )""")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion < 1 || newVersion != 3) throw SQLiteException("Unsupported position log upgrade")
+        if (oldVersion < 1 || newVersion != 4) throw SQLiteException("Unsupported position log upgrade")
         if (oldVersion == 1) {
             db.execSQL("ALTER TABLE fixes ADD COLUMN tak_status TEXT")
             db.execSQL("ALTER TABLE fixes ADD COLUMN tak_written_ms INTEGER")
         }
-        db.execSQL("ALTER TABLE fixes ADD COLUMN multicast_status TEXT")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN multicast_written_ms INTEGER")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN sitx_status TEXT")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN sitx_written_ms INTEGER")
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE fixes ADD COLUMN multicast_status TEXT")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN multicast_written_ms INTEGER")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN sitx_status TEXT")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN sitx_written_ms INTEGER")
+        }
+        db.execSQL("ALTER TABLE fixes ADD COLUMN capture_new INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN selected INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN rejected INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN first_attempt_id TEXT")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN disposition TEXT")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN first_handoff_ms INTEGER")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN first_handoff_bearer TEXT")
+        db.execSQL("ALTER TABLE fixes ADD COLUMN untracked INTEGER NOT NULL DEFAULT 0")
     }
 
     @Synchronized
-    fun append(uid: String, location: Location): Boolean {
+    fun append(uid: String, location: Location, generatedDuringCapture: Boolean = false): Boolean {
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -164,6 +247,7 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
                 put("elapsed_ns", location.elapsedRealtimeNanos)
                 put("latitude", location.latitude)
                 put("longitude", location.longitude)
+                put("capture_new", if (generatedDuringCapture) 1 else 0)
                 if (location.hasAccuracy() && location.accuracy.isFinite() && location.accuracy >= 0)
                     put("accuracy_m", location.accuracy)
             }
@@ -177,26 +261,65 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
     }
 
     @Synchronized
-    fun recordRouteResult(key: PositionFixKey, bearer: PositionBearer, accepted: Boolean, atMs: Long) {
+    fun recordSelection(key: PositionFixKey, selected: Boolean) {
+        writableDatabase.execSQL(
+            """UPDATE fixes SET selected = MAX(selected, ?), rejected = MAX(rejected, ?)
+               WHERE uid = ? AND provider = ? AND fix_ms = ? AND elapsed_ns = ? AND latitude = ? AND longitude = ?""",
+            arrayOf(if (selected) 1 else 0, if (selected) 0 else 1,
+                key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
+        )
+    }
+
+    @Synchronized
+    fun recordAttempt(key: PositionFixKey, id: String) {
+        writableDatabase.execSQL(
+            """UPDATE fixes SET first_attempt_id = COALESCE(first_attempt_id, ?), selected = 1
+               WHERE uid = ? AND provider = ? AND fix_ms = ? AND elapsed_ns = ? AND latitude = ? AND longitude = ?""",
+            arrayOf(id, key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
+        )
+    }
+
+    @Synchronized
+    fun recordUntracked(key: PositionFixKey) {
+        writableDatabase.execSQL(
+            """UPDATE fixes SET selected = 1, untracked = 1
+               WHERE uid = ? AND provider = ? AND fix_ms = ? AND elapsed_ns = ? AND latitude = ? AND longitude = ?""",
+            arrayOf(key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
+        )
+    }
+
+    @Synchronized
+    fun recordRouteResult(key: PositionFixKey, bearer: PositionBearer, accepted: Boolean, atMs: Long,
+        attemptId: String? = null, sameTick: Boolean = false) {
         val status = "${bearer.column}_status"
         val timestamp = "${bearer.column}_written_ms"
         writableDatabase.execSQL(
             """UPDATE fixes SET
                $status = CASE WHEN $status = ? OR ? = 1 THEN ? ELSE ? END,
-               $timestamp = CASE WHEN ? = 1 THEN COALESCE($timestamp, ?) ELSE $timestamp END
+               $timestamp = CASE WHEN ? = 1 THEN COALESCE($timestamp, ?) ELSE $timestamp END,
+               disposition = CASE WHEN ? = 1 AND first_handoff_ms IS NULL AND first_attempt_id IS NOT NULL AND ? IS NOT NULL
+                   THEN CASE WHEN first_attempt_id = ? AND ? = 1 THEN 'sent_immediately'
+                             ELSE 'buffered_sent_later' END ELSE disposition END,
+               first_handoff_bearer = CASE WHEN ? = 1 AND first_handoff_ms IS NULL AND ? IS NOT NULL
+                   THEN ? ELSE first_handoff_bearer END,
+               first_handoff_ms = CASE WHEN ? = 1 AND ? IS NOT NULL
+                   THEN COALESCE(first_handoff_ms, ?) ELSE first_handoff_ms END
                WHERE uid = ? AND provider = ? AND fix_ms = ? AND elapsed_ns = ? AND latitude = ? AND longitude = ?""",
             arrayOf(bearer.success, if (accepted) 1 else 0, bearer.success, bearer.failure,
-                if (accepted) 1 else 0, atMs,
+                if (accepted) 1 else 0, atMs, if (accepted) 1 else 0, attemptId, attemptId,
+                if (sameTick) 1 else 0, if (accepted) 1 else 0, attemptId, bearer.name,
+                if (accepted) 1 else 0, attemptId, atMs,
                 key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
         )
     }
 
     @Synchronized
     fun export(writer: Writer) {
-        writer.write("device_id,fix_timestamp,latitude_wgs84_deg,longitude_wgs84_deg,horizontal_accuracy_m,bearer,disposition,relayed,tak_status,tak_first_write_timestamp,multicast_status,multicast_first_write_timestamp,sitx_status,sitx_first_accept_timestamp\r\n")
+        writer.write("device_id,fix_timestamp,latitude_wgs84_deg,longitude_wgs84_deg,horizontal_accuracy_m,bearer,disposition,relayed,tak_status,tak_first_write_timestamp,multicast_status,multicast_first_write_timestamp,sitx_status,sitx_first_accept_timestamp,first_handoff_timestamp,first_handoff_bearer\r\n")
         readableDatabase.rawQuery(
             """SELECT uid, fix_ms, latitude, longitude, accuracy_m, tak_status, tak_written_ms,
-               multicast_status, multicast_written_ms, sitx_status, sitx_written_ms FROM fixes ORDER BY id""", null
+               multicast_status, multicast_written_ms, sitx_status, sitx_written_ms, disposition,
+               capture_new, selected, rejected, first_handoff_ms, first_handoff_bearer, untracked FROM fixes ORDER BY id""", null
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val fields = listOf(
@@ -207,10 +330,15 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
                         if (cursor.getString(5) == PositionBearer.TAK_SERVER.success) add("TAK_SERVER")
                         if (cursor.getString(7) == PositionBearer.MULTICAST.success) add("MULTICAST")
                         if (cursor.getString(9) == PositionBearer.SITX.success) add("SITX")
-                    }.joinToString(";"), "unknown", "",
+                    }.joinToString(";"),
+                    if (cursor.getInt(17) == 1) "unknown" else cursor.getString(11)
+                        ?: if (cursor.getInt(12) == 1 && cursor.getInt(13) == 0 &&
+                            cursor.getInt(14) == 1) "never_sent" else "unknown", "",
                     cursor.getString(5) ?: "", if (cursor.isNull(6)) "" else Instant.ofEpochMilli(cursor.getLong(6)).toString(),
                     cursor.getString(7) ?: "", if (cursor.isNull(8)) "" else Instant.ofEpochMilli(cursor.getLong(8)).toString(),
-                    cursor.getString(9) ?: "", if (cursor.isNull(10)) "" else Instant.ofEpochMilli(cursor.getLong(10)).toString()
+                    cursor.getString(9) ?: "", if (cursor.isNull(10)) "" else Instant.ofEpochMilli(cursor.getLong(10)).toString(),
+                    if (cursor.isNull(15)) "" else Instant.ofEpochMilli(cursor.getLong(15)).toString(),
+                    cursor.getString(16) ?: ""
                 )
                 writer.write(fields.joinToString(",") { csvField(it) })
                 writer.write("\r\n")

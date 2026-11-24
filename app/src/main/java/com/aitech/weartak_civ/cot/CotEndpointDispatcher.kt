@@ -22,6 +22,7 @@ data class CotOutboundMessage(
     val onDittoOffered: (() -> Unit)? = null,
     val excludeDittoPlugin: Boolean = false,
     val alertActivationId: String? = null,
+    val positionAttemptId: String? = null,
 )
 
 class CotEndpointDispatcher(
@@ -37,6 +38,7 @@ class CotEndpointDispatcher(
     private val sendTrackedTakPli: ((message: CotOutboundMessage) -> Unit)? = null,
     private val sendTrackedMulticastPli: ((message: CotOutboundMessage) -> Unit)? = null,
     private val sendTrackedSitxPli: ((message: CotOutboundMessage) -> Unit)? = null,
+    private val sendTrackedPluginPli: ((message: CotOutboundMessage) -> Unit)? = null,
 ) {
     private val emergencyMutex = Mutex()
     /**
@@ -126,8 +128,10 @@ class CotEndpointDispatcher(
                         sendMulticast(message.xml)
                     }
                     CotRoute.COMPANION -> sendCompanion(message.companionPayload)
-                    CotRoute.PLUGIN -> if (message.excludeDittoPlugin) sendPluginWithoutDitto(message.xml)
-                        else sendPlugin(message.xml)
+                    CotRoute.PLUGIN -> if (message.kind == CotMessageKind.PLI && sendTrackedPluginPli != null)
+                        sendTrackedPluginPli.invoke(message)
+                    else if (message.excludeDittoPlugin) sendPluginWithoutDitto(message.xml)
+                    else sendPlugin(message.xml)
                 }
                 true
             }

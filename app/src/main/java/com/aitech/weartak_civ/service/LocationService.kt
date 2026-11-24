@@ -475,7 +475,12 @@ class LocationService : Service() {
     private fun completeFix(received: Location) {
         val location = Location(received)
         val completions = fixConsumers.values.toList().mapNotNull { it(location) }
-        val first = completions.firstOrNull() ?: return
+        val first = completions.firstOrNull()
+        if (first == null) {
+            (application as? com.aitech.weartak_civ.WearTakApplication)
+                ?.positionLog?.recordSelection(MainActivity.device_uid, location, false)
+            return
+        }
         scope.launch {
             fixCompletionMutex.withLock {
                 if (!dataRepository.getEnableLocationService.first() ||
@@ -495,7 +500,11 @@ class LocationService : Service() {
                     return@withLock
                 }
                 val newFix = lastCompletedFix != location
-                if (newFix) dataRepository.storeLatestLocation(location)
+                if (newFix) {
+                    (application as? com.aitech.weartak_civ.WearTakApplication)
+                        ?.positionLog?.recordSelection(MainActivity.device_uid, location, true)
+                    dataRepository.storeLatestLocation(location)
+                }
                 if (!dataRepository.isCurrentLocationInput(location) || first.generation != generation ||
                     currentInput != first.input || !permitted(first.input)) return@withLock
                 if (newFix) {
@@ -639,6 +648,9 @@ class LocationService : Service() {
                 if (fusedCallbacks[kind] === this) {
                     val log = (application as? com.aitech.weartak_civ.WearTakApplication)?.positionLog
                     result.locations.forEach { log?.record(MainActivity.device_uid, it) }
+                    result.locations.dropLast(1).forEach {
+                        log?.recordSelection(MainActivity.device_uid, it, false)
+                    }
                     result.lastLocation?.let(::completeFix)
                 }
             }

@@ -52,7 +52,12 @@ internal object DiagnosticsPackage {
                 Sensitive location history. Limit distribution.
                 Accuracy is Android Location.accuracy: estimated 68% horizontal radius in metres.
                 Empty accuracy means unavailable. Bearer and relay may be unknown.
-                Disposition is unknown. A blank route status means no result was observed.
+                Disposition describes observed handoffs, not receipt; untracked routes remain unknown.
+                never_sent is limited to newly generated fixes rejected before selection for reporting.
+                sent_immediately means a first-attempt handoff within one dispatch interval and before another PLI.
+                buffered_sent_later means a later attempt or a handoff after that interval or another PLI.
+                These classifications do not prove how long a transport buffered a message.
+                A blank route status means no result was observed. Relay status is not exposed.
                 TAK_SERVER and MULTICAST socket_written mean a socket write succeeded.
                 SITX api_accepted means its WebSocket accepted the message into its queue.
                 These handoffs do not confirm receipt. Plugin and companion routes are not tracked.

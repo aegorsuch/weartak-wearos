@@ -154,6 +154,7 @@ internal class PluginOnlyPliProducer(
             snapshot.monitoredPhysio, snapshot.intervalSeconds)
         val now = SystemClock.elapsedRealtime()
         if (!gate.due(sample, now)) return
+        app.positionLog.recordUntracked(snapshot.uid, snapshot.location)
         if (transport.offerPluginPli(snapshot) { eligible(snapshot) }) gate.published(sample, now)
     }
 
