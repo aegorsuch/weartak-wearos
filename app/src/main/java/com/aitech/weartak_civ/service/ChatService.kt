@@ -332,8 +332,10 @@ class ChatService : Service() {
      */
     fun markRoomRead(roomId: String) = synchronized(chatRoomMap) {
         chatRoomMap[roomId]?.let { room ->
-            room.timeLastClosed = System.currentTimeMillis()
-            room.newMessagesPresent = false
+            chatRoomMap[roomId] = room.copy(
+                timeLastClosed = System.currentTimeMillis(),
+                newMessagesPresent = false
+            )
         }
     }
 }

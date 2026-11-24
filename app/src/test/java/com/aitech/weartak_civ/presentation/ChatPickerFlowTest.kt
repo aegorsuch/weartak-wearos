@@ -152,4 +152,23 @@ class ChatPickerFlowTest {
         incoming("alice", "alice", 50)
         assertEquals(listOf("alice", "team"), repo.chatRoomsFlow.value.map { it.uid })
     }
+
+    @Test fun markingRoomReadDoesNotMutatePreviouslyPublishedRoom() {
+        MainActivity.device_uid = "watch"
+        MainActivity.versionNumber = "test"
+        val repo = DataRepository(RuntimeEnvironment.getApplication())
+        val service = Robolectric.buildService(ChatService::class.java).get()
+        ChatService::class.java.getDeclaredField("dataRepository").apply { isAccessible = true }.set(service, repo)
+        val unread = ChatRoom("alice", "Alice", listOf(ChatMessage("Hi", "alice", "Alice", 1)),
+            true, 0, 0)
+        service.openConversation(unread)
+        val published = repo.chatRoomsFlow.value.single()
+
+        service.markRoomRead("alice")
+
+        assertTrue(published.newMessagesPresent)
+        assertEquals(0L, published.timeLastClosed)
+        assertFalse(service.getInbox().single().newMessagesPresent)
+        assertEquals(0, service.getUnreadMsgsCount())
+    }
 }
