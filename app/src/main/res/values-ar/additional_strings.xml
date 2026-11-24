@@ -77,4 +77,7 @@
     <string name="tak_enrollment_connectivity_failed">يتعذر الوصول إلى الخادم. تحقق من الشبكة وعنوان الخادم.</string>
     <string name="tak_enrollment_certificate_failed">بيانات الشهادة غير صالحة أو مفقودة.</string>
     <string name="tak_enrollment_failure">%1$s — %2$s</string>
+    <string name="market_admin_lock">قفل TAKwerx Market</string>
+    <string name="market_locked">تم قفل TAKwerx Market بواسطة المسؤول</string>
+    <string name="market_lock_save_error">تعذر حفظ قفل Market. تحقق من إعدادات المسؤول.</string>
 </resources>

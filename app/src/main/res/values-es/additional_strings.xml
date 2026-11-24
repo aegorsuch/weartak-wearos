@@ -77,4 +77,7 @@
     <string name="tak_enrollment_connectivity_failed">No se puede acceder al servidor. Comprueba la red y la dirección del servidor.</string>
     <string name="tak_enrollment_certificate_failed">Los datos del certificado no son válidos o faltan.</string>
     <string name="tak_enrollment_failure">%1$s — %2$s</string>
+    <string name="market_admin_lock">Bloquear TAKwerx Market</string>
+    <string name="market_locked">TAKwerx Market bloqueado por el administrador</string>
+    <string name="market_lock_save_error">No se pudo guardar el bloqueo de Market. Comprueba los ajustes de administrador.</string>
 </resources>

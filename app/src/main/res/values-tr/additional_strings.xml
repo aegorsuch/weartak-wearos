@@ -77,4 +77,7 @@
     <string name="tak_enrollment_connectivity_failed">Sunucuya ulaşılamıyor. Ağı ve sunucu adresini kontrol edin.</string>
     <string name="tak_enrollment_certificate_failed">Sertifika verileri geçersiz veya eksik.</string>
     <string name="tak_enrollment_failure">%1$s — %2$s</string>
+    <string name="market_admin_lock">TAKwerx Market kilidi</string>
+    <string name="market_locked">TAKwerx Market yönetici tarafından kilitlendi</string>
+    <string name="market_lock_save_error">Market kilidi kaydedilemedi. Yönetici ayarlarını kontrol edin.</string>
 </resources>

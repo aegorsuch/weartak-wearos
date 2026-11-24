@@ -63,6 +63,7 @@ internal fun TakwerxMarketPage(
     val permissionSettingsError = stringResource(R.string.market_permission_settings_error)
     val installerConfirmation = stringResource(R.string.market_installer_confirmation)
     val installError = stringResource(R.string.market_install_error)
+    val marketLocked = stringResource(R.string.market_locked)
     val installStateMessages = mapOf(
         MarketInstallState.INSTALL to stringResource(R.string.market_install),
         MarketInstallState.UPDATE to stringResource(R.string.market_update),
@@ -144,7 +145,7 @@ internal fun TakwerxMarketPage(
                         }
                     }
                     MarketInstallResult.Locked -> {
-                        operationMessage = context.getString(R.string.market_locked)
+                        operationMessage = marketLocked
                     }
                     is MarketInstallResult.Blocked -> {
                         operationMessage = installStateMessages.getValue(result.state)
