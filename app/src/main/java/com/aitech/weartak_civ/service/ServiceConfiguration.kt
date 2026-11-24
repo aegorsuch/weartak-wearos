@@ -16,7 +16,6 @@ import androidx.core.content.ContextCompat
 import com.aitech.weartak_civ.BuildConfig
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.DataRepository
-import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.service.LicenseManager.isLicenseValid
 import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
@@ -46,7 +45,6 @@ class ServiceConfiguration(
     private val audioCaptureRepository: AudioCaptureRepository,
     private val weatherDemand: Flow<Boolean> = CepProvider.weatherDemand,
     private val weatherApiKey: String? = WeatherService.OpenWeatherConfig.getApiKey(),
-    private val audioDetectionDelegates: Flow<Set<String>> = flowOf(emptySet()),
 ) {
     private val TAG = "WearTAK-ServiceConfig"
 
@@ -106,18 +104,9 @@ class ServiceConfiguration(
         ServiceType.BLE_BEACON -> dataRepository.getEnableBleBeaconService.distinctUntilChanged()
         ServiceType.GEOFENCE  -> dataRepository.getEnableGeofenceService.distinctUntilChanged()
         ServiceType.BLOOD_HOUND -> dataRepository.getEnableBloodhoundCompassService.distinctUntilChanged()
-        ServiceType.AUDIO_CAP -> combine(
-            dataRepository.getEnableOnnxUasService.distinctUntilChanged(),
-            audioCaptureRepository.activeConsumers,
-        ) { uasOn, consumers ->
-            uasOn || consumers.isNotEmpty()
-        }.distinctUntilChanged()
-        ServiceType.ONNX_UAS -> combine(
-            dataRepository.getEnableOnnxUasService,
-            audioDetectionDelegates,
-        ) { enabled, delegates ->
-            enabled && PluginDetectionEventBridge.FALCON_PACKAGE !in delegates
-        }.distinctUntilChanged()
+        ServiceType.AUDIO_CAP -> audioCaptureRepository.activeConsumers
+            .map { it.isNotEmpty() }
+            .distinctUntilChanged()
 
         // Core consumers remain live; BATTERY is now a process-owned virtual observer.
         ServiceType.TAK_CONNECT,
@@ -185,10 +174,6 @@ class ServiceConfiguration(
         ServiceType.AUDIO_CAP -> listOf(
             android.Manifest.permission.RECORD_AUDIO
         )
-        ServiceType.ONNX_UAS -> listOf(
-            android.Manifest.permission.RECORD_AUDIO
-        )
-
         ServiceType.SITX_SERVICE -> emptyList()
 
         ServiceType.TAK_CONNECT,

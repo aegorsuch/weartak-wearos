@@ -490,7 +490,6 @@ dependencies {
     implementation("org.apache.commons:commons-lang3:3.18.0")
 
     // Onnx Runtime
-    implementation libs.onnxruntime.android
 
     // TensorFlow Lite runtime for CRM inference
     implementation libs.tensorflow.lite

@@ -9,7 +9,6 @@ composeMaterial = "1.4.0"
 composeFoundation = "1.4.0"
 activityCompose = "1.9.3"
 coreSplashscreen = "1.0.1"
-onnxruntimeAndroid = "1.18.0"
 tiles = "1.4.1"
 tilesMaterial = "1.4.1"
 horologistComposeTools = "0.6.20"
@@ -25,7 +24,6 @@ animationCore = "1.9.2"
 datastoreCore = "1.1.7"
 uiGraphics = "1.10.1"
 foundationLayout = "1.10.1"
-onnxruntime = "1.19.2"
 tensorflowLite = "2.17.0"
 navigationComposeVersion = "2.9.7"
 lifecycleCompose = "2.10.0"
@@ -36,7 +34,6 @@ foundationLayoutVersion = "1.11.2"
 
 [libraries]
 compose-navigation = { module = "androidx.wear.compose:compose-navigation", version.ref = "composeNavigation" }
-onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
 play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }

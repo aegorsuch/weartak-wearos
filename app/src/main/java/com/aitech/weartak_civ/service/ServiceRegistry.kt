@@ -41,8 +41,7 @@ class ServiceRegistry() {
         ServiceType.POWER_MGR to PowerManagerService::class.java,
         ServiceType.BLOOD_HOUND to BloodhoundService::class.java,
         ServiceType.COMPANION_APP to CompanionAppService::class.java,
-        ServiceType.AUDIO_CAP to AudioCaptureService::class.java,
-        ServiceType.ONNX_UAS to UasOnnxService::class.java
+        ServiceType.AUDIO_CAP to AudioCaptureService::class.java
     ) + if (BuildConfig.CEP_SIMULATION) mapOf(
         ServiceType.CEP_SIMULATION to CEPSimulationService::class.java
     ) else emptyMap()
@@ -67,8 +66,7 @@ class ServiceRegistry() {
         ServiceType.POWER_MGR to PowerManagerService.isRunning,
         ServiceType.BLOOD_HOUND to BloodhoundService.isRunning,
         ServiceType.COMPANION_APP to CompanionAppService.isRunning,
-        ServiceType.AUDIO_CAP to AudioCaptureService.isRunning,
-        ServiceType.ONNX_UAS to UasOnnxService.isRunning
+        ServiceType.AUDIO_CAP to AudioCaptureService.isRunning
     ) + if (BuildConfig.CEP_SIMULATION) mapOf(
         ServiceType.CEP_SIMULATION to CEPSimulationService.isRunning
     ) else emptyMap()
