@@ -972,6 +972,15 @@ class SkinTempService : Service() {
                         appendPpgSampleAndPrune(raw, sampleUptimeMs)
 //                        publishCrmRawPpgSample(sampleUptimeMs, raw)
                         if (crmPpgSamplingActive) {
+                            PpgSampleDelivery.publish(
+                                RawPpgSample(
+                                    value = raw.toFloat(),
+                                    uptimeMillis = sampleUptimeMs,
+                                    emittedAtMillis = System.currentTimeMillis(),
+                                    sourceAvailable = ppgAvailable,
+                                    deviceWorn = deviceWorn,
+                                )
+                            )
                             if (crmPpgSamplingActive) {
                                 crmCsvLogger.logRawPpg(
                                     uptimeMillis = sampleUptimeMs,
