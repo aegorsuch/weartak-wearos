@@ -147,6 +147,28 @@ class PpgHostV1ImplTest {
     }
 
     @Test
+    fun replacementSubscriptionStartsNewSequenceAndUsesItsOwnId() {
+        val host = host(7)
+        val first = RecordingCallback()
+        val replacement = RecordingCallback()
+        val sample = RawPpgSample(42f, 100, 200, sourceAvailable = true, deviceWorn = true)
+        try {
+            assertEquals(PpgContractV1.OK, host.subscribe("first", first))
+            repeat(2) { PpgSampleDelivery.publish(sample) }
+            assertTrue(first.samplesReceived.await(5, TimeUnit.SECONDS))
+            assertEquals(PpgContractV1.OK, host.unsubscribe("first"))
+            assertEquals(PpgContractV1.OK, host.subscribe("replacement", replacement))
+            repeat(2) { PpgSampleDelivery.publish(sample) }
+            assertTrue(replacement.samplesReceived.await(5, TimeUnit.SECONDS))
+            assertEquals(listOf(0L, 1L), replacement.batches.map { it.sequence })
+            assertEquals(listOf("replacement", "replacement"), replacement.batches.map { it.subscriptionId })
+            assertEquals(2, first.batches.size)
+        } finally {
+            host.close()
+        }
+    }
+
+    @Test
     fun overflowStopsDeliveryAndReportsTerminalError() {
         val host = host(7)
         val entered = CountDownLatch(1)
