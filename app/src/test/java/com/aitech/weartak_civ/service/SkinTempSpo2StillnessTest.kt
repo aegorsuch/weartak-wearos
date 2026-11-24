@@ -153,6 +153,24 @@ class SkinTempSpo2StillnessTest {
         assertEquals(true, get("crmPpgSamplingActive"))
     }
 
+    @Test fun stalePpgPhaseCannotStartAfterWatchIsRemoved() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        set("deviceWorn", false)
+        crmAction("startPpgPhase")
+        drain()
+        verify { ppg wasNot Called }
+    }
+
+    @Test fun queuedSkinStartCannotRunAfterWatchIsRemoved() {
+        val skin = mockk<HealthTracker>(relaxed = true)
+        set("skinTracker", skin)
+        crmAction("startSkinTracker")
+        set("deviceWorn", false)
+        drain()
+        verify { skin wasNot Called }
+    }
+
     @Test fun confirmedMotionSkipsWithoutSpendingAttemptOrTouchingOpticalTrackersAndRetriesNextOpportunity() {
         motion.confirm(SystemClock.elapsedRealtimeNanos() + 60_000_000_000L, null)
         opportunity()

@@ -1043,6 +1043,7 @@ class SkinTempService : Service() {
 
     private fun startPpgPhase() {
         backgroundHandler.post {
+            if (destroyed || !deviceWorn || measureState.get() != MeasurementState.PPG_RUNNING) return@post
             val t = ppgTracker
             if (!ppgAvailable || t == null) {
                 Log.e(TAG, "[PPG] Unavailable — cannot proceed; cold stress disabled")
@@ -1519,6 +1520,7 @@ class SkinTempService : Service() {
                 //writeToLogFileLocation(logFile, "deviceWorn=true.")
             } else {
                 deviceWorn = false
+                disableScreenOffFlushLoop()
                 spo2Sequencer.reset(createSpo2EngineOps(CepProvider.getOrCreateEngine(applicationContext)), ResetReason.OFF_WRIST)
                 lastSpo2InvalidReason = ResetReason.OFF_WRIST.name
                 lastSpo2ResetReason = ResetReason.OFF_WRIST.name
@@ -1544,9 +1546,13 @@ class SkinTempService : Service() {
     }
 
     private fun startSkinTracker() {
-        if (!::skinTracker.isInitialized || isHandlerRunning) return
+        if (destroyed || !deviceWorn || !::skinTracker.isInitialized || isHandlerRunning) return
         isHandlerRunning = true
         backgroundHandler.post {
+            if (destroyed || !deviceWorn) {
+                isHandlerRunning = false
+                return@post
+            }
             DiagnosticResources.acquire(DiagnosticResource.SAMSUNG_SKIN, skinTracker) { skinTracker.setEventListener(trackerEventListener) }
         }
     }
