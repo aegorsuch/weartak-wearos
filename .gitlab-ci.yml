@@ -74,7 +74,7 @@ android_host_regression:
       --tests '*HostedPluginMainUiPageTest' --tests '*MapBezelZoomTest'
       --tests '*NetworkConnectivityChipTest' --tests '*NetworkConnectivityRowTest' --tests '*NetworkToggleChipSubtitleTest'
       --tests '*PluginBondLockTest' --tests '*CompanionPluginUiTest'
-      --tests '*AudioDetectionPendingTest' --tests '*AudioDetectionWarningTest'
+      --tests '*AudioDetectionPendingTest' --tests '*AudioDetectionWarningTest' --tests '*ServiceConfigurationPermissionWarningTest'
       --tests '*CrmHomeWarningTest' --tests '*CrmWarningLifecycleTest'
       --tests '*TopMetricDisplayTest' --tests '*TopMetricRecoveryTest'
       --tests '*DittoBleRecoveryUiTest' --tests '*TopMetricSettingsUiTest'
