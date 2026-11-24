@@ -10,11 +10,15 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import com.aitech.weartak_civ.WearTakApplication
+import android.content.ComponentName
+import android.os.Process
+import com.aitech.weartak_civ.cep.plugin.PluginTrust
 import com.aitech.weartak_civ.data.CrmDataRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.service.PpgSampleDelivery
 import com.aitech.weartak_civ.service.RawPpgSample
 import com.weartak.plugin.sdk.ppg.v1.IPpgCallbackV1
+import com.weartak.plugin.sdk.ppg.v1.IPpgHostV1
 import com.weartak.plugin.sdk.ppg.v1.PpgBatchV1
 import com.weartak.plugin.sdk.ppg.v1.PpgContractV1
 import com.weartak.plugin.sdk.ppg.v1.PpgStateV1
@@ -90,6 +94,33 @@ class PpgHostV1ImplTest {
             assertEquals(PpgContractV1.UNAVAILABLE, host.subscribe("session", RecordingCallback()))
         } finally {
             host.close()
+        }
+    }
+
+    @Test
+    fun crmConnectionExposesPpgAndRevokesItOnBinderDeath() {
+        val packageName = "com.weartak.plugin.crm"
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(app, Process.myUid()) } returns setOf(packageName)
+        val manager = mockk<PluginManager>(relaxed = true)
+        every { manager.onConnectionReady(any()) } returns true
+        val component = ComponentName(packageName, ".PluginService")
+        val connection = PluginConnection(app, ingress, component, Process.myUid(), manager,
+            mockk<PluginTrust>(relaxed = true))
+        every { manager.connectionFor(packageName) } returns connection
+        val plugin = FakeWearTakPlugin(packageName, apiVersion = 2)
+        try {
+            connection.onServiceConnected(component, plugin.asBinder())
+            awaitPluginLifecycle(packageName)
+            val extras = requireNotNull(plugin.lastInit).hostExtras
+            assertEquals(PpgContractV1.VERSION, extras.getInt(PpgContractV1.EXTRA_VERSION))
+            val control = IPpgHostV1.Stub.asInterface(extras.getBinder(PpgContractV1.EXTRA_CONTROL))
+            assertEquals(PpgContractV1.INVALID_REQUEST, control.unsubscribe("missing"))
+            connection.binderDeathRecipientForTest.binderDied()
+            assertEquals(PpgContractV1.INACTIVE_SESSION, control.unsubscribe("missing"))
+        } finally {
+            connection.tearDownBinder("test")
+            awaitPluginLifecycle(packageName)
         }
     }
 
