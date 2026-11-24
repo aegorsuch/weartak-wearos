@@ -33,6 +33,10 @@ internal object PluginLifecycleWork {
         }
     }
 
+    internal fun clearCleanupReservationsForTest(packageName: String) = synchronized(cleanupLock) {
+        pendingCleanup.remove(packageName)
+    }
+
     fun execute(packageName: String, work: () -> Unit): Boolean {
         if (!packages.add(packageName)) return false
         try {
