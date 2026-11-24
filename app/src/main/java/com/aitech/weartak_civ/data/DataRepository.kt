@@ -4480,11 +4480,8 @@ class DataRepository(
     suspend fun markRoomRead(roomId: String) {
         ChatService.markRoomReadStatic(roomId)
         val fresh = ChatService.getInstance()?.getInbox() ?: emptyList()
-        _chatRoomsFlow.emit(fresh)
-
-        // update indicator
-        _unreadCount.emit(fresh.count { it.newMessagesPresent })
-        _hasUnread.emit(fresh.any  { it.newMessagesPresent })
+        setChatRooms(fresh)
+        refreshUnreadCount()
     }
 
     suspend fun incrementBloodhoundUnreadCount(uid: String) {
