@@ -20,6 +20,7 @@ import java.io.IOException
 import javax.net.ssl.SSLException
 
 internal enum class MarketRefreshStatus {
+    LOCKED,
     NOT_CONFIGURED,
     OFFLINE,
     CHECKING,
@@ -66,17 +67,21 @@ internal class MarketUpdateMonitor(
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
-    private val installer = MarketInstallCoordinator(appContext, catalogRepository)
+    internal val marketLock = MarketAdminLock(appContext)
+    private val installer = MarketInstallCoordinator(appContext, catalogRepository, marketLock)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private var started = false
     private var internetAvailable = false
     private var refreshJob: Job? = null
+    private var generation = 0L
     private val updateReview = MarketUpdateReview()
 
     private val _snapshot = MutableStateFlow(
         MarketUpdateSnapshot(
-            status = if (MarketConfiguration.fromBuildConfig().isConfigured) {
+            status = if (marketLock.locked.value) {
+                MarketRefreshStatus.LOCKED
+            } else if (MarketConfiguration.fromBuildConfig().isConfigured) {
                 MarketRefreshStatus.OFFLINE
             } else {
                 MarketRefreshStatus.NOT_CONFIGURED
@@ -115,19 +120,41 @@ internal class MarketUpdateMonitor(
     }
 
     fun refresh() {
-        if (!isConfigured) {
-            _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.NOT_CONFIGURED)
-            return
-        }
         synchronized(lock) {
+            if (marketLock.locked.value) return
+            if (!isConfigured) {
+                _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.NOT_CONFIGURED)
+                return
+            }
             if (!internetAvailable) {
                 _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.OFFLINE)
                 return
             }
             if (refreshJob?.isActive == true) return
             _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.CHECKING)
-            refreshJob = scope.launch { refreshCatalog() }
+            val currentGeneration = generation
+            refreshJob = scope.launch { refreshCatalog(currentGeneration) }
         }
+    }
+
+    fun setMarketLocked(value: Boolean): Boolean {
+        val saved = synchronized(lock) {
+            val persisted = marketLock.setLocked(value)
+            generation++
+            refreshJob?.cancel()
+            refreshJob = null
+            _snapshot.value = MarketUpdateSnapshot(
+                status = when {
+                    marketLock.locked.value -> MarketRefreshStatus.LOCKED
+                    !isConfigured -> MarketRefreshStatus.NOT_CONFIGURED
+                    !internetAvailable -> MarketRefreshStatus.OFFLINE
+                    else -> MarketRefreshStatus.CHECKING
+                },
+            )
+            persisted
+        }
+        if (!marketLock.locked.value) refresh()
+        return saved
     }
 
     fun retryInterruptedRefresh() {
@@ -147,7 +174,13 @@ internal class MarketUpdateMonitor(
         }
     }
 
-    private suspend fun refreshCatalog() {
+    private fun publishIfCurrent(currentGeneration: Long, update: () -> Unit) {
+        synchronized(lock) {
+            if (currentGeneration == generation && !marketLock.locked.value) update()
+        }
+    }
+
+    private suspend fun refreshCatalog(currentGeneration: Long) {
         try {
             val catalog = retryMarketCatalogFetch(
                 waitForRetry = { delay(CATALOG_RETRY_DELAY_MS) },
@@ -167,7 +200,7 @@ internal class MarketUpdateMonitor(
                     Log.e(TAG, "Cannot verify installed package for Market update: ${plugin.packageName}", error)
                 }
             }
-            synchronized(lock) {
+            publishIfCurrent(currentGeneration) {
                 _snapshot.value = MarketUpdateSnapshot(
                     status = if (verificationFailed) MarketRefreshStatus.UNAVAILABLE else MarketRefreshStatus.READY,
                     catalog = catalog,
@@ -179,18 +212,22 @@ internal class MarketUpdateMonitor(
             throw error
         } catch (error: MarketCatalogException) {
             Log.e(TAG, "Could not load signed Market catalog", error)
-            if (error.invalidCatalog) {
-                _snapshot.value = MarketUpdateSnapshot(status = MarketRefreshStatus.INVALID_CATALOG)
-            } else {
-                _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.UNAVAILABLE)
+            publishIfCurrent(currentGeneration) {
+                if (error.invalidCatalog) {
+                    _snapshot.value = MarketUpdateSnapshot(status = MarketRefreshStatus.INVALID_CATALOG)
+                } else {
+                    _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.UNAVAILABLE)
+                }
             }
         } catch (error: IOException) {
             Log.i(TAG, "Market catalog transport failed", error)
             val status = if (hasValidatedInternet()) MarketRefreshStatus.UNAVAILABLE else MarketRefreshStatus.OFFLINE
-            _snapshot.value = _snapshot.value.copy(status = status)
+            publishIfCurrent(currentGeneration) { _snapshot.value = _snapshot.value.copy(status = status) }
         } catch (error: Exception) {
             Log.e(TAG, "Could not check signed Market catalog", error)
-            _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.UNAVAILABLE)
+            publishIfCurrent(currentGeneration) {
+                _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.UNAVAILABLE)
+            }
         }
     }
 
@@ -198,7 +235,7 @@ internal class MarketUpdateMonitor(
         val shouldRefresh = synchronized(lock) {
             val shouldRefresh = available && (!internetAvailable || retryIfUnchanged)
             internetAvailable = available
-            if (!available && _snapshot.value.status != MarketRefreshStatus.NOT_CONFIGURED) {
+            if (!available && !marketLock.locked.value && _snapshot.value.status != MarketRefreshStatus.NOT_CONFIGURED) {
                 _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.OFFLINE)
             }
             shouldRefresh

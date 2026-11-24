@@ -63,6 +63,7 @@ internal fun TakwerxMarketPage(
     val permissionSettingsError = stringResource(R.string.market_permission_settings_error)
     val installerConfirmation = stringResource(R.string.market_installer_confirmation)
     val installError = stringResource(R.string.market_install_error)
+    val marketLocked = stringResource(R.string.market_locked)
     val installStateMessages = mapOf(
         MarketInstallState.INSTALL to stringResource(R.string.market_install),
         MarketInstallState.UPDATE to stringResource(R.string.market_update),
@@ -74,7 +75,9 @@ internal fun TakwerxMarketPage(
         MarketInstallState.PACKAGE_QUERY_FAILED to stringResource(R.string.market_package_unavailable),
     )
     val catalogRepository = updateMonitor.catalogRepository
-    val installer = remember(catalogRepository) { MarketInstallCoordinator(context, catalogRepository) }
+    val installer = remember(catalogRepository) {
+        MarketInstallCoordinator(context, catalogRepository, updateMonitor.marketLock)
+    }
     val scope = rememberCoroutineScope()
     val catalog = snapshot.catalog
     val loading = snapshot.status == MarketRefreshStatus.CHECKING
@@ -126,17 +129,6 @@ internal fun TakwerxMarketPage(
             operationPackage = plugin.packageName
             MarketInstallStatusReceiver.clearStatus(context, plugin.packageName)
             installedRevision++
-            if (!installer.canInstallPackages()) {
-                operationMessage = permissionNeeded
-                try {
-                    context.startActivity(installer.installPermissionIntent())
-                } catch (error: Exception) {
-                    Log.e(TAG, "Cannot open unknown-source install settings", error)
-                    operationMessage = permissionSettingsError
-                }
-                return@launch
-            }
-
             activePackage = plugin.packageName
             try {
                 when (val result = installer.install(plugin)) {
@@ -151,6 +143,9 @@ internal fun TakwerxMarketPage(
                             Log.e(TAG, "Cannot open unknown-source install settings", error)
                             operationMessage = permissionSettingsError
                         }
+                    }
+                    MarketInstallResult.Locked -> {
+                        operationMessage = marketLocked
                     }
                     is MarketInstallResult.Blocked -> {
                         operationMessage = installStateMessages.getValue(result.state)
@@ -172,7 +167,7 @@ internal fun TakwerxMarketPage(
             item {
                 Chip(
                     onClick = ::refreshCatalog,
-                    enabled = updateMonitor.isConfigured && !loading,
+                    enabled = updateMonitor.isConfigured && !loading && snapshot.status != MarketRefreshStatus.LOCKED,
                     label = {
                         Text(stringResource(if (loading) R.string.market_loading else R.string.market_refresh))
                     },
@@ -180,6 +175,7 @@ internal fun TakwerxMarketPage(
                 )
             }
             val statusMessage = when (snapshot.status) {
+                MarketRefreshStatus.LOCKED -> R.string.market_locked
                 MarketRefreshStatus.NOT_CONFIGURED -> R.string.market_not_configured
                 MarketRefreshStatus.OFFLINE -> R.string.market_offline
                 MarketRefreshStatus.CHECKING -> if (catalog == null) R.string.market_loading else null
