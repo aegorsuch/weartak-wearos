@@ -23,12 +23,14 @@ internal data class InstalledMarketPackage(
 internal sealed interface MarketInstallResult {
     data class Submitted(val sessionId: Int) : MarketInstallResult
     data object PermissionRequired : MarketInstallResult
+    data object Locked : MarketInstallResult
     data class Blocked(val state: MarketInstallState) : MarketInstallResult
 }
 
 internal class MarketInstallCoordinator(
     private val context: Context,
     private val catalogRepository: MarketCatalogRepository,
+    private val marketLock: MarketAdminLock,
 ) {
     private val packageManager = context.packageManager
     private val hostPackage = context.packageName
@@ -70,6 +72,7 @@ internal class MarketInstallCoordinator(
     }
 
     suspend fun install(plugin: MarketPlugin): MarketInstallResult {
+        if (marketLock.locked.value) return MarketInstallResult.Locked
         if (!canInstallPackages()) return MarketInstallResult.PermissionRequired
 
         val state = installState(plugin)
@@ -138,7 +141,7 @@ internal class MarketInstallCoordinator(
         )
     }
 
-    private fun submitInstall(plugin: MarketPlugin, apk: File): MarketInstallResult.Submitted {
+    private fun submitInstall(plugin: MarketPlugin, apk: File): MarketInstallResult {
         val installer = packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
             .apply { setAppPackageName(plugin.packageName) }
@@ -162,7 +165,8 @@ internal class MarketInstallCoordinator(
                     callback,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
                 )
-                session.commit(statusIntent.intentSender)
+                marketLock.ifUnlocked { session.commit(statusIntent.intentSender) }
+                    ?: return MarketInstallResult.Locked
                 committed = true
             }
             return MarketInstallResult.Submitted(sessionId)

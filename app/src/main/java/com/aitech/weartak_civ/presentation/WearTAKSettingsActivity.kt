@@ -3718,20 +3718,48 @@ fun WearTAKSettingsNav(
         composable("admin_preferences") {
             if (!isDevMode) {
                 LaunchedEffect(Unit) { navController.popBackStack() }
-            } else WearTAKPageWithBackArrow(
-                stringResource(R.string.admin_preferences),
-                columnContent = {
-                    item {
-                        WearTAKToggleChip(
-                            testTag = "settings_network_lock",
-                            checkedLive = networkPreferencesLocked,
-                            onCheckedChange = { settingsVm.storeNetworkPreferencesLocked(it) },
-                            title = stringResource(R.string.network_settings_lock),
-                        )
-                    }
-                },
-                navController,
-            )
+            } else {
+                val marketMonitor = remember(context.applicationContext) {
+                    (context.applicationContext as com.aitech.weartak_civ.WearTakApplication).marketUpdateMonitor
+                }
+                val marketLocked by marketMonitor.marketLock.locked.collectAsStateWithLifecycle()
+                val marketScope = rememberCoroutineScope()
+                var marketSaving by remember { mutableStateOf(false) }
+                WearTAKPageWithBackArrow(
+                    stringResource(R.string.admin_preferences),
+                    columnContent = {
+                        item {
+                            WearTAKToggleChip(
+                                testTag = "settings_network_lock",
+                                checkedLive = networkPreferencesLocked,
+                                onCheckedChange = { settingsVm.storeNetworkPreferencesLocked(it) },
+                                title = stringResource(R.string.network_settings_lock),
+                            )
+                        }
+                        item {
+                            WearTAKToggleChip(
+                                testTag = "settings_market_lock",
+                                checkedLive = marketLocked,
+                                enabled = !marketSaving,
+                                onCheckedChange = { locked ->
+                                    marketSaving = true
+                                    marketScope.launch {
+                                        val saved = withContext(Dispatchers.IO) {
+                                            marketMonitor.setMarketLocked(locked)
+                                        }
+                                        marketSaving = false
+                                        if (!saved) {
+                                            Toast.makeText(context, R.string.market_lock_save_error, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                title = stringResource(R.string.market_admin_lock),
+                            )
+                        }
+                    },
+                    navController,
+                )
+            }
         }
         composable("takwerx_market") {
             TakwerxMarketPage(

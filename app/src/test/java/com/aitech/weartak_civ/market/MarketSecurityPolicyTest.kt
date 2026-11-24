@@ -157,6 +157,9 @@ class MarketSecurityPolicyTest {
         val network = mockk<Network>()
         val capabilities = mockk<NetworkCapabilities>()
         every { context.applicationContext } returns context
+        every { context.getSharedPreferences("market_admin", Context.MODE_PRIVATE) } returns
+            org.robolectric.RuntimeEnvironment.getApplication()
+                .getSharedPreferences("market_security_policy_test", Context.MODE_PRIVATE)
         every { context.packageName } returns hostPackage
         every { context.packageManager } returns packages
         every { context.getSystemService(ConnectivityManager::class.java) } returns connectivity

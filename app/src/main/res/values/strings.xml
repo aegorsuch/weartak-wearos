@@ -1052,6 +1052,9 @@
     <string name="bloodhound_compass">Bloodhound</string>
     <string name="plugins">Plugins</string>
     <string name="takwerx_market_title">TAKwerx Market</string>
+    <string name="market_admin_lock">TAKwerx Market Lock</string>
+    <string name="market_locked">TAKwerx Market locked by admin</string>
+    <string name="market_lock_save_error">Could not save Market lock. Check admin settings.</string>
     <string name="market_not_configured">No signed catalog is configured for this build.</string>
     <string name="market_refresh">Refresh catalog</string>
     <string name="market_loading">Loading catalog…</string>

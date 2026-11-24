@@ -5,6 +5,16 @@ catalog selected at build time; it does not accept user-entered repositories.
 Builds without catalog configuration show Market as unavailable and make no
 catalog request.
 
+In Settings, enable developer mode to access **Admin Preferences** and set
+**TAKwerx Market Lock**. The lock persists across app restarts and disables
+catalog checks, update warnings, and Market installs and updates, including new
+plugins. Market displays its locked state. Unlocking resumes checks when online.
+This is the existing local admin-preferences model, not an MDM policy or a
+security boundary: anyone able to enable developer mode can change the lock.
+It does not control Google Play, other installers, or Android installer sessions
+already submitted before the lock was enabled. A catalog request or APK download
+already in progress may finish, but its result cannot start an install while locked.
+
 WearTAK checks the signed catalog at process startup and when Android reports
 validated internet connectivity. A transient transport failure gets one retry
 while connected. Returning to the WearTAK home activity also retries an
