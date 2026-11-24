@@ -139,7 +139,6 @@ import com.aitech.weartak_civ.Utils
 import com.aitech.weartak_civ.presentation.MarkerActivity.Constants.markerType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.aitech.weartak_civ.Utils.latLonToMgrs
@@ -2211,7 +2210,8 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
     }
 
     val myRole by dataRepository.getRole.collectAsStateWithLifecycle(initialValue = "")
-    val markerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val markerScope = rememberCoroutineScope()
+    val currentMarkerDrop = remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }
     val locationProvider = remember(scope) {
         RepoLocationProvider(dataRepository.latestLocation, scope)
     }
@@ -2864,35 +2864,14 @@ fun MapApp(exitActivity: () -> Unit, mapVm: MapViewModel,
                 Log.d(TAG, "LongClick Map before launch")
 
                 // Sends the marker request in the background
-                markerScope.launch {
-                    try {
-                        Log.d(TAG, "LongClick coroutine started")
-                        Log.d(
-                            TAG,
-                            "About to call requestMarkerDrop type=$markerType time=$time coord=$coordinates"
-                        )
-
-                        // Creates a marker at the selected coordinates
-                        val saved = dataRepository.requestMarkerDrop(
-                            markerType,
-                            "",
-                            "",
-                            time,
-                            lat = coordinates.latitude,
-                            lon = coordinates.longitude
-                        )
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context,
-                                if (saved) R.string.marker_saved_locally else R.string.marker_request_invalid,
-                                Toast.LENGTH_LONG).show()
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "requestMarkerDrop failed", e)
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, R.string.marker_save_unconfirmed, Toast.LENGTH_LONG).show()
-                        }
+                val uid = java.util.UUID.randomUUID().toString()
+                val type = markerType
+                currentMarkerDrop.value = uid
+                markerScope.launch(Dispatchers.IO) {
+                    showMarkerDropJournalResult(context, dataRepository, uid, currentMarkerDrop,
+                        onSuccess = { Toast.makeText(context, R.string.success, Toast.LENGTH_LONG).show() }) {
+                        dataRepository.requestMarkerDrop(type, "", "", time,
+                            lat = coordinates.latitude, lon = coordinates.longitude, uid = uid)
                     }
                 }
 

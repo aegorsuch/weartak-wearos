@@ -254,7 +254,10 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">Đang yêu cầu cảnh báo. Chưa xác nhận việc gửi.</string>
+    <string name="manual_alert_cancel_requested">Đang yêu cầu hủy. Chưa xác nhận việc gửi.</string>
+    <string name="marker_submission_unknown">Đã lưu điểm đánh dấu cục bộ. Không rõ kết quả gửi.</string>
     <string name="marker_save_unconfirmed">Chưa xác nhận lưu điểm đánh dấu. Hãy kiểm tra danh sách điểm đánh dấu trước khi thử lại.</string>
     <string name="marker_saved_locally">Đã lưu điểm đánh dấu trên thiết bị. Việc gửi có thể vẫn đang chờ.</string>
     <string name="marker_request_invalid">Yêu cầu điểm đánh dấu không hợp lệ.</string>
@@ -366,6 +369,8 @@
     <string name="connection_route_suppressed">Bị tạm chặn</string>
     <string name="network_preferences_checklist">Danh sách kiểm tra tùy chọn mạng</string>
     <string name="network_plugin_forwarding">Chuyển tiếp CoT gửi đi</string>
+    <string name="ditto_network_off_unconfirmed">Đã chặn lưu lượng máy chủ mới; tác vụ cũ hoặc mạng plugin có thể tiếp tục</string>
+    <string name="ditto_network_policy_pending">Chưa xác định chính sách; lưu lượng máy chủ mới đang bị giữ lại</string>
     <string name="network_preferences_checklist_save_failed">Không thể lưu danh sách kiểm tra tùy chọn mạng</string>
     <string name="open_transport_settings">Mở cài đặt %1$s</string>
     <string name="invalid_managed_network_configuration">Cấu hình mạng được quản lý không hợp lệ. Chưa áp dụng cài đặt. Hãy liên hệ quản trị viên.</string>

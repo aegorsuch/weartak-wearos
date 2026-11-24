@@ -54,6 +54,7 @@ internal class PluginTransportHostV1Impl(
     private val preactivationTrusted: () -> Boolean = { false },
     private val retirePreactivation: (String) -> Boolean = { false },
     private val onPliUnavailable: ((String) -> Unit)? = null,
+    private val trafficAdmission: (() -> AutoCloseable?)? = null,
     private val cotIngest: suspend (TakServerCotEnvelope) -> TakServerCotIngestResult = { envelope ->
         TAKConnectService.handleInboundCotWithResult(
             rawXml = envelope.rawXml,
@@ -104,11 +105,12 @@ internal class PluginTransportHostV1Impl(
     private val deliveryUpdates = LinkedHashMap<String, TransportDeliveryParcel>()
     private var registration: Registration? = null
     private var bindingActive = false
+    private var bindingStopping = false
     private var bindingClosed = false
     private var transportNegotiated = false
 
     override fun getHostCapabilities(): TransportCapabilitiesParcel {
-        if (!verifyCaller() || synchronized(lock) { bindingClosed }) {
+        if (!verifyCaller() || synchronized(lock) { bindingStopping || bindingClosed }) {
             return hostCapabilities(runtimeAvailable = false)
         }
         return hostCapabilities(runtimeAvailable = true)
@@ -122,8 +124,8 @@ internal class PluginTransportHostV1Impl(
         if (capabilities == null || callback == null) {
             return result(TransportResultCode.INVALID_REQUEST, detail = "Capabilities and callback are required")
         }
-        if (synchronized(lock) { bindingClosed }) {
-            return result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin binding is closed")
+        if (synchronized(lock) { bindingStopping || bindingClosed }) {
+            return result(TransportResultCode.INACTIVE_SESSION, detail = "Plugin binding is stopping")
         }
 
         val validation = TransportValidator.capabilities(capabilities)
@@ -170,7 +172,7 @@ internal class PluginTransportHostV1Impl(
         val pliSession = if (pliProfile && !preactivation) DittoPliTransportSession(sessionId, expectedPluginUid, negotiated, clock) else null
         val next = Registration(sessionId, negotiated, session, pliSession, pliProfile, preactivation, callback, binder, recipient)
         val (installed, previous, blocked) = synchronized(lock) {
-            if (bindingClosed || (preactivation && bindingActive)) {
+            if (bindingStopping || bindingClosed || (preactivation && bindingActive)) {
                 Triple(false, null, null)
             } else {
                 val old = registration
@@ -270,6 +272,22 @@ internal class PluginTransportHostV1Impl(
     }
 
     override fun receiveMessage(
+        sessionId: String?,
+        channelId: String?,
+        message: TransportMessageParcel?,
+    ): TransportResultParcel {
+        val admission = trafficAdmission?.invoke()
+        if (trafficAdmission != null && admission == null) {
+            return result(TransportResultCode.INACTIVE_SESSION, detail = "Ditto network disabled or stale binding")
+        }
+        return try {
+            receiveMessageAdmitted(sessionId, channelId, message)
+        } finally {
+            admission?.close()
+        }
+    }
+
+    private fun receiveMessageAdmitted(
         sessionId: String?,
         channelId: String?,
         message: TransportMessageParcel?,
@@ -402,6 +420,21 @@ internal class PluginTransportHostV1Impl(
         sessionId: String?,
         delivery: TransportDeliveryParcel?,
     ): TransportResultParcel {
+        val admission = trafficAdmission?.invoke()
+        if (trafficAdmission != null && admission == null) {
+            return result(TransportResultCode.INACTIVE_SESSION, detail = "Ditto network disabled or stale binding")
+        }
+        return try {
+            reportDeliveryAdmitted(sessionId, delivery)
+        } finally {
+            admission?.close()
+        }
+    }
+
+    private fun reportDeliveryAdmitted(
+        sessionId: String?,
+        delivery: TransportDeliveryParcel?,
+    ): TransportResultParcel {
         if (!verifyCaller()) return result(TransportResultCode.UNAUTHORIZED, detail = "Caller UID mismatch")
         val current = currentSession(sessionId)
             ?: return result(TransportResultCode.INACTIVE_SESSION, detail = "Transport session is inactive")
@@ -444,7 +477,16 @@ internal class PluginTransportHostV1Impl(
 
     fun activateBinding() {
         synchronized(lock) {
-            if (!bindingClosed && registration?.preactivation != true) bindingActive = true
+            if (!bindingStopping && !bindingClosed && registration?.preactivation != true) bindingActive = true
+        }
+    }
+
+    fun prepareForPluginStop() {
+        synchronized(lock) {
+            if (bindingClosed || bindingStopping) return
+            bindingStopping = true
+            bindingActive = false
+            deliveryUpdates.clear()
         }
     }
 
@@ -500,6 +542,30 @@ internal class PluginTransportHostV1Impl(
         trackedCompletion: CompletableDeferred<Submission>? = null,
         outboundEligible: (() -> Boolean)? = null,
         expectedSessionId: String? = null,
+    ): Boolean {
+        val admission = trafficAdmission?.invoke()
+        if (trafficAdmission != null && admission == null) return false
+        return try {
+            offerCoTAdmitted(xml, senderUid, senderCallsign, workspaceId, externalId, sentAtEpochMillis,
+                pliEligible, fromTakServer, trackedMessageId, trackedCompletion, outboundEligible, expectedSessionId)
+        } finally {
+            admission?.close()
+        }
+    }
+
+    private fun offerCoTAdmitted(
+        xml: String,
+        senderUid: String,
+        senderCallsign: String?,
+        workspaceId: String?,
+        externalId: String?,
+        sentAtEpochMillis: Long?,
+        pliEligible: (() -> Boolean)?,
+        fromTakServer: Boolean,
+        trackedMessageId: String?,
+        trackedCompletion: CompletableDeferred<Submission>?,
+        outboundEligible: (() -> Boolean)?,
+        expectedSessionId: String?,
     ): Boolean {
         val current = synchronized(lock) {
             registration?.takeIf { bindingActive && !bindingClosed }
@@ -640,6 +706,27 @@ internal class PluginTransportHostV1Impl(
     }
 
     private fun dispatchOutbound(
+        current: Registration,
+        request: TransportSendRequestParcel,
+        pliEligible: (() -> Boolean)?,
+        outboundEligible: (() -> Boolean)?,
+    ) {
+        val admission = trafficAdmission?.invoke()
+        if (trafficAdmission != null && admission == null) {
+            synchronized(lock) {
+                current.tracked.remove(request.message.messageId)?.complete(Submission.CANCELLED_BEFORE_EFFECT)
+            }
+            markLocalFailure(current, request, "network_disabled")
+            return
+        }
+        try {
+            dispatchOutboundAdmitted(current, request, pliEligible, outboundEligible)
+        } finally {
+            admission?.close()
+        }
+    }
+
+    private fun dispatchOutboundAdmitted(
         current: Registration,
         request: TransportSendRequestParcel,
         pliEligible: (() -> Boolean)?,

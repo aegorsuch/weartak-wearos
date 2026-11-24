@@ -2488,7 +2488,8 @@ fun MainScreen(
     //Log.d(TAG, "MainScreen called")
     val dismissState = rememberSwipeToDismissBoxState()
     val hasUnreadMessages by dataRepository.hasUnread.collectAsState() // monitor the number of unread messages
-    val isAlerting by SosActivity.isAlertingLiveData.observeAsState()
+    val manualAlerts by dataRepository.manualAlertList.collectAsStateWithLifecycle()
+    val isAlerting = manualAlerts.any { it.alertState == DataRepository.AlertState.ALERT }
     val activeItem by bhRepo.activeBhItemUi.collectAsState()
     val northBearing by dataRepository.azimuthTrueDegSmoothed.collectAsStateWithLifecycle()
     val hasUnreadBloodhounds by dataRepository.hasUnreadBloodhounds.collectAsState()

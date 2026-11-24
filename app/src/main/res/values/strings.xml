@@ -27,6 +27,8 @@
     <string name="audio_detection_feedback_failed">Response not recorded. Try again.</string>
     <string name="accessibility_edit">Edit</string>
     <string name="manual_alert_validation_error">Alert must be unique, 1–60 characters, and the list can hold up to 20.</string>
+    <string name="manual_alert_requested">Requesting alert. Delivery is not confirmed.</string>
+    <string name="manual_alert_cancel_requested">Requesting cancellation. Delivery is not confirmed.</string>
     <string name="ca_trust_advanced">Advanced</string>
     <string name="ca_trust_advanced_hide">Hide advanced</string>
     <string name="ca_trust_import">Import CA...</string>
@@ -96,6 +98,8 @@
     <string name="connection_route_suppressed">Suppressed</string>
     <string name="network_preferences_checklist">Network Preferences Checklist</string>
     <string name="network_plugin_forwarding">Forward outbound CoT</string>
+    <string name="ditto_network_off_unconfirmed">New host traffic blocked; prior work or plugin networking may continue</string>
+    <string name="ditto_network_policy_pending">Policy unresolved; new host traffic held off</string>
     <string name="network_preferences_checklist_save_failed">Could not save Network Preferences Checklist</string>
     <string name="open_transport_settings">Open %1$s settings</string>
     <string name="invalid_managed_network_configuration">Invalid managed network configuration. Settings were not applied. Contact your administrator.</string>
@@ -968,9 +972,10 @@
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
     <string name="phone_uplink_active" translatable="false">Phone uplink active</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
     <string name="marker_save_unconfirmed">Marker save not confirmed. Check the marker list before retrying.</string>
     <string name="marker_saved_locally">Marker saved locally. Delivery may still be pending.</string>
+    <string name="marker_submission_unknown">Marker saved locally. Submission outcome is unknown.</string>
     <string name="marker_request_invalid">Invalid marker request.</string>
     <string name="group">Group</string>
     <string name="my_callsign">My Callsign</string>

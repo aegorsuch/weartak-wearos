@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.aitech.weartak_civ.cot.*
 import com.aitech.weartak_civ.integration.plugin.HostPointEndpointV1
+import com.aitech.weartak_civ.integration.plugin.DittoTrafficFence
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.weartak.plugin.sdk.point.v1.IPointEndpointV1
 import com.weartak.plugin.sdk.point.v1.PointContractV1
@@ -57,7 +58,10 @@ class GenericCotLifecycleTest {
         )
         val file = java.io.File.createTempFile("point-test-", ".cot", RuntimeEnvironment.getApplication().cacheDir)
         var inputXml = xml
-        val host = HostPointEndpointV1(42, { true }, { it == "session" }, repo, bloodhounds, { 42 }) { _, _ -> inputXml }
+        val host = HostPointEndpointV1(
+            42, { true }, { it == "session" }, repo, bloodhounds, { 42 },
+            payloadReader = { _, _ -> inputXml },
+        )
         val plugin = object : IPointEndpointV1.Stub() {
             override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
                 PointResultV1(PointContractV1.RETRYABLE)
@@ -114,6 +118,35 @@ class GenericCotLifecycleTest {
         verify(exactly = 0) { bloodhounds.removeMarkerCopy(any(), any(), any(), any()) }
         assertEquals(PointContractV1.LOCAL_PROCESSED, host.apply("session", deletion, null).code)
         assertTrue(host.closeAndDrain(1000))
+    }
+
+    @Test fun disabledAndStaleTrafficGenerationRejectsPointIngress() {
+        val fence = DittoTrafficFence(initiallyEnabled = true)
+        val generation = requireNotNull(fence.currentGeneration())
+        val host = HostPointEndpointV1(
+            42, { true }, { it == "session" }, repo, bloodhounds, { 42 },
+            trafficAdmission = { fence.enter(generation) },
+        )
+        val plugin = object : IPointEndpointV1.Stub() {
+            override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
+                PointResultV1(PointContractV1.RETRYABLE)
+        }
+        val deletion = PointOperationV1(
+            direction = PointContractV1.PLUGIN_TO_HOST, kind = PointContractV1.DELETE,
+            operationId = "network-disabled-delete", peer = "peer", owner = "remote",
+            pointUid = "remote-point", revision = "a".repeat(64), eventTimeMillis = now,
+            deletedAtMillis = now, authorCallsign = null,
+            payloadKind = PointContractV1.PAYLOAD_NONE, payloadLength = 0,
+        )
+        try {
+            assertEquals(PointContractV1.REGISTERED, host.register("session", plugin))
+            fence.disable()
+            assertEquals(PointContractV1.RETRYABLE, host.apply("session", deletion, null).code)
+            assertNotNull(fence.enable())
+            assertEquals(PointContractV1.RETRYABLE, host.apply("session", deletion, null).code)
+        } finally {
+            assertTrue(host.closeAndDrain(1000))
+        }
     }
 
     @Test fun pointRegistrationCanReplaceOnlyAnInactiveSession() {
@@ -181,9 +214,10 @@ class GenericCotLifecycleTest {
             authorCallsign = null, payloadKind = PointContractV1.PAYLOAD_COT_UTF8, payloadLength = bytes.size,
         )
         val file = java.io.File.createTempFile("point-test-", ".cot", RuntimeEnvironment.getApplication().cacheDir)
-        val host = HostPointEndpointV1(42, { true }, { it == "session" }, repo, bloodhounds, { 42 }) { _, _ ->
-            file.readText(Charsets.UTF_8)
-        }
+        val host = HostPointEndpointV1(
+            42, { true }, { it == "session" }, repo, bloodhounds, { 42 },
+            payloadReader = { _, _ -> file.readText(Charsets.UTF_8) },
+        )
 
         val plugin = object : IPointEndpointV1.Stub() {
             override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
@@ -218,11 +252,14 @@ class GenericCotLifecycleTest {
             override fun apply(sessionId: String?, operation: PointOperationV1?, payload: ParcelFileDescriptor?) =
                 PointResultV1(PointContractV1.RETRYABLE)
         }
-        val old = HostPointEndpointV1(42, { true }, { it == "old" }, repo, bloodhounds, { 42 }) { _, _ ->
-            entered.countDown()
-            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
-            xml
-        }
+        val old = HostPointEndpointV1(
+            42, { true }, { it == "old" }, repo, bloodhounds, { 42 },
+            payloadReader = { _, _ ->
+                entered.countDown()
+                check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                xml
+            },
+        )
         val replacement = HostPointEndpointV1(42, { true }, { it == "new" }, repo, bloodhounds, { 42 })
         val file = java.io.File.createTempFile("point-test-", ".cot", RuntimeEnvironment.getApplication().cacheDir)
         var oldResult: Int? = null

@@ -115,6 +115,16 @@ internal class TrackedPluginAlert(
                 preferences.getString(messageId(uid, activationId, state, positional), null) == SUBMITTED
         }
 
+    fun retryableWithoutAdmission(
+        uid: String, activationId: String, state: DataRepository.AlertState, positional: Boolean,
+    ): Boolean = synchronized(fenceLock) {
+        val id = messageId(uid, activationId, state, positional)
+        !isFenced(uid, activationId, state) &&
+            preferences.contains(payloadKey(id)) &&
+            preferences.getString(id, null) == null &&
+            preferences.getString(inflightKey(uid), null) == null
+    }
+
     suspend fun submit(
         uid: String,
         activationId: String,

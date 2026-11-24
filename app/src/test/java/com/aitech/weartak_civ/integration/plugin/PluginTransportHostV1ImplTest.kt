@@ -344,6 +344,7 @@ class PluginTransportHostV1ImplTest {
             check(releaseIngest.await(3, TimeUnit.SECONDS))
             TakServerCotIngestResult.CHAT
         }
+
         val sessionId = register(host, RecordingCallback())
         val message = inboundMessage("concurrent-inbound-message")
         val executor = Executors.newSingleThreadExecutor()
@@ -363,6 +364,67 @@ class PluginTransportHostV1ImplTest {
             releaseIngest.countDown()
             executor.shutdownNow()
         }
+    }
+
+    @Test
+    fun disablingTrafficDrainsInboundEffectsAndRejectsOldBindingAfterReenable() {
+        val fence = DittoTrafficFence(initiallyEnabled = true)
+        val generation = requireNotNull(fence.currentGeneration())
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val effects = AtomicInteger()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, PLUGIN_ID, Process.myUid(),
+            trafficAdmission = { fence.enter(generation) },
+            cotIngest = {
+                entered.countDown()
+                check(release.await(3, TimeUnit.SECONDS))
+                effects.incrementAndGet()
+                TakServerCotIngestResult.CHAT
+            },
+        ).also(hosts::add)
+        val session = register(host, RecordingCallback())
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val inFlight = executor.submit<TransportResultParcel> {
+                host.receiveMessage(session, "satellite", inboundMessage("before-disable"))
+            }
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            val drain = fence.disable()
+            assertFalse(drain.isCompleted)
+            assertEquals(TransportResultCode.INACTIVE_SESSION,
+                host.receiveMessage(session, "satellite", inboundMessage("while-disabled")).code)
+            release.countDown()
+            assertEquals(TransportResultCode.ACCEPTED, inFlight.get(3, TimeUnit.SECONDS).code)
+            assertTrue(drain.isCompleted)
+            assertEquals(1, effects.get())
+            assertNotNull(fence.enable())
+            assertEquals(TransportResultCode.INACTIVE_SESSION,
+                host.receiveMessage(session, "satellite", inboundMessage("stale-binding")).code)
+            assertEquals(1, effects.get())
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun disablingTrafficRejectsOutboundOffersFromOldBindingAfterReenable() {
+        val fence = DittoTrafficFence(initiallyEnabled = true)
+        val generation = requireNotNull(fence.currentGeneration())
+        val callback = RecordingCallback()
+        val host = PluginTransportHostV1Impl(
+            app, ingress, PLUGIN_ID, Process.myUid(),
+            trafficAdmission = { fence.enter(generation) },
+            cotIngest = { TakServerCotIngestResult.CHAT },
+        ).also(hosts::add)
+        register(host, callback)
+        fence.disable()
+        host.offerCoT(chatXml(), DEVICE_UID, "WATCH")
+        assertNull(callback.request)
+        assertNotNull(fence.enable())
+        host.offerCoT(chatXml(), DEVICE_UID, "WATCH")
+        assertNull(callback.request)
     }
 
     @Test

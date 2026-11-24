@@ -254,7 +254,10 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">Demande d’alerte en cours. L’envoi n’est pas confirmé.</string>
+    <string name="manual_alert_cancel_requested">Demande d’annulation en cours. L’envoi n’est pas confirmé.</string>
+    <string name="marker_submission_unknown">Marqueur enregistré localement. Le résultat de l’envoi est inconnu.</string>
     <string name="marker_save_unconfirmed">Enregistrement du marqueur non confirmé. Vérifiez la liste des marqueurs avant de réessayer.</string>
     <string name="marker_saved_locally">Marqueur enregistré localement. La livraison peut être encore en attente.</string>
     <string name="marker_request_invalid">Demande de marqueur non valide.</string>
@@ -366,6 +369,8 @@
     <string name="connection_route_suppressed">Suspendu</string>
     <string name="network_preferences_checklist">Liste des préférences réseau</string>
     <string name="network_plugin_forwarding">Transmettre le CoT sortant</string>
+    <string name="ditto_network_off_unconfirmed">Nouveau trafic hôte bloqué ; le travail en cours ou le réseau du plugin peut continuer</string>
+    <string name="ditto_network_policy_pending">Politique non résolue ; le nouveau trafic hôte reste bloqué</string>
     <string name="network_preferences_checklist_save_failed">Impossible d’enregistrer la liste des préférences réseau</string>
     <string name="open_transport_settings">Ouvrir les paramètres de %1$s</string>
     <string name="invalid_managed_network_configuration">Configuration réseau gérée non valide. Les paramètres n’ont pas été appliqués. Contactez votre administrateur.</string>

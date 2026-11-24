@@ -41,9 +41,10 @@ android_host_regression:
       --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
       --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
+      --tests '*GenericCotLifecycleTest' --tests '*NetworkTogglePersistenceTest' --tests '*DittoTrafficFenceTest'
       --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
       --tests '*CotDispatchTransportResumeTest'
-      --tests '*CotDispatchServiceAlertReadinessTest' --tests '*TrackedPluginAlertTest' --tests '*PendingDittoChatTest'
+      --tests '*CotDispatchServiceAlertReadinessTest' --tests '*TrackedPluginAlertTest' --tests '*MarkerJournalRepositoryTest' --tests '*PendingDittoChatTest'
       --tests '*CotEndpointDispatcherTest' --tests '*GroupChatIntegrationTest' --tests '*CotMessageBuilderTest'
       --tests '*DittoReceiveIntegrationTest' --tests '*MulticastChatCommandsTest'
       --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
@@ -106,6 +107,7 @@ android_host_regression:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-alert-point-feedback" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
 verify_tak_sdk_source_access:

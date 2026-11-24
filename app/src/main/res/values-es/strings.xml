@@ -254,7 +254,10 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">Solicitando alerta. El envío no está confirmado.</string>
+    <string name="manual_alert_cancel_requested">Solicitando cancelación. El envío no está confirmado.</string>
+    <string name="marker_submission_unknown">Marcador guardado localmente. Se desconoce el resultado del envío.</string>
     <string name="marker_save_unconfirmed">No se confirmó el guardado del marcador. Comprueba la lista de marcadores antes de volver a intentarlo.</string>
     <string name="marker_saved_locally">Marcador guardado localmente. La entrega aún puede estar pendiente.</string>
     <string name="marker_request_invalid">Solicitud de marcador no válida.</string>
@@ -366,6 +369,8 @@
     <string name="connection_route_suppressed">Suprimido</string>
     <string name="network_preferences_checklist">Lista de preferencias de red</string>
     <string name="network_plugin_forwarding">Reenviar CoT saliente</string>
+    <string name="ditto_network_off_unconfirmed">Nuevo tráfico del host bloqueado; el trabajo previo o la red del complemento pueden continuar</string>
+    <string name="ditto_network_policy_pending">Política sin resolver; el nuevo tráfico del host queda bloqueado</string>
     <string name="network_preferences_checklist_save_failed">No se pudo guardar la lista de preferencias de red</string>
     <string name="open_transport_settings">Abrir ajustes de %1$s</string>
     <string name="invalid_managed_network_configuration">Configuración de red administrada no válida. No se aplicaron los ajustes. Contacte con su administrador.</string>

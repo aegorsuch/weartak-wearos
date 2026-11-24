@@ -154,6 +154,6 @@ class MarkerViewModel(application: Application) : AndroidViewModel(application) 
     suspend fun requestClearLast(): Boolean =
         dataRepository.requestClearLast()
 
-    suspend fun requestMarkerDrop(markerTypeRaw: String, title: String, remark: String, timeMillis: Long): Boolean =
-        dataRepository.requestMarkerDrop(markerTypeRaw, title, remark, timeMillis)
+    suspend fun requestMarkerDrop(markerTypeRaw: String, title: String, remark: String, timeMillis: Long, uid: String): Boolean =
+        dataRepository.requestMarkerDrop(markerTypeRaw, title, remark, timeMillis, uid = uid)
 }

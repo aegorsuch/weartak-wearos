@@ -58,6 +58,7 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.smsNumbersList
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.teamValue
 import com.aitech.weartak_civ.presentation.requestBloodhoundComplicationUpdate
 import com.aitech.weartak_civ.presentation.requestPhysioStatusAndAlertingComplicationUpdate
+import com.aitech.weartak_civ.presentation.requestSosComplicationUpdate
 import com.aitech.weartak_civ.service.HailService.checkLicense
 import com.aitech.weartak_civ.service.HailService.checkLocalHailLicense
 import com.aitech.weartak_civ.service.LicenseManager.isLicenseValid
@@ -228,6 +229,11 @@ class CotDispatchService : Service() {
         startMarkerPipelines()
 
         startManualAlertPipelines()
+        serviceScope.launch {
+            dataRepository.manualAlertList.collect {
+                requestSosComplicationUpdate(applicationContext)
+            }
+        }
 
         startPhysioAndAutoGenAlertPipelines()
 
@@ -655,6 +661,7 @@ class CotDispatchService : Service() {
                         trackedPluginAlert.activate(manualAlert.uuid, manualAlert.activationId)
                     }
                     manualAlertMap[manualAlert.uuid] = manualAlert
+                    dataRepository.appendManualAlert(manualAlert.copy(enqueuedToBeSent = true))
                     if (readyToSendAlertEvents()) {
                         sendAllManualAlertsLocked(manualAlertWithState)
                     } else {
@@ -735,7 +742,10 @@ class CotDispatchService : Service() {
             dataRepository.clearManualAlert.collect { req ->
                 Log.i(TAG, "Received req to clear manual alert: $req")
                 when (req) {
-                    is DataRepository.ClearRequest.Specific -> handleClearManualAlertUid(req.uid)
+                    is DataRepository.ClearRequest.Specific -> {
+                        if (req.activationId == null) handleClearManualAlertUid(req.uid)
+                        else handleClearManualAlertActivation(req.uid, req.activationId)
+                    }
                     DataRepository.ClearRequest.Last -> {
                         val manualAlerts = dataRepository.manualAlertList.value.filter { it.alertState == DataRepository.AlertState.ALERT }
                         if (manualAlerts.isNotEmpty()) {
@@ -758,12 +768,24 @@ class CotDispatchService : Service() {
         }
     }
 
+    private suspend fun handleClearManualAlertActivation(uid: String, activationId: String) {
+        alertDispatchMutex.withLock {
+            if (manualAlertMap[uid]?.activationId != activationId) {
+                Log.w(TAG, "Ignoring stale manual alert cancellation for uid=$uid")
+                return@withLock
+            }
+            handleClearManualAlertUidLocked(uid)
+        }
+    }
+
     private suspend fun handleClearManualAlertUidLocked(uid: String) {
         val manualAlert = manualAlertMap[uid]
         if (null == manualAlert) return
 
-        if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled()) {
-            trackedPluginAlert.cancel(uid, manualAlert.activationId)
+        if (com.aitech.weartak_civ.integration.plugin.PluginOnlyDittoHost.enabled() &&
+            !trackedPluginAlert.cancel(uid, manualAlert.activationId)) {
+            Log.e(TAG, "Manual alert cancellation not dispatched: cancellation fence could not be persisted")
+            return
         }
         val manualAlertClearWithState = CustomEmergencyAlertWithAddedState(smsSent = false, alert = manualAlert.copy(alertState = DataRepository.AlertState.CANCEL))
         pendingManualAlertQueue.removeAll { it.alert.uuid == uid && it.alert.activationId == manualAlert.activationId && it.alert.alertState == DataRepository.AlertState.ALERT }
@@ -1088,6 +1110,7 @@ class CotDispatchService : Service() {
                         retry = markerIntentConsumer.drain(::prepareJournalMarker, { it.xml },
                             ::executeJournalMarker,
                             executeOtherRoutes = ::executeOtherMarkerRoutes,
+                            onTransition = dataRepository::refreshJournalMarkerProjection,
                         ) { Log.e(TAG, "Marker dispatch outcome uncertain", it) }
                         dataRepository.refreshJournalMarkerProjection()
                         if (retry) kotlinx.coroutines.delay(5_000)
@@ -1624,12 +1647,14 @@ class CotDispatchService : Service() {
                 availability.copy(companion = false) else availability
             val otherAccepted = endpointDispatcher.dispatch(outbound, directAvailability)
             var dittoSubmitted = false
-            if (trackedAlert && dittoAlertSelected()) {
+            if (trackedAlert) {
                 val snapshot = requireNotNull(alert)
                 val key = PluginAlertKey(snapshot.uid, requireNotNull(message.alertActivationId), snapshot.alertState,
                     message.kind == CotMessageKind.EMERGENCY && snapshot.location != null)
                 dittoSubmitted = trackedPluginAlert.submitted(key.uid, key.activationId, key.state, key.positional)
-                if (!dittoSubmitted) launchTrackedPluginAlert(key, message.xml, snapshot.system.deviceId, snapshot.system.callsign)
+                if (!dittoSubmitted && dittoAlertSelected()) {
+                    launchTrackedPluginAlert(key, message.xml, snapshot.system.deviceId, snapshot.system.callsign)
+                }
             }
             return (otherAccepted || dittoSubmitted).also { accepted = it }
         } finally {
@@ -1646,32 +1671,40 @@ class CotDispatchService : Service() {
             if (pluginAlertJobs.containsKey(key)) return
             val job = serviceScope.launch(start = CoroutineStart.LAZY) {
                 val submitted = try {
-                    trackedPluginAlert.submit(
-                        key.uid, key.activationId, key.state, key.positional, payload,
-                        selected = {
-                            dittoAlertSelected().also { selected ->
-                                if (selected) manager.connectionFor(
+                    var completed = false
+                    do {
+                        completed = trackedPluginAlert.submit(
+                            key.uid, key.activationId, key.state, key.positional, payload,
+                            selected = {
+                                dittoAlertSelected().also { selected ->
+                                    if (selected) manager.connectionFor(
+                                        com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                                    )?.resumeDittoForAlert()
+                                }
+                            },
+                            ready = {
+                                manager.connectionFor(
                                     com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                                )?.resumeDittoForAlert()
-                            }
-                        },
-                        ready = {
-                            manager.connectionFor(
-                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                            )?.dittoCotAvailable() == true
-                        },
-                        verifiedSession = {
-                            manager.connectionFor(
-                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                            )?.quiescentReplacementSession()
-                        },
-                        offer = { xml, messageId, eligible, session ->
-                            manager.connectionFor(
-                                com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
-                            )?.offerTrackedDittoCoT(xml, senderUid, senderCallsign, messageId, eligible, session)
-                                ?: { com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.NOT_ADMITTED }
-                        },
-                    )
+                                )?.dittoCotAvailable() == true
+                            },
+                            verifiedSession = {
+                                manager.connectionFor(
+                                    com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                                )?.quiescentReplacementSession()
+                            },
+                            offer = { xml, messageId, eligible, session ->
+                                manager.connectionFor(
+                                    com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin.PACKAGE
+                                )?.offerTrackedDittoCoT(xml, senderUid, senderCallsign, messageId, eligible, session)
+                                    ?: { com.aitech.weartak_civ.integration.plugin.PluginTransportHostV1Impl.Submission.NOT_ADMITTED }
+                            },
+                        )
+                        if (completed || !trackedPluginAlert.retryableWithoutAdmission(
+                                key.uid, key.activationId, key.state, key.positional,
+                            ) || !dittoAlertSelected()) break
+                        kotlinx.coroutines.delay(ALERT_ADMISSION_RETRY_INTERVAL_MS)
+                    } while (true)
+                    completed
                 } catch (error: kotlinx.coroutines.CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -2174,6 +2207,7 @@ class CotDispatchService : Service() {
     companion object {
         private val TAG = "WearTAK-" + CotDispatchService::class.java.simpleName
         private const val DISPATCH_INTERVAL = 2_000L // 2 seconds
+        private const val ALERT_ADMISSION_RETRY_INTERVAL_MS = 5_000L
         private const val COMPANION_HANDOFF_PLI_FLUSH_WAIT_MS = 500L
         // Marker queue freshness; emergencies retain the best known fix with aged uncertainty.
         private const val FRESH_GPS_INTERVAL_MILLIS = 3_000L

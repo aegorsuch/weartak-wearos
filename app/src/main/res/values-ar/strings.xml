@@ -254,7 +254,10 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">جارٍ طلب التنبيه. لم يتم تأكيد الإرسال.</string>
+    <string name="manual_alert_cancel_requested">جارٍ طلب الإلغاء. لم يتم تأكيد الإرسال.</string>
+    <string name="marker_submission_unknown">تم حفظ العلامة محليًا. نتيجة الإرسال غير معروفة.</string>
     <string name="marker_save_unconfirmed">لم يتم تأكيد حفظ العلامة. تحقق من قائمة العلامات قبل إعادة المحاولة.</string>
     <string name="marker_saved_locally">تم حفظ العلامة محليًا. قد يظل التسليم معلقًا.</string>
     <string name="marker_request_invalid">طلب العلامة غير صالح.</string>
@@ -366,6 +369,8 @@
     <string name="connection_route_suppressed">معلّق</string>
     <string name="network_preferences_checklist">قائمة التحقق من تفضيلات الشبكة</string>
     <string name="network_plugin_forwarding">إعادة توجيه CoT الصادر</string>
+    <string name="ditto_network_off_unconfirmed">تم حظر حركة مرور المضيف الجديدة؛ قد يستمر العمل السابق أو اتصال الإضافة</string>
+    <string name="ditto_network_policy_pending">السياسة غير محسومة؛ تم إيقاف حركة مرور المضيف الجديدة مؤقتًا</string>
     <string name="network_preferences_checklist_save_failed">تعذّر حفظ قائمة التحقق من تفضيلات الشبكة</string>
     <string name="open_transport_settings">فتح إعدادات %1$s</string>
     <string name="invalid_managed_network_configuration">إعداد الشبكة المُدار غير صالح. لم تُطبّق الإعدادات. اتصل بالمسؤول.</string>

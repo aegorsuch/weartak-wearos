@@ -39,7 +39,7 @@ object PluginCotEgress {
      * include `CotRoute.PLUGIN` only when there is somewhere for it to go.
      */
     fun hasSubscribers(app: WearTakApplication): Boolean =
-        app.pluginManager.settingsCoordinator.anyPluginHasSettingEnabled(SETTING_FORWARD_OUTBOUND_COT)
+        app.pluginManager.settingsCoordinator.outboundCotAvailable.value
 
     /**
      * Offer [cotXml] to interested plugins. Safe to call from any thread, cheap when nobody has

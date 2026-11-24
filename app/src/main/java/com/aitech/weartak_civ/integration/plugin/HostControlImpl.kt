@@ -40,6 +40,7 @@ class HostControlImpl(
     private val isActive: () -> Boolean = { true },
     private val requireDittoLeaseForStatus: Boolean = false,
     private val dittoLeaseConfirmed: () -> Boolean = { false },
+    private val trafficAdmission: (() -> AutoCloseable?)? = null,
 ) : IWearTakPluginControl.Stub() {
 
     private fun verifyCaller(): Boolean {
@@ -79,6 +80,19 @@ class HostControlImpl(
 
     override fun requestCotDispatch(request: CotRequestParcel?) {
         if (!verifyCaller() || request == null) return
+        val admission = trafficAdmission?.invoke()
+        if (trafficAdmission != null && admission == null) {
+            Log.w(TAG, "Plugin CoT rejected: network disabled or stale binding")
+            return
+        }
+        try {
+            requestCotDispatchAdmitted(request)
+        } finally {
+            admission?.close()
+        }
+    }
+
+    private fun requestCotDispatchAdmitted(request: CotRequestParcel) {
         val payload = request.payload
         if (request.payloadFormat.equals(PAYLOAD_FORMAT_CHAT, ignoreCase = true)) {
             dispatchPluginChat(payload)

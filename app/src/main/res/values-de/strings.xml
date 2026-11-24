@@ -254,7 +254,10 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">Alarm wird angefordert. Die Übermittlung ist nicht bestätigt.</string>
+    <string name="manual_alert_cancel_requested">Aufhebung wird angefordert. Die Übermittlung ist nicht bestätigt.</string>
+    <string name="marker_submission_unknown">Markierung lokal gespeichert. Das Ergebnis der Übermittlung ist unbekannt.</string>
     <string name="marker_save_unconfirmed">Speichern der Markierung nicht bestätigt. Prüfe die Markierungsliste vor einem erneuten Versuch.</string>
     <string name="marker_saved_locally">Markierung lokal gespeichert. Die Zustellung steht möglicherweise noch aus.</string>
     <string name="marker_request_invalid">Ungültige Markierungsanfrage.</string>
@@ -366,6 +369,8 @@
     <string name="connection_route_suppressed">Unterdrückt</string>
     <string name="network_preferences_checklist">Checkliste der Netzwerkeinstellungen</string>
     <string name="network_plugin_forwarding">Ausgehendes CoT weiterleiten</string>
+    <string name="ditto_network_off_unconfirmed">Neuer Host-Verkehr blockiert; laufende Arbeit oder Plugin-Netzwerk kann fortfahren</string>
+    <string name="ditto_network_policy_pending">Richtlinie ungeklärt; neuer Host-Verkehr bleibt gesperrt</string>
     <string name="network_preferences_checklist_save_failed">Checkliste der Netzwerkeinstellungen konnte nicht gespeichert werden</string>
     <string name="open_transport_settings">Einstellungen für %1$s öffnen</string>
     <string name="invalid_managed_network_configuration">Ungültige verwaltete Netzwerkkonfiguration. Die Einstellungen wurden nicht angewendet. Wenden Sie sich an Ihre Administration.</string>

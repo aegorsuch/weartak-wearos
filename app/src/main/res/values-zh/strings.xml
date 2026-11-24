@@ -254,7 +254,10 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">正在请求警报。尚未确认发送。</string>
+    <string name="manual_alert_cancel_requested">正在请求取消。尚未确认发送。</string>
+    <string name="marker_submission_unknown">标记已保存在本地。发送结果未知。</string>
     <string name="marker_save_unconfirmed">无法确认标记是否已保存。请在重试前检查标记列表。</string>
     <string name="marker_saved_locally">标记已保存在本地，发送可能仍在等待中。</string>
     <string name="marker_request_invalid">标记请求无效。</string>
@@ -366,6 +369,8 @@
     <string name="connection_route_suppressed">已抑制</string>
     <string name="network_preferences_checklist">网络偏好设置检查清单</string>
     <string name="network_plugin_forwarding">转发出站 CoT</string>
+    <string name="ditto_network_off_unconfirmed">已阻止新的主机流量；现有任务或插件网络可能继续运行</string>
+    <string name="ditto_network_policy_pending">策略尚未确定；新主机流量暂缓</string>
     <string name="network_preferences_checklist_save_failed">无法保存网络偏好设置检查清单</string>
     <string name="open_transport_settings">打开 %1$s 设置</string>
     <string name="invalid_managed_network_configuration">托管网络配置无效。未应用设置。请联系管理员。</string>

@@ -132,7 +132,7 @@ class HostCommunityIdentityControlTest {
         val packages = setOf(TrustedCommunityPlugin.PACKAGE)
         fun matches(code: Long, name: String?, signers: List<ByteArray> = listOf(digest)) =
             TrustedCommunityPlugin.matchesQuiescentReplacement(42, packages, 42, signers, code, name)
-        assertTrue(matches(5840074, "5.8.4-p74+a37b9bbd"))
+        assertTrue(matches(5840079, "5.8.4-p79+82730d83"))
         assertFalse(matches(5840035, "5.8.4-p35+d981f7a5"))
         assertFalse(matches(5840051, "5.8.4-p51+fb070252"))
         assertFalse(matches(5840056, "5.8.4-p56+e966b948"))
@@ -141,16 +141,17 @@ class HostCommunityIdentityControlTest {
         assertFalse(matches(5840060, "5.8.4-p60+9471a6d8"))
         assertFalse(matches(5840062, "5.8.4-p62+b5ab0265"))
         assertFalse(matches(5840071, "5.8.4-p71+e06256e0"))
-        assertFalse(matches(5840071, "5.8.4-p74+a37b9bbd"))
-        assertFalse(matches(5840074, "5.8.4-p71+e06256e0"))
-        assertFalse(matches(5840074, "5.8.4-p74+different"))
-        assertFalse(matches(5840074, "5.8.4-p74+a37b9bbd", listOf(ByteArray(32))))
-        assertFalse(matches(5840074, null))
-        assertFalse(matches(5840074, "5.8.4-p74+a37b9bbd", listOf(digest, digest)))
+        assertFalse(matches(5840074, "5.8.4-p74+a37b9bbd"))
+        assertFalse(matches(5840074, "5.8.4-p79+82730d83"))
+        assertFalse(matches(5840079, "5.8.4-p74+a37b9bbd"))
+        assertFalse(matches(5840079, "5.8.4-p79+different"))
+        assertFalse(matches(5840079, "5.8.4-p79+82730d83", listOf(ByteArray(32))))
+        assertFalse(matches(5840079, null))
+        assertFalse(matches(5840079, "5.8.4-p79+82730d83", listOf(digest, digest)))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages + "other", 42, listOf(digest), 5840074, "5.8.4-p74+a37b9bbd"))
+            42, packages + "other", 42, listOf(digest), 5840079, "5.8.4-p79+82730d83"))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages, 43, listOf(digest), 5840074, "5.8.4-p74+a37b9bbd"))
+            42, packages, 43, listOf(digest), 5840079, "5.8.4-p79+82730d83"))
     }
 
     @Test fun boundDittoPluginDoesNotReceiveLegacyIdentityControl() {
@@ -232,6 +233,9 @@ class HostCommunityIdentityControlTest {
         val ingress = mockk<PluginIngressPort>(relaxed = true)
         every { ingress.packagesForUid(app, Process.myUid()) } returns setOf(packageName)
         val manager = mockk<PluginManager>(relaxed = true)
+        val trafficFence = DittoTrafficFence(initiallyEnabled = true)
+        every { manager.dittoTrafficFence } returns trafficFence
+        every { manager.dittoTrafficAllowed() } returns true
         every { manager.onConnectionReady(any()) } returns true
         every { manager.settingsCoordinator.pluginHasSettingEnabled(
             packageName, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT) } returns true

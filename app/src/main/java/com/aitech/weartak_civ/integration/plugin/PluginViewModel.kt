@@ -23,7 +23,11 @@ class PluginViewModel(
     val selectedPlugin = repository.selectedPlugin
     val operationOutcome = repository.operationOutcome
     private val coordinator = (application as WearTakApplication).pluginManager.settingsCoordinator
+    private val pluginManager = (application as WearTakApplication).pluginManager
     val connectivityToggles = coordinator.connectivityToggles
+    internal val dittoNetworkEnabled = pluginManager.dittoNetworkEnabled
+    internal val dittoNetworkPolicyLoaded = pluginManager.dittoNetworkPolicyLoaded
+    internal val dittoNetworkPolicyMigrationFailed = pluginManager.dittoNetworkPolicyMigrationFailed
     internal val connectionStatuses = coordinator.connectionStatuses
     internal val mainUiChangeRevisions = coordinator.mainUiChangeRevisions
     private val hostedMainUiState = MutableStateFlow<Map<String, HostedPluginMainUiResult>>(emptyMap())
@@ -35,6 +39,17 @@ class PluginViewModel(
                 coordinator.setConnectivityEnabled(id, expected, enabled)
             }
             if (!result.success) Toast.makeText(getApplication(), R.string.network_toggle_failed, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    internal fun setDittoNetworkEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val succeeded = withContext(Dispatchers.IO) {
+                pluginManager.setDittoNetworkEnabled(enabled)
+            }
+            if (!succeeded) {
+                Toast.makeText(getApplication(), R.string.network_toggle_failed, Toast.LENGTH_LONG).show()
+            }
         }
     }
 

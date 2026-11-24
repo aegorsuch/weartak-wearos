@@ -254,7 +254,10 @@
     <string name="high_atm_pressure_alert">High Pressure Alert</string>
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="manual_alert_requested">Uyarı isteniyor. İletim doğrulanmadı.</string>
+    <string name="manual_alert_cancel_requested">İptal isteniyor. İletim doğrulanmadı.</string>
+    <string name="marker_submission_unknown">İşaretçi yerel olarak kaydedildi. Gönderim sonucu bilinmiyor.</string>
     <string name="marker_save_unconfirmed">İşaretçinin kaydedildiği doğrulanamadı. Yeniden denemeden önce işaretçi listesini kontrol edin.</string>
     <string name="marker_saved_locally">İşaretçi yerel olarak kaydedildi. İletim hâlâ bekliyor olabilir.</string>
     <string name="marker_request_invalid">Geçersiz işaretçi isteği.</string>
@@ -366,6 +369,8 @@
     <string name="connection_route_suppressed">Bastırıldı</string>
     <string name="network_preferences_checklist">Ağ Tercihleri Kontrol Listesi</string>
     <string name="network_plugin_forwarding">Giden CoT iletilerini aktar</string>
+    <string name="ditto_network_off_unconfirmed">Yeni ana makine trafiği engellendi; önceki işler veya eklenti ağı sürebilir</string>
+    <string name="ditto_network_policy_pending">İlke çözümlenmedi; yeni ana makine trafiği bekletiliyor</string>
     <string name="network_preferences_checklist_save_failed">Ağ Tercihleri Kontrol Listesi kaydedilemedi</string>
     <string name="open_transport_settings">%1$s ayarlarını aç</string>
     <string name="invalid_managed_network_configuration">Yönetilen ağ yapılandırması geçersiz. Ayarlar uygulanmadı. Yöneticinize başvurun.</string>
