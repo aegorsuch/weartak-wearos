@@ -153,6 +153,22 @@ class SkinTempSpo2StillnessTest {
         assertEquals(true, get("crmPpgSamplingActive"))
     }
 
+    @Test fun crmWaitsForActiveSpo2AndPpgBurstBeforeSampling() {
+        val listener = startOnDemand()
+        crmAction("startCrmPpgSampling")
+        val point = mockk<DataPoint>()
+        every { point.getValue(ValueKey.SpO2Set.STATUS) } returns 2
+        every { point.getValue(ValueKey.SpO2Set.SPO2) } returns 98
+        listener.onDataReceived(listOf(point))
+        drain()
+        verify(exactly = 1) { ppg.setEventListener(any()) }
+        assertEquals(false, get("crmPpgSamplingActive"))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(20))
+        verify(exactly = 1) { ppg.unsetEventListener() }
+        verify(exactly = 2) { ppg.setEventListener(any()) }
+        assertEquals(true, get("crmPpgSamplingActive"))
+    }
+
     @Test fun stalePpgPhaseCannotStartAfterWatchIsRemoved() {
         set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
         set("ppgRunning", false)
