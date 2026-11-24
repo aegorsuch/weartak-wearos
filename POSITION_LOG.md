@@ -13,9 +13,10 @@ it is empty when unavailable.
 
 Disposition reflects observed transport handoffs, not confirmed receipt.
 `sent_immediately` means the first observed handoff occurred on the fix's first
-PLI dispatch attempt, before another PLI dispatch and within the configured
-reporting interval. `buffered_sent_later` means a later dispatch attempt, or
-a handoff after another dispatch or the interval elapsed; this includes a fix
+PLI dispatch attempt, both attempt and handoff within one configured reporting
+interval of the fix and before another PLI dispatch. `buffered_sent_later` means
+a later dispatch attempt, or an attempt or handoff outside that interval or
+after another dispatch; this includes a fix
 retained as the latest position, not necessarily a durable transport queue.
 `first_handoff_timestamp` and `first_handoff_bearer` identify that first observed
 handoff. A newly generated callback rejected before selection for reporting is

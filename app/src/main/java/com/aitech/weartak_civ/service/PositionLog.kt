@@ -41,7 +41,7 @@ internal class PositionLog(context: Context) {
     private sealed interface Operation {
         data class Fix(val uid: String, val location: Location, val generatedDuringCapture: Boolean) : Operation
         data class Selection(val key: PositionFixKey, val selected: Boolean) : Operation
-        data class Attempt(val key: PositionFixKey, val id: String) : Operation
+        data class Attempt(val key: PositionFixKey, val id: String, val withinInterval: Boolean) : Operation
         data class Untracked(val key: PositionFixKey) : Operation
         data class RouteResult(val key: PositionFixKey, val bearer: PositionBearer, val accepted: Boolean,
             val atMs: Long, val attemptId: String?, val sameTick: Boolean) : Operation
@@ -69,7 +69,7 @@ internal class PositionLog(context: Context) {
                         fail(error)
                     }
                     is Operation.Attempt -> try {
-                        journal.recordAttempt(operation.key, operation.id)
+                        journal.recordAttempt(operation.key, operation.id, operation.withinInterval)
                     } catch (error: SQLiteException) {
                         fail(error)
                     } catch (error: SecurityException) {
@@ -142,9 +142,13 @@ internal class PositionLog(context: Context) {
     fun beginAttempt(uid: String, location: DataRepository.LocationSnapshot, tickDurationMs: Long): String? {
         if (!enabled.value) return null
         val id = UUID.randomUUID().toString()
-        currentAttempt.set(Tick(id, SystemClock.elapsedRealtime() + tickDurationMs.coerceAtLeast(1)))
-        val fix = key(uid, location) ?: return id
-        if (queue.trySend(Operation.Attempt(fix, id)).isFailure)
+        val nowMs = SystemClock.elapsedRealtime()
+        val fix = key(uid, location)
+        val fixElapsedMs = fix?.elapsedNanos?.div(1_000_000L) ?: nowMs
+        currentAttempt.set(Tick(id, fixElapsedMs + tickDurationMs.coerceAtLeast(1)))
+        if (fix == null) return id
+        val ageMs = nowMs - fixElapsedMs
+        if (queue.trySend(Operation.Attempt(fix, id, ageMs in 0..tickDurationMs.coerceAtLeast(1))).isFailure)
             fail(IOException("Position log queue overflow"))
         return id
     }
@@ -192,7 +196,7 @@ internal enum class PositionBearer(val column: String, val success: String, val 
 }
 
 internal class PositionJournal(context: Context, private val maxRows: Int = 50_000) :
-    SQLiteOpenHelper(context, "position-log.db", null, 4) {
+    SQLiteOpenHelper(context, "position-log.db", null, 5) {
     init {
         require(maxRows > 0)
     }
@@ -206,7 +210,7 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
             multicast_status TEXT, multicast_written_ms INTEGER,
             sitx_status TEXT, sitx_written_ms INTEGER,
             capture_new INTEGER NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0,
-            rejected INTEGER NOT NULL DEFAULT 0, first_attempt_id TEXT,
+            rejected INTEGER NOT NULL DEFAULT 0, first_attempt_id TEXT, first_attempt_within_interval INTEGER NOT NULL DEFAULT 0,
             disposition TEXT, first_handoff_ms INTEGER, first_handoff_bearer TEXT,
             untracked INTEGER NOT NULL DEFAULT 0,
             UNIQUE(uid, provider, fix_ms, elapsed_ns, latitude, longitude)
@@ -214,7 +218,7 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion < 1 || newVersion != 4) throw SQLiteException("Unsupported position log upgrade")
+        if (oldVersion < 1 || newVersion != 5) throw SQLiteException("Unsupported position log upgrade")
         if (oldVersion == 1) {
             db.execSQL("ALTER TABLE fixes ADD COLUMN tak_status TEXT")
             db.execSQL("ALTER TABLE fixes ADD COLUMN tak_written_ms INTEGER")
@@ -225,14 +229,17 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
             db.execSQL("ALTER TABLE fixes ADD COLUMN sitx_status TEXT")
             db.execSQL("ALTER TABLE fixes ADD COLUMN sitx_written_ms INTEGER")
         }
-        db.execSQL("ALTER TABLE fixes ADD COLUMN capture_new INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN selected INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN rejected INTEGER NOT NULL DEFAULT 0")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN first_attempt_id TEXT")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN disposition TEXT")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN first_handoff_ms INTEGER")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN first_handoff_bearer TEXT")
-        db.execSQL("ALTER TABLE fixes ADD COLUMN untracked INTEGER NOT NULL DEFAULT 0")
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE fixes ADD COLUMN capture_new INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN selected INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN rejected INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN first_attempt_id TEXT")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN disposition TEXT")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN first_handoff_ms INTEGER")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN first_handoff_bearer TEXT")
+            db.execSQL("ALTER TABLE fixes ADD COLUMN untracked INTEGER NOT NULL DEFAULT 0")
+        }
+        db.execSQL("ALTER TABLE fixes ADD COLUMN first_attempt_within_interval INTEGER NOT NULL DEFAULT 0")
     }
 
     @Synchronized
@@ -271,11 +278,12 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
     }
 
     @Synchronized
-    fun recordAttempt(key: PositionFixKey, id: String) {
+    fun recordAttempt(key: PositionFixKey, id: String, withinInterval: Boolean = true) {
         writableDatabase.execSQL(
-            """UPDATE fixes SET first_attempt_id = COALESCE(first_attempt_id, ?), selected = 1
+            """UPDATE fixes SET first_attempt_within_interval = CASE WHEN first_attempt_id IS NULL THEN ?
+               ELSE first_attempt_within_interval END, first_attempt_id = COALESCE(first_attempt_id, ?), selected = 1
                WHERE uid = ? AND provider = ? AND fix_ms = ? AND elapsed_ns = ? AND latitude = ? AND longitude = ?""",
-            arrayOf(id, key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
+            arrayOf(if (withinInterval) 1 else 0, id, key.uid, key.provider, key.timeMs, key.elapsedNanos, key.latitude, key.longitude)
         )
     }
 
@@ -297,8 +305,8 @@ internal class PositionJournal(context: Context, private val maxRows: Int = 50_0
             """UPDATE fixes SET
                $status = CASE WHEN $status = ? OR ? = 1 THEN ? ELSE ? END,
                $timestamp = CASE WHEN ? = 1 THEN COALESCE($timestamp, ?) ELSE $timestamp END,
-               disposition = CASE WHEN ? = 1 AND first_handoff_ms IS NULL AND first_attempt_id IS NOT NULL AND ? IS NOT NULL
-                   THEN CASE WHEN first_attempt_id = ? AND ? = 1 THEN 'sent_immediately'
+               disposition = CASE WHEN ? = 1 AND first_handoff_ms IS NULL AND capture_new = 1 AND first_attempt_id IS NOT NULL AND ? IS NOT NULL
+                   THEN CASE WHEN first_attempt_id = ? AND first_attempt_within_interval = 1 AND ? = 1 THEN 'sent_immediately'
                              ELSE 'buffered_sent_later' END ELSE disposition END,
                first_handoff_bearer = CASE WHEN ? = 1 AND first_handoff_ms IS NULL AND ? IS NOT NULL
                    THEN ? ELSE first_handoff_bearer END,

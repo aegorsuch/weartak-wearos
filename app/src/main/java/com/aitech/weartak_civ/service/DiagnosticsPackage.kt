@@ -54,7 +54,7 @@ internal object DiagnosticsPackage {
                 Empty accuracy means unavailable. Bearer and relay may be unknown.
                 Disposition describes observed handoffs, not receipt; untracked routes remain unknown.
                 never_sent is limited to newly generated fixes rejected before selection for reporting.
-                sent_immediately means a first-attempt handoff within one dispatch interval and before another PLI.
+                sent_immediately means a first-attempt handoff within one reporting interval of the fix and before another PLI.
                 buffered_sent_later means a later attempt or a handoff after that interval or another PLI.
                 These classifications do not prove how long a transport buffered a message.
                 A blank route status means no result was observed. Relay status is not exposed.

@@ -74,7 +74,7 @@ class PositionLogTest {
     @Test fun dispositionsRequireEvidenceAndTrackFirstHandoff() {
         val journal = PositionJournal(app)
         try {
-            for (time in 1_000L..7_000L step 1_000L)
+            for (time in 1_000L..8_000L step 1_000L)
                 journal.append("watch", fix(time), generatedDuringCapture = time != 7_000L)
             fun key(time: Long) = PositionFixKey("watch", "gps", time, time * 1_000_000, 41.5, -87.25)
             journal.recordSelection(key(1_000), false)
@@ -92,10 +92,12 @@ class PositionLogTest {
             journal.recordRouteResult(key(6_000), PositionBearer.MULTICAST, true, 8_000, "mixed", true)
             journal.recordUntracked(key(6_000))
             journal.recordSelection(key(7_000), false)
+            journal.recordAttempt(key(8_000), "late-first", withinInterval = false)
+            journal.recordRouteResult(key(8_000), PositionBearer.MULTICAST, true, 9_000, "late-first", true)
             val rows = StringWriter().also(journal::export).toString().trimEnd().split("\r\n").drop(1)
                 .map { it.split(",") }
             assertEquals(listOf("never_sent", "unknown", "sent_immediately", "buffered_sent_later",
-                "buffered_sent_later", "unknown", "unknown"), rows.map { it[6] })
+                "buffered_sent_later", "unknown", "unknown", "buffered_sent_later"), rows.map { it[6] })
             assertEquals("1970-01-01T00:00:04Z", rows[2][14])
             assertEquals("MULTICAST", rows[2][15])
             assertEquals("1970-01-01T00:00:06Z", rows[3][14])
