@@ -456,7 +456,7 @@
     <string name="tak_server_connection_name_default" translatable="false">Connection Name</string>
 
     <string name="tak_server_connection_enabled_title" translatable="false">TAK Server Connection Enabled</string>
-    <string name="tak_server_connection_enabled_description" translatable="false">Enable/Disable this TAK server connection</string>
+    <string name="tak_server_connection_enabled_description" translatable="false">Enable/Disable this TAK server connection. If omitted, preserve the saved switch; new servers default enabled.</string>
     <string name="tak_server_connection_enabled_default" translatable="false">true</string>
 
     <string name="tak_server_address_title" translatable="false">TAK Server Address/URL</string>

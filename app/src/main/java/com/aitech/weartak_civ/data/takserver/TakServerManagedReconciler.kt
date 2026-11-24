@@ -13,6 +13,15 @@ import com.aitech.weartak_civ.data.DataRepository.TakServerItem
 
 /** Matches managed records to saved records without treating an editable endpoint as identity. */
 object TakServerManagedReconciler {
+    data class Configuration(val server: TakServerItem, val enabled: Boolean?)
+
+    /** An omitted admin switch preserves the saved choice; new servers default enabled. */
+    fun resolveServer(configuration: Configuration, existing: TakServerItem?): TakServerItem =
+        configuration.server.copy(
+            isEnabled = configuration.enabled ?: existing?.isEnabled ?: true,
+            serverId = existing?.serverId ?: configuration.server.serverId
+        )
+
     fun matchExistingIndexes(
         configured: List<TakServerItem>,
         existing: List<TakServerItem>
