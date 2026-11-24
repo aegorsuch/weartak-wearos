@@ -234,6 +234,32 @@ class PluginSettingsCoordinatorTest {
     }
 
     @Test
+    fun crmToggleAcceptsSettingsChangedCallbackDuringApply() {
+        val configured = crmPlugin(true).apply {
+            applySettings(Bundle().apply {
+                putBoolean("enable_crm", false)
+                putDouble("crm_poor_max", 33.0)
+                putDouble("crm_moderate_max", 66.0)
+            })
+        }
+        val plugin = object : FakeWearTakPlugin(CRM_PLUGIN_PACKAGE) {
+            init {
+                setSettingsSchemaForTest(configured.getSettingsSchema())
+                applySettings(configured.getSettingsValues())
+            }
+
+            override fun applySettingsWithResult(values: Bundle?, applyMode: Int): SettingsApplyResultParcel {
+                val result = super.applySettingsWithResult(values, applyMode)
+                coordinator.onPluginSettingsValuesChanged(CRM_PLUGIN_PACKAGE)
+                return result
+            }
+        }
+        coordinator.onPluginConnected(CRM_PLUGIN_PACKAGE, plugin)
+        assertTrue(coordinator.setCrmEnabled(true).success)
+        assertTrue(coordinator.crmSettings.value!!.enabled)
+    }
+
+    @Test
     fun hostedMainUiDispatchesAnyPluginDefinedEnabledActionOnExplicitRequest() {
         val pluginId = "org.example.telemetry"
         fakePlugin.pluginCapabilities = PluginCapabilitiesParcel(hostedMainUi = true)
