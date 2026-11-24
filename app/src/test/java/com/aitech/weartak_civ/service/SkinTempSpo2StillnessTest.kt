@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.SystemClock
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.events.IsDeviceWornEvent
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.service.ActivityRecognitionService.Companion.ActivityRecognized
 import com.samsung.android.service.health.tracking.HealthTracker
@@ -140,6 +141,16 @@ class SkinTempSpo2StillnessTest {
         drain()
         verify(exactly = 1) { ppg.unsetEventListener() }
         verify { replacement wasNot Called }
+    }
+
+    @Test fun duplicateWornEventDoesNotCancelSpo2TimeoutOrWaitingCrm() {
+        startOnDemand()
+        crmAction("startCrmPpgSampling")
+        service.onIsDeviceWornEvent(IsDeviceWornEvent(true))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+        verify(exactly = 1) { tracker.unsetEventListener() }
+        verify(exactly = 1) { ppg.setEventListener(any()) }
+        assertEquals(true, get("crmPpgSamplingActive"))
     }
 
     @Test fun confirmedMotionSkipsWithoutSpendingAttemptOrTouchingOpticalTrackersAndRetriesNextOpportunity() {

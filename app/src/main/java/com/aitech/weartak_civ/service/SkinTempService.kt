@@ -217,13 +217,15 @@ class SkinTempService : Service() {
     private var nextFireMs = 0L          // wall-clock target for the next run
     // One monotonic clock – the same one Handler uses
     private val nowUptime get() = SystemClock.uptimeMillis()
+    private val nextSkinReading = Runnable { startSkinTracker() }
 
     // One function that always schedules the NEXT reading
     private fun scheduleNextReading() {
         if (!deviceWorn) return                     // skip if watch off-wrist
         val target = nowUptime + DISPATCH_INTERVAL_MS        // absolute uptime timestamp
         nextFireMs = target                         // purely for diagnostics
-        backgroundHandler.postAtTime(::startSkinTracker, target)
+        backgroundHandler.removeCallbacks(nextSkinReading)
+        backgroundHandler.postAtTime(nextSkinReading, target)
 //        writeToLogFileLocation(
 //            logFile,
 //            "Next reading scheduled for ${DISPATCH_INTERVAL_MS/1_000}s (at $target)"
@@ -1380,7 +1382,7 @@ class SkinTempService : Service() {
                     DISPATCH_INTERVAL_MS = newIntervalMs
 
                     if (deviceWorn) {
-                        backgroundHandler.removeCallbacksAndMessages(null)
+                        backgroundHandler.removeCallbacks(nextSkinReading)
                         scheduleNextReading()
                         startSkinTracker()
                     }
@@ -1497,10 +1499,8 @@ class SkinTempService : Service() {
     fun onIsDeviceWornEvent(event: IsDeviceWornEvent) {
         val nowWorn = event.isDeviceWorn
         Log.d(TAG, "Wear event: new=$nowWorn")
-        // Clear old callbacks so they don’t pile up
-        backgroundHandler.removeCallbacksAndMessages(null)
-
         if (nowWorn != deviceWorn) {
+            backgroundHandler.removeCallbacks(nextSkinReading)
             if (nowWorn) {
                 deviceWorn = true
                 // HR source ownership follows the authoritative repository worn state.
@@ -1552,11 +1552,11 @@ class SkinTempService : Service() {
     }
 
     private fun stopSkinTracker(clearQueue: Boolean = false) {
+        if (clearQueue) backgroundHandler.removeCallbacks(nextSkinReading)
         if (!isHandlerRunning) return
         isHandlerRunning = false
         backgroundHandler.post {
             DiagnosticResources.release(DiagnosticResource.SAMSUNG_SKIN, skinTracker) { skinTracker.unsetEventListener() }
-            if (clearQueue) backgroundHandler.removeCallbacksAndMessages(null)
         }
     }
 
