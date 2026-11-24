@@ -106,6 +106,47 @@ class CotMessageParserTest {
     }
 
     @Test
+    fun companionAcceptsRemotePhoneAndWatchPliWithWearosDevices() {
+        for (eventUid in listOf("remote-phone", "remote-watch")) {
+            val remote = PLI_XML.replace("uid='watch-1'", "uid='$eventUid'")
+            val expected = CotMessageParser.parseUserPositionOrNull(remote)
+            assertNotNull(expected)
+            for (tag in listOf("physiology", "biometrics")) {
+                for (deviceUid in listOf("<uid>remote-watch</uid>", "")) {
+                    val xml = remote.replace("</detail>",
+                        "<$tag><device><model>WEAROS</model>$deviceUid" +
+                            "<hr>72</hr><bat>80</bat></device></$tag></detail>")
+                    assertEquals(expected,
+                        CotMessageParser.parseCompanionUserOrNull(xml, "watch-1", "phone-self"))
+                }
+            }
+        }
+    }
+
+    @Test
+    fun companionRejectsLocalWatchAndPhoneIdentitiesDespiteRemoteEventUid() {
+        val remote = PLI_XML.replace("uid='watch-1'", "uid='remote-phone'")
+        for (localUid in listOf("watch-1", "phone-self")) {
+            assertNull(CotMessageParser.parseCompanionUserOrNull(
+                remote.replace("uid='remote-phone'", "uid='$localUid'"), "watch-1", "phone-self"))
+            for (identity in listOf("<uid Droid='$localUid'/>", "<creator uid='$localUid'/>")) {
+                assertNull(CotMessageParser.parseCompanionUserOrNull(
+                    remote.replace("</detail>", "$identity</detail>"), "watch-1", "phone-self"))
+            }
+            for (tag in listOf("physiology", "biometrics")) {
+                for (deviceUids in listOf(
+                    "<uid>$localUid</uid>",
+                    "<uid>remote-watch</uid><uid> $localUid </uid>"
+                )) {
+                    val xml = remote.replace("</detail>",
+                        "<$tag><device><model>WEAROS</model>$deviceUids</device></$tag></detail>")
+                    assertNull(CotMessageParser.parseCompanionUserOrNull(xml, "watch-1", "phone-self"))
+                }
+            }
+        }
+    }
+
+    @Test
     fun physiologyAndLegacyBiometricsAlertsRetainIdenticalMetadata() {
         for (legacy in listOf(EMERGENCY_XML, ATAK_STANDARD_ALERT_XML, WEARTAK_ALERT_XML, WEARTAK_CANCEL_XML)) {
             val physiology = legacy.replace("<biometrics", "<physiology")
