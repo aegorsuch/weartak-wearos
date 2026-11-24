@@ -1,5 +1,10 @@
 # Ditto GeoChat wire contract
 
+This document records the historical bundled Ditto implementation and its wire
+format. Core no longer bundles the Ditto SDK or service; the optional Ditto
+plugin owns its runtime and storage. Descriptions of SDK writes, retention,
+identity, and service lifecycle below are historical, not Core behavior.
+
 Collection: `chat`, matching the official Ditto Edge Sync ATAK plugin
 1.1.1 `da2b2218` (ATAK 5.8 CIV). The field contract was verified by local,
 read-only inspection of the supplied APK; no plugin implementation or
