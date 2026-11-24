@@ -39,6 +39,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -391,6 +392,166 @@ class PluginLifecycleIsolationTest {
             cleanup { unmockkObject(TrustedCommunityPlugin) }
             cleanup { unmockkObject(TAKConnectService.Companion) }
             cleanupFailure?.let { throw it }
+        }
+    }
+
+    @Test fun dittoTeardownStopsBeforeUnbindAndReleasesFenceForReenable() = runBlocking {
+        dittoUnbindScenario(DittoStopOutcome.SUCCEEDS)
+    }
+
+    @Test fun dittoCleanupFailureOnLiveBinderKeepsReplacementFenced() = runBlocking {
+        dittoUnbindScenario(DittoStopOutcome.FAILS_ALIVE)
+    }
+
+    @Test fun dittoCleanupFailureOnDeadBinderReleasesReplacementFence() = runBlocking {
+        dittoUnbindScenario(DittoStopOutcome.FAILS_DEAD)
+    }
+
+    private suspend fun dittoUnbindScenario(outcome: DittoStopOutcome) {
+        pkg = TrustedCommunityPlugin.PACKAGE
+        discoveredService.serviceInfo.packageName = pkg
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val repository = DataRepository(context)
+        repository.storeNetworkPreferencesLocked(false)
+        assertNull(repository.storeDittoPluginNetworkEnabled(true))
+        every { app.repo } returns repository
+        every { app.getSystemService(PowerManager::class.java) } returns
+            context.getSystemService(PowerManager::class.java)
+        every { app.contentResolver } returns context.contentResolver
+        val events = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val old = ClosingDittoPlugin(pkg, events, outcome)
+        nextPlugin = old
+        every { app.unbindService(any<ServiceConnection>()) } answers {
+            if (firstArg<ServiceConnection>() === captured.firstOrNull()) {
+                events += "unbind"
+                old.bindingClosed = true
+            }
+        }
+        mockkObject(TrustedCommunityPlugin)
+        mockkObject(TAKConnectService.Companion)
+        every { TAKConnectService.isAnyTakConnected } returns false
+        every { TrustedCommunityPlugin.verify(app, Process.myUid()) } returns true
+        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid()) } returns true
+        val manager = manager(repository)
+        try {
+            withTimeout(5_000) { manager.dittoNetworkPolicyLoaded.first { it } }
+            manager.refreshBindings()
+            awaitCondition("Ditto runtime did not start") { old.started.count == 0L }
+            awaitPluginLifecycle(pkg)
+
+            assertTrue(setDittoNetwork(manager, false))
+            awaitCondition("Old Ditto binding was not released") { "unbind" in events }
+            val unbindAt = events.indexOf("unbind")
+            assertEquals(unbindAt, events.lastIndexOf("unbind"))
+            assertTrue(events.lastIndexOf("unregisterHostCallback") in 0 until unbindAt)
+            assertTrue(events.lastIndexOf("stopPlugin") in 0 until unbindAt)
+            assertEquals("No remote cleanup may follow the unbind", unbindAt, events.lastIndex)
+
+            val replacement = ClosingDittoPlugin(pkg, java.util.concurrent.CopyOnWriteArrayList(),
+                DittoStopOutcome.SUCCEEDS)
+            nextPlugin = replacement
+            if (outcome == DittoStopOutcome.FAILS_ALIVE) {
+                assertTrue(PluginLifecycleWork.isBusy(pkg))
+                assertTrue(setDittoNetwork(manager, true))
+                ShadowLooper.shadowMainLooper().idleFor(Duration.ofSeconds(2))
+                assertTrue("Uncertain cleanup must keep replacement fenced", PluginLifecycleWork.isBusy(pkg))
+                assertEquals(1, captured.size)
+            } else {
+                awaitPluginLifecycle(pkg)
+                assertTrue(setDittoNetwork(manager, true))
+                awaitPluginLifecycle(pkg)
+                manager.refreshBindings()
+                awaitCondition("Replacement Ditto runtime did not start") { replacement.started.count == 0L }
+                awaitPluginLifecycle(pkg)
+                assertEquals(2, captured.size)
+                assertTrue(manager.hasConnectionForTest(pkg))
+            }
+        } finally {
+            manager.shutdownAll()
+            PluginLifecycleWork.clearCleanupReservationsForTest(pkg)
+            awaitPluginLifecycle(pkg)
+            repository.storeNetworkPreferencesLocked(false)
+            repository.storeDittoPluginNetworkEnabled(true)
+            unmockkObject(TrustedCommunityPlugin)
+            unmockkObject(TAKConnectService.Companion)
+        }
+    }
+
+    private suspend fun setDittoNetwork(manager: PluginManager, enabled: Boolean): Boolean = coroutineScope {
+        val change = async(Dispatchers.IO) { manager.setDittoNetworkEnabled(enabled) }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (!change.isCompleted && System.nanoTime() < deadline) {
+            ShadowLooper.shadowMainLooper().idle()
+            Thread.sleep(5)
+        }
+        if (!change.isCompleted) {
+            change.cancel()
+            ShadowLooper.shadowMainLooper().idle()
+            fail("Ditto network policy update did not finish: enabled=$enabled")
+        }
+        change.await()
+    }
+
+    private fun awaitCondition(message: String, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (!condition() && System.nanoTime() < deadline) {
+            ShadowLooper.shadowMainLooper().idle()
+            Thread.sleep(5)
+        }
+        assertTrue(message, condition())
+    }
+
+    private enum class DittoStopOutcome { SUCCEEDS, FAILS_ALIVE, FAILS_DEAD }
+
+    /** Mirrors DittoPluginService: onUnbind closes the binder, and later calls throw. */
+    private class ClosingDittoPlugin(
+        private val dittoPkg: String,
+        private val events: MutableList<String>,
+        private val outcome: DittoStopOutcome,
+    ) : FakeWearTakPlugin(dittoPkg, apiVersion = 2) {
+        @Volatile var bindingClosed = false
+        @Volatile private var dead = false
+        val started = CountDownLatch(1)
+
+        override fun getPluginInfo() = com.weartak.plugin.sdk.model.PluginInfoParcel(
+            pluginId = dittoPkg,
+            displayName = "Fake Ditto",
+            versionName = TrustedCommunityPlugin.GATE_VERSION_NAME,
+            packageName = dittoPkg,
+        )
+
+        override fun isBinderAlive(): Boolean = !dead
+
+        override fun startPlugin() {
+            super.startPlugin()
+            started.countDown()
+        }
+
+        override fun unregisterHostCallback(callback: IWearTakHostCallback?) {
+            remote("unregisterHostCallback")
+            super.unregisterHostCallback(callback)
+        }
+
+        override fun stopPlugin() {
+            remote("stopPlugin")
+            when (outcome) {
+                DittoStopOutcome.SUCCEEDS -> super.stopPlugin()
+                DittoStopOutcome.FAILS_ALIVE -> throw IllegalStateException("stop failed")
+                DittoStopOutcome.FAILS_DEAD -> {
+                    dead = true
+                    throw IllegalStateException("plugin process died")
+                }
+            }
+        }
+
+        override fun shutdownPlugin() {
+            remote("shutdownPlugin")
+            super.shutdownPlugin()
+        }
+
+        private fun remote(method: String) {
+            events += method
+            if (bindingClosed) throw SecurityException("Plugin binding closed")
         }
     }
 

@@ -150,6 +150,12 @@ class PluginConnection(
     @Volatile private var dittoRuntimeAllowed = false
     private var dittoStartRequested = false
     private var pendingRemoteCleanup: (() -> Unit)? = null
+    private var remoteCleanupFinished = false
+    private val afterRemoteCleanupActions = mutableListOf<() -> Unit>()
+    private val localUnbindClaimed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** True exactly once, for the caller that releases this connection's Android binding. */
+    internal fun claimLocalUnbind(): Boolean = localUnbindClaimed.compareAndSet(false, true)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val handshakeTimeout = Runnable {
         if (!closed) failBind("lifecycle_timeout")
@@ -253,7 +259,11 @@ class PluginConnection(
                 cleanup?.invoke()
             }
         }) {
-            synchronized(stateLock) { initializing = false }
+            val cleanup = synchronized(stateLock) {
+                initializing = false
+                pendingRemoteCleanup.also { pendingRemoteCleanup = null }
+            }
+            if (cleanup != null) scheduleRemoteCleanup(cleanup)
             failBind("lifecycle_busy")
         }
     }
@@ -715,7 +725,16 @@ class PluginConnection(
         serverPackages?.close()
     }
 
-    fun tearDownBinder(reason: String, shutdownRemotePlugin: Boolean = true) {
+    /**
+     * Revokes local state immediately and schedules remote cleanup. [afterRemoteCleanup] runs
+     * once remote cleanup has finished (or immediately when none is needed), so callers can keep
+     * the Android binding — and therefore the plugin's binder — open until stop/unregister ran.
+     */
+    fun tearDownBinder(
+        reason: String,
+        shutdownRemotePlugin: Boolean = true,
+        afterRemoteCleanup: (() -> Unit)? = null,
+    ) {
         ready = false
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
@@ -731,9 +750,20 @@ class PluginConnection(
         } else {
             TransportCloseReason.STOPPED
         }
+        var alreadyClosed = false
+        var runAfterCleanupNow = false
+        var cleanupDeferred = false
         val cleanup = synchronized(stateLock) {
-            if (closed) return
+            if (closed) {
+                alreadyClosed = true
+                if (afterRemoteCleanup != null) {
+                    if (remoteCleanupFinished) runAfterCleanupNow = true
+                    else afterRemoteCleanupActions += afterRemoteCleanup
+                }
+                return@synchronized null
+            }
             closed = true
+            afterRemoteCleanup?.let { afterRemoteCleanupActions += it }
             pointToDrain = hostPointEndpoint
             pointToDrain?.revoke()
             hostPointEndpoint = null
@@ -773,7 +803,13 @@ class PluginConnection(
             val cleanupReservation = if (pluginPackage == TrustedCommunityPlugin.PACKAGE &&
                 (iface != null || binder != null)) PluginLifecycleWork.reserveCleanup(pluginPackage) else null
             val remoteCleanup: (() -> Unit)? = if (iface == null && binder == null) {
-                transportToClose?.let { transport -> { transport.closeBinding(transportCloseReason) } }
+                transportToClose?.let { transport -> {
+                    try {
+                        transport.closeBinding(transportCloseReason)
+                    } finally {
+                        finishRemoteCleanup()
+                    }
+                } }
             } else ({
                 var cleanupSucceeded = true
                 fun attempt(method: String, block: () -> Unit) {
@@ -789,22 +825,50 @@ class PluginConnection(
                 runCatching { binder?.unlinkToDeath(deathRecipient, 0) }.onFailure {
                     Log.w(TAG, "unlinkToDeath failed pkg=$pluginPackage", it)
                 }
+                // A dead process holds no plugin runtime; a frozen-but-alive one stays fenced.
+                val binderProvenDead = binder != null && !binder.isBinderAlive
+                // Release the binding only after stop/unregister ran, then the replacement fence.
+                finishRemoteCleanup()
                 if (cleanupReservation != null) {
-                    if (cleanupSucceeded) PluginLifecycleWork.finishCleanup(pluginPackage, cleanupReservation)
-                    else Log.e(TAG, "Ditto cleanup uncertain; replacement binding remains fenced")
+                    if (cleanupSucceeded || binderProvenDead) {
+                        if (!cleanupSucceeded) Log.w(TAG, "Ditto cleanup incomplete but binder dead; releasing fence")
+                        PluginLifecycleWork.finishCleanup(pluginPackage, cleanupReservation)
+                    } else Log.e(TAG, "Ditto cleanup uncertain; replacement binding remains fenced")
                 }
             })
             if (initializing || dittoLifecycleInProgress) {
-                pendingRemoteCleanup = remoteCleanup
+                pendingRemoteCleanup = remoteCleanup ?: { finishRemoteCleanup() }
+                cleanupDeferred = true
                 null
             } else remoteCleanup
+        }
+        if (alreadyClosed) {
+            if (runAfterCleanupNow) runAfterRemoteCleanup(listOfNotNull(afterRemoteCleanup))
+            return
         }
         pointToDrain?.let { endpoint ->
             appScope.launch(Dispatchers.IO) {
                 if (!endpoint.closeAndDrain(5_000)) Log.e(TAG, "Point endpoint drain incomplete")
             }
         }
-        if (cleanup != null) scheduleRemoteCleanup(cleanup)
+        when {
+            cleanup != null -> scheduleRemoteCleanup(cleanup)
+            !cleanupDeferred -> finishRemoteCleanup()
+        }
+    }
+
+    private fun finishRemoteCleanup() {
+        val actions = synchronized(stateLock) {
+            remoteCleanupFinished = true
+            afterRemoteCleanupActions.toList().also { afterRemoteCleanupActions.clear() }
+        }
+        runAfterRemoteCleanup(actions)
+    }
+
+    private fun runAfterRemoteCleanup(actions: List<() -> Unit>) {
+        actions.forEach { action ->
+            runCatching(action).onFailure { Log.w(TAG, "post-cleanup action failed pkg=$pluginPackage", it) }
+        }
     }
 
     internal fun pluginInfoSnapshot(): PluginInfoParcel? = pluginInfoSnapshot

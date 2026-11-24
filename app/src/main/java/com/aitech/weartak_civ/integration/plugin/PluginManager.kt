@@ -38,6 +38,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Unexpected disconnects release the dead binding and retry discovery/binding after
  * 1, 2, 4, 8 and 16 seconds. Explicit unbind/shutdown cancels recovery; admission
  * failures are not retried. A successful handshake resets the retry budget.
+ * The Android binding is released only after remote stop/unregister cleanup has run,
+ * because plugins may close their binder in onUnbind.
  */
 open class PluginManager(
     private val app: WearTakApplication,
@@ -163,13 +165,22 @@ open class PluginManager(
         val c = connections.remove(packageName)
         if (c != null) dittoConnectionState.compareAndSet(c, null)
         if (c != null) releaseAudioDetectionPlugin(c)
-        c?.tearDownBinder(reason = "unbindPackage", shutdownRemotePlugin = shutdownRemotePlugin)
+        if (c != null) {
+            c.tearDownBinder(reason = "unbindPackage", shutdownRemotePlugin = shutdownRemotePlugin,
+                afterRemoteCleanup = { releaseBinding(c, packageName) })
+        }
         PluginDiagnostics.markUnbound(packageName)
         notifyTopologyChanged()
-        if (c != null) {
-            runCatching { app.unbindService(c) }
-                .onFailure { Log.w(TAG, "Local unbind failed pkg=$packageName", it) }
-        }
+    }
+
+    /**
+     * Unbinding lets the plugin close its binder, so it must follow remote stop/unregister.
+     * Called from [PluginConnection.tearDownBinder] once that cleanup has run.
+     */
+    private fun releaseBinding(conn: PluginConnection, packageName: String) {
+        if (!conn.claimLocalUnbind()) return
+        runCatching { app.unbindService(conn) }
+            .onFailure { Log.w(TAG, "Local unbind failed pkg=$packageName", it) }
     }
 
     internal fun onPackageRemoved(packageName: String) {
@@ -197,11 +208,10 @@ open class PluginManager(
         dittoConnectionState.compareAndSet(conn, null)
         releaseAudioDetectionPlugin(conn)
         conn.tearDownBinder(reason = "service_disconnected",
-            shutdownRemotePlugin = shouldShutdownRemotePlugin(entry.key))
+            shutdownRemotePlugin = shouldShutdownRemotePlugin(entry.key),
+            afterRemoteCleanup = { releaseBinding(conn, entry.key) })
         PluginDiagnostics.markDisconnected(entry.key)
         notifyTopologyChanged()
-        runCatching { app.unbindService(conn) }
-            .onFailure { Log.w(TAG, "unbind disconnected plugin pkg=${entry.key}", it) }
         scheduleReconnect(entry.key)
     }
 
@@ -311,8 +321,8 @@ open class PluginManager(
         if (entry != null) {
             connections.remove(entry.key)
         }
-        conn.tearDownBinder(reason = reason, shutdownRemotePlugin = shouldShutdownRemotePlugin(pkg))
-        runCatching { app.unbindService(conn) }
+        conn.tearDownBinder(reason = reason, shutdownRemotePlugin = shouldShutdownRemotePlugin(pkg),
+            afterRemoteCleanup = { releaseBinding(conn, pkg) })
         PluginDiagnostics.recordAdmissionRejected(
             pkg,
             PluginDiagnostics.admissionCategoryForAidlBindFailure(reason),

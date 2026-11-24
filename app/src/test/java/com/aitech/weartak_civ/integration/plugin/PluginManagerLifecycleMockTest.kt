@@ -364,6 +364,7 @@ class PluginManagerLifecycleMockTest {
         mgr.unbindPackage(pluginPkg)
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
         assertTrue(PluginDiagnostics.snapshot().unbindEvents >= 1)
+        awaitPluginLifecycle(pluginPkg)
         verify(atLeast = 1) { app.unbindService(any<ServiceConnection>()) }
     }
 
