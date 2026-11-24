@@ -124,7 +124,6 @@ import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUp
 import com.aitech.weartak_civ.DEFAULT_BIRTH_YEAR
 import com.aitech.weartak_civ.DEFAULT_ON_FOOT_REPORTING_INTERVAL
 import com.aitech.weartak_civ.DEFAULT_CONSTANT_REPORTING_INTERVAL
-import com.aitech.weartak_civ.DEFAULT_ONNX_GUNSHOT_TRIGGER_THRESHOLD_PERCENT
 import com.aitech.weartak_civ.DEFAULT_ONNX_UAS_TRIGGER_THRESHOLD_PERCENT
 import com.aitech.weartak_civ.DEFAULT_RESTING_HR
 import com.aitech.weartak_civ.DEFAULT_STATIONARY_REPORTING_INTERVAL
@@ -219,7 +218,6 @@ import com.aitech.weartak_civ.DEFAULT_ENABLE_HEART_RATE_SERVICE
 import com.aitech.weartak_civ.DEFAULT_ENABLE_HIGH_ATM_PRESSURE_ALERT
 import com.aitech.weartak_civ.DEFAULT_ENABLE_LOCATION_SERVICE
 import com.aitech.weartak_civ.DEFAULT_ENABLE_MULTICAST_ON_WIFI
-import com.aitech.weartak_civ.DEFAULT_ENABLE_ONNX_GUNSHOT
 import com.aitech.weartak_civ.DEFAULT_ENABLE_ONNX_UAS
 import com.aitech.weartak_civ.DEFAULT_ENABLE_PHYSIOLOGICAL_ALERTS
 import com.aitech.weartak_civ.DEFAULT_ENABLE_PHYSIOLOGICAL_SERVICES
@@ -326,8 +324,6 @@ class MainActivity : ComponentActivity() {
         )
         var enableLocationService : Boolean =  DEFAULT_ENABLE_LOCATION_SERVICE
         var enableBetaFeatures : Boolean = DEFAULT_ENABLE_BETA_FEATURES
-        var enableOnnxGunshotService : Boolean = DEFAULT_ENABLE_ONNX_GUNSHOT
-        var onnxGunshotTriggerThresholdPercent : Int = DEFAULT_ONNX_GUNSHOT_TRIGGER_THRESHOLD_PERCENT
         var enableOnnxUasService : Boolean = DEFAULT_ENABLE_ONNX_UAS
         var onnxUasTriggerThresholdPercent : Int = DEFAULT_ONNX_UAS_TRIGGER_THRESHOLD_PERCENT
         var enableBleBeaconService : Boolean = DEFAULT_ENABLE_BLE_BEACON_SERVICE
@@ -812,8 +808,6 @@ class MainActivity : ComponentActivity() {
             bloodhoundProximityRadiusMeters = dataRepository.getBloodhoundProximityRadiusMeters.first()
             bloodhoundProximityIntensity = dataRepository.getBloodhoundProximityIntensity.first()
             enableBetaFeatures             = dataRepository.getEnableBetaFeatures.first()
-            enableOnnxGunshotService       = dataRepository.getEnableOnnxGunshotService.first()
-            onnxGunshotTriggerThresholdPercent = dataRepository.getOnnxGunshotTriggerThresholdPercent.first()
             enableOnnxUasService           = dataRepository.getEnableOnnxUasService.first()
             onnxUasTriggerThresholdPercent = dataRepository.getOnnxUasTriggerThresholdPercent.first()
 

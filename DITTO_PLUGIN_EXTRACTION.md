@@ -48,7 +48,10 @@ mirror. Approved branch `aegorsuch-weartak-313-ditto-plugin-extraction` exists
 in the local plugin worktree; scaffold changes are uncommitted. No vendor
 material was uploaded; the public mirror remains untouched.
 
-## Current ownership
+## Historical ownership before extraction
+
+This section and subsequent inventory and migration discussions describe the
+former bundled implementation, not current Core ownership.
 
 - **SDK and identity:** `app/build.gradle` pins `live.ditto:ditto:4.14.6`.
   Release CI supplies `DITTO_COMMUNITY_IDENTITY`; `DittoCommunityLicenseHelper`

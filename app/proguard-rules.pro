@@ -20,9 +20,7 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# For Ditto
--keep class live.ditto.internal.swig.ffi.** { *; }
--keep class live.ditto.** { *; }
+# For Jackson
 -keepnames class com.fasterxml.jackson.** { *; }
 
 # For Gson

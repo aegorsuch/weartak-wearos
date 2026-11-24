@@ -111,7 +111,6 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.enableHighAtmP
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.enableImmersionAlerts
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.enableLowAtmPressureAlert
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.enableMulticastOnWifi
-import com.aitech.weartak_civ.presentation.MainActivity.Constants.enableOnnxGunshotService
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.enableOnnxUasService
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.enablePhysiologicalAlerts
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.enablePhysiologicalServices
@@ -137,7 +136,6 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.multicastAddre
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.multicastPort
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.multicastProtocol
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.onFootReportingInterval
-import com.aitech.weartak_civ.presentation.MainActivity.Constants.onnxGunshotTriggerThresholdPercent
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.onnxUasTriggerThresholdPercent
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.restingHrHighAlertBpmThreshold
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.restingHrLowAlertBpmThreshold
@@ -1790,7 +1788,6 @@ fun displaySitxGroupDialog(
     fun storeEnableOnnxGunshotService(enableOnnxGunshot: Boolean) {
         viewModelScope.launch {
             dataRepository.storeEnableOnnxGunshotService(enableOnnxGunshot)
-            enableOnnxGunshotService = enableOnnxGunshot
         }
     }
 
@@ -1804,7 +1801,6 @@ fun displaySitxGroupDialog(
     fun storeOnnxGunshotTriggerThresholdPercent(thresholdPercent: Int) {
         viewModelScope.launch {
             dataRepository.storeOnnxGunshotTriggerThresholdPercent(thresholdPercent)
-            onnxGunshotTriggerThresholdPercent = thresholdPercent
         }
     }
 
