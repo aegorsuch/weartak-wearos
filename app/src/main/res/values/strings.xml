@@ -1173,6 +1173,11 @@
     <string name="app_diagnostics_logs">Logs</string>
     <string name="app_diagnostics_description">Records bounded, private WearTAK event metadata on this watch. Stays on until switched off, even when developer menus are hidden. No automatic uploads or extra GPS or sensor requests.</string>
     <string name="app_diagnostics_export">Export logs</string>
+    <string name="position_log">Position logging</string>
+    <string name="position_log_description">Records device ID and location on this watch. Delivery status is unknown; export contains sensitive location history.</string>
+    <string name="position_log_export">Export positions</string>
+    <string name="position_log_failed">Position log incomplete or unavailable. Check storage.</string>
+    <string name="position_log_exported_incomplete">Exported saved positions, but the log is incomplete.</string>
     <string name="app_diagnostics_clear">Clear logs</string>
     <string name="app_diagnostics_cleared">Logs cleared</string>
     <string name="app_diagnostics_exported">Export complete</string>

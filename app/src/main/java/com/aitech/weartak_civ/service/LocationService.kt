@@ -47,6 +47,7 @@ import com.aitech.weartak_civ.events.LocationUpdateRequired
 import com.aitech.weartak_civ.events.PowerManagerEvent
 import com.aitech.weartak_civ.events.PliRefreshReason
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.dataRepository
+import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.service.ActivityRecognitionService.Companion.ActivityRecognized
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -615,7 +616,11 @@ class LocationService : Service() {
         }
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                if (listeners[kind] === this) completeFix(location)
+                if (listeners[kind] === this) {
+                    (application as? com.aitech.weartak_civ.WearTakApplication)
+                        ?.positionLog?.record(MainActivity.device_uid, location)
+                    completeFix(location)
+                }
             }
 
             override fun onProviderDisabled(provider: String) {
@@ -631,7 +636,11 @@ class LocationService : Service() {
         }
         val fusedCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                if (fusedCallbacks[kind] === this) result.lastLocation?.let(::completeFix)
+                if (fusedCallbacks[kind] === this) {
+                    val log = (application as? com.aitech.weartak_civ.WearTakApplication)?.positionLog
+                    result.locations.forEach { log?.record(MainActivity.device_uid, it) }
+                    result.lastLocation?.let(::completeFix)
+                }
             }
         }
         fixConsumers[kind] = { location ->
