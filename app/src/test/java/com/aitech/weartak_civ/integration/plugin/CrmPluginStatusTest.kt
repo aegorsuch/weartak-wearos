@@ -10,6 +10,7 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import android.os.Bundle
+import com.aitech.weartak_civ.data.CrmThresholdRanges
 import com.weartak.plugin.sdk.model.SensorEventParcel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -74,5 +75,24 @@ class CrmPluginStatusTest {
         assertTrue(store.publish(owner, event(), now))
         assertTrue(store.publish(owner, event(sequence = 1, status = "IDLE", value = null, enabled = false), now))
         assertEquals(CrmPluginStatus("IDLE", null, false, now), store.status.value)
+    }
+
+    @Test fun settingsRequireMigratedValidCanonicalThresholds() {
+        val values = Bundle().apply {
+            putBoolean("crm_legacy_migration_complete", true)
+            putBoolean("enable_crm", true)
+            putDouble("crm_poor_max", 33.0)
+            putDouble("crm_moderate_max", 66.0)
+        }
+        assertEquals(CrmPluginSettings(true, CrmThresholdRanges(33, 66)), crmPluginSettings(values))
+        values.putBoolean("crm_legacy_migration_complete", false)
+        assertNull(crmPluginSettings(values))
+        values.putBoolean("crm_legacy_migration_complete", true)
+        values.putDouble("crm_poor_max", 33.5)
+        assertNull(crmPluginSettings(values))
+        values.putDouble("crm_poor_max", Double.NaN)
+        assertNull(crmPluginSettings(values))
+        values.putDouble("crm_poor_max", 66.0)
+        assertNull(crmPluginSettings(values))
     }
 }

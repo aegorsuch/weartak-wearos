@@ -19,7 +19,6 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.data.CrmDataRepository.CrmSamplingState
-import com.aitech.weartak_civ.service.CrmInferenceService
 import com.aitech.weartak_civ.service.PpgSampleDelivery
 import com.aitech.weartak_civ.service.RawPpgSample
 import com.aitech.weartak_civ.service.SkinTempService
@@ -44,6 +43,7 @@ internal class PpgHostV1Impl(
     private val app: WearTakApplication,
     private val expectedUid: Int,
     private val isSessionActive: () -> Boolean,
+    private val authorize: () -> Boolean,
     private val callerUid: () -> Int = { Binder.getCallingUid() },
 ) : IPpgHostV1.Stub() {
     private val lock = Any()
@@ -53,7 +53,7 @@ internal class PpgHostV1Impl(
     private var closed = false
 
     override fun subscribe(subscriptionId: String?, callback: IPpgCallbackV1?): Int {
-        if (callerUid() != expectedUid) return PpgContractV1.UNAUTHORIZED
+        if (callerUid() != expectedUid || !authorize()) return PpgContractV1.UNAUTHORIZED
         if (subscriptionId.isNullOrBlank() ||
             subscriptionId.length > PpgContractV1.MAX_SUBSCRIPTION_ID_CHARS ||
             callback == null
@@ -62,7 +62,7 @@ internal class PpgHostV1Impl(
 
         synchronized(lock) {
             if (closed || !isSessionActive()) return PpgContractV1.INACTIVE_SESSION
-            if (active != null || CrmInferenceService.isRunning.get()) return PpgContractV1.BUSY
+            if (active != null) return PpgContractV1.BUSY
             val subscription = Subscription(subscriptionId, callback)
             if (!PpgSampleDelivery.acquire(subscription)) return PpgContractV1.BUSY
             try {
@@ -110,7 +110,7 @@ internal class PpgHostV1Impl(
     }
 
     override fun unsubscribe(subscriptionId: String?): Int {
-        if (callerUid() != expectedUid) return PpgContractV1.UNAUTHORIZED
+        if (callerUid() != expectedUid || !authorize()) return PpgContractV1.UNAUTHORIZED
         if (subscriptionId.isNullOrBlank() ||
             subscriptionId.length > PpgContractV1.MAX_SUBSCRIPTION_ID_CHARS
         ) return PpgContractV1.INVALID_REQUEST
@@ -137,6 +137,7 @@ internal class PpgHostV1Impl(
     ) : PpgSampleDelivery.Consumer {
         val queue = Channel<Frame>(QUEUE_CAPACITY)
         val terminal = AtomicBoolean(false)
+        val stopPosted = AtomicBoolean(false)
         val death = IBinder.DeathRecipient { stop(this) }
         var deliveryJob: Job? = null
         var stateJob: Job? = null
@@ -208,11 +209,11 @@ internal class PpgHostV1Impl(
 
     private fun fail(subscription: Subscription, reason: String) {
         if (!subscription.terminal.compareAndSet(false, true)) return
-        PpgSampleDelivery.release(subscription)
         subscription.stateJob?.cancel()
         synchronized(lock) {
             if (active !== subscription) return
             postStop(subscription)
+            PpgSampleDelivery.release(subscription)
         }
         while (subscription.queue.tryReceive().isSuccess) { }
         subscription.queue.trySend(Frame.Failure(reason))
@@ -224,8 +225,8 @@ internal class PpgHostV1Impl(
             if (active !== subscription) return
             active = null
             subscription.terminal.set(true)
-            PpgSampleDelivery.release(subscription)
             postStop(subscription)
+            PpgSampleDelivery.release(subscription)
         }
         try {
             subscription.callback.asBinder().unlinkToDeath(subscription.death, 0)
@@ -238,6 +239,7 @@ internal class PpgHostV1Impl(
     }
 
     private fun postStop(subscription: Subscription) {
+        if (!subscription.stopPosted.compareAndSet(false, true)) return
         mainHandler.post {
             if (subscription.startIssued) {
                 try {

@@ -17,7 +17,6 @@ internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
     BATDOK(R.drawable.batdok),
     COMMANDS(R.drawable.ic_commands_megaphone),
     COMPANION(R.drawable.weartak_companion_plugin),
-    CRM(R.drawable.ic_plugin_gauge),
     DART(R.drawable.ic_integration_certus),
     DATA_SYNC(R.drawable.ic_data_sync),
     DITTO(R.drawable.ic_integration_ditto),

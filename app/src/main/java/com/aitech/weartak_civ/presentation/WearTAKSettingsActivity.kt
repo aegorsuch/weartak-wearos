@@ -499,8 +499,6 @@ fun WearTAKSettingsNav(
     val gunshotTriggerThreshold by settingsVm.savedOnnxGunshotTriggerThresholdPercent.collectAsState()
     val enableUasDetection by settingsVm.savedEnableOnnxUasService.collectAsState()
     val uasTriggerThreshold by settingsVm.savedOnnxUasTriggerThresholdPercent.collectAsState()
-    val crmThresholdValues by settingsVm.savedCrmThresholdRanges.collectAsState()
-    val enableCrm by settingsVm.savedEnableCrmService.collectAsState()
     val wearTakInfo by settingsVm.wearTakInfo.collectAsState()
 
     LaunchedEffect(phoneManagedSettings, networkPreferencesLocked) {
@@ -3215,7 +3213,6 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.BATDOK, stringResource(R.string.batdok)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMMANDS, stringResource(R.string.chat_commands)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMPANION, stringResource(R.string.companion_app)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, stringResource(R.string.gunshot_detection)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, stringResource(R.string.data_sync)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, stringResource(R.string.esri)),
@@ -3369,17 +3366,6 @@ fun WearTAKSettingsNav(
                                                 showPopup.value = true
                                             }
                                         },
-                                    )
-                                }
-                                BuiltInPlugin.CRM -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = stringResource(R.string.unfunded_request),
-                                        checked = enableCrm,
-                                        onCheckedChange = { settingsVm.storeEnableCrmService(it) },
-                                        onClick = { navController.navigate("crm_thresholds") }
                                     )
                                 }
                                 BuiltInPlugin.ESRI -> {
@@ -3790,61 +3776,6 @@ fun WearTAKSettingsNav(
                 minimum = 0,
                 context = context,
                 confirmFunction = { settingsVm.storeOnnxUasTriggerThresholdPercent(it)}
-            )
-        }
-
-        composable("crm_thresholds") {
-            WearTAKPageWithBackArrow(
-                "CRM Thresholds",
-                columnContent = {
-                    item {
-                        Chip(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { context.startActivity(Intent(context, CrmReserveActivity::class.java)) },
-                            label = { Text(stringResource(R.string.crm_reserve)) })
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "poor_max_crm_threshold",
-                            title = "Poor Maximum",
-                            state = crmThresholdValues.poorMax,
-                            navController = navController,
-                            formatState = { value -> "${value ?: 0}%" }
-                        )
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "moderate_max_crm_threshold",
-                            title = "Moderate Maximum",
-                            state = crmThresholdValues.moderateMax,
-                            navController = navController,
-                            formatState = { value -> "${value ?: 0}%" }
-                        )
-                    }
-                },
-                navController,
-            )
-        }
-        composable("poor_max_crm_threshold"){
-            WearTAKIntEntryPage(
-                navController = navController,
-                item = crmThresholdValues.poorMax,
-                label = "Poor Maximum",
-                maximum = 100,
-                minimum = 0,
-                context = context,
-                confirmFunction = { settingsVm.storeCrmThresholdRanges(it, crmThresholdValues.moderateMax,)}
-            )
-        }
-        composable("moderate_max_crm_threshold"){
-            WearTAKIntEntryPage(
-                navController = navController,
-                item = crmThresholdValues.moderateMax,
-                label = "Moderate Maximum",
-                maximum = 100,
-                minimum = 0,
-                context = context,
-                confirmFunction = { settingsVm.storeCrmThresholdRanges(crmThresholdValues.poorMax, it)}
             )
         }
 

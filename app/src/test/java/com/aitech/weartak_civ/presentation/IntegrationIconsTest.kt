@@ -26,7 +26,6 @@ class IntegrationIconsTest {
         BuiltInPlugin.BATDOK to R.drawable.batdok,
         BuiltInPlugin.COMMANDS to R.drawable.ic_commands_megaphone,
         BuiltInPlugin.COMPANION to R.drawable.weartak_companion_plugin,
-        BuiltInPlugin.CRM to R.drawable.ic_plugin_gauge,
         BuiltInPlugin.SENSOR_MANAGER to R.drawable.ic_sensor_manager,
         BuiltInPlugin.SOMEWEAR_LABS to R.drawable.ic_integration_somewear,
         BuiltInPlugin.EVERYWHERE_COMMS to R.drawable.ic_integration_everywhere,

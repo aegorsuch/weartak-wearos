@@ -9,6 +9,8 @@
 
 package com.aitech.weartak_civ.integration.plugin
 
+import android.os.Bundle
+import com.aitech.weartak_civ.data.CrmThresholdRanges
 import com.weartak.plugin.sdk.model.SensorEventParcel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +21,20 @@ internal data class CrmPluginStatus(
     val enabled: Boolean,
     val updatedAtMillis: Long,
 )
+
+internal data class CrmPluginSettings(val enabled: Boolean, val thresholds: CrmThresholdRanges)
+
+internal fun crmPluginSettings(values: Bundle): CrmPluginSettings? {
+    val migrated = values.get("crm_legacy_migration_complete") as? Boolean ?: return null
+    val enabled = values.get("enable_crm") as? Boolean ?: return null
+    val poor = values.get("crm_poor_max") as? Double ?: return null
+    val moderate = values.get("crm_moderate_max") as? Double ?: return null
+    if (!migrated || !poor.isFinite() || !moderate.isFinite() ||
+        poor !in 0.0..98.0 || moderate !in 1.0..100.0 ||
+        poor % 1.0 != 0.0 || moderate % 1.0 != 0.0 || poor >= moderate
+    ) return null
+    return CrmPluginSettings(enabled, CrmThresholdRanges(poor.toInt(), moderate.toInt()))
+}
 
 internal class CrmPluginStatusStore {
     private val lock = Any()

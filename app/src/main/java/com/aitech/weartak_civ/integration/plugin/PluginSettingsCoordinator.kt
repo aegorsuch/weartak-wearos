@@ -40,6 +40,8 @@ class PluginSettingsCoordinator(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
     private val cache = ConcurrentHashMap<String, PluginSettingsState>()
+    private val crmSettingsState = MutableStateFlow<CrmPluginSettings?>(null)
+    internal val crmSettings = crmSettingsState.asStateFlow()
     private val pluginRefs = ConcurrentHashMap<String, IWearTakPlugin>()
     private val transportHosts = ConcurrentHashMap<String, PluginTransportHostV1Impl>()
     private val syncMutex = Mutex()
@@ -97,6 +99,7 @@ class PluginSettingsCoordinator(
         pluginRefs.remove(pluginId)
         transportHosts.remove(pluginId)
         cache.remove(pluginId)
+        if (pluginId == CRM_PLUGIN_PACKAGE) crmSettingsState.value = null
         mainUiChangeRevisionsState.update { it - pluginId }
         updateOutboundCotAvailability()
     }
@@ -984,6 +987,9 @@ class PluginSettingsCoordinator(
 
     private fun updateCache(pluginId: String, state: PluginSettingsState) {
         cache[pluginId] = state
+        if (pluginId == CRM_PLUGIN_PACKAGE) {
+            crmSettingsState.value = if (state.settingsSupported) crmPluginSettings(state.values) else null
+        }
         updateOutboundCotAvailability()
     }
 

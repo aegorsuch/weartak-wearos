@@ -25,7 +25,7 @@ class PluginMenuEntryTest {
             PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, "FALCON"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, "DART"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, "Data Sync"),
-            PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
+            installed("com.weartak.plugin.crm", "CRM"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, "Tablet Command"),
             PluginMenuEntry.Market("TAKwerx Market"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, "ESRI"),

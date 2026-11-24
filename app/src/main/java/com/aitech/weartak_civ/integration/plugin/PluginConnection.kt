@@ -26,6 +26,7 @@ import com.weartak.plugin.sdk.transport.TransportContract
 import com.weartak.plugin.sdk.v2.WearTakPluginV2Contract
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
 import com.weartak.plugin.sdk.openvpn.v1.OpenVpnHostContract
+import com.weartak.plugin.sdk.ppg.v1.PpgContractV1
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -80,6 +81,7 @@ class PluginConnection(
     @Volatile private var hostPointEndpoint: HostPointEndpointV1? = null
     @Volatile private var hostMoppControl: HostMoppPpeControl? = null
     @Volatile private var hostRouteStatusControl: HostRouteStatusControl? = null
+    @Volatile private var hostPpgV1: PpgHostV1Impl? = null
     @Volatile private var pluginOnlyPliProducer: PluginOnlyPliProducer? = null
     private var hostServicesV1: HostServicesV1Impl? = null
     @Volatile private var hostOpenVpnServicesV1: HostOpenVpnServicesV1Impl? = null
@@ -193,6 +195,7 @@ class PluginConnection(
         hostTransportV1?.closeBinding(TransportCloseReason.DISCONNECTED)
         hostOpenVpnServicesV1?.close()
         hostRouteStatusControl?.close()
+        hostPpgV1?.close()
         hostMoppControl?.close()
         sessionActive = false
         certificateImport?.close()
@@ -209,6 +212,7 @@ class PluginConnection(
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
+        hostPpgV1?.close()
         hostMoppControl?.close()
         PluginDiagnostics.recordBinderDeath(pluginPackage)
         manager.onConnectionDied(this)
@@ -536,8 +540,30 @@ class PluginConnection(
             bloodhounds = app.bhRepo,
             trafficAdmission = dittoTrafficAdmission,
         ) else null
+        val ppgHost = if (pluginPackage == CRM_PLUGIN_PACKAGE &&
+            api >= WearTakPluginV2Contract.CONTRACT_API_VERSION
+        ) PpgHostV1Impl(
+            app = app,
+            expectedUid = pluginUid,
+            isSessionActive = {
+                !closed && ready && trustVerified && pluginBinder === service && service.isBinderAlive &&
+                    manager.connectionFor(pluginPackage) === this
+            },
+            authorize = {
+                try {
+                    runBlocking {
+                        pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+                    }
+                    true
+                } catch (error: Exception) {
+                    Log.w(TAG, "PPG session authentication rejected pkg=$pluginPackage", error)
+                    false
+                }
+            },
+        ) else null
         synchronized(stateLock) {
             if (closed) {
+                ppgHost?.close()
                 pointEndpoint?.revoke()
                 revokeCertificateSessions()
                 routeStatusControl.close()
@@ -557,6 +583,7 @@ class PluginConnection(
             hostRouteStatusControl = routeStatusControl
             hostTransportV1 = transportV1
             hostPointEndpoint = pointEndpoint
+            hostPpgV1 = ppgHost
             manager.settingsCoordinator.registerTransportHost(pluginPackage, transportV1)
         }
 
@@ -579,6 +606,10 @@ class PluginConnection(
                 putBinder(RouteStatusContract.EXTRA_CONTROL, routeStatusControl)
                 putInt(TransportContract.EXTRA_VERSION, TransportContract.VERSION)
                 putBinder(TransportContract.EXTRA_CONTROL, transportV1.asBinderForInit())
+                if (ppgHost != null) {
+                    putInt(PpgContractV1.EXTRA_VERSION, PpgContractV1.VERSION)
+                    putBinder(PpgContractV1.EXTRA_CONTROL, ppgHost.asBinder())
+                }
                 if (pointEndpoint != null) {
                     putInt(PointContractV1.EXTRA_VERSION, PointContractV1.VERSION)
                     putBinder(PointContractV1.EXTRA_CONTROL, pointEndpoint.asBinder())
@@ -667,6 +698,7 @@ class PluginConnection(
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
+        hostPpgV1?.close()
         hostMoppControl?.close()
         Log.w(TAG, "onServiceDisconnected pkg=$pluginPackage")
         manager.onConnectionLost(this@PluginConnection)
@@ -682,6 +714,7 @@ class PluginConnection(
         hostOpenVpnServicesV1?.close()
         revokeCertificateSessions()
         hostRouteStatusControl?.close()
+        hostPpgV1?.close()
         hostMoppControl?.close()
         Log.w(TAG, "onBindingDied pkg=$pluginPackage")
         manager.onConnectionLost(this)
@@ -809,6 +842,8 @@ class PluginConnection(
             serverPackages = null
             hostRouteStatusControl?.close()
             hostRouteStatusControl = null
+            hostPpgV1?.close()
+            hostPpgV1 = null
             hostMoppControl?.close()
             hostMoppControl = null
             mainHandler.removeCallbacks(handshakeTimeout)

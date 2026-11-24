@@ -47,7 +47,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import com.aitech.weartak_civ.service.crm.CrmSessionCsvLogger
 import com.aitech.weartak_civ.service.BondedLocationDiagnostics
 import com.aitech.weartak_civ.service.AppDiagnostics
 import com.aitech.weartak_civ.service.BatteryPowerObserver
@@ -78,7 +77,6 @@ class WearTakApplication : Application() {
 
     lateinit var gunshotDetectionRepo: GunshotDetectionRepository; private set
     lateinit var uasOnnxRepo: UasOnnxRepository; private set
-    val crmCsvLogger: CrmSessionCsvLogger by lazy { CrmSessionCsvLogger(applicationContext) }
     val savedCustomAlerts: SavedCustomAlertsStore by lazy { SavedCustomAlertsStore(applicationContext) }
     val savedChatPresets: com.aitech.weartak_civ.data.SavedChatPresetsStore by lazy { com.aitech.weartak_civ.data.SavedChatPresetsStore(applicationContext) }
 
@@ -144,7 +142,7 @@ class WearTakApplication : Application() {
         capRepo = CompanionAppRepository(applicationContext)
         locationDiagnostics = BondedLocationDiagnostics(applicationContext)
         audioRepo = AudioCaptureRepository(applicationContext)
-        crmRepo = CrmDataRepository(repo)
+        crmRepo = CrmDataRepository()
         gunshotDetectionRepo = GunshotDetectionRepository(applicationContext)
         uasOnnxRepo = UasOnnxRepository(applicationContext)
         sitxRepo = SitxSecretsRepository(SitxEncryptedDataStore(applicationContext))
