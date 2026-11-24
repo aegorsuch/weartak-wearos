@@ -5,6 +5,8 @@ import com.aitech.weartak_civ.data.CrmDisplayState
 import com.aitech.weartak_civ.data.CrmInferenceState
 import com.aitech.weartak_civ.data.CrmInferenceStatus
 import com.aitech.weartak_civ.data.CrmThresholdRanges
+import com.aitech.weartak_civ.integration.plugin.CrmPluginSettings
+import com.aitech.weartak_civ.integration.plugin.CrmPluginStatus
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -47,6 +49,23 @@ class CrmHomeWarningTest {
         listOf(null, Float.NaN, Float.POSITIVE_INFINITY, -.1f, 1.1f).forEach {
             assertNull(warning(inference(25).copy(value = it)))
         }
+    }
+
+    @Test fun pluginStatusAndSettingsDriveWarningAndHonorConnectionLoss() {
+        val status = CrmPluginStatus("ACCEPTED", 0.25, true, now)
+        val settings = CrmPluginSettings(true, CrmThresholdRanges(20, 70))
+        fun warningFor(s: CrmPluginStatus?, config: CrmPluginSettings?, at: Long = now) =
+            crmHomeWarning(
+                crmPluginInference(s), config?.thresholds ?: thresholds,
+                crmPluginWarningEnabled(s, config), true, at,
+            )
+        assertEquals(CrmHomeWarning(25, CrmDisplayState.MODERATE), warningFor(status, settings))
+        assertNull(warningFor(null, settings))
+        assertNull(warningFor(status, null))
+        assertNull(warningFor(status.copy(enabled = false), settings))
+        assertNull(warningFor(status, settings.copy(enabled = false)))
+        assertNull(warningFor(status.copy(status = "ERROR", value = null), settings))
+        assertNull(warningFor(status, settings, now + 30_001))
     }
 
     @Test fun everyPriorityCombinationPreservesEmergencyAndRedStatusWithoutElevatingDitto() {

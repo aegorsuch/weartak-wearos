@@ -13,6 +13,8 @@ import android.util.Log
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.cep.engine.config.ParserException
 import com.aitech.weartak_civ.cep.plugin.PluginTrust
+import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
+import com.aitech.weartak_civ.service.ServiceConfiguration
 import com.weartak.plugin.sdk.WearTakPluginContract
 import com.weartak.plugin.sdk.host.v1.HostServicesContract
 import com.weartak.plugin.sdk.point.v1.PointContractV1
@@ -542,25 +544,32 @@ class PluginConnection(
         ) else null
         val ppgHost = if (pluginPackage == CRM_PLUGIN_PACKAGE &&
             api >= WearTakPluginV2Contract.CONTRACT_API_VERSION
-        ) PpgHostV1Impl(
-            app = app,
-            expectedUid = pluginUid,
-            isSessionActive = {
-                !closed && ready && trustVerified && pluginBinder === service && service.isBinderAlive &&
-                    manager.connectionFor(pluginPackage) === this
-            },
-            authorize = {
-                try {
-                    runBlocking {
-                        pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+        ) {
+            val serviceConfig = ServiceConfiguration(app, app.repo, app.audioRepo)
+            PpgHostV1Impl(
+                app = app,
+                expectedUid = pluginUid,
+                isSessionActive = {
+                    !closed && ready && trustVerified && pluginBinder === service && service.isBinderAlive &&
+                        manager.connectionFor(pluginPackage) === this
+                },
+                authorize = {
+                    try {
+                        runBlocking {
+                            pluginTrust.enforce(pluginPackage, pluginUid, ingress.packagesForUid(app, pluginUid))
+                        }
+                        true
+                    } catch (error: Exception) {
+                        Log.w(TAG, "PPG session authentication rejected pkg=$pluginPackage", error)
+                        false
                     }
-                    true
-                } catch (error: Exception) {
-                    Log.w(TAG, "PPG session authentication rejected pkg=$pluginPackage", error)
-                    false
-                }
-            },
-        ) else null
+                },
+                isSourceAllowed = {
+                    serviceConfig.isServiceAvailable(ServiceType.SKIN_TEMP) &&
+                        runBlocking { serviceConfig.getServiceEnabledFlow(ServiceType.SKIN_TEMP).first() }
+                },
+            )
+        } else null
         synchronized(stateLock) {
             if (closed) {
                 ppgHost?.close()

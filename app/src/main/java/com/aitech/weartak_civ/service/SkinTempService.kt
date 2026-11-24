@@ -191,6 +191,7 @@ class SkinTempService : Service() {
 
     private lateinit var handlerThread: HandlerThread
     private lateinit var backgroundHandler: Handler
+    private lateinit var ppgControlHandler: Handler
     private var isHandlerRunning = false
     private var deviceWorn: Boolean = false
     @Volatile private var isHrRunning = false
@@ -594,10 +595,18 @@ class SkinTempService : Service() {
             return
         }
 
-        backgroundHandler.post {
+        ppgControlHandler.post {
             if (!crmPpgSamplingRequested || destroyed) return@post
+            if (crmPpgSamplingActive) {
+                crmRepo.updateSamplingState(CrmSamplingState.SAMPLING)
+                return@post
+            }
             if (!deviceWorn) {
                 crmRepo.updateSamplingState(CrmSamplingState.NOT_WORN)
+                return@post
+            }
+            if (!ppgAvailable || ppgTracker == null || ppgTrackerType == null) {
+                crmRepo.updateSamplingState(CrmSamplingState.UNAVAILABLE)
                 return@post
             }
             if (measureState.get() != MeasurementState.IDLE) {
@@ -617,6 +626,10 @@ class SkinTempService : Service() {
             }
 
             if (started) {
+                if (!crmPpgSamplingRequested || destroyed || !deviceWorn) {
+                    stopPpgStreamOnDemand()
+                    return@post
+                }
                 crmPpgSamplingActive = true
 
                 crmRepo.updateSamplingState(CrmSamplingState.SAMPLING)
@@ -630,13 +643,12 @@ class SkinTempService : Service() {
     }
 
     private fun stopCrmPpgSampling() {
-        val wasCrmSamplingActive = crmPpgSamplingActive
-
         crmPpgSamplingRequested = false
-        crmPpgSamplingActive = false
 
-        backgroundHandler.post {
+        ppgControlHandler.post {
             try {
+                val wasCrmSamplingActive = crmPpgSamplingActive
+                crmPpgSamplingActive = false
                 if (
                     wasCrmSamplingActive &&
                     ppgTrackerType == HealthTrackerType.PPG_ON_DEMAND
@@ -644,7 +656,13 @@ class SkinTempService : Service() {
                     stopPpgStreamOnDemand()
                 }
 
-                crmRepo.updateSamplingState(CrmSamplingState.IDLE)
+                if (destroyed) {
+                    return@post
+                } else if (crmPpgSamplingRequested) {
+                    startCrmPpgSampling()
+                } else {
+                    crmRepo.updateSamplingState(CrmSamplingState.IDLE)
+                }
 
                 Log.i(
                     TAG,
@@ -1071,7 +1089,7 @@ class SkinTempService : Service() {
 
     private fun stopPpgTracker() {
         if (ppgTracker == null) return
-        backgroundHandler.post {
+        ppgControlHandler.post {
             try {
                 ppgTracker?.let { tracker -> DiagnosticResources.release(DiagnosticResource.SAMSUNG_PPG, tracker) { tracker.unsetEventListener() } }
                 ppgRunning = false
@@ -1382,6 +1400,7 @@ class SkinTempService : Service() {
         // Start a dedicated thread for handling callbacks
         handlerThread = HandlerThread("SkinTempThread").apply { start() }
         backgroundHandler = Handler(handlerThread.looper)
+        ppgControlHandler = Handler(handlerThread.looper)
 
         // Connect to the Samsung Health Tracking Service
         healthService = HealthTrackingService(connectionListener, applicationContext)

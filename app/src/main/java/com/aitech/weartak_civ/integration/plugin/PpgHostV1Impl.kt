@@ -44,6 +44,7 @@ internal class PpgHostV1Impl(
     private val expectedUid: Int,
     private val isSessionActive: () -> Boolean,
     private val authorize: () -> Boolean,
+    private val isSourceAllowed: () -> Boolean,
     private val callerUid: () -> Int = { Binder.getCallingUid() },
 ) : IPpgHostV1.Stub() {
     private val lock = Any()
@@ -59,6 +60,16 @@ internal class PpgHostV1Impl(
             callback == null
         ) return PpgContractV1.INVALID_REQUEST
         if (!isSessionActive()) return PpgContractV1.INACTIVE_SESSION
+        val sourceAllowed = try {
+            isSourceAllowed()
+        } catch (error: Exception) {
+            Log.e(TAG, "PPG source policy check failed", error)
+            false
+        }
+        if (!sourceAllowed) {
+            Log.w(TAG, "PPG source unavailable under current service policy")
+            return PpgContractV1.UNAVAILABLE
+        }
 
         synchronized(lock) {
             if (closed || !isSessionActive()) return PpgContractV1.INACTIVE_SESSION

@@ -50,7 +50,7 @@ android_host_regression:
       --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
       --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
       --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
-      --tests '*PluginSettingsCoordinatorTest' --tests '*CrmPluginStatusTest' --tests '*HostCallbackIngressRoutingTest' --tests '*PpgSampleDeliveryTest' --tests '*PpgHostV1ImplTest'
+      --tests '*PluginSettingsCoordinatorTest' --tests '*CrmPluginStatusTest' --tests '*CrmHomeWarningTest' --tests '*HostCallbackIngressRoutingTest' --tests '*PpgSampleDeliveryTest' --tests '*PpgHostV1ImplTest' --tests '*SkinTempSpo2StillnessTest'
       --tests '*Market*Test'
       --tests '*HostControlImplTest' --tests '*HostControlVerifyCallerTest'
       --tests '*PluginTransportHostV1ImplTest' --tests '*ChatServicePreferenceTest'

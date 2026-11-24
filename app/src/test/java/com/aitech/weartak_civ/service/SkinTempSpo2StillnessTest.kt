@@ -35,6 +35,7 @@ import java.time.Duration
 class SkinTempSpo2StillnessTest {
     private lateinit var service: SkinTempService
     private val handler = Handler(Looper.getMainLooper())
+    private val ppgControlHandler = Handler(Looper.getMainLooper())
     private val tracker = mockk<HealthTracker>(relaxed = true)
     private val ppg = mockk<HealthTracker>(relaxed = true)
     private val repo = mockk<DataRepository>(relaxed = true)
@@ -58,6 +59,7 @@ class SkinTempSpo2StillnessTest {
         every { CepProvider.getProfile(any()) } returns mockk(relaxed = true)
         service = Robolectric.buildService(SkinTempService::class.java).get()
         set("backgroundHandler", handler)
+        set("ppgControlHandler", ppgControlHandler)
         set("spo2Tracker", tracker)
         set("ppgTracker", ppg)
         set("ppgTrackerType", HealthTrackerType.PPG_CONTINUOUS)
@@ -68,7 +70,12 @@ class SkinTempSpo2StillnessTest {
     }
 
     @After fun cleanup() {
+        if (get("crmPpgSamplingActive") == true) {
+            crmAction("stopCrmPpgSampling")
+            drain()
+        }
         handler.removeCallbacksAndMessages(null)
+        ppgControlHandler.removeCallbacksAndMessages(null)
         (get("serviceScope") as CoroutineScope).cancel()
         unmockkObject(AppDiagnostics)
         unmockkObject(CepProvider)
@@ -87,6 +94,44 @@ class SkinTempSpo2StillnessTest {
     }
 
     private fun drain() = shadowOf(Looper.getMainLooper()).idle()
+
+    private fun crmAction(name: String) {
+        SkinTempService::class.java.getDeclaredMethod(name)
+            .apply { isAccessible = true }.invoke(service)
+    }
+
+    @Test fun crmStopBeforeQueuedStartDoesNotStartTracker() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        crmAction("startCrmPpgSampling")
+        crmAction("stopCrmPpgSampling")
+        drain()
+        verify { ppg wasNot Called }
+        assertEquals(false, get("crmPpgSamplingActive"))
+    }
+
+    @Test fun crmRapidStopAndRestartRetainsOnlyNewSamplingSession() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        crmAction("startCrmPpgSampling")
+        crmAction("stopCrmPpgSampling")
+        crmAction("startCrmPpgSampling")
+        drain()
+        verify(exactly = 2) { ppg.setEventListener(any()) }
+        verify(exactly = 1) { ppg.unsetEventListener() }
+        assertEquals(true, get("crmPpgSamplingRequested"))
+        assertEquals(true, get("crmPpgSamplingActive"))
+    }
+
+    @Test fun clearingSkinCallbacksDoesNotCancelCrmStart() {
+        set("ppgTrackerType", HealthTrackerType.PPG_ON_DEMAND)
+        set("ppgRunning", false)
+        crmAction("startCrmPpgSampling")
+        handler.removeCallbacksAndMessages(null)
+        drain()
+        verify(exactly = 1) { ppg.setEventListener(any()) }
+        assertEquals(true, get("crmPpgSamplingActive"))
+    }
 
     @Test fun confirmedMotionSkipsWithoutSpendingAttemptOrTouchingOpticalTrackersAndRetriesNextOpportunity() {
         motion.confirm(SystemClock.elapsedRealtimeNanos() + 60_000_000_000L, null)

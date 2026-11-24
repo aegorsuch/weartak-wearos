@@ -44,7 +44,8 @@ class PpgHostV1ImplTest {
     private fun host(uid: Int, active: () -> Boolean = { true }): PpgHostV1Impl {
         every { crm.samplingState } returns MutableStateFlow(CrmDataRepository.CrmSamplingState.IDLE)
         every { repo.latestDeviceWornObservation } returns MutableStateFlow(true)
-        return PpgHostV1Impl(app, expectedUid = 7, isSessionActive = active, authorize = { true }, callerUid = { uid })
+        return PpgHostV1Impl(app, expectedUid = 7, isSessionActive = active, authorize = { true },
+            isSourceAllowed = { true }, callerUid = { uid })
     }
 
     @Test
@@ -67,13 +68,26 @@ class PpgHostV1ImplTest {
         var trusted = true
         val host = PpgHostV1Impl(
             app, expectedUid = 7, isSessionActive = { true },
-            authorize = { trusted }, callerUid = { 7 },
+            authorize = { trusted }, isSourceAllowed = { true }, callerUid = { 7 },
         )
         val callback = RecordingCallback()
         try {
             trusted = false
             assertEquals(PpgContractV1.UNAUTHORIZED, host.subscribe("session", callback))
             assertEquals(PpgContractV1.UNAUTHORIZED, host.unsubscribe("session"))
+        } finally {
+            host.close()
+        }
+    }
+
+    @Test
+    fun rejectsSubscriptionWhenSourcePolicyDisallowsSampling() {
+        val host = PpgHostV1Impl(
+            app, expectedUid = 7, isSessionActive = { true },
+            authorize = { true }, isSourceAllowed = { false }, callerUid = { 7 },
+        )
+        try {
+            assertEquals(PpgContractV1.UNAVAILABLE, host.subscribe("session", RecordingCallback()))
         } finally {
             host.close()
         }
