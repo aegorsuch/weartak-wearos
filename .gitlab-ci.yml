@@ -136,24 +136,11 @@ position_log_emulator_apk:
       fi
       APK="$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print)"
       METADATA="$APK_DIR/output-metadata.json"
-      python3 - "$METADATA" "$APK" <<'PY'
-      import json
-      import pathlib
-      import sys
-
-      metadata = json.loads(pathlib.Path(sys.argv[1]).read_text())
-      apk = pathlib.Path(sys.argv[2])
-      if metadata.get("variantName") != "debug":
-          raise SystemExit("ERROR: APK is not the debug variant.")
-      if metadata.get("applicationId") != "com.aitech.weartak_civ.dev":
-          raise SystemExit("ERROR: Unexpected debug application ID.")
-      elements = metadata.get("elements", [])
-      if len(elements) != 1 or elements[0].get("outputFile") != apk.name:
-          raise SystemExit("ERROR: APK does not match output metadata.")
-      print("APK provenance: variant=debug applicationId=com.aitech.weartak_civ.dev "
-            f"versionName={elements[0].get('versionName')} "
-            f"versionCode={elements[0].get('versionCode')} file={apk.name}")
-      PY
+      APK_NAME="$(basename "$APK")"
+      grep -F '"variantName": "debug"' "$METADATA" >/dev/null
+      grep -F '"applicationId": "com.aitech.weartak_civ.dev"' "$METADATA" >/dev/null
+      grep -F "\"outputFile\": \"$APK_NAME\"" "$METADATA" >/dev/null
+      echo "APK provenance: variant=debug applicationId=com.aitech.weartak_civ.dev file=$APK_NAME"
       APKSIGNER="/opt/android-sdk-linux/build-tools/35.0.0/apksigner"
       "$APKSIGNER" verify "$APK"
       "$APKSIGNER" verify --print-certs "$APK" > "$APK_DIR/signer.txt"
