@@ -69,6 +69,9 @@ android_host_regression:
       --tests '*HostRouteStatusControlTest' --tests '*ConnectionStatusPreferencesTest'
       --tests '*HomeConnectionStatusTest' --tests '*ConnectionStatusPriorityUiTest'
       --tests '*DeveloperPreferencesOrderTest' --tests '*NetworkConnectivityIconsTest'
+      --tests '*NetworkChecklistPreferenceTest' --tests '*AppDiagnosticsTest' --tests '*PositionLogTest'
+      --tests '*DiagnosticsPackageTest' --tests '*TakDataPackageTest'
+      --tests '*PluginOnlyPliProducerTest' --tests '*StationaryLocationServiceTest'
       --tests '*HomeBloodhoundLayoutTest'
       --tests '*AccessibilitySemanticsTest' --tests '*ServerFormValidationTest'
       --tests '*ManualAlertListScreenTest' --tests '*CommandCallsignEntryUiTest'
@@ -92,6 +95,7 @@ android_host_regression:
       --tests '*SettingsImeInputConnectionTest' --tests '*ChatP12*Test'
       --tests '*CompanionWatchInfoTest' --tests '*CompanionSettingsChangedTest'
       --tests '*CotMessageParserTest' --tests '*CompanionPhoneUserRelayTest'
+      --tests '*StaleItemPolicyTest' --tests '*StaleItemExpiryTest' --tests '*CotArchiveDetailTest'
       :app:compileDebugAndroidTestKotlin :openvpn-plugin:compileDebugKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
     - sh ci/verify_host_services_aar.sh

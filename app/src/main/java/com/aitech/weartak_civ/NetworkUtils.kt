@@ -166,6 +166,10 @@ object NetworkUtils {
         }
 
         @Synchronized
+        fun sendPliWithResult(cotXml: String): Boolean =
+            send(cotXml, allowCompanionHandoffExpiry = false)
+
+        @Synchronized
         fun sendFinalExpiredSelfPli(cotXml: String): Boolean =
             send(cotXml, allowCompanionHandoffExpiry = true)
 

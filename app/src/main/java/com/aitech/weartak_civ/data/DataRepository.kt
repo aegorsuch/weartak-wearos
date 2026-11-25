@@ -2342,6 +2342,11 @@ class DataRepository(
     val clearManualAlert: SharedFlow<ClearRequest> = _clearManualAlert
 
     suspend fun addManualAlertRequest(alertState: AlertState, category: String, description: String, timeMillis: Long) {
+        if (alertState == AlertState.ALERT) {
+            com.aitech.weartak_civ.service.AppDiagnostics.record(
+                com.aitech.weartak_civ.service.DiagnosticEvent.SOS_TRIGGER,
+                mapOf(com.aitech.weartak_civ.service.DiagnosticMetric.START_MS to timeMillis))
+        }
         requestInteractionPliRefresh(if (alertState == AlertState.CANCEL) PliRefreshReason.MANUAL_ALERT_CLEARED else PliRefreshReason.MANUAL_ALERT_ACTIVATED)
         _addManualAlert.emit(ManualAlertRequest(alertState, category, description, timeMillis))
     }
@@ -2521,7 +2526,7 @@ class DataRepository(
     }
 
     suspend fun upsertReceivedUser(item: ReceivedUser): SourceCotUpsertResult =
-        receivedUserStore.upsertWithResult(item)
+        receivedUserStore.upsertWithResult(item).also { startStaleExpiry() }
 
     suspend fun removeReceivedUserByUid(uid: String) {
         receivedUserStore.removeUid(uid)
@@ -2590,6 +2595,7 @@ class DataRepository(
         val result = receivedUserStore.upsertWithResult(item,
             coalesce = event.detail.canCoalesceTrack(event.type, event.how, sourceServerId),
             deferrable = event.detail.isPassiveTrack(event.type, sourceServerId))
+        startStaleExpiry()
         Log.d(
             TAG,
             "Map state user upsert uid=${event.uid} sourceServerId=$sourceServerId sourceAddress=$source " +
@@ -2629,7 +2635,9 @@ class DataRepository(
         val receivedAt: Long = timeReceived,
         val circleRadiusMeters: Double? = null,
         val mapShape: CotMapShape? = null,
-        val isCamera: Boolean = false
+        val isCamera: Boolean = false,
+        /** Sent with `<archive/>`: kept past its stale time, as ATAK keeps archival items. */
+        val archived: Boolean = false
     )
 
     internal val markerIntentJournal = MarkerIntentJournal(markerJournalPreferences)
@@ -2768,7 +2776,7 @@ class DataRepository(
     }
 
     suspend fun upsertReceivedMarker(item: ReceivedMarker): SourceCotUpsertResult =
-        receivedMarkerStore.upsertWithResult(item)
+        receivedMarkerStore.upsertWithResult(item).also { startStaleExpiry() }
 
     internal suspend fun replaceImportedMapShapes(sourceId: String, shapes: List<ImportedMapShapeRecord>) {
         require(sourceId.startsWith("import:") && shapes.all { it.sourceId == sourceId }) {
@@ -3081,6 +3089,7 @@ class DataRepository(
             receivedAt = receivedAt,
             circleRadiusMeters = event.detail.circleRadiusMeters,
             mapShape = event.detail.mapShape,
+            archived = event.detail.archived,
             isCamera = event.detail.isCamera
         )
         val result = receivedMarkerStore.upsertWithResult(item,
@@ -3088,6 +3097,8 @@ class DataRepository(
         if (com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(event.type)) {
             pruneGenericMarkers(now)
             startGenericExpiry()
+        } else {
+            startStaleExpiry()
         }
         if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(
             TAG,
@@ -3111,7 +3122,7 @@ class DataRepository(
                     val keepRunning = synchronized(receivedMarkerStore) {
                         val hasGeneric = receivedMarkerStore.snapshot().values.any {
                             com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(it.markerType) &&
-                                it.source != "imported-map-shapes"
+                                it.source != "imported-map-shapes" && !it.archived
                         }
                         if (!hasGeneric) genericExpiryJob = null
                         hasGeneric
@@ -3129,10 +3140,55 @@ class DataRepository(
                     it.source != "imported-map-shapes"
             },
             expired = {
-                it.staleTime <= now ||
-                    (it.source != "imported-map-shapes" && now - it.receivedAt >= 15 * 60_000L)
+                !it.archived && (it.staleTime <= now ||
+                    (it.source != "imported-map-shapes" && now - it.receivedAt >= 15 * 60_000L))
             },
             maxCount = 512
+        ).forEach {
+            genericBloodhounds?.removeMarkerCopy(it.uid, it.sourceServerId, it.timeReceived, now)
+        }
+    }
+
+    private var staleExpiryJob: kotlinx.coroutines.Job? = null
+
+    /** Runs [pruneStaleItems] while any contact or marker could still go stale and be removed. */
+    private fun startStaleExpiry() = synchronized(receivedUserStore) {
+        if (staleExpiryJob?.isActive != true) {
+            staleExpiryJob = repoScope.launch {
+                while (true) {
+                    kotlinx.coroutines.delay(StaleItemPolicy.CHECK_INTERVAL_MS)
+                    markerIngressMutex.withLock { pruneStaleItems() }
+                    val keepRunning = synchronized(receivedUserStore) {
+                        val pending = receivedUserStore.snapshot().isNotEmpty() ||
+                            receivedMarkerStore.snapshot().values.any(::isStaleExpiryCandidate)
+                        if (!pending) staleExpiryJob = null
+                        pending
+                    }
+                    if (!keepRunning) break
+                }
+            }
+        }
+    }
+
+    /** Generic points keep their own expiry above; imported shapes and archived items never expire. */
+    private fun isStaleExpiryCandidate(marker: ReceivedMarker): Boolean =
+        !marker.archived && marker.source != "imported-map-shapes" &&
+            !com.aitech.weartak_civ.cot.CotMessageParser.isGenericMapType(marker.markerType)
+
+    /**
+     * Removes contacts and markers that have been stale for ATAK's clean-up time ([StaleItemPolicy]).
+     * Until then they stay on the map, drawn as stale.
+     */
+    fun pruneStaleItems(now: Long = System.currentTimeMillis()) {
+        receivedUserStore.pruneSelected(
+            selected = { true },
+            expired = { StaleItemPolicy.removeUser(it.staleTime, now) },
+            maxCount = Int.MAX_VALUE
+        )
+        receivedMarkerStore.pruneSelected(
+            selected = ::isStaleExpiryCandidate,
+            expired = { StaleItemPolicy.removeMarker(it.markerType, it.staleTime, it.archived, now) },
+            maxCount = Int.MAX_VALUE
         ).forEach {
             genericBloodhounds?.removeMarkerCopy(it.uid, it.sourceServerId, it.timeReceived, now)
         }

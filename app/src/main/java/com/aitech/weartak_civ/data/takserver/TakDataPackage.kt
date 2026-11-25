@@ -9,7 +9,10 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.MultipartBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.ByteArrayOutputStream
@@ -246,6 +249,39 @@ internal class TakDataPackageClient(
             .addPathSegments("Marti/sync/content")
             .addQueryParameter("hash", offer.sha256)
             .build()
+
+    fun upload(bytes: ByteArray, deviceUid: String): String {
+        require(peerUrl == null) { "Peer package uploads are not supported" }
+        require(bytes.isNotEmpty() && bytes.size <= MAX_DATA_PACKAGE_BYTES) { "Invalid package size" }
+        require(deviceUid.isNotBlank()) { "Missing device UID" }
+        val filename = "wear-tak-diagnostics.zip"
+        val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val url = HttpUrl.Builder().scheme("https").host(address).port(8443)
+            .addPathSegments("Marti/sync/missionupload")
+            .addQueryParameter("filename", filename)
+            .addQueryParameter("creatorUid", deviceUid)
+            .addQueryParameter("mimetype", "application/zip")
+            .addQueryParameter("hash", hash)
+            .build()
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("assetfile", filename, bytes.toRequestBody("application/zip".toMediaType()))
+            .build()
+        val request = Request.Builder().url(url).post(body).build()
+        (session?.route(client) ?: client).newCall(request).withSessionResponse(session) { response ->
+            if (!response.isSuccessful) throw IOException("Package upload HTTP ${response.code}")
+            val replyBytes = try {
+                response.body?.byteStream()?.use { it.readBounded(64 * 1024) }
+            } catch (error: IllegalArgumentException) {
+                throw IOException("Oversized package upload response", error)
+            }
+            val reply = replyBytes?.toString(Charsets.UTF_8)?.trim()?.toHttpUrlOrNull()
+                ?: throw IOException("Invalid package upload response")
+            if (reply.queryParameterValues("hash").singleOrNull()?.lowercase() != hash)
+                throw IOException("Package upload hash mismatch")
+        }
+        return hash
+    }
 
     fun downloadRoutes(offer: TakDataPackageRequest, serverId: String): List<TakRoute> {
         val request = Request.Builder().url(downloadUrl(offer)).get().build()

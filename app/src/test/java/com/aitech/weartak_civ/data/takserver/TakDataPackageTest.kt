@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -366,6 +367,35 @@ class TakDataPackageTest {
         assertThrows(IOException::class.java) {
             client(ByteArray(MAX_DATA_PACKAGE_BYTES + 1)).downloadRoutes(offer(bytes), "s")
         }
+    }
+
+    @Test fun uploadsOnlyToConfiguredServerAndRequiresMatchingResponseHash() {
+        val packageBytes = sample()
+        val expectedHash = hash(packageBytes)
+        fun uploadClient(replyHash: String, status: Int = 200) = TakDataPackageClient(
+            "configured.example",
+            OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    assertEquals("configured.example", request.url.host)
+                    assertEquals(8443, request.url.port)
+                    assertEquals("/Marti/sync/missionupload", request.url.encodedPath)
+                    assertEquals("watch-1", request.url.queryParameter("creatorUid"))
+                    assertEquals(expectedHash, request.url.queryParameter("hash"))
+                    val payload = Buffer()
+                    requireNotNull(request.body).writeTo(payload)
+                    val multipart = payload.readByteArray()
+                    assertTrue(multipart.toString(Charsets.ISO_8859_1).contains("name=\"assetfile\""))
+                    assertTrue(multipart.toList().windowed(packageBytes.size).any { it == packageBytes.toList() })
+                    Response.Builder().request(request).protocol(Protocol.HTTP_1_1)
+                        .code(status).message("test")
+                        .body("https://advertised.example/Marti/sync/content?hash=$replyHash"
+                            .toResponseBody("text/plain".toMediaType())).build()
+                }.build()
+        )
+        assertEquals(expectedHash, uploadClient(expectedHash).upload(packageBytes, "watch-1"))
+        assertThrows(IOException::class.java) { uploadClient("0".repeat(64)).upload(packageBytes, "watch-1") }
+        assertThrows(IOException::class.java) { uploadClient(expectedHash, 302).upload(packageBytes, "watch-1") }
     }
 
     @Test fun importsOptionalLocalCaptureWithoutKeepingItInTheRepository() {

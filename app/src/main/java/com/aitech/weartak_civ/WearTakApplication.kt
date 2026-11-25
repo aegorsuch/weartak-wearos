@@ -49,6 +49,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.aitech.weartak_civ.service.BondedLocationDiagnostics
 import com.aitech.weartak_civ.service.AppDiagnostics
+import com.aitech.weartak_civ.service.PositionLog
 import com.aitech.weartak_civ.service.BatteryPowerObserver
 import com.aitech.weartak_civ.service.ChargingStayAwake
 import com.aitech.weartak_civ.service.ChargingWirelessDebugging
@@ -70,6 +71,7 @@ class WearTakApplication : Application() {
     lateinit var capRepo: CompanionAppRepository; private set
     lateinit var locationDiagnostics: BondedLocationDiagnostics; private set
     lateinit var diagnostics: AppDiagnostics; private set
+    internal lateinit var positionLog: PositionLog; private set
     lateinit var sitxRepo: SitxSecretsRepository; private set
     lateinit var takServerRepo: TakServerSecretsRepository; private set
     lateinit var audioRepo: AudioCaptureRepository; private set
@@ -125,6 +127,7 @@ class WearTakApplication : Application() {
         com.aitech.weartak_civ.command.SensitiveEnrollment.purgeNotifications(this)
         com.aitech.weartak_civ.service.RoutineServiceNotification.reconcileProcessStart(this)
         diagnostics = AppDiagnostics.initialize(this)
+        positionLog = PositionLog(this)
         MainActivity.device_uid = "WEAROS_" + Secure.getString(this.getContentResolver(), Secure.ANDROID_ID)
         takServerRepo = TakServerSecretsRepository(TakServerEncryptedDataStore(applicationContext))
         repo = DataRepository(applicationContext)

@@ -22,6 +22,7 @@ data class CotOutboundMessage(
     val onDittoOffered: (() -> Unit)? = null,
     val excludeDittoPlugin: Boolean = false,
     val alertActivationId: String? = null,
+    val positionAttemptId: String? = null,
 )
 
 class CotEndpointDispatcher(
@@ -34,6 +35,10 @@ class CotEndpointDispatcher(
     private val sendPlugin: (xml: String) -> Unit = {},
     private val sendPluginWithoutDitto: (xml: String) -> Unit = sendPlugin,
     private val sendTrackedDitto: ((collection: String, xml: String, completion: (Boolean) -> Unit) -> Unit)? = null,
+    private val sendTrackedTakPli: ((message: CotOutboundMessage) -> Unit)? = null,
+    private val sendTrackedMulticastPli: ((message: CotOutboundMessage) -> Unit)? = null,
+    private val sendTrackedSitxPli: ((message: CotOutboundMessage) -> Unit)? = null,
+    private val sendTrackedPluginPli: ((message: CotOutboundMessage) -> Unit)? = null,
 ) {
     private val emergencyMutex = Mutex()
     /**
@@ -102,8 +107,10 @@ class CotEndpointDispatcher(
         routes.forEach { route ->
             deliver(message, route) {
                 when (route) {
-                    CotRoute.TAK -> sendTak(message.xml, message.kind != CotMessageKind.PLI)
-                    CotRoute.SITX -> sendSitx(message.xml)
+                    CotRoute.TAK -> if (message.kind == CotMessageKind.PLI && sendTrackedTakPli != null)
+                        sendTrackedTakPli.invoke(message) else sendTak(message.xml, message.kind != CotMessageKind.PLI)
+                    CotRoute.SITX -> if (message.kind == CotMessageKind.PLI && sendTrackedSitxPli != null)
+                        sendTrackedSitxPli.invoke(message) else sendSitx(message.xml)
                     CotRoute.DITTO -> {
                         message.onDittoOffered?.invoke()
                         val collection = if (message.kind == CotMessageKind.CHAT) "chat" else "mapitem"
@@ -115,13 +122,16 @@ class CotEndpointDispatcher(
                         }
                     }
                     CotRoute.MULTICAST -> if (message.kind == CotMessageKind.PLI) {
-                        sendPliMulticast(message.xml)
+                        if (sendTrackedMulticastPli != null) sendTrackedMulticastPli.invoke(message)
+                        else sendPliMulticast(message.xml)
                     } else {
                         sendMulticast(message.xml)
                     }
                     CotRoute.COMPANION -> sendCompanion(message.companionPayload)
-                    CotRoute.PLUGIN -> if (message.excludeDittoPlugin) sendPluginWithoutDitto(message.xml)
-                        else sendPlugin(message.xml)
+                    CotRoute.PLUGIN -> if (message.kind == CotMessageKind.PLI && sendTrackedPluginPli != null)
+                        sendTrackedPluginPli.invoke(message)
+                    else if (message.excludeDittoPlugin) sendPluginWithoutDitto(message.xml)
+                    else sendPlugin(message.xml)
                 }
                 true
             }

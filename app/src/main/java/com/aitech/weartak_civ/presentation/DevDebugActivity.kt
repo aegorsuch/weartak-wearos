@@ -64,6 +64,9 @@ import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.service.LocationDiagnosticSample
 import com.aitech.weartak_civ.service.AppDiagnostics
+import com.aitech.weartak_civ.service.DiagnosticsPackage
+import com.aitech.weartak_civ.service.TAKConnectService
+import com.aitech.weartak_civ.integration.plugin.PluginTakServer
 import com.aitech.weartak_civ.manager.NetworkManager
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.dataRepository
 import com.aitech.weartak_civ.presentation.theme.WearTAKCIVTheme
@@ -105,8 +108,8 @@ private data class DebugRow(
 )
 
 internal enum class DeveloperEntryId {
-    BUILD, DIAGNOSTICS, DIAGNOSTICS_LOGS, GIT, IP, LOCATION, PORT, QR, SSID, STAY_AWAKE, TRANSPORT, VERSION, VERSION_CODE,
-    WHILE_CHARGING, NETWORK_CHECKLIST, CONNECTION_PRIORITY, STAY_CONNECTED_OFF_WRIST
+    BUILD, DIAGNOSTICS, DIAGNOSTICS_LOGS, EXPORT_LOGS, GIT, IP, LOCATION, PORT, QR, SSID, STAY_AWAKE, TRANSPORT, VERSION, VERSION_CODE,
+    WHILE_CHARGING, NETWORK_CHECKLIST, CONNECTION_PRIORITY, STAY_CONNECTED_OFF_WRIST, POSITION_LOG, EXPORT_POSITIONS, EXPORT_PACKAGE, UPLOAD_PACKAGE
 }
 
 internal data class DeveloperEntry(val id: DeveloperEntryId, val label: String, val value: String = "")
@@ -160,12 +163,135 @@ private fun DebugScreen(
     var showLocationDiagnostics by remember { mutableStateOf(false) }
     var showAppDiagnostics by remember { mutableStateOf(false) }
     var showConnectionPriority by remember { mutableStateOf(false) }
+    var showPackageUpload by remember { mutableStateOf(false) }
+    var uploadServers by remember { mutableStateOf(emptyList<PluginTakServer>()) }
+    var uploadHash by remember { mutableStateOf<String?>(null) }
+    var uploadingPackage by remember { mutableStateOf(false) }
     var exportStatus by remember { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val appDiagnostics = (context.applicationContext as WearTakApplication).diagnostics
     val appDiagnosticsEnabled by appDiagnostics.enabled.collectAsStateWithLifecycle()
     val appDiagnosticsFailed by appDiagnostics.storageFailed.collectAsStateWithLifecycle()
+    val positionLog = (context.applicationContext as WearTakApplication).positionLog
+    val positionLogEnabled by positionLog.enabled.collectAsStateWithLifecycle()
+    val positionLogFailed by positionLog.storageFailed.collectAsStateWithLifecycle()
+    var exportingPackage by remember { mutableStateOf(false) }
+    val packageExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null && !exportingPackage) {
+            exportingPackage = true
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use {
+                            DiagnosticsPackage.write(it, positionLog, appDiagnostics)
+                        } ?: throw IOException("Cannot open diagnostics package destination")
+                    }
+                    Toast.makeText(context, if (positionLog.storageFailed.value)
+                        R.string.position_log_exported_incomplete else R.string.app_diagnostics_exported,
+                        Toast.LENGTH_LONG).show()
+                } catch (error: IOException) {
+                    android.util.Log.e("DevDebugActivity", "Could not export diagnostics package", error)
+                    Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
+                } catch (error: SecurityException) {
+                    android.util.Log.e("DevDebugActivity", "Could not export diagnostics package", error)
+                    Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
+                } finally {
+                    exportingPackage = false
+                }
+            }
+        }
+    }
+    fun exportPackage() {
+        if (exportingPackage) return
+        try {
+            packageExportLauncher.launch("wear-tak-diagnostics.zip")
+        } catch (error: android.content.ActivityNotFoundException) {
+            Toast.makeText(context, R.string.app_diagnostics_no_picker, Toast.LENGTH_LONG).show()
+        } catch (error: SecurityException) {
+            android.util.Log.e("DevDebugActivity", "Could not launch diagnostics package export", error)
+            Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
+        }
+    }
+    var exportingPositions by remember { mutableStateOf(false) }
+    val positionsExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null && !exportingPositions) {
+            exportingPositions = true
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use {
+                            positionLog.export(it)
+                        } ?: throw IOException("Cannot open position log destination")
+                    }
+                    Toast.makeText(context, if (positionLog.storageFailed.value)
+                        R.string.position_log_exported_incomplete else R.string.app_diagnostics_exported,
+                        Toast.LENGTH_LONG).show()
+                } catch (error: IOException) {
+                    android.util.Log.e("DevDebugActivity", "Could not export position log", error)
+                    Toast.makeText(context, R.string.position_log_failed, Toast.LENGTH_LONG).show()
+                } catch (error: SecurityException) {
+                    android.util.Log.e("DevDebugActivity", "Could not export position log", error)
+                    Toast.makeText(context, R.string.position_log_failed, Toast.LENGTH_LONG).show()
+                } finally {
+                    exportingPositions = false
+                }
+            }
+        }
+    }
+    fun exportPositions() {
+        if (exportingPositions) return
+        try {
+            positionsExportLauncher.launch("wear-tak-positions.csv")
+        } catch (error: android.content.ActivityNotFoundException) {
+            Toast.makeText(context, R.string.app_diagnostics_no_picker, Toast.LENGTH_LONG).show()
+        } catch (error: SecurityException) {
+            android.util.Log.e("DevDebugActivity", "Could not launch position export", error)
+            Toast.makeText(context, R.string.position_log_failed, Toast.LENGTH_LONG).show()
+        }
+    }
+    var exportingLogs by remember { mutableStateOf(false) }
+    val logsExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null && !exportingLogs) {
+            exportingLogs = true
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val json = appDiagnostics.exportJson()
+                        context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(json.toByteArray(Charsets.UTF_8))
+                        } ?: throw IOException("Cannot open diagnostics destination")
+                    }
+                    Toast.makeText(context, R.string.app_diagnostics_exported, Toast.LENGTH_LONG).show()
+                } catch (error: IOException) {
+                    android.util.Log.e("DevDebugActivity", "Could not export diagnostics", error)
+                    Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
+                } catch (error: SecurityException) {
+                    android.util.Log.e("DevDebugActivity", "Could not export diagnostics", error)
+                    Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
+                } finally {
+                    exportingLogs = false
+                }
+            }
+        }
+    }
+    fun exportLogs() {
+        if (exportingLogs) return
+        try {
+            logsExportLauncher.launch("wear-tak-diagnostics.json")
+        } catch (error: android.content.ActivityNotFoundException) {
+            Toast.makeText(context, R.string.app_diagnostics_no_picker, Toast.LENGTH_LONG).show()
+        } catch (error: SecurityException) {
+            android.util.Log.e("DevDebugActivity", "Could not launch diagnostics export", error)
+            Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
+        }
+    }
     val checklistEnabled by dataRepository.networkPreferencesChecklistEnabled.collectAsStateWithLifecycle(initialValue = false)
     val stayConnectedOffWrist by dataRepository.stayConnectedOffWrist.collectAsStateWithLifecycle(initialValue = false)
     val connectionPriority by dataRepository.connectionStatusPreferences.priority
@@ -186,6 +312,10 @@ private fun DebugScreen(
     LaunchedEffect(appDiagnosticsFailed) {
         if (appDiagnosticsFailed)
             Toast.makeText(context, R.string.app_diagnostics_failed, Toast.LENGTH_LONG).show()
+    }
+    LaunchedEffect(positionLogFailed) {
+        if (positionLogFailed)
+            Toast.makeText(context, R.string.position_log_failed, Toast.LENGTH_LONG).show()
     }
     val diagnosticsEnabled by dataRepository.getBondedLocationDiagnosticsEnabled.collectAsState(initial = false)
     val diagnostics = (context.applicationContext as WearTakApplication).locationDiagnostics
@@ -229,7 +359,9 @@ private fun DebugScreen(
     )
 
     fun navigateBack() {
-        if (showConnectionPriority) {
+        if (showPackageUpload) {
+            showPackageUpload = false
+        } else if (showConnectionPriority) {
             showConnectionPriority = false
         } else if (showAppDiagnostics) {
             showAppDiagnostics = false
@@ -250,7 +382,41 @@ private fun DebugScreen(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            if (showConnectionPriority) {
+            if (showPackageUpload) {
+                DiagnosticsUploadPage(
+                    servers = uploadServers,
+                    uploading = uploadingPackage,
+                    hash = uploadHash,
+                    incomplete = positionLogFailed,
+                    onBack = { showPackageUpload = false },
+                    onUpload = { serverId ->
+                        if (!uploadingPackage) {
+                            uploadingPackage = true
+                            uploadHash = null
+                            scope.launch {
+                                try {
+                                    val hash = withContext(Dispatchers.IO) {
+                                        val bytes = DiagnosticsPackage.bytes(positionLog, appDiagnostics)
+                                        TAKConnectService.uploadDiagnosticsPackage(serverId, bytes)
+                                    }
+                                    uploadHash = hash
+                                } catch (error: IOException) {
+                                    android.util.Log.e("DevDebugActivity", "Diagnostics package upload failed", error)
+                                    Toast.makeText(context, R.string.diagnostics_package_upload_failed, Toast.LENGTH_LONG).show()
+                                } catch (error: SecurityException) {
+                                    android.util.Log.e("DevDebugActivity", "Diagnostics package upload failed", error)
+                                    Toast.makeText(context, R.string.diagnostics_package_upload_failed, Toast.LENGTH_LONG).show()
+                                } catch (error: IllegalArgumentException) {
+                                    android.util.Log.e("DevDebugActivity", "Diagnostics package upload rejected", error)
+                                    Toast.makeText(context, R.string.diagnostics_package_upload_failed, Toast.LENGTH_LONG).show()
+                                } finally {
+                                    uploadingPackage = false
+                                }
+                            }
+                        }
+                    }
+                )
+            } else if (showConnectionPriority) {
                 ConnectionStatusPriorityPage(
                     priority = connectionPriority,
                     pluginRoutes = plugins.filter { it.isLoaded }.flatMap { plugin ->
@@ -267,6 +433,8 @@ private fun DebugScreen(
             } else if (showAppDiagnostics) {
                 AppDiagnosticsPage(
                     diagnostics = appDiagnostics,
+                    onExport = ::exportLogs,
+                    exporting = exportingLogs,
                     onBack = { showAppDiagnostics = false }
                 )
             } else if (showLocationDiagnostics) {
@@ -300,6 +468,32 @@ private fun DebugScreen(
                     },
                     onShowLocationDiagnostics = { showLocationDiagnostics = true },
                     onShowDiagnostics = { showAppDiagnostics = true },
+                    onExportLogs = ::exportLogs,
+                    exportingLogs = exportingLogs,
+                    exportingPackage = exportingPackage,
+                    onExportPackage = ::exportPackage,
+                    onShowPackageUpload = {
+                        uploadServers = TAKConnectService.pluginRestServers()
+                        uploadHash = null
+                        showPackageUpload = true
+                    },
+                    positionLogEnabled = positionLogEnabled,
+                    positionLogFailed = positionLogFailed,
+                    exportingPositions = exportingPositions,
+                    onExportPositions = ::exportPositions,
+                    onPositionLogEnabledChange = { enabled ->
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) { positionLog.setEnabled(enabled) }
+                            } catch (error: IOException) {
+                                android.util.Log.e("DevDebugActivity", "Could not save position log preference", error)
+                                Toast.makeText(context, R.string.position_log_failed, Toast.LENGTH_LONG).show()
+                            } catch (error: SecurityException) {
+                                android.util.Log.e("DevDebugActivity", "Could not save position log preference", error)
+                                Toast.makeText(context, R.string.position_log_failed, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
                     onShowConnectionPriority = { showConnectionPriority = true },
                     diagnosticsEnabled = appDiagnosticsEnabled,
                     networkChecklistEnabled = checklistEnabled,
@@ -348,6 +542,16 @@ internal fun DebugInformationPage(
     onShowQrCode: () -> Unit,
     onShowLocationDiagnostics: () -> Unit,
     onShowDiagnostics: () -> Unit = {},
+    onExportLogs: () -> Unit = {},
+    exportingLogs: Boolean = false,
+    exportingPackage: Boolean = false,
+    onExportPackage: () -> Unit = {},
+    onShowPackageUpload: () -> Unit = {},
+    positionLogEnabled: Boolean = false,
+    positionLogFailed: Boolean = false,
+    exportingPositions: Boolean = false,
+    onExportPositions: () -> Unit = {},
+    onPositionLogEnabledChange: (Boolean) -> Unit = {},
     diagnosticsEnabled: Boolean = false,
     onDiagnosticsEnabledChange: (Boolean) -> Unit = {},
     networkChecklistEnabled: Boolean = false,
@@ -362,6 +566,11 @@ internal fun DebugInformationPage(
         DeveloperEntry(DeveloperEntryId.NETWORK_CHECKLIST, stringResource(R.string.network_preferences_checklist)),
         DeveloperEntry(DeveloperEntryId.CONNECTION_PRIORITY, stringResource(R.string.connection_status_priority)),
         DeveloperEntry(DeveloperEntryId.DIAGNOSTICS_LOGS, stringResource(R.string.app_diagnostics_logs)),
+        DeveloperEntry(DeveloperEntryId.EXPORT_LOGS, stringResource(R.string.app_diagnostics_export)),
+        DeveloperEntry(DeveloperEntryId.EXPORT_PACKAGE, stringResource(R.string.diagnostics_package_export)),
+        DeveloperEntry(DeveloperEntryId.UPLOAD_PACKAGE, stringResource(R.string.diagnostics_package_upload)),
+        DeveloperEntry(DeveloperEntryId.POSITION_LOG, stringResource(R.string.position_log)),
+        DeveloperEntry(DeveloperEntryId.EXPORT_POSITIONS, stringResource(R.string.position_log_export)),
         DeveloperEntry(DeveloperEntryId.GIT, stringResource(R.string.debug_git), "${debugInfo.gitBranch}@${debugInfo.gitCommit}"),
         DeveloperEntry(DeveloperEntryId.IP, stringResource(R.string.debug_ip), debugInfo.ipAddress),
         DeveloperEntry(DeveloperEntryId.LOCATION, stringResource(R.string.companion_location_diagnostics)),
@@ -417,16 +626,34 @@ internal fun DebugInformationPage(
                     checkedLive = diagnosticsEnabled,
                     onCheckedChange = onDiagnosticsEnabledChange
                 )
-                DeveloperEntryId.DIAGNOSTICS_LOGS, DeveloperEntryId.LOCATION, DeveloperEntryId.QR,
+                DeveloperEntryId.POSITION_LOG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    WearTAKToggleChip(
+                        title = entry.label,
+                        checkedLive = positionLogEnabled,
+                        onCheckedChange = onPositionLogEnabledChange
+                    )
+                    Text(stringResource(R.string.position_log_description), textAlign = TextAlign.Center, fontSize = 10.sp)
+                    if (positionLogFailed) Text(stringResource(R.string.position_log_failed),
+                        textAlign = TextAlign.Center, fontSize = 10.sp)
+                }
+                DeveloperEntryId.DIAGNOSTICS_LOGS, DeveloperEntryId.EXPORT_LOGS, DeveloperEntryId.EXPORT_POSITIONS,
+                DeveloperEntryId.EXPORT_PACKAGE, DeveloperEntryId.UPLOAD_PACKAGE, DeveloperEntryId.LOCATION, DeveloperEntryId.QR,
                 DeveloperEntryId.CONNECTION_PRIORITY ->
                     Button(
                         onClick = when (entry.id) {
                             DeveloperEntryId.DIAGNOSTICS_LOGS -> onShowDiagnostics
+                            DeveloperEntryId.EXPORT_LOGS -> onExportLogs
+                            DeveloperEntryId.EXPORT_PACKAGE -> onExportPackage
+                            DeveloperEntryId.UPLOAD_PACKAGE -> onShowPackageUpload
+                            DeveloperEntryId.EXPORT_POSITIONS -> onExportPositions
                             DeveloperEntryId.LOCATION -> onShowLocationDiagnostics
                             DeveloperEntryId.CONNECTION_PRIORITY -> onShowConnectionPriority
                             else -> onShowQrCode
                         },
-                        enabled = entry.id != DeveloperEntryId.QR || debugInfo.canShowQrCode,
+                        enabled = (entry.id != DeveloperEntryId.QR || debugInfo.canShowQrCode) &&
+                            (entry.id != DeveloperEntryId.EXPORT_LOGS || !exportingLogs) &&
+                            (entry.id != DeveloperEntryId.EXPORT_PACKAGE || !exportingPackage) &&
+                            (entry.id != DeveloperEntryId.EXPORT_POSITIONS || !exportingPositions),
                         modifier = Modifier.size(width = 148.dp, height = 48.dp)
                     ) { Text(entry.label, textAlign = TextAlign.Center, fontSize = 11.sp) }
                 else -> DebugInformationRow(DebugRow(entry.label, entry.value))
@@ -439,14 +666,62 @@ internal fun DebugInformationPage(
 }
 
 @Composable
-private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) {
+private fun DiagnosticsUploadPage(
+    servers: List<PluginTakServer>,
+    uploading: Boolean,
+    hash: String?,
+    incomplete: Boolean,
+    onBack: () -> Unit,
+    onUpload: (String) -> Unit
+) {
+    val context = LocalContext.current
+    ScalingLazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 40.dp, bottom = 26.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        item { Text(stringResource(R.string.diagnostics_package_upload_warning), fontSize = 11.sp,
+            textAlign = TextAlign.Center) }
+        if (incomplete) item { Text(stringResource(R.string.position_log_failed), fontSize = 11.sp,
+            textAlign = TextAlign.Center) }
+        if (servers.isEmpty()) item { Text(stringResource(R.string.diagnostics_package_no_server),
+            fontSize = 11.sp, textAlign = TextAlign.Center) }
+        items(servers, key = { it.id }) { server ->
+            Button(onClick = { onUpload(server.id) }, enabled = !uploading,
+                modifier = Modifier.size(width = 148.dp, height = 48.dp)) {
+                Text(stringResource(R.string.diagnostics_package_upload_server, server.name),
+                    fontSize = 11.sp, textAlign = TextAlign.Center)
+            }
+        }
+        if (uploading) item { Text(stringResource(R.string.diagnostics_package_uploading), fontSize = 11.sp) }
+        if (hash != null) {
+            item { Text(stringResource(R.string.diagnostics_package_uploaded), fontSize = 11.sp,
+                textAlign = TextAlign.Center) }
+            item { Text(hash, fontSize = 10.sp, textAlign = TextAlign.Center) }
+            item {
+                Button(onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("SHA-256", hash))
+                    Toast.makeText(context, R.string.diagnostics_package_hash_copied, Toast.LENGTH_SHORT).show()
+                }, modifier = Modifier.size(width = 148.dp, height = 48.dp)) {
+                    Text(stringResource(R.string.diagnostics_package_copy_hash), fontSize = 11.sp)
+                }
+            }
+        }
+        item { WearTAKBackButton(onClick = onBack) }
+    }
+}
+
+@Composable
+private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onExport: () -> Unit, exporting: Boolean, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val failed by diagnostics.storageFailed.collectAsState()
     var statusResource by remember { mutableStateOf<Int?>(null) }
     val status = statusResource?.let { stringResource(it) }.orEmpty()
     val failedMessage = stringResource(R.string.app_diagnostics_failed)
-    val noPickerMessage = stringResource(R.string.app_diagnostics_no_picker)
     var busy by remember { mutableStateOf(false) }
     fun action(success: Int, exclusive: Boolean = true, block: suspend () -> Unit) {
         if (exclusive && busy) return
@@ -466,14 +741,6 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
             }
         }
     }
-    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) action(R.string.app_diagnostics_exported) {
-            val json = diagnostics.exportJson()
-            context.contentResolver.openOutputStream(uri)?.use {
-                it.write(json.toByteArray(Charsets.UTF_8))
-            } ?: throw IOException("Cannot open diagnostics destination")
-        }
-    }
     ScalingLazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 40.dp, bottom = 26.dp),
@@ -489,22 +756,12 @@ private fun AppDiagnosticsPage(diagnostics: AppDiagnostics, onBack: () -> Unit) 
                 fontSize = 11.sp, textAlign = TextAlign.Center)
         }
         item {
-            Button(onClick = {
-                try {
-                    export.launch("wear-tak-diagnostics.json")
-                } catch (error: android.content.ActivityNotFoundException) {
-                    statusResource = R.string.app_diagnostics_no_picker
-                    Toast.makeText(context, noPickerMessage, Toast.LENGTH_LONG).show()
-                } catch (error: SecurityException) {
-                    statusResource = R.string.app_diagnostics_failed
-                    Toast.makeText(context, failedMessage, Toast.LENGTH_LONG).show()
-                }
-            }, enabled = !busy, modifier = Modifier.size(width = 148.dp, height = 48.dp)) {
+            Button(onClick = onExport, enabled = !busy && !exporting, modifier = Modifier.size(width = 148.dp, height = 48.dp)) {
                 Text(stringResource(R.string.app_diagnostics_export), textAlign = TextAlign.Center, fontSize = 11.sp)
             }
         }
         item {
-            Button(onClick = { action(R.string.app_diagnostics_cleared) { diagnostics.clear() } }, enabled = !busy,
+            Button(onClick = { action(R.string.app_diagnostics_cleared) { diagnostics.clear() } }, enabled = !busy && !exporting,
                 modifier = Modifier.size(width = 148.dp, height = 48.dp)) {
                 Text(stringResource(R.string.app_diagnostics_clear), textAlign = TextAlign.Center, fontSize = 11.sp)
             }
