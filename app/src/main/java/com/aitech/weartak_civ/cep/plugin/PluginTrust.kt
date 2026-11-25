@@ -67,6 +67,20 @@ class PluginTrust(
         }
     }
 
+    /**
+     * Whether this exact package is installed under its UID with the approved Product Center
+     * signer. Unlike [enforce], this never falls back to the first-use certificate pin.
+     */
+    internal fun isApprovedHailSigner(
+        pluginId: String,
+        senderUid: Int,
+        senderPackages: Set<String>,
+    ): Boolean {
+        if (pluginId != HAIL_PLUGIN_PACKAGE || pluginId !in senderPackages) return false
+        val (packageUid, digests) = packageSigners(pluginId)
+        return packageUid == senderUid && isApprovedHailSigner(pluginId, digests)
+    }
+
     private fun packageSigners(packageName: String): Pair<Int?, List<String>> {
         val pm = context.packageManager
         val pkg: PackageInfo = if (Build.VERSION.SDK_INT >= 33) {
@@ -85,8 +99,12 @@ class PluginTrust(
     }
 
     internal companion object {
+        const val HAIL_PLUGIN_PACKAGE = "com.weartak.plugin.hail"
         private const val PRODUCT_CENTER_SIGNER =
             "1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
+
+        fun isApprovedHailSigner(pluginId: String, digests: List<String>): Boolean =
+            pluginId == HAIL_PLUGIN_PACKAGE && digests == listOf(PRODUCT_CENTER_SIGNER)
 
         fun resolveCertificatePin(pluginId: String, digests: List<String>, pinned: String?): String {
             val digest = digests.firstOrNull()

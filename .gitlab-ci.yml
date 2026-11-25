@@ -38,6 +38,7 @@ android_host_regression:
       --tests '*HostMoppPpeControlTest' --tests '*CompanionSelfStatusTest'
       --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
       --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest' --tests '*PluginTrustSenderBindingTest' --tests '*HostCommunityIdentityControlTest' --tests '*DittoPdlModeTest' --tests '*DittoMeshPermissionsTest'
+      --tests '*LegacyHailMigrationTest' --tests '*ManagedHailPolicyCacheTest' --tests '*HailMigrationExtrasTest' --tests '*PliDetailRegistryTest' --tests '*PliDetailXmlTest'
       --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
       --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
@@ -91,7 +92,7 @@ android_host_regression:
       --tests '*SettingsImeInputConnectionTest' --tests '*ChatP12*Test'
       --tests '*CompanionWatchInfoTest' --tests '*CompanionSettingsChangedTest'
       --tests '*CotMessageParserTest' --tests '*CompanionPhoneUserRelayTest'
-      :app:compileDebugAndroidTestKotlin
+      :app:compileDebugAndroidTestKotlin :openvpn-plugin:compileDebugKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
     - sh ci/verify_host_services_aar.sh
   artifacts:
@@ -109,6 +110,7 @@ android_host_regression:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-alert-point-feedback" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-310-hail-core-removal" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-333-remove-core-crm" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 

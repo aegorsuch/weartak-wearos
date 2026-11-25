@@ -3,6 +3,7 @@ package com.aitech.weartak_civ.cot
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.integration.plugin.HandlerExertion
 import com.aitech.weartak_civ.service.LegacyPliPayloadBuilder
+import com.aitech.weartak_civ.service.HailPliDetailSelector
 import com.aitech.weartak_civ.service.BatteryPowerObserver.DockType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -15,6 +16,26 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.xml.sax.InputSource
 
 class CotMessageBuilderTest {
+    @Test fun pliUsesOnlyNativeHailUntilPluginCutoverIsVerified() {
+        for (nativeDetail in listOf("<__hail>native</__hail>", "")) {
+            var nativeCalls = 0
+            var pluginCalls = 0
+            val detail = HailPliDetailSelector.select(
+                native = { nativeCalls++; nativeDetail },
+                plugin = { pluginCalls++; "<__hail>plugin</__hail>" },
+            )
+            val xml = CotMessageBuilder.pli(pliSnapshot(),
+                CotMessageBuilder.PliOptions("EAGLE", "Medic", "Blue", false, detail))
+            val event = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(InputSource(StringReader(xml))).documentElement
+            val hail = event.getElementsByTagName("__hail")
+            assertEquals(1, nativeCalls)
+            assertEquals(0, pluginCalls)
+            assertEquals(if (nativeDetail.isEmpty()) 0 else 1, hail.length)
+            if (nativeDetail.isNotEmpty()) assertEquals("native", hail.item(0).textContent)
+        }
+    }
+
     @Test fun handlerOverrideChangesOnlyOutboundExertion() {
         val native = pliSnapshot().copy(monitoredPhysio = physio().data)
         val replaced = HandlerExertion.pli(native, 0.75)

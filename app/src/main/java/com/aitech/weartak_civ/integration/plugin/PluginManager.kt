@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -51,6 +52,7 @@ open class PluginManager(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connections = ConcurrentHashMap<String, PluginConnection>()
+    private val hailPliDetails = PliDetailRegistry()
     private val audioDetectionClaimOwners = ConcurrentHashMap<String, PluginConnection>()
     private val audioDetectionDelegatesState = MutableStateFlow<Set<String>>(emptySet())
     val audioDetectionDelegates = audioDetectionDelegatesState.asStateFlow()
@@ -198,6 +200,20 @@ open class PluginManager(
             detachPackage(pkg)
         }
     }
+
+    internal fun registerHailPliDetails(
+        owner: Any,
+        isActive: () -> Boolean,
+        build: (Bundle) -> Bundle,
+    ): PliDetailRegistry.Registration =
+        hailPliDetails.register(owner, listOf(HAIL_PLI_DETAIL_TAG), isActive, build)
+
+    internal fun unregisterHailPliDetails(owner: Any) {
+        hailPliDetails.unregister(owner)
+    }
+
+    internal fun buildHailPliDetails(snapshot: Bundle): String =
+        hailPliDetails.build(snapshot)
 
     internal open fun onConnectionDied(conn: PluginConnection) {
         onConnectionLost(conn)
@@ -589,6 +605,7 @@ open class PluginManager(
     }
 
     companion object {
+        private const val HAIL_PLI_DETAIL_TAG = "__hail"
         private const val TAG = "CEP-PluginManager"
     }
 }

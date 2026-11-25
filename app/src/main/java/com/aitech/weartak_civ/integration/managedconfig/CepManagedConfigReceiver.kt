@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.aitech.weartak_civ.WearTakApplication
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -27,6 +28,7 @@ class CepManagedConfigReceiver : BroadcastReceiver() {
         }
         Log.i(TAG, "ACTION_APPLICATION_RESTRICTIONS_CHANGED received; enqueuing apply worker")
 
+        (context.applicationContext as WearTakApplication).repo.refreshManagedHailServicePolicy()
         val req = OneTimeWorkRequestBuilder<ManagedConfigApplyWorker>().build()
         WorkManager.getInstance(context.applicationContext)
             .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.REPLACE, req)

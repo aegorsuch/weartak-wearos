@@ -8,5 +8,7 @@
     "inventory": "ci/plugin-sdk-transport/overlay-source.sha256",
     "source_sha256": "a818af15b3328b817b972e2fe81d9585cb54e9a952a0ec8e13936ee5987ee6a6"
   },
-  "release_sha256": {}
+  "release_sha256": {
+    "linux": "ae2d54ee9a6cfb99f28f4045098eef36c35e86ce7262556d24b4a1531ae7e3ca"
+  }
 }

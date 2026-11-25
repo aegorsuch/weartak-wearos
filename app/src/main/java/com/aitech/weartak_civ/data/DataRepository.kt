@@ -15,6 +15,7 @@ import com.aitech.weartak_civ.service.AppDiagnostics
 import com.aitech.weartak_civ.service.ProcessingStage
 
 import android.content.Context
+import android.content.RestrictionsManager
 import android.annotation.SuppressLint
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
@@ -147,6 +148,7 @@ import com.aitech.weartak_civ.service.HailService
 import com.aitech.weartak_civ.service.HailService.HailLicenseStates
 import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.integration.managedconfig.ManagedHailPolicyCache
 import com.aitech.weartak_civ.data.secure.takserver.TakServerSecretsRepository
 import com.aitech.weartak_civ.data.secure.crypto.EncryptedSerializer.DecryptResult
 import com.aitech.weartak_civ.data.model.TakServerChannels
@@ -1106,6 +1108,46 @@ class DataRepository(
 
     val getEnableHailService: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[ENABLE_HAIL_SERVICE] ?: DEFAULT_ENABLE_HAIL_SERVICE
+    }
+
+    data class ManagedHailServicePolicy(
+        val loaded: Boolean,
+        val enabled: Boolean?,
+    )
+
+    private val managedHailPolicyCache = ManagedHailPolicyCache(repoScope) {
+        val manager = context.getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager
+            ?: throw IllegalStateException("RestrictionsManager unavailable")
+        manager.applicationRestrictions ?: throw IllegalStateException("Application restrictions unavailable")
+    }
+    val managedHailServicePolicy: StateFlow<ManagedHailServicePolicy> = managedHailPolicyCache.policy
+
+    fun refreshManagedHailServicePolicy() = managedHailPolicyCache.refresh()
+
+    internal data class LegacyHailMigration(
+        val id: String,
+        val enabled: Boolean,
+        val combatId: Int?,
+    )
+
+    internal suspend fun legacyHailMigration(): LegacyHailMigration {
+        val preferences = context.dataStore.edit { prefs ->
+            if (prefs[HAIL_MIGRATION_ID] == null) {
+                prefs[HAIL_MIGRATION_ID] = UUID.randomUUID().toString()
+            }
+        }
+        val id = checkNotNull(preferences[HAIL_MIGRATION_ID])
+        val parsedId = try {
+            UUID.fromString(id)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalStateException("Invalid HAIL migration identifier", error)
+        }
+        check(parsedId.toString() == id) { "Invalid HAIL migration identifier" }
+        return LegacyHailMigration(
+            id = id,
+            enabled = preferences[ENABLE_HAIL_SERVICE] ?: DEFAULT_ENABLE_HAIL_SERVICE,
+            combatId = preferences[HAIL_COMBAT_ID],
+        )
     }
 
     suspend fun storeEnableBatdokCot(enable: Boolean) {
@@ -6963,6 +7005,7 @@ class DataRepository(
         private val HAIL_LICENSE_INFO_JSON = stringPreferencesKey("hail_license_info_json_v1") // include suffix for forward-compat
         private val HAIL_LICENSE_STATE = stringPreferencesKey("hail_license_state")
         private val HAIL_COMBAT_ID = intPreferencesKey("hail_combat_id")
+        private val HAIL_MIGRATION_ID = stringPreferencesKey("hail_migration_id_v1")
         private val WIFI_SSID_LIST_KEY = stringPreferencesKey("wifi_ssid_list")
         private val TAK_SERVER_LIST_KEY = stringPreferencesKey("tak_server_list")
         private val ENABLE_BLE_BEACON_SERVICE = booleanPreferencesKey("enable_ble_beacon_service")

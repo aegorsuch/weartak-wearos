@@ -1,6 +1,8 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import android.content.ComponentName
+import android.content.Context
+import android.content.RestrictionsManager
 import android.content.pm.PackageManager
 import android.content.ServiceConnection
 import android.os.Bundle
@@ -29,6 +31,7 @@ import com.weartak.plugin.sdk.v2.WearTakPluginV2Contract
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
 import com.weartak.plugin.sdk.openvpn.v1.OpenVpnHostContract
 import com.weartak.plugin.sdk.ppg.v1.PpgContractV1
+import com.weartak.plugin.sdk.pli.v1.PliDetailContractV1
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -90,6 +93,8 @@ class PluginConnection(
     private val stateLock = Any()
     @Volatile private var closed = false
     @Volatile private var trustVerified = false
+    @Volatile private var hailDataEligible = false
+    @Volatile private var hailMigrationReady = false
     @Volatile private var ready = false
     internal val hasVerifiedTrust: Boolean get() = trustVerified && !closed
     private val dittoPdlModeState = DittoPdlModeState()
@@ -102,6 +107,50 @@ class PluginConnection(
             pluginBinder?.isBinderAlive == true && manager.connectionFor(pluginPackage) === this &&
             hostTransportV1?.isActiveGeneralDittoTransport() == true &&
             manager.settingsCoordinator.pluginHasSettingEnabled(pluginPackage, PluginCotEgress.SETTING_FORWARD_OUTBOUND_COT)
+    }
+
+    internal fun buildHailPliDetails(snapshot: Bundle, policyCode: Int): String =
+        if (isHailPliProviderActive()) {
+            manager.buildHailPliDetails(Bundle(snapshot).apply {
+                putInt(HailMigrationExtras.POLICY_SNAPSHOT, policyCode)
+            })
+        } else ""
+
+    private fun managedHailPolicyCurrent(expected: Int): Boolean {
+        val restrictions = try {
+            (app.getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager)
+                ?.applicationRestrictions
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "HAIL managed policy unavailable", error)
+            null
+        }
+        return restrictions != null &&
+            HailMigrationExtras.policyMatches(restrictions, app.repo.managedHailServicePolicy.value, expected)
+    }
+
+    private fun buildVerifiedHailPliDetails(iface: IWearTakPlugin, snapshot: Bundle): Bundle {
+        val expected = snapshot.getInt(HailMigrationExtras.POLICY_SNAPSHOT, -1)
+        snapshot.remove(HailMigrationExtras.POLICY_SNAPSHOT)
+        if (managedHailPolicyCurrent(expected) && isHailPliProviderActive()) {
+            val result = iface.buildPliDetails(snapshot)
+            if (managedHailPolicyCurrent(expected) && isHailPliProviderActive()) return result
+        }
+        Log.w(TAG, "HAIL PLI disabled: managed policy unavailable or changed")
+        return Bundle().apply { putInt(PliDetailContractV1.KEY_STATUS, PliDetailContractV1.DISABLED) }
+    }
+
+    private fun isHailPliProviderActive(): Boolean {
+        if (pluginPackage != HailMigrationExtras.PACKAGE || !hailDataEligible || !hailMigrationReady || !trustVerified ||
+            !ready || closed || pluginBinder?.isBinderAlive != true ||
+            manager.connectionFor(pluginPackage) !== this || !manager.isEnabled(pluginPackage)
+        ) return false
+        val policy = app.repo.managedHailServicePolicy.value
+        if (!policy.loaded) return false
+        return when (policy.enabled) {
+            false -> false
+            true -> true
+            null -> manager.settingsCoordinator.pluginHasSettingEnabled(pluginPackage, HAIL_ENABLED_SETTING)
+        }
     }
 
     internal suspend fun submitDittoCoT(
@@ -190,6 +239,8 @@ class PluginConnection(
 
     private val deathRecipient = IBinder.DeathRecipient {
         ready = false
+        hailMigrationReady = false
+        manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
@@ -345,6 +396,23 @@ class PluginConnection(
             return
         }
         trustVerified = true
+        if (pluginPackage == HailMigrationExtras.PACKAGE) {
+            hailDataEligible = try {
+                pluginTrust.isApprovedHailSigner(pluginPackage, pluginUid, senderPackages)
+            } catch (error: PackageManager.NameNotFoundException) {
+                Log.w(TAG, "HAIL data integration disabled: package signer unavailable")
+                false
+            } catch (error: SecurityException) {
+                Log.w(TAG, "HAIL data integration disabled: signer access denied")
+                false
+            } catch (error: ParserException) {
+                Log.w(TAG, "HAIL data integration disabled: signer verification failed")
+                false
+            }
+            if (!hailDataEligible) {
+                Log.w(TAG, "HAIL data integration disabled: approved signer mismatch")
+            }
+        }
 
         val pluginOnlyProfile = pluginPackage == TrustedCommunityPlugin.PACKAGE && pluginOnlyEnabled()
         dittoUsesPluginOnlyLifecycle = pluginOnlyProfile
@@ -596,11 +664,25 @@ class PluginConnection(
             manager.settingsCoordinator.registerTransportHost(pluginPackage, transportV1)
         }
 
+        val hailMigration = if (HailMigrationExtras.eligible(pluginPackage, hailDataEligible)) {
+            try {
+                runBlocking { app.repo.legacyHailMigration() }
+            } catch (error: Exception) {
+                Log.e(TAG, "HAIL migration failed; plugin PLI data disabled: ${error.javaClass.simpleName}")
+                null
+            }
+        } else null
+        hailMigrationReady = hailMigration != null
+        if (closed) return
         val init = PluginInitParcel(
             hostPackageName = app.packageName,
             hostUid = android.os.Process.myUid(),
             pluginIdExpected = pluginPackage,
             hostExtras = android.os.Bundle().apply {
+                if (hailMigration != null) {
+                    HailMigrationExtras.putInto(this, hailMigration)
+                    putInt(PliDetailContractV1.EXTRA_VERSION, PliDetailContractV1.VERSION)
+                }
                 putInt(com.weartak.plugin.sdk.MainUiActionContract.HOST_PRESENTATION_VERSION_KEY,
                     com.weartak.plugin.sdk.MainUiActionContract.PRESENTATION_VERSION)
                 putInt(HostServicesContract.EXTRA_VERSION, HostServicesContract.VERSION)
@@ -675,6 +757,20 @@ class PluginConnection(
         mainHandler.post {
             if (!closed && manager.onConnectionReady(this)) {
                 ready = true
+                if (pluginPackage == HailMigrationExtras.PACKAGE && hailDataEligible && hailMigrationReady) {
+                    val registration = manager.registerHailPliDetails(
+                        owner = this,
+                        isActive = ::isHailPliProviderActive,
+                        build = { snapshot -> buildVerifiedHailPliDetails(iface, snapshot) },
+                    )
+                    if (registration != PliDetailRegistry.Registration.REGISTERED) {
+                        Log.w(TAG, "HAIL PLI provider registration rejected: $registration")
+                    } else if (closed || !ready || pluginBinder?.isBinderAlive != true ||
+                        manager.connectionFor(pluginPackage) !== this
+                    ) {
+                        manager.unregisterHailPliDetails(this)
+                    }
+                }
                 if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.activate(this)
                 mainHandler.removeCallbacks(handshakeTimeout)
                 PluginDiagnostics.markConnected(pluginPackage)
@@ -699,6 +795,8 @@ class PluginConnection(
 
     override fun onServiceDisconnected(name: ComponentName?) {
         ready = false
+        hailMigrationReady = false
+        manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
@@ -715,6 +813,8 @@ class PluginConnection(
 
     override fun onBindingDied(name: ComponentName?) {
         ready = false
+        hailMigrationReady = false
+        manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
@@ -814,6 +914,8 @@ class PluginConnection(
         afterRemoteCleanup: (() -> Unit)? = null,
     ) {
         ready = false
+        hailMigrationReady = false
+        manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
@@ -1027,6 +1129,7 @@ class PluginConnection(
     }
 
     companion object {
+        private const val HAIL_ENABLED_SETTING = "enable_hail"
         private const val TAG = "CEP-PluginConnection"
         private const val CRM_PLUGIN_PACKAGE = "com.weartak.plugin.crm"
         private const val HANDSHAKE_TIMEOUT_MS = 10_000L

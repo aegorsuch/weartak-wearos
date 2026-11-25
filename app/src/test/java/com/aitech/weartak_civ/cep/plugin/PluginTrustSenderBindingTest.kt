@@ -145,6 +145,27 @@ class PluginTrustSenderBindingTest {
     }
 
     @Test
+    fun hailDataEligibilityRequiresExactPackageAndApprovedSignerNotTofuPin() {
+        val tpc = "1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
+        assertEquals(
+            true,
+            PluginTrust.isApprovedHailSigner(PluginTrust.HAIL_PLUGIN_PACKAGE, listOf(tpc)),
+        )
+        assertEquals(
+            false,
+            PluginTrust.isApprovedHailSigner(PluginTrust.HAIL_PLUGIN_PACKAGE, listOf("first-use-pin")),
+        )
+        assertEquals(
+            false,
+            PluginTrust.isApprovedHailSigner("com.example.plugin", listOf(tpc)),
+        )
+        assertEquals(
+            false,
+            PluginTrust.isApprovedHailSigner(PluginTrust.HAIL_PLUGIN_PACKAGE, listOf(tpc, "other")),
+        )
+    }
+
+    @Test
     fun packageUidMustMatchCallerBeforePinning() = runBlocking {
         val context = mockk<Context>()
         val pm = mockk<PackageManager>()
