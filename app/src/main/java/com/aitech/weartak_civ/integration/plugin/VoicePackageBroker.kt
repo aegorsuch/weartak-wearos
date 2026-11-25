@@ -10,7 +10,7 @@ import java.util.UUID
 
 class VoicePackageStageException(val code: Int, message: String) : java.io.IOException(message)
 
-/** One bounded, host-owned memory handoff for TAK and Companion. Never contains credentials. */
+/** One bounded, host-owned memory handoff for TAK and Companion. Only receipts are persisted. */
 class VoicePackageBroker(
     private val app: WearTakApplication,
     private val approveSigner: (String, String) -> Boolean = { pkg, cert ->
@@ -165,8 +165,10 @@ class VoicePackageBroker(
         private fun authenticate() {
             if (Binder.getCallingUid() != uid || !active()) throw SecurityException("Inactive voice receiver binding")
         }
+        private val enrollment by lazy { HostVoiceEnrollment { authenticate(); check(ready()) { "Voice receiver disconnected" } } }
         override fun getCapabilities(): Bundle { authenticate(); return Bundle().apply {
             putInt("version", 1); putInt("maxZipBytes", C.MAX_ZIP); putInt("maxJsonBytes", C.MAX_JSON)
+            if (pkg == "se.takcampus.voice.watch" || pkg == "se.takcampus.voice.watch.dev") putBinder("voiceEnrollment", enrollment)
             putLong("leaseMillis", 120_000); putIntArray("payloadKinds", intArrayOf(C.JSON, C.ZIP))
         } }
         override fun registerReceiver(receiver: IVoicePackageReceiverV1?): Bundle {

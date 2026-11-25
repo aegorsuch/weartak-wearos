@@ -14,7 +14,6 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Network
 import android.net.ConnectivityManager
@@ -2924,7 +2923,7 @@ class TAKConnectService: Service() {
             //Log.d(TAG, "setIsAnyNetworkConnecting: $isAnyTakConnecting")
         }
 
-        private fun escapeDnValue(v: String): String {
+        internal fun escapeDnValue(v: String): String {
             // minimal but practical escaping for DN values
             return v
                 .replace("\\", "\\\\")
@@ -2942,6 +2941,17 @@ class TAKConnectService: Service() {
                     if (out.endsWith(" ")) out = out.dropLast(1) + "\\ "
                     out
                 }
+        }
+
+        internal fun voiceEnrollmentSession(detail: TakServerDetail): TakHttpSession {
+            synchronized(detail.runtime.lock) {
+                require(detail.isEnabled && !detail.isP12Cert && !detail.duplicateEndpointSuppressed)
+                detail.runtime.currentAttempt?.httpSession?.let { return it }
+                check(detail.openVpnProfileId == null && detail.openVpnPluginPackage == null) { "Connect the TAK VPN profile first" }
+                return TakHttpSession(activeService?.takNetworkPreference?.network?.value) {
+                    getTakServerDetail(detail.serverId) === detail && !detail.runtime.terminated && detail.isEnabled
+                }
+            }
         }
 
         private fun generateBase64CSR(nameValueList: MutableList<NameValueEntry>, takServerDetail: TakServerDetail): String? {
@@ -3062,21 +3072,11 @@ class TAKConnectService: Service() {
         // Returns null on ERROR else response body as String
         private fun postCsrAndGetResponse(takServer: String, username: String, password: String, base64CSR: String,
             approvedCa: String?,
-            session: TakHttpSession? = null): String? {
+            session: TakHttpSession? = null, clientUid: String = MainActivity.device_uid): String? {
             try {
-                var versionName: String? = null
-                try {
-                    val pInfo: PackageInfo = MainActivity.mainActivity.getPackageManager()
-                        .getPackageInfo(MainActivity.mainActivity.getPackageName(), 0)
-                    versionName = pInfo.versionName
-                } catch (e: PackageManager.NameNotFoundException) {
-                    Log.w(TAG, "postCsrAndGetResponse: Cannot get versionName")
-                }
-                var versionInfo = ""
-                if (null != versionName) {
-                    versionInfo = "+v$versionName"
-                }
-                val urlString = "https://$takServer:8446/Marti/api/tls/signClient/v2?clientUid=${MainActivity.device_uid}&version=WearTAK-Civ$versionInfo"
+                val versionName = activeService?.let { it.packageManager.getPackageInfo(it.packageName, 0).versionName }
+                val versionInfo = versionName?.let { "+v$it" }.orEmpty()
+                val urlString = "https://$takServer:8446/Marti/api/tls/signClient/v2?clientUid=${android.net.Uri.encode(clientUid)}&version=WearTAK-Civ$versionInfo"
 
                 Log.d(TAG, "postCsrAndGetResponse CSR request: ($urlString)")
 
@@ -3121,7 +3121,7 @@ class TAKConnectService: Service() {
         }
 
         fun postCsrAndParse(takServerDetail: TakServerDetail, base64CSR: String,
-            session: TakHttpSession? = null): TakSignedCertificates? {
+            session: TakHttpSession? = null, clientUid: String = MainActivity.device_uid): TakSignedCertificates? {
             val takServer = takServerDetail.address
             val username = takServerDetail.username
             val password = takServerDetail.password
@@ -3129,7 +3129,7 @@ class TAKConnectService: Service() {
             var result: TakSignedCertificates? = null
 
             val csrResponse = postCsrAndGetResponse(takServer, username, password, base64CSR, takServerDetail.approvedCa,
-                session)
+                session, clientUid)
             if (null != csrResponse) {
                 try {
                     // Servers may return any number of caN entries (e.g. TAK Ops returns ca0..ca2).
