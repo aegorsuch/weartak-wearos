@@ -26,10 +26,12 @@ import org.robolectric.annotation.Config
 class LegacyHailMigrationTest {
     private lateinit var repo: DataRepository
 
-    @Before fun setup() = runBlocking {
-        MainActivity.device_uid = "synthetic-watch"
-        repo = DataRepository(RuntimeEnvironment.getApplication())
-        repo.legacyDataStore().edit { it.clear() }
+    @Before fun setup() {
+        runBlocking {
+            MainActivity.device_uid = "synthetic-watch"
+            repo = DataRepository(RuntimeEnvironment.getApplication())
+            repo.legacyDataStore().edit { it.clear() }
+        }
     }
 
     @Test fun preservesSourceAndPersistsOneIdentityAcrossConcurrentReadsAndRestart() = runBlocking {
