@@ -32,7 +32,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w300dp-h300dp-round-340dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class HomeBloodhoundLayoutTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test fun activeContactAndPinAt480Font13() = verifyHome(480, 1.3f)
     @Test fun activeContactAndPinAt480Font10() = verifyHome(480, 1f)

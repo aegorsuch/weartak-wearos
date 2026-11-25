@@ -14,6 +14,9 @@ class HostCallbackImpl(
     private val pluginId: String,
     private val pluginUid: Int,
     private val isActive: () -> Boolean = { true },
+    private val onStatusChanged: (PluginStatusParcel?) -> Unit = {},
+    private val onError: (PluginErrorParcel?) -> Unit = {},
+    private val interceptSensorEvent: (SensorEventParcel) -> Boolean = { false },
 ) : IWearTakHostCallback.Stub() {
     @Volatile private var closed = false
     fun close() { closed = true }
@@ -21,13 +24,16 @@ class HostCallbackImpl(
 
     override fun onSensorEvent(event: SensorEventParcel?) {
         if (!active() || event == null) return
+        if (interceptSensorEvent(event)) return
         runCatching { ingress.onSensorEventFromPlugin(pluginId, pluginUid, event) }
             .onFailure { Log.e(TAG, "onSensorEvent", it) }
     }
 
     override fun onSensorBatchEvent(events: MutableList<SensorEventParcel>?) {
         if (!active() || events.isNullOrEmpty()) return
-        runCatching { ingress.onSensorBatchFromPlugin(pluginId, pluginUid, events.toList()) }
+        val remaining = events.filterNot(interceptSensorEvent)
+        if (remaining.isEmpty()) return
+        runCatching { ingress.onSensorBatchFromPlugin(pluginId, pluginUid, remaining) }
             .onFailure { Log.e(TAG, "onSensorBatchEvent", it) }
     }
 
@@ -63,11 +69,13 @@ class HostCallbackImpl(
     override fun onPluginStatusChanged(status: PluginStatusParcel?) {
         if (!active()) return
         PluginDiagnostics.recordPluginStatus(pluginId, status)
+        onStatusChanged(status)
     }
 
     override fun onPluginError(error: PluginErrorParcel?) {
         if (!active()) return
         PluginDiagnostics.recordPluginError(pluginId, error)
+        onError(error)
     }
 
     override fun onSharedBufferAvailable(buffer: SharedBufferParcel?) {

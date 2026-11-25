@@ -10,6 +10,7 @@
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission
         android:name="android.permission.ACCESS_COARSE_LOCATION"
@@ -76,6 +77,9 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
 
     <!-- WEAR-509: bind WearTAK plugins exposing IWearTakPlugin (SDK contract). -->
+    <permission
+        android:name="com.weartak.plugin.permission.BIND_PLUGIN"
+        android:protectionLevel="signature" />
     <uses-permission android:name="com.weartak.plugin.permission.BIND_PLUGIN" />
 
     <!--
@@ -116,6 +120,7 @@
             android:name=".presentation.CertificateImportActivity"
             android:exported="false"
             android:excludeFromRecents="true" />
+        <activity android:name=".presentation.WifiVoiceSetupActivity" android:exported="false" />
         <activity android:name=".presentation.ServerPackageExportActivity"
             android:exported="false" android:excludeFromRecents="true" />
         <!-- Prevent dependency receivers from starting the WearTAK process at boot or after
@@ -293,12 +298,6 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
         <service
-            android:name=".service.openvpn.OpenVpnService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice"
-            android:stopWithTask="false" />
-        <service
             android:name=".service.SitxTakService"
             android:enabled="true"
             android:exported="false"
@@ -358,22 +357,10 @@
             android:foregroundServiceType="specialUse"
             android:stopWithTask="false" />
         <service
-            android:name=".service.DittoService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice"
-            android:stopWithTask="false" />
-        <service
             android:name=".service.OffBodyDetectService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="health"
-            android:stopWithTask="false" />
-        <service
-            android:name=".service.CrmInferenceService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
             android:stopWithTask="false" />
         <service
             android:name=".service.ChatService"
@@ -413,18 +400,6 @@
             android:stopWithTask="false" />
         <service
             android:name=".service.MovementDetectionService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:stopWithTask="false" />
-        <service
-            android:name=".service.GunshotOnnxService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:stopWithTask="false" />
-        <service
-            android:name=".service.UasOnnxService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse"
@@ -532,6 +507,10 @@
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".market.MarketInstallStatusReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <activity
             android:name=".presentation.MainActivity"
@@ -573,18 +552,6 @@
         <activity
             android:name=".presentation.ChatActivity"
             android:exported="true"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTask"
-            android:taskAffinity="com.aitech.weartak_civ"
-            android:theme="@style/MainActivityTheme.Starting">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-        <activity
-            android:name=".presentation.CrmReserveActivity"
-            android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:taskAffinity="com.aitech.weartak_civ"

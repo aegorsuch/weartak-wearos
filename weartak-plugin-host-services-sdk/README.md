@@ -3,7 +3,8 @@
 Optional **extension protocol version 1**, independent of the pinned WearTAK plugin
 SDK lifecycle APIs 1, 2 and 3. Keep your existing `getApiVersion()`. Add this AAR
 alongside the existing SDK; it does not duplicate or replace existing SDK classes.
-No new permissions, certificate trust exceptions, or plugin signature rules.
+The existing host-services extension adds no permissions, certificate trust
+exceptions, or plugin signature rules.
 The library supports Android API 30+ and emits Kotlin 2.0 metadata, compatible
 with consumers on Kotlin 2.0.21; the host app's Kotlin 2.2 compiler is not required.
 
@@ -11,9 +12,13 @@ Build: `gradlew.bat :weartak-plugin-host-services-sdk:assembleRelease`.
 Output: `build\outputs\aar\weartak-plugin-host-services-sdk-release.aar` inside this module.
 Canonical source is `https://git.tak.gov/core/weartak-core/wearos-tak-civ`;
 the normal main pipeline mirrors it to `https://github.com/aegorsuch/weartak-wearos`.
-Pin a full source commit SHA,
-not a moving branch. The `android_mopp_check` MR job publishes the AAR for integration;
-`main_release` publishes it alongside `verified-sdk.sha256` and the signed host APK.
+Pin a full source commit SHA, not a moving branch. Consumers that build this AAR
+must also pin the public SDK builder/manifest commit and expected `classes.jar`
+SHA-256; a standalone AAR does not identify a compatible SDK pair. CI checks the
+host AAR for classes duplicated by the exact pinned public SDK AAR and emits
+`verified-classes.sha256` alongside `verified-sdk.sha256`. The `android_host_regression`
+MR artifact is temporary; the `official_release` tag artifact retains the AAR and
+both hashes indefinitely.
 
 For consumer CI, this module also builds standalone without configuring the host
 application or requiring its signing configuration:
@@ -25,6 +30,25 @@ application or requiring its signing configuration:
 Linux CI: `./gradlew -p weartak-plugin-host-services-sdk assembleRelease`.
 Use JDK 17, Android SDK 35 and the checked-in Gradle wrapper/catalog from that
 same pinned source commit. The resulting Kotlin metadata targets 2.0.
+
+## Ditto runtime handoff
+
+Ditto ownership and runtime contracts come from the public `weartak-plugin-sdk`;
+this module does not define or duplicate them. The integration target is the
+single `IDittoRuntimeV1` service. Do not bind the legacy discovery interface or
+a separate ownership endpoint.
+
+Runtime binding, lease acquisition, identity loading and plugin activation remain
+disabled while the handoff restriction is unresolved. Before attempting native
+quiescence, the WearOS host must persist a restart fence. Keep the bundled engine
+fenced after process restart, malformed fence state, Binder death, timeout or
+uncertain release. Binder loss or a lease result alone does not prove plugin
+native teardown; never clear the fence or resume fallback until plugin shutdown
+and release are independently verified. Preserve the existing bundled Ditto
+behavior when the shared plugin is absent or incompatible.
+
+`FencedOwnership` is only an in-memory helper; it is not authorization,
+cross-host exclusion or shutdown proof.
 
 ## Discovery
 

@@ -38,6 +38,9 @@ class HostControlImpl(
     private val expectedPluginUid: Int,
     private val mapLayer: HostMapLayerControlImpl = HostMapLayerControlImpl(),
     private val isActive: () -> Boolean = { true },
+    private val requireDittoLeaseForStatus: Boolean = false,
+    private val dittoLeaseConfirmed: () -> Boolean = { false },
+    private val trafficAdmission: (() -> AutoCloseable?)? = null,
 ) : IWearTakPluginControl.Stub() {
 
     private fun verifyCaller(): Boolean {
@@ -77,6 +80,19 @@ class HostControlImpl(
 
     override fun requestCotDispatch(request: CotRequestParcel?) {
         if (!verifyCaller() || request == null) return
+        val admission = trafficAdmission?.invoke()
+        if (trafficAdmission != null && admission == null) {
+            Log.w(TAG, "Plugin CoT rejected: network disabled or stale binding")
+            return
+        }
+        try {
+            requestCotDispatchAdmitted(request)
+        } finally {
+            admission?.close()
+        }
+    }
+
+    private fun requestCotDispatchAdmitted(request: CotRequestParcel) {
         val payload = request.payload
         if (request.payloadFormat.equals(PAYLOAD_FORMAT_CHAT, ignoreCase = true)) {
             dispatchPluginChat(payload)
@@ -222,6 +238,7 @@ class HostControlImpl(
             is ContractValidationResult.Ok -> {
                 val parsed = PluginMarkerMapping.fromParcel(v.value)
                 val timeMillis = System.currentTimeMillis()
+                try {
                 runBlocking {
                     when (lifecycle) {
                         MarkerLifecycle.PUBLISH -> {
@@ -258,8 +275,13 @@ class HostControlImpl(
                                 )
                             }
                         }
-                        MarkerLifecycle.CLEAR -> app.repo.requestMarkerClear(parsed.uid)
+                        MarkerLifecycle.CLEAR -> if (!app.repo.requestMarkerClear(parsed.uid)) {
+                            Log.w(TAG, "requestMarkerClear: marker not found uid=${parsed.uid}")
+                        }
                     }
+                }
+                } catch (error: Exception) {
+                    Log.e(TAG, "Marker ${lifecycle.name} admission failed; no durable acknowledgement", error)
                 }
             }
         }
@@ -285,8 +307,21 @@ class HostControlImpl(
         if (!verifyCaller()) {
             return DeviceStatusParcel(online = false, summary = "denied")
         }
+        if (requireDittoLeaseForStatus && pluginPackage == TrustedCommunityPlugin.PACKAGE) {
+            if (!dittoLeaseConfirmed()) return DeviceStatusParcel(online = false, summary = "denied")
+            val uid = app.repo.androidDeviceUid
+            if (!verifyCaller() || !dittoLeaseConfirmed()) {
+                return DeviceStatusParcel(online = false, summary = "denied")
+            }
+            val telemetry = Bundle()
+            if (isValidTakUid(uid)) telemetry.putString(DeviceStatusContract.KEY_TAK_UID, uid)
+            return DeviceStatusParcel(online = false, summary = "identity", telemetry = telemetry)
+        }
         return runBlocking { buildDeviceStatus() }
     }
+
+    private fun isValidTakUid(uid: String): Boolean =
+        uid.isNotBlank() && uid != "WEAROS_null" && uid != "WEAROS_"
 
     private suspend fun buildDeviceStatus(): DeviceStatusParcel {
         val tak = TAKConnectService.isAnyTakConnected
@@ -305,8 +340,15 @@ class HostControlImpl(
         app.repo.latestHeartRate.value?.let {
             telemetry.putInt(DeviceStatusContract.KEY_HEART_RATE_BPM, it)
         }
-        runCatching { app.repo.getCallsign.first() }.getOrNull()?.let {
-            if (it.isNotBlank()) telemetry.putString(DeviceStatusContract.KEY_CALLSIGN, it)
+        val takUid = app.repo.androidDeviceUid
+        if (isValidTakUid(takUid)) {
+            telemetry.putString(DeviceStatusContract.KEY_TAK_UID, takUid)
+        } else {
+            Log.w(TAG, "Device status local TAK identity unavailable")
+        }
+        val callsign = app.repo.getCallsign.first()
+        if (callsign.isNotBlank()) {
+            telemetry.putString(DeviceStatusContract.KEY_CALLSIGN, callsign)
         }
         val loc = app.repo.snapshotLocation()
         if (loc != null) {

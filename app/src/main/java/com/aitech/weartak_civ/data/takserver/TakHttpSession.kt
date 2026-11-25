@@ -9,12 +9,12 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
-import com.aitech.weartak_civ.service.openvpn.OpenVpnSocketFactory
+import javax.net.SocketFactory
 
 /** Cancels only HTTP work belonging to one TAK connection generation. */
 class TakHttpSession(
     val network: Network? = null,
-    private val openVpnSocketFactory: OpenVpnSocketFactory? = null,
+    private val openVpnSocketFactory: SocketFactory? = null,
     private val allowed: () -> Boolean,
 ) {
     val usesOpenVpn: Boolean get() = openVpnSocketFactory != null
@@ -43,8 +43,8 @@ class TakHttpSession(
         ensureCurrent()
         val factory = openVpnSocketFactory ?: throw IOException("OpenVPN route is not selected")
         val addresses = network?.getAllByName(host)?.toList() ?: InetAddress.getAllByName(host).toList()
-        val address = addresses.firstOrNull { it is Inet4Address }
-            ?: throw IOException("OpenVPN route requires a TAK server with IPv4 address")
+        val address = addresses.firstOrNull()
+            ?: throw IOException("OpenVPN route could not resolve the TAK server")
         return factory.createSocket().apply { connect(InetSocketAddress(address, port), timeoutMs) }
     }
 

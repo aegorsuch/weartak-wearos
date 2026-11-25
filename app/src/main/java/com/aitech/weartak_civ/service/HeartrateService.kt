@@ -64,6 +64,7 @@ class HeartrateService: Service() {
     private var heartRateSensor: Sensor? = null
     var permission: Boolean = false
     private var monitoringEnabled = false
+    private var physiologicalAlertsEnabled = false
     private var sensorRegistered = false
     private var active = false
     private var registrationStartedAtNanos = 0L
@@ -121,10 +122,13 @@ class HeartrateService: Service() {
         scope.launch {
             combine(sharedRepository.getEnablePhysiologicalServices,
                 sharedRepository.getEnableHeartRateService,
-                sharedRepository.latestIsDeviceWorn) { monitoring, heartRate, worn ->
-                Triple(monitoring, heartRate, worn)
-            }.collect { (monitoring, heartRate, worn) ->
+                sharedRepository.latestIsDeviceWorn,
+                sharedRepository.getEnablePhysiologicalAlerts) { monitoring, heartRate, worn, alerts ->
+                Triple(monitoring, heartRate, worn) to alerts
+            }.collect { (settings, alerts) ->
+                val (monitoring, heartRate, worn) = settings
                 monitoringEnabled = monitoring && heartRate
+                physiologicalAlertsEnabled = alerts
                 reconcileSensors()
                 if (!worn) {
                     hr = -1
@@ -242,7 +246,7 @@ class HeartrateService: Service() {
     }
 
     private fun startSensors() {
-        val latencyUs = if (HeartRateDelivery.live.value) 0 else MAX_REPORT_LATENCY_US
+        val latencyUs = if (physiologicalAlertsEnabled || HeartRateDelivery.live.value) 0 else MAX_REPORT_LATENCY_US
         if (sensorRegistered && registeredLatencyUs == latencyUs) return
         val newSession = !sensorRegistered
         if (sensorRegistered) {

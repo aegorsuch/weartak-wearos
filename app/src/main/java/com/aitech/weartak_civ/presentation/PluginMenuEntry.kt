@@ -4,16 +4,20 @@ import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.data.MoppStatus
+import com.aitech.weartak_civ.integration.plugin.HandlerExertion
+import com.aitech.weartak_civ.integration.plugin.CRM_PLUGIN_PACKAGE
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
+import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.integration.plugin.PluginUI
+import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
 
 internal enum class BuiltInPlugin(@DrawableRes val brandIconRes: Int? = null) {
     BATDOK(R.drawable.batdok),
     COMMANDS(R.drawable.ic_commands_megaphone),
     COMPANION(R.drawable.weartak_companion_plugin),
-    CRM(R.drawable.ic_plugin_gauge),
     DART(R.drawable.ic_integration_certus),
     DATA_SYNC(R.drawable.ic_data_sync),
     DITTO(R.drawable.ic_integration_ditto),
@@ -54,6 +58,41 @@ internal fun BuiltInPluginToggleChip(
     )
 }
 
+@Composable
+internal fun AudioDetectorPluginChip(
+    kind: BuiltInPlugin,
+    title: String,
+    phoneManagedSettings: Boolean,
+    checked: Boolean,
+    installed: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    onDetails: () -> Unit,
+    onUninstall: () -> Unit,
+    onInfo: () -> Unit,
+) {
+    val chip: @Composable () -> Unit = {
+        BuiltInPluginToggleChip(
+            kind = kind,
+            phoneManagedSettings = phoneManagedSettings,
+            title = title,
+            label = stringResource(R.string.unfunded_request),
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            onClick = onDetails,
+        )
+    }
+    if (installed) {
+        WearTAKSwipeToRevealChip(
+            onPrimaryActionClick = onUninstall,
+            onSecondaryActionClick = onInfo,
+            chipType = { chip() },
+            testTag = "settings_plugin_${kind.name.lowercase(java.util.Locale.ROOT)}_management",
+        )
+    } else {
+        chip()
+    }
+}
+
 internal sealed interface PluginMenuEntry {
     val key: String
     val title: String
@@ -62,9 +101,17 @@ internal sealed interface PluginMenuEntry {
         override val key = "builtin:${kind.name}"
     }
 
+    data class Market(override val title: String) : PluginMenuEntry {
+        override val key = "market"
+    }
+
     data class Installed(val plugin: PluginUI) : PluginMenuEntry {
         override val key = "installed:${plugin.pluginId}"
-        override val title = plugin.title
+        override val title = when (plugin.packageName) {
+            HandlerExertion.PACKAGE -> "Handler"
+            CRM_PLUGIN_PACKAGE -> "CRM"
+            else -> plugin.title
+        }
     }
 }
 
@@ -75,7 +122,11 @@ internal fun List<PluginMenuEntry>.withoutSomewearPlaceholder(): List<PluginMenu
     filterNot { it is PluginMenuEntry.BuiltIn && it.kind == BuiltInPlugin.SOMEWEAR_LABS }
 
 internal fun List<PluginUI>.installedPluginMenuEntries(): List<PluginMenuEntry> =
-    map { PluginMenuEntry.Installed(it) }
+    filterNot {
+        it.packageName == PluginDetectionEventBridge.DART_PACKAGE ||
+            it.packageName == PluginDetectionEventBridge.FALCON_PACKAGE
+    }
+        .map { PluginMenuEntry.Installed(it) }
 
 internal fun PluginUI.menuLabel(moppStatus: MoppStatus?, noneLabel: String): String? =
     if (packageName == MoppPluginAvailability.PACKAGE && moppStatus != null) {
@@ -83,6 +134,9 @@ internal fun PluginUI.menuLabel(moppStatus: MoppStatus?, noneLabel: String): Str
     } else {
         menuLabel
     }
+
+internal fun PluginUI.dittoMenuLabel(dittoSubtitle: String?, fallback: String?): String? =
+    if (packageName == TrustedCommunityPlugin.PACKAGE && isLoaded) dittoSubtitle ?: fallback else fallback
 
 internal const val HOSTED_PLUGIN_MAIN_UI_ROUTE_PATTERN = "plugin_main_ui/{pluginId}"
 

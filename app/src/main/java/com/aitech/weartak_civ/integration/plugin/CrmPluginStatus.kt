@@ -1,0 +1,98 @@
+/*
+ * Copyright (C) 2026, Ascent Integrated Tech.
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ *
+ * Licensed under the GNU General Public License, version 3 only.
+ * See the LICENSE file in the repository root for the full license text.
+ */
+
+package com.aitech.weartak_civ.integration.plugin
+
+import android.os.Bundle
+import com.aitech.weartak_civ.data.CrmThresholdRanges
+import com.weartak.plugin.sdk.model.SensorEventParcel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+internal const val CRM_PLUGIN_PACKAGE = "com.weartak.plugin.crm"
+
+internal data class CrmPluginStatus(
+    val status: String,
+    val value: Double?,
+    val enabled: Boolean,
+    val updatedAtMillis: Long,
+)
+
+internal data class CrmPluginSettings(val enabled: Boolean, val thresholds: CrmThresholdRanges)
+
+internal fun crmPluginSettings(values: Bundle): CrmPluginSettings? {
+    val migrated = values.get("crm_legacy_migration_complete") as? Boolean ?: return null
+    val enabled = values.get("enable_crm") as? Boolean ?: return null
+    val poor = values.get("crm_poor_max") as? Double ?: return null
+    val moderate = values.get("crm_moderate_max") as? Double ?: return null
+    if (!migrated || !poor.isFinite() || !moderate.isFinite() ||
+        poor !in 0.0..98.0 || moderate !in 1.0..100.0 ||
+        poor % 1.0 != 0.0 || moderate % 1.0 != 0.0 || poor >= moderate
+    ) return null
+    return CrmPluginSettings(enabled, CrmThresholdRanges(poor.toInt(), moderate.toInt()))
+}
+
+internal class CrmPluginStatusStore {
+    private val lock = Any()
+    private val mutableStatus = MutableStateFlow<CrmPluginStatus?>(null)
+    val status = mutableStatus.asStateFlow()
+    private var owner: Any? = null
+    private var lastSequence = -1L
+
+    fun activate(connection: Any) = synchronized(lock) {
+        owner = connection
+        lastSequence = -1L
+        mutableStatus.value = null
+    }
+
+    fun clear(connection: Any) = synchronized(lock) {
+        if (owner === connection) {
+            owner = null
+            lastSequence = -1L
+            mutableStatus.value = null
+        }
+    }
+
+    fun invalidate(connection: Any) = synchronized(lock) {
+        if (owner === connection) mutableStatus.value = null
+    }
+
+    fun publish(connection: Any, event: SensorEventParcel, nowMillis: Long): Boolean =
+        synchronized(lock) {
+            if (owner !== connection || event.sensorKey != SENSOR_KEY ||
+                event.sequence < 0 || event.sequence <= lastSequence
+            ) return@synchronized false
+
+            lastSequence = event.sequence
+            mutableStatus.value = null
+            if (event.timestampUtcMillis <= 0 || event.timestampUtcMillis > nowMillis ||
+                nowMillis - event.timestampUtcMillis > MAX_AGE_MILLIS
+            ) return@synchronized false
+            val values = event.values
+            val state = values.get("status") as? String ?: return@synchronized false
+            val enabled = values.get("enabled") as? Boolean ?: return@synchronized false
+            if (state !in VALID_STATES) return@synchronized false
+            val value = if (state == "ACCEPTED") {
+                (values.get("value") as? Double)?.takeIf { it.isFinite() && it in 0.0..1.0 }
+                    ?: return@synchronized false
+            } else {
+                if (values.containsKey("value")) return@synchronized false
+                null
+            }
+
+            mutableStatus.value = CrmPluginStatus(state, value, enabled, event.timestampUtcMillis)
+            true
+        }
+
+    companion object {
+        const val SENSOR_KEY = "crm_status_v1"
+        private const val MAX_AGE_MILLIS = 30_000L
+        private val VALID_STATES = setOf("IDLE", "ACCEPTED", "REJECTED", "ERROR", "NOT_WORN")
+    }
+}

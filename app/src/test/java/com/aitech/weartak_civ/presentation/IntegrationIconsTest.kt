@@ -26,7 +26,6 @@ class IntegrationIconsTest {
         BuiltInPlugin.BATDOK to R.drawable.batdok,
         BuiltInPlugin.COMMANDS to R.drawable.ic_commands_megaphone,
         BuiltInPlugin.COMPANION to R.drawable.weartak_companion_plugin,
-        BuiltInPlugin.CRM to R.drawable.ic_plugin_gauge,
         BuiltInPlugin.SENSOR_MANAGER to R.drawable.ic_sensor_manager,
         BuiltInPlugin.SOMEWEAR_LABS to R.drawable.ic_integration_somewear,
         BuiltInPlugin.EVERYWHERE_COMMS to R.drawable.ic_integration_everywhere,
@@ -77,8 +76,7 @@ class IntegrationIconsTest {
             drawable.setBounds(64, index * 64 + 24, 64 + width * 4 / 3, index * 64 + 24 + height * 4 / 3)
             drawable.draw(canvas)
         }
-        val output = File(File(System.getProperty("user.home")).parentFile, "reports/integration-icons.png")
-        output.parentFile.mkdirs()
+        val output = File(RuntimeEnvironment.getApplication().cacheDir, "integration-icons.png")
         output.outputStream().use { preview.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 }

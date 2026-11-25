@@ -77,4 +77,7 @@
     <string name="tak_enrollment_connectivity_failed">서버에 연결할 수 없습니다. 네트워크와 서버 주소를 확인하세요.</string>
     <string name="tak_enrollment_certificate_failed">인증서 데이터가 잘못되었거나 없습니다.</string>
     <string name="tak_enrollment_failure">%1$s - %2$s</string>
+    <string name="market_admin_lock">TAKwerx Market 잠금</string>
+    <string name="market_locked">관리자가 TAKwerx Market을 잠갔습니다</string>
+    <string name="market_lock_save_error">Market 잠금을 저장할 수 없습니다. 관리자 설정을 확인하세요.</string>
 </resources>

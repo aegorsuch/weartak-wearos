@@ -23,6 +23,17 @@ def signingValue = { String environmentName, String propertyName ->
     System.getenv(environmentName) ?: signingProperties.getProperty(propertyName)
 }
 
+def wearVersion = new Properties()
+rootProject.file("wear-version.properties").withInputStream { wearVersion.load(it) }
+def wearVersionName = wearVersion.getProperty("versionName", "")
+def wearBaseCode = wearVersion.getProperty("baseVersionCode", "")
+if (wearVersion.stringPropertyNames() != ["versionName", "baseVersionCode"].toSet() ||
+        !(wearVersionName ==~ /(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*))?/) ||
+        !(wearBaseCode ==~ /[1-9][0-9]*/) || !wearBaseCode.isLong() ||
+        wearBaseCode.toLong() > 209999L) {
+    throw new GradleException("Invalid wear-version.properties: numeric 3/4-part versionName and baseVersionCode 1..209999 required.")
+}
+
 android {
     namespace 'com.aitech.weartak_civ'
     compileSdk 35
@@ -35,8 +46,8 @@ android {
         applicationId "com.aitech.weartak_civ"
         minSdk 34
         targetSdk 34
-        def baseVersionCode = 584
-        def baseVersionName = "5.8.4"
+        def baseVersionCode = wearBaseCode.toInteger()
+        def baseVersionName = wearVersionName
 
         def buildGitUrl = gitUrl() ?: "unknown"
         def buildGitBranch = gitBranch() ?: "unknown"
@@ -46,11 +57,12 @@ android {
 
         // CI builds get a unique, increasing versionCode per GitLab pipeline so MDMs such as
         // Knox Manage accept each upload, and a versionName that identifies the pipeline/commit.
-        def ciPipelineIid = System.getenv("CI_PIPELINE_IID")?.isInteger() ? System.getenv("CI_PIPELINE_IID").toInteger() : null
+        def rawPipelineIid = System.getenv("CI_PIPELINE_IID")
+        if (rawPipelineIid != null && !(rawPipelineIid ==~ /[1-9][0-9]{0,3}/)) {
+            throw new GradleException("CI_PIPELINE_IID must be in the versionCode pipeline range (1-9999).")
+        }
+        def ciPipelineIid = rawPipelineIid?.toInteger()
         if (ciPipelineIid != null) {
-            if (ciPipelineIid >= 10000) {
-                throw new GradleException("CI_PIPELINE_IID ${ciPipelineIid} exceeds the versionCode pipeline range (0-9999).")
-            }
             versionCode baseVersionCode * 10000 + ciPipelineIid
             versionName "${baseVersionName}-p${ciPipelineIid}+${(System.getenv('CI_COMMIT_SHORT_SHA') ?: buildGitCommitShort)}"
         } else {
@@ -120,16 +132,45 @@ android {
         if (lpFile.exists()) lp.load(lpFile.newDataInputStream())
         def owKey = lp.getProperty("OPENWEATHER_API_KEY", "")
         buildConfigField "String", "OPENWEATHER_API_KEY", "\"${owKey}\""
-        // CI supplies the authorized Community PDL without exposing it in command arguments.
-        def communityPdl = System.getenv("DITTO_COMMUNITY_IDENTITY")?.trim()
-        def dittoCommunityIdentity = communityPdl
-                ? groovy.json.JsonOutput.toJson(communityPdl)
-                : (project.findProperty("dittoCommunityIdentity") ?: "\"\"")
-
+        def marketCatalogUrl = (
+                System.getenv("WEARTAK_MARKET_CATALOG_URL") ?:
+                        providers.gradleProperty("weartakMarketCatalogUrl").orElse("").get()
+        ).trim()
+        def marketCatalogPublicKey = (
+                System.getenv("WEARTAK_MARKET_CATALOG_PUBLIC_KEY") ?:
+                        providers.gradleProperty("weartakMarketCatalogPublicKey").orElse("").get()
+        ).trim()
+        if (marketCatalogUrl.isEmpty() != marketCatalogPublicKey.isEmpty()) {
+            throw new GradleException(
+                    "TAKwerx Market requires both WEARTAK_MARKET_CATALOG_URL and WEARTAK_MARKET_CATALOG_PUBLIC_KEY."
+            )
+        }
+        if (!marketCatalogUrl.isEmpty()) {
+            try {
+                def catalogUri = new java.net.URI(marketCatalogUrl)
+                if (!"https".equalsIgnoreCase(catalogUri.scheme) || !catalogUri.host ||
+                        catalogUri.userInfo != null || catalogUri.fragment != null) {
+                    throw new IllegalArgumentException()
+                }
+                def publicKeyBytes = java.util.Base64.decoder.decode(marketCatalogPublicKey)
+                java.security.KeyFactory.getInstance("Ed25519").generatePublic(
+                        new java.security.spec.X509EncodedKeySpec(publicKeyBytes)
+                )
+            } catch (IllegalArgumentException | java.net.URISyntaxException ignored) {
+                throw new GradleException(
+                        "TAKwerx Market catalog URL must be HTTPS and its Ed25519 public key must be Base64 X.509 data."
+                )
+            }
+        }
         buildConfigField(
                 "String",
-                "DITTO_COMMUNITY_IDENTITY",
-                dittoCommunityIdentity
+                "TAKWERX_MARKET_CATALOG_URL",
+                groovy.json.JsonOutput.toJson(marketCatalogUrl)
+        )
+        buildConfigField(
+                "String",
+                "TAKWERX_MARKET_CATALOG_PUBLIC_KEY",
+                groovy.json.JsonOutput.toJson(marketCatalogPublicKey)
         )
     }
 
@@ -186,7 +227,19 @@ android {
     def isBuildingBundle = gradle.startParameter.taskNames.any { it.toLowerCase().contains("bundle") }
     def emulatorAbi = providers.gradleProperty("weartakEmulatorAbi").orNull
     def debugAbi = providers.gradleProperty("weartakDebugAbi").orNull
+    def arm64Qualification = providers.gradleProperty("weartakArm64Qualification").orNull
+    def arm64QualificationTasks = [
+            [":app:assembleRelease"],
+            [":app:clean", ":app:assembleRelease"],
+    ]
     def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last().toLowerCase() }
+    if (arm64Qualification != null &&
+            (arm64Qualification != "true" ||
+            !(gradle.startParameter.taskNames in arm64QualificationTasks) ||
+            emulatorAbi != null || debugAbi != null)) {
+        throw new GradleException(
+                "weartakArm64Qualification=true is restricted to :app:assembleRelease, optionally preceded by :app:clean.")
+    }
     if (providers.gradleProperty("weartakWarningUiDemo").orElse("false").get() == "true" &&
             (!requestedTasks.any { it.contains("debug") } ||
             requestedTasks.any { it.contains("release") || it in ["build", "assemble", "bundle", "check"] })) {
@@ -212,7 +265,9 @@ android {
         abi {
             enable !isBuildingBundle && !gradle.startParameter.taskNames.any { it.toLowerCase().contains("nearbyfixture") }
             reset()
-            include debugAbi ?: emulatorAbi ?: "armeabi-v7a"
+            include(arm64Qualification == "true"
+                    ? "arm64-v8a"
+                    : (debugAbi ?: emulatorAbi ?: "armeabi-v7a"))
             universalApk false
         }
     }
@@ -231,9 +286,9 @@ android {
             def dittoUiDemo = providers.gradleProperty("weartakDittoUiDemo").orElse("false").get() == "true"
             applicationIdSuffix dittoUiDemo ? ".ditto.diagnostics.fixture" : ".dev"
             manifestPlaceholders.debugApplication = dittoUiDemo
-                    ? "com.aitech.weartak_civ.debug.DittoDiagnosticsFixtureApplication"
+                    ? "com.aitech.weartak_civ.debug.InertIpcFixtureApplication"
                     : "com.aitech.weartak_civ.WearTakApplication"
-            manifestPlaceholders.dittoUiDemo = dittoUiDemo.toString()
+            manifestPlaceholders.wearableSharedLibraryRequired = (!dittoUiDemo).toString()
             buildConfigField "boolean", "DITTO_UI_DEMO", dittoUiDemo.toString()
             minifyEnabled false
             shrinkResources false
@@ -278,14 +333,6 @@ android {
         }
     }
     buildToolsVersion '35.0.0'
-    ndkVersion '27.0.12077973'
-
-    externalNativeBuild {
-        cmake {
-            path file("src/main/cpp/CMakeLists.txt")
-            version "3.22.1"
-        }
-    }
     lint {
         abortOnError true
         checkReleaseBuilds true
@@ -324,93 +371,10 @@ android {
     }
 }
 
-def pluginSdkPin = new groovy.json.JsonSlurper().parse(rootProject.file('ci/plugin-sdk.json'))
-def pluginSdkOs = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
-def pluginSdkPlatform = pluginSdkOs.contains('windows') ? 'windows' : pluginSdkOs.contains('linux') ? 'linux' : null
-if (pluginSdkPlatform == null) {
-    throw new GradleException('Plugin SDK has verified source-build hashes only for Windows and Linux')
-}
-def pluginSdkExpectedHash = pluginSdkPin.release_sha256[pluginSdkPlatform]
-if (!pluginSdkExpectedHash) {
-    throw new GradleException("No verified combined plugin SDK artifact hash for ${pluginSdkPlatform}")
-}
-def pluginSdkIdentity = "${pluginSdkPin.commit.take(12)}-${pluginSdkPin.overlay.source_sha256.take(12)}"
-def pluginSdkAarPath = providers.gradleProperty("weartakPluginSdkAar")
-        .orElse(rootProject.file(".gradle/sdk/${pluginSdkIdentity}/build/outputs/aar/weartak-plugin-sdk-release.aar").absolutePath)
-def sdkNoticeAssets = layout.buildDirectory.dir('generated/pluginSdkNotices')
-def sdkNoticeSource = rootProject.file(".gradle/sdk/${pluginSdkIdentity}")
-def sdkNotices = tasks.register('generatePluginSdkNotices', Copy) {
-    from(sdkNoticeSource) {
-        include 'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'
-        into 'licenses/weartak-plugin-sdk'
-    }
-    into sdkNoticeAssets
-    doFirst {
-        ['LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'].each { name ->
-            if (!new File(sdkNoticeSource, name).isFile()) {
-                throw new GradleException('Missing plugin SDK notices; run python ci/build_plugin_sdk.py')
-            }
-        }
-    }
-}
-android.sourceSets.main.assets.srcDir(sdkNoticeAssets)
-def nativeThirdPartySource = file('src/main/cpp/third_party')
-def nativeNoticeAssets = layout.buildDirectory.dir('generated/nativeThirdPartyNotices')
-def nativeNoticeFiles = [
-        'README.md',
-        'asio/LICENSE_1_0.txt',
-        'fmt/LICENSE',
-        'lwip/COPYING',
-        'lz4/LICENSE',
-        'lz4/lib/LICENSE',
-        'mbedtls/LICENSE',
-        'mbedtls/framework/LICENSE',
-        'openvpn3/LICENSE.md',
-        'openvpn3/LICENSES/AGPL-3.0-only.txt',
-        'openvpn3/LICENSES/MPL-2.0.txt',
-        'openvpn3/LICENSES/openvpn3-openssl-exception.txt',
-        'openvpn3/openvpn/http/LICENSE_1_0.txt'
-]
-def nativeNotices = tasks.register('generateNativeThirdPartyNotices', Copy) {
-    from(nativeThirdPartySource) {
-        include(nativeNoticeFiles)
-        includeEmptyDirs = false
-        eachFile {
-            path = "licenses/native/${path}"
-        }
-    }
-    into nativeNoticeAssets
-    doFirst {
-        nativeNoticeFiles.each { name ->
-            if (!new File(nativeThirdPartySource, name).isFile()) {
-                throw new GradleException("Missing native dependency notice: ${name}")
-            }
-        }
-    }
-}
-android.sourceSets.main.assets.srcDir(nativeNoticeAssets)
-tasks.register('verifyPluginSdk') {
-    inputs.file(pluginSdkAarPath)
-    inputs.property('expectedSha256', pluginSdkExpectedHash)
-    doLast {
-        def aar = file(pluginSdkAarPath.get())
-        if (!aar.isFile()) {
-            throw new GradleException('Missing pinned plugin SDK; run python ci/build_plugin_sdk.py')
-        }
-        def digest = java.security.MessageDigest.getInstance('SHA-256').digest(aar.bytes).encodeHex().toString()
-        if (digest != pluginSdkExpectedHash) {
-            throw new GradleException("Plugin SDK SHA-256 mismatch: ${digest}")
-        }
-    }
-}
-tasks.named('preBuild').configure {
-    dependsOn tasks.named('verifyPluginSdk'), sdkNotices, nativeNotices
-}
+apply from: rootProject.file('gradle/plugin-sdk.gradle')
 
 dependencies {
-    implementation project(':weartak-plugin-host-services-sdk')
     implementation project(':voice-package-api')
-    implementation files(pluginSdkAarPath.get())
     implementation files('libs/samsung-health-sensor-api-1.4.1.aar')
     implementation files('libs/hail-sdk.aar')
 
@@ -433,9 +397,9 @@ dependencies {
     ksp "androidx.room:room-compiler:$room_version"
 
     implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'net.i2p.crypto:eddsa:0.3.0'
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0"
 
-    implementation "live.ditto:ditto:4.14.6"
     implementation libs.play.services.wearable
     implementation platform(libs.compose.bom)
     implementation libs.ui
@@ -455,8 +419,14 @@ dependencies {
 
     // bouncycastle for CSR generation
     implementation 'org.bouncycastle:bcprov-lts8on:2.73.7'
-    implementation 'org.bouncycastle:bcpkix-lts8on:2.73.7'
-    runtimeOnly 'org.bouncycastle:bcutil-lts8on:2.73.7'
+    // Keep BC's version-ranged transitives pinned to versions already used by the app.
+    implementation('org.bouncycastle:bcpkix-lts8on:2.73.7') {
+        exclude group: 'org.bouncycastle', module: 'bcprov-lts8on'
+        exclude group: 'org.bouncycastle', module: 'bcutil-lts8on'
+    }
+    implementation('org.bouncycastle:bcutil-lts8on:2.73.7') {
+        exclude group: 'org.bouncycastle', module: 'bcprov-lts8on'
+    }
     implementation 'com.fasterxml.jackson.core:jackson-core:2.18.2'
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.18.2'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
@@ -521,7 +491,6 @@ dependencies {
     implementation("org.apache.commons:commons-lang3:3.18.0")
 
     // Onnx Runtime
-    implementation libs.onnxruntime.android
 
     // TensorFlow Lite runtime for CRM inference
     implementation libs.tensorflow.lite

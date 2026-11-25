@@ -14,5 +14,6 @@ package com.aitech.weartak_civ.events
  */
 data class DittoDocumentEvent(
     val collection: String,    // "mapitem" or "alerts" (future: "tracks")
-    val cotXml: String
+    val cotXml: String,
+    val completion: ((Boolean) -> Unit)? = null,
 )

@@ -220,6 +220,12 @@ class BloodhoundService: Service() {
                     //Log.i(TAG, "Bloodhound Event updated:\n$event")
                     if (update.isNewUid) {
                         repo.incrementBloodhoundUnreadCount(event.uid)
+                        // Only genuinely new remote alerts; refreshes/duplicates arrive with isNewUid=false.
+                        if (event.remoteAlert != null) {
+                            runCatching {
+                                Utils.vibrateWatch(vibDurationMs = 200L, numberOfVibes = 3, timeBtwnVibesMs = 120L)
+                            }.onFailure { Log.w(TAG, "Remote alert vibration failed", it) }
+                        }
                     } else if (update.becameHoundmaster) {
                         repo.updateHasUnreadBloodhounds(true)
                         //Log.i(TAG, "Bloodhound event refreshed without unread increment uid=${event.uid}")

@@ -7,13 +7,6 @@
  * See the LICENSE file in the repository root for the full license text.
  */
 
-/*
- * Moving Ditto initialization to onCreate of DittoService as initializing Ditto takes a lot of resources and
- * causes ANR when the Application is started on boot. Also Ditto initialization should be done only if Ditto service
- * is started.
- * Use WearTakApplication to create a single, globally accessible instance that persists for the app's entire lifecycle.
- */
-
 package com.aitech.weartak_civ
 
 import android.app.Application
@@ -34,17 +27,17 @@ import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.CrmDataRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.SavedCustomAlertsStore
-import com.aitech.weartak_civ.data.GunshotOnnxRepository
+import com.aitech.weartak_civ.data.GunshotDetectionRepository
 import com.aitech.weartak_civ.data.UasOnnxRepository
 import com.aitech.weartak_civ.data.secure.migration.TakServerMigration
 import com.aitech.weartak_civ.data.secure.sitx.SitxEncryptedDataStore
 import com.aitech.weartak_civ.data.secure.sitx.SitxSecretsRepository
 import com.aitech.weartak_civ.data.secure.takserver.TakServerEncryptedDataStore
 import com.aitech.weartak_civ.data.secure.takserver.TakServerSecretsRepository
-import com.aitech.weartak_civ.data.secure.openvpn.OpenVpnProfileRepository
 import com.aitech.weartak_civ.integration.plugin.PluginRepository
 import com.aitech.weartak_civ.integration.plugin.PluginPackageChangedReceiver
 import com.aitech.weartak_civ.manager.NetworkManager
+import com.aitech.weartak_civ.market.MarketUpdateMonitor
 import com.aitech.weartak_civ.presentation.ChatActivity
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.presentation.PhysioAlertsActivity
@@ -54,21 +47,21 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import com.aitech.weartak_civ.service.crm.CrmSessionCsvLogger
 import com.aitech.weartak_civ.service.BondedLocationDiagnostics
 import com.aitech.weartak_civ.service.AppDiagnostics
 import com.aitech.weartak_civ.service.BatteryPowerObserver
 import com.aitech.weartak_civ.service.ChargingStayAwake
 import com.aitech.weartak_civ.service.ChargingWirelessDebugging
-import live.ditto.Ditto
-import live.ditto.DittoError
-import live.ditto.DittoIdentity
-import live.ditto.android.DefaultAndroidDittoDependencies
+import com.aitech.weartak_civ.service.audio.startAudioDetectionFeedback
+import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
+import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
+import kotlinx.coroutines.flow.Flow
 
 class WearTakApplication : Application() {
 
     private val takServerMigrationReady = CompletableDeferred<Result<Unit>>()
     private val pluginPackageChangedReceiver = PluginPackageChangedReceiver()
+    internal val marketUpdateMonitor by lazy { MarketUpdateMonitor(applicationContext) }
 
     lateinit var repo: DataRepository; private set
     private lateinit var batteryPowerObserver: BatteryPowerObserver
@@ -79,13 +72,11 @@ class WearTakApplication : Application() {
     lateinit var diagnostics: AppDiagnostics; private set
     lateinit var sitxRepo: SitxSecretsRepository; private set
     lateinit var takServerRepo: TakServerSecretsRepository; private set
-    lateinit var openVpnProfiles: OpenVpnProfileRepository; private set
     lateinit var audioRepo: AudioCaptureRepository; private set
     lateinit var crmRepo: CrmDataRepository; private set
 
-    lateinit var gunshotOnnxRepo: GunshotOnnxRepository; private set
+    lateinit var gunshotDetectionRepo: GunshotDetectionRepository; private set
     lateinit var uasOnnxRepo: UasOnnxRepository; private set
-    val crmCsvLogger: CrmSessionCsvLogger by lazy { CrmSessionCsvLogger(applicationContext) }
     val savedCustomAlerts: SavedCustomAlertsStore by lazy { SavedCustomAlertsStore(applicationContext) }
     val savedChatPresets: com.aitech.weartak_civ.data.SavedChatPresetsStore by lazy { com.aitech.weartak_civ.data.SavedChatPresetsStore(applicationContext) }
 
@@ -98,6 +89,8 @@ class WearTakApplication : Application() {
     lateinit var pluginRepository: HostPluginRepository
         private set
     lateinit var pluginStateStore: PluginStateStore
+        private set
+    internal lateinit var openVpnProviderRegistry: com.aitech.weartak_civ.integration.plugin.PluginOpenVpnProviderRegistry
         private set
 
     companion object {
@@ -129,13 +122,13 @@ class WearTakApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        marketUpdateMonitor.start()
         ChargingWirelessDebugging.restorePending(this)
         com.aitech.weartak_civ.command.SensitiveEnrollment.purgeNotifications(this)
         com.aitech.weartak_civ.service.RoutineServiceNotification.reconcileProcessStart(this)
         diagnostics = AppDiagnostics.initialize(this)
         MainActivity.device_uid = "WEAROS_" + Secure.getString(this.getContentResolver(), Secure.ANDROID_ID)
         takServerRepo = TakServerSecretsRepository(TakServerEncryptedDataStore(applicationContext))
-        openVpnProfiles = OpenVpnProfileRepository(applicationContext)
         repo = DataRepository(applicationContext)
         diagnostics.bindRepository(repo)
         batteryPowerObserver = BatteryPowerObserver(this, repo).also { it.start() }
@@ -151,13 +144,37 @@ class WearTakApplication : Application() {
         capRepo = CompanionAppRepository(applicationContext)
         locationDiagnostics = BondedLocationDiagnostics(applicationContext)
         audioRepo = AudioCaptureRepository(applicationContext)
-        crmRepo = CrmDataRepository(repo)
-        gunshotOnnxRepo = GunshotOnnxRepository(applicationContext)
+        crmRepo = CrmDataRepository()
+        gunshotDetectionRepo = GunshotDetectionRepository(applicationContext)
         uasOnnxRepo = UasOnnxRepository(applicationContext)
         sitxRepo = SitxSecretsRepository(SitxEncryptedDataStore(applicationContext))
         installProcessRepositories(this)
 
         AppCtx.init(this)
+        val audioFeedbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        fun startFeedback(
+            logTag: String,
+            prefix: String,
+            debugDir: String,
+            feedback: Flow<AudioDetectionFeedback>,
+            findEvent: (String) -> AudioDetectionEvent?
+        ) {
+            startAudioDetectionFeedback(audioFeedbackScope, logTag, prefix, feedback, findEvent) { event, answer ->
+                Utils.logAudioDetectionFeedback(
+                    context = applicationContext,
+                    event = event,
+                    label = answer.label,
+                    respondedAtMs = answer.respondedAtMs,
+                    responseLatencyMs = answer.responseLatencyMs,
+                    debugDirName = debugDir,
+                    extra = answer.extra
+                )
+            }
+        }
+        startFeedback("WearTAK-GunshotDetection", "GS", "gunshot_debug",
+            gunshotDetectionRepo.gunshotFeedback, gunshotDetectionRepo::getEventFromUid)
+        startFeedback("WearTAK-UasDetection", "UAS", "uas_debug",
+            uasOnnxRepo.uasFeedback, uasOnnxRepo::getEventFromUid)
         Log.i(TAG, "WearTakApplication Created")
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -172,11 +189,18 @@ class WearTakApplication : Application() {
         CepProvider.getOrCreateEngine(this)
 
         pluginStateStore = PluginStateStore(applicationContext)
+        openVpnProviderRegistry =
+            com.aitech.weartak_civ.integration.plugin.PluginOpenVpnProviderRegistry {
+                com.aitech.weartak_civ.service.TAKConnectService.onOpenVpnProviderChanged()
+            }
         pluginIngress = PluginIngressPort(this)
         voicePackages = com.aitech.weartak_civ.integration.plugin.VoicePackageBroker(this)
         voiceStandalone = com.aitech.weartak_civ.integration.plugin.VoiceStandaloneAdapter(this)
         voiceStandalone.startIfEnabled()
-        pluginManager = PluginManager(this, pluginIngress, pluginStateStore = pluginStateStore)
+        pluginManager = PluginManager(
+            this, pluginIngress, pluginStateStore = pluginStateStore,
+            dittoNetworkPolicyRepository = repo,
+        )
         pluginRepository = HostPluginRepository(this, pluginManager, pluginStateStore)
         diagnostics.bindConnectivity(repo, pluginManager.settingsCoordinator)
         registerPluginPackageReceiver()

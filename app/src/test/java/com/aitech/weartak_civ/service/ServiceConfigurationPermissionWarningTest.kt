@@ -16,6 +16,8 @@ import org.robolectric.shadows.ShadowLog
 import io.mockk.mockk
 import com.aitech.weartak_civ.presentation.MainActivity
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.data.AudioCaptureRepository
+import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
@@ -65,24 +67,16 @@ class ServiceConfigurationPermissionWarningTest {
         )
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         assertTrue(configuration.permissionsGranted(ServiceType.AUDIO_CAP))
-        assertTrue(configuration.permissionsGranted(ServiceType.ONNX_GUNSHOT))
         ShadowLog.clear()
         shadowOf(app).denyPermissions(Manifest.permission.RECORD_AUDIO)
 
         assertFalse(configuration.permissionsGranted(ServiceType.AUDIO_CAP))
         assertFalse(configuration.permissionsGranted(ServiceType.AUDIO_CAP))
-        assertFalse(configuration.permissionsGranted(ServiceType.ONNX_GUNSHOT))
         assertEquals(
             1,
             ShadowLog.getLogsForTag("WearTAK-ServiceConfig")
                 .count { it.msg.contains("Missing permissions for AUDIO_CAP") }
         )
-        assertEquals(
-            1,
-            ShadowLog.getLogsForTag("WearTAK-ServiceConfig")
-                .count { it.msg.contains("Missing permissions for ONNX_GUNSHOT") }
-        )
-
         shadowOf(app).grantPermissions(Manifest.permission.RECORD_AUDIO)
         assertTrue(configuration.permissionsGranted(ServiceType.AUDIO_CAP))
         shadowOf(app).denyPermissions(Manifest.permission.RECORD_AUDIO)
@@ -92,5 +86,28 @@ class ServiceConfigurationPermissionWarningTest {
             ShadowLog.getLogsForTag("WearTAK-ServiceConfig")
                 .count { it.msg.contains("Missing permissions for AUDIO_CAP") }
         )
+    }
+
+    @Test
+    fun audioCaptureIgnoresLegacyPreferencesButHonorsPluginDemand() = runBlocking {
+        val app = RuntimeEnvironment.getApplication()
+        MainActivity.device_uid = "configuration-test-watch"
+        val repo = DataRepository(app)
+        val audio = AudioCaptureRepository(app)
+        val configuration = ServiceConfiguration(app, repo, audio)
+        repo.storeEnableOnnxGunshotService(true)
+        repo.storeEnableOnnxUasService(false)
+        assertFalse(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+        audio.acquireConsumer("plugin:${PluginDetectionEventBridge.DART_PACKAGE}")
+        assertTrue(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+        audio.releaseConsumer("plugin:${PluginDetectionEventBridge.DART_PACKAGE}")
+        assertFalse(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+
+        repo.storeEnableOnnxUasService(true)
+        assertFalse(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+        audio.acquireConsumer("plugin:${PluginDetectionEventBridge.FALCON_PACKAGE}")
+        assertTrue(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
+        audio.releaseConsumer("plugin:${PluginDetectionEventBridge.FALCON_PACKAGE}")
+        assertFalse(configuration.getServiceEnabledFlow(ServiceType.AUDIO_CAP).first())
     }
 }

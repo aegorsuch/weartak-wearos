@@ -173,12 +173,18 @@ import com.aitech.weartak_civ.data.takserver.SideloadedClientCert
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.DataRepository.SitxGroupStatus
 import com.aitech.weartak_civ.events.MessageEvent
+import com.aitech.weartak_civ.data.takgov.TakGovDeviceAuthorizationRepository
+import com.aitech.weartak_civ.data.takgov.TakGovAccessLevel
 import com.aitech.weartak_civ.data.takserver.TakServerRegistration
 import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_REMOVED
 import com.aitech.weartak_civ.events.MessageEvent.Companion.SERVER_TOGGLED
 import com.aitech.weartak_civ.integration.plugin.PluginCompatibilityStatus
 import com.aitech.weartak_civ.integration.plugin.PluginActivityLauncher
+import com.aitech.weartak_civ.integration.plugin.DittoPdlMode
+import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
+import com.aitech.weartak_civ.integration.plugin.PluginDetectionEventBridge
 import com.aitech.weartak_civ.integration.plugin.PluginLoadingStatus
+import com.aitech.weartak_civ.integration.plugin.PluginRepositoryOutcome
 import com.aitech.weartak_civ.integration.plugin.PluginUninstallRequest
 import com.aitech.weartak_civ.integration.plugin.PluginUI
 import com.aitech.weartak_civ.integration.plugin.PluginViewModel
@@ -192,8 +198,6 @@ import com.aitech.weartak_civ.presentation.MainActivity.Constants.mainActivity
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.sitxRepo
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.sitxTakGroup
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.teamEntriesValuesList
-import com.aitech.weartak_civ.data.DittoPdlSource
-import com.aitech.weartak_civ.service.DittoCommunityLicenseHelper
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.versionNumber
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.TAG
 import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.allergiesOptionsList
@@ -206,6 +210,8 @@ import com.aitech.weartak_civ.presentation.WearTAKSettingsActivity.Constants.sex
 import com.aitech.weartak_civ.data.ProfileUnit
 import com.aitech.weartak_civ.presentation.theme.WearTAKCIVTheme
 import com.aitech.weartak_civ.presentation.viewmodel.SitxViewModel
+import com.aitech.weartak_civ.presentation.viewmodel.TakGovLinkPhase
+import com.aitech.weartak_civ.presentation.viewmodel.TakGovLinkUiState
 import com.aitech.weartak_civ.presentation.viewmodel.WearTAKSettingsViewModel
 import com.aitech.weartak_civ.service.SitxTakService
 import com.aitech.weartak_civ.service.TAKConnectService
@@ -289,6 +295,9 @@ class WearTAKSettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.aitech.weartak_civ.integration.plugin.DittoMeshPermissions.observe(
+            this, (application as com.aitech.weartak_civ.WearTakApplication).pluginManager
+        )
         Log.i(TAG, "WearTAKSettingsActivity onCreate()")
         enrollmentToken = intent.getStringExtra(EXTRA_ENROLLMENT_TOKEN)
         shortcutRoute = settingsShortcutRoute(intent)
@@ -339,6 +348,7 @@ fun WearTAKSettingsNav(
     val savedCallsign by settingsVm.savedCallsign.collectAsState()
     val savedTeam by settingsVm.savedTeam.collectAsState()
     val savedRole by settingsVm.savedRole.collectAsState()
+    val takGovLinkState by settingsVm.takGovLinkState.collectAsState()
     val phoneManagedSettings by settingsVm.savedPhoneManagedSettings.collectAsState()
     val selectedLocationInput by dataRepository.getLocationInput.collectAsState(initial = null)
     val locationInputStatus by dataRepository.locationInputStatus.collectAsState()
@@ -413,9 +423,6 @@ fun WearTAKSettingsNav(
     }
     val enableSmsAlerts by settingsVm.savedEnableSmsForAlerts.collectAsState()
     val smsNumberList by settingsVm.savedSmsNumbersList.collectAsState()
-    val enableDittoService by settingsVm.savedEnableDittoService.collectAsState()
-    val dittoPdlSource by dataRepository.getDittoPdlSource.collectAsState(initial = DittoPdlSource.COMMUNITY)
-    val dittoCustomPdl by dataRepository.getDittoCustomPdl.collectAsState(initial = "")
     val enableTabletCommandEndpoint by settingsVm.savedEnableTabletCommandEndpoint.collectAsState()
     val tabletCommandEndpoint by settingsVm.savedTabletCommandEndpoint.collectAsState()
     val tabletCommandAPIKey by settingsVm.savedTabletCommandApikey.collectAsState()
@@ -458,13 +465,43 @@ fun WearTAKSettingsNav(
     val bloodhoundProximityIntensity by settingsVm.savedBloodhoundProximityIntensity.collectAsState()
 
     val pluginList by pluginVm.plugins.collectAsState()
+    val dittoConnection by (context.applicationContext as com.aitech.weartak_civ.WearTakApplication)
+        .pluginManager.dittoReadyConnection.collectAsStateWithLifecycle()
+    val dittoModeFlow = remember(dittoConnection) {
+        dittoConnection?.dittoPdlMode ?: kotlinx.coroutines.flow.MutableStateFlow<DittoPdlMode?>(null)
+    }
+    val dittoMode by dittoModeFlow.collectAsStateWithLifecycle()
+    val dittoMeshFlow = remember(dittoConnection) {
+        dittoConnection?.dittoMeshStatus ?: kotlinx.coroutines.flow.MutableStateFlow<
+            com.aitech.weartak_civ.integration.plugin.DittoMeshStatus?
+        >(null)
+    }
+    val dittoMeshStatus by dittoMeshFlow.collectAsStateWithLifecycle()
+    val dittoPermissionAttempted by com.aitech.weartak_civ.integration.plugin.DittoMeshPermissions
+        .attempted.collectAsStateWithLifecycle()
+    val dittoPermissionRecovery = dittoMeshStatus?.let {
+        it.needsRecovery || (it.canPrompt && dittoPermissionAttempted)
+    } == true
+    val dittoSubtitle = when (dittoMode) {
+        DittoPdlMode.COMMUNITY -> stringResource(R.string.community_pdl)
+        DittoPdlMode.PRIVATE -> stringResource(R.string.ditto_private_pdl)
+        DittoPdlMode.NOT_CONFIGURED -> stringResource(R.string.ditto_pdl_not_configured)
+        null -> null
+    }
+    val settingsLifecycle = LocalLifecycleOwner.current
+    DisposableEffect(settingsLifecycle, dittoConnection) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) dittoConnection?.refreshDittoPdlMode()
+        }
+        settingsLifecycle.lifecycle.addObserver(observer)
+        dittoConnection?.refreshDittoPdlMode()
+        onDispose { settingsLifecycle.lifecycle.removeObserver(observer) }
+    }
 
     val enableGunshotDetection by settingsVm.savedEnableOnnxGunshotService.collectAsState()
     val gunshotTriggerThreshold by settingsVm.savedOnnxGunshotTriggerThresholdPercent.collectAsState()
     val enableUasDetection by settingsVm.savedEnableOnnxUasService.collectAsState()
     val uasTriggerThreshold by settingsVm.savedOnnxUasTriggerThresholdPercent.collectAsState()
-    val crmThresholdValues by settingsVm.savedCrmThresholdRanges.collectAsState()
-    val enableCrm by settingsVm.savedEnableCrmService.collectAsState()
     val wearTakInfo by settingsVm.wearTakInfo.collectAsState()
 
     LaunchedEffect(phoneManagedSettings, networkPreferencesLocked) {
@@ -515,6 +552,7 @@ fun WearTAKSettingsNav(
         startDestination = "settings_screen"
     ) {
         composable("settings_screen") {
+            val entries = mainPreferenceEntries(context)
             val rootSwipeState = rememberSwipeToDismissBoxState()
             LaunchedEffect(rootSwipeState.currentValue) {
                 if (rootSwipeState.currentValue == SwipeToDismissValue.Dismissed) {
@@ -527,17 +565,10 @@ fun WearTAKSettingsNav(
                     WearTAKPageWithBackArrow(
                         stringResource(R.string.weartak_preferences),
                         {
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.callsign_and_device_preferences),
-                                    route = "callsign_and_device_preferences",
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                if (networkPreferencesLocked) {
+                            itemsIndexed(entries) { _, (route, title) ->
+                                if (route == "network_preferences" && networkPreferencesLocked) {
                                     WearTAKLockedTitleChip(
-                                        title = stringResource(R.string.network_preferences),
+                                        title = title,
                                         lockedState = stringResource(R.string.locked),
                                         onClick = {
                                             Toast.makeText(
@@ -551,41 +582,12 @@ fun WearTAKSettingsNav(
                                     )
                                 } else {
                                     WearTAKTitleChip(
-                                        title = stringResource(R.string.network_preferences),
-                                        route = "network_preferences",
+                                        title = title,
+                                        route = route,
+                                        enabled = if (route == "admin_preferences" || route == "debug_tools") isDevMode else true,
                                         navController = navController
                                     )
                                 }
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.alerting_preferences),
-                                    route = "alerting_preferences",
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.tool_preferences),
-                                    route = "tool_preferences",
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.admin_preferences),
-                                    route = "admin_preferences",
-                                    enabled = isDevMode,
-                                    navController = navController
-                                )
-                            }
-                            item {
-                                WearTAKTitleChip(
-                                    title = stringResource(R.string.developer_preferences),
-                                    route = "debug_tools",
-                                    enabled = isDevMode,
-                                    navController = navController
-                                )
                             }
                             item {
                                 WearTAKDebugVersionText(
@@ -601,19 +603,6 @@ fun WearTAKSettingsNav(
                     )
                 }
             }
-        }
-        composable("ditto_pdl") {
-            DittoPdlSelectionPage(
-                navController = navController,
-                selectedSource = dittoPdlSource
-            )
-        }
-
-        composable("ditto_custom_pdl") {
-            LaunchedEffect(Unit) {
-                com.aitech.weartak_civ.service.DittoService.onDittoScreenOpened()
-            }
-            DittoCustomPdlEntryPage(navController)
         }
         //Callsign and Device Settings vvv
         composable("callsign_and_device_preferences") {
@@ -639,22 +628,6 @@ fun WearTAKSettingsNav(
                     item {
                         if (phoneManagedSettings) {
                             WearTAKLockedTitleChip(
-                                title = stringResource(R.string.my_team),
-                                lockedState = "${savedTeam} • ${stringResource(R.string.phone_managed)}",
-                                onClick = showPhoneManagedNotice
-                            )
-                        } else {
-                            WearTAKTitleChipWithState(
-                                route = "my_team",
-                                title = stringResource(R.string.my_team),
-                                state = savedTeam,
-                                navController = navController
-                            )
-                        }
-                    }
-                    item {
-                        if (phoneManagedSettings) {
-                            WearTAKLockedTitleChip(
                                 title = stringResource(R.string.my_role),
                                 lockedState = "${savedRole} • ${stringResource(R.string.phone_managed)}",
                                 onClick = showPhoneManagedNotice
@@ -664,6 +637,44 @@ fun WearTAKSettingsNav(
                                 route = "my_role",
                                 title = stringResource(R.string.my_role),
                                 state = savedRole,
+                                navController = navController
+                            )
+                        }
+                    }
+                    item {
+                        WearTAKTitleChipWithState(
+                            route = "my_takgov_link",
+                            title = stringResource(R.string.my_takgov_link),
+                            state = takGovLinkState.linked,
+                            formatState = { linked ->
+                                val statusString = when {
+                                    linked == true &&
+                                        takGovLinkState.accessLevel == TakGovAccessLevel.MIL ->
+                                        R.string.takgov_linked_mil
+                                    linked == true &&
+                                        takGovLinkState.accessLevel == TakGovAccessLevel.CIV ->
+                                        R.string.takgov_linked_civ
+                                    linked == true -> R.string.takgov_linked
+                                    linked == false -> R.string.takgov_unlinked
+                                    else -> R.string.takgov_link_checking
+                                }
+                                stringResource(statusString)
+                            },
+                            navController = navController
+                        )
+                    }
+                    item {
+                        if (phoneManagedSettings) {
+                            WearTAKLockedTitleChip(
+                                title = stringResource(R.string.my_team),
+                                lockedState = "${savedTeam} • ${stringResource(R.string.phone_managed)}",
+                                onClick = showPhoneManagedNotice
+                            )
+                        } else {
+                            WearTAKTitleChipWithState(
+                                route = "my_team",
+                                title = stringResource(R.string.my_team),
+                                state = savedTeam,
                                 navController = navController
                             )
                         }
@@ -799,6 +810,15 @@ fun WearTAKSettingsNav(
                     navController,
                 )
             }
+        }
+        composable("my_takgov_link") {
+            TakGovLinkPage(
+                navController = navController,
+                state = takGovLinkState,
+                onStartLinking = settingsVm::beginTakGovLink,
+                onCancelLinking = settingsVm::cancelTakGovLink,
+                onRemoveLink = settingsVm::removeTakGovLink,
+            )
         }
         composable(
             "role_category_screen/{index}",
@@ -1461,30 +1481,11 @@ fun WearTAKSettingsNav(
             )
             val takSubtitleOverride = takStatusOverride?.let { stringResource(it) }
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
+            val dittoNetworkEnabled by pluginVm.dittoNetworkEnabled.collectAsStateWithLifecycle()
+            val dittoPolicyLoaded by pluginVm.dittoNetworkPolicyLoaded.collectAsStateWithLifecycle()
+            val dittoPolicyMigrationFailed by pluginVm.dittoNetworkPolicyMigrationFailed.collectAsStateWithLifecycle()
             val pluginRouteStatuses by pluginVm.connectionStatuses.collectAsStateWithLifecycle()
             val companionStatus = companionPluginStatus(enableCompanionAppService)
-            val dittoPowerSuppressionReason by com.aitech.weartak_civ.service.DittoService.powerSuppressionReason
-                .collectAsStateWithLifecycle()
-            val dittoSubtitle = stringResource(dittoPdlSubtitle(dittoPdlSource, dittoCustomPdl.isNotBlank()))
-            val dittoSuppression = dittoSuppressionLabel(enableDittoService, dittoPowerSuppressionReason)
-            val suppressedLabel = dittoSuppression?.let { stringResource(it) }
-            val dittoBleWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
-            var showDittoBleRecovery by rememberSaveable { mutableStateOf(false) }
-            LaunchedEffect(dittoBleWarning) {
-                if (dittoBleWarning == com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
-                    showDittoBleRecovery = false
-                }
-            }
-            if (showDittoBleRecovery && dittoBleWarning != com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
-                DittoBleRecoveryDialog(
-                    warning = dittoBleWarning,
-                    onRetryNow = {
-                        showDittoBleRecovery = false
-                        dataRepository.requestDittoBleRecovery(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
-                    },
-                    onDismiss = { showDittoBleRecovery = false }
-                )
-            }
             val enabledLabel = stringResource(R.string.enabled)
             val disabledLabel = stringResource(R.string.disabled)
             val takIndicator = TakServerIndicator.resolve(
@@ -1515,27 +1516,38 @@ fun WearTAKSettingsNav(
                         sitxGroup != null -> stringResource(R.string.network_disconnected_group, sitxGroup!!.name)
                         else -> stringResource(R.string.network_no_group)
                     }, enableSitx, settingsVm::storeEnableSitx),
-                NetworkConnectivityRow("ditto", stringResource(R.string.ditto),
-                    suppressedLabel ?: dittoSubtitle,
-                    enableDittoService, settingsVm::storeEnableDittoService,
-                    statusDescription = if (suppressedLabel != null) "$dittoSubtitle, $suppressedLabel" else dittoSubtitle,
-                    suppressed = dittoSuppression != null,
-                    suppressionLabel = dittoSuppression ?: R.string.connection_route_suppressed),
                 NetworkConnectivityRow("companion", stringResource(R.string.companion_app),
                     "", enableCompanionAppService, settingsVm::storeEnableCompanionAppService,
                     statusDescription = companionStatus)
             ) + pluginList.mapNotNull { plugin ->
-                if (!plugin.isLoaded) return@mapNotNull null
+               val isDitto = plugin.packageName == TrustedCommunityPlugin.PACKAGE
+               if (!plugin.isLoaded && !(isDitto && plugin.isEnabled)) return@mapNotNull null
                 val toggle = pluginToggles[plugin.packageName]
                 val routes = pluginRouteStatuses[plugin.packageName].orEmpty().values
+               if (isDitto) {
+                    val subtitle = when {
+                        !dittoPolicyLoaded -> stringResource(R.string.ditto_network_policy_pending)
+                        !dittoNetworkEnabled -> stringResource(R.string.ditto_network_off_unconfirmed)
+                        else -> pluginNetworkSubtitle(true, disabledLabel, enabledLabel, dittoSubtitle,
+                            if (routes.isNotEmpty()) pluginRouteSummary(routes) else null)
+                    }
+                   return@mapNotNull NetworkConnectivityRow(
+                        "plugin:${plugin.packageName}", plugin.title, subtitle,
+                        dittoPolicyLoaded && dittoNetworkEnabled,
+                       pluginVm::setDittoNetworkEnabled,
+                       statusDescription = subtitle,
+                       pluginIcon = plugin.icon,
+                        toggleAvailable = dittoPolicyLoaded || dittoPolicyMigrationFailed,
+                   )
+               }
                 if (toggle == null && routes.isEmpty()) return@mapNotNull null
                 val enabled = toggle?.enabled != false
                 NetworkConnectivityRow("plugin:${plugin.packageName}", plugin.title,
-                    when {
-                        !enabled -> disabledLabel
-                        routes.isNotEmpty() -> pluginRouteSummary(routes)
-                        else -> enabledLabel
-                    }, enabled,
+                    pluginNetworkSubtitle(
+                        enabled, disabledLabel, enabledLabel,
+                        dittoSubtitle.takeIf { plugin.packageName == TrustedCommunityPlugin.PACKAGE },
+                        if (routes.isNotEmpty()) pluginRouteSummary(routes) else null,
+                    ), enabled,
                     { if (toggle != null) pluginVm.setConnectivityEnabled(plugin.packageName, toggle, it) },
                     pluginIcon = plugin.icon, toggleAvailable = toggle != null)
             }).alphabetizedConnections(LocalConfiguration.current.locales[0])
@@ -1553,11 +1565,6 @@ fun WearTAKSettingsNav(
                                 Toast.makeText(context, networkLockedNotice, Toast.LENGTH_SHORT).show()
                             }
                         )
-                    }
-                    if (dittoBleWarning != com.aitech.weartak_civ.service.BleLinkWarning.NONE) {
-                        item {
-                            DittoBleRecoverySettingsChip(dittoBleWarning) { showDittoBleRecovery = true }
-                        }
                     }
                     item {
                         if (phoneManagedSettings) {
@@ -3217,6 +3224,8 @@ fun WearTAKSettingsNav(
 
         composable("plugins") {
             val pluginToggles by pluginVm.connectivityToggles.collectAsStateWithLifecycle()
+            val crmSettings by pluginVm.crmSettings.collectAsStateWithLifecycle()
+            val crmOperationPending by pluginVm.crmOperationPending.collectAsStateWithLifecycle()
             val moppStatus by dataRepository.getMoppStatus.collectAsStateWithLifecycle(initialValue = null)
             val companionStatus = companionPluginStatus(enableCompanionAppService)
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
@@ -3226,16 +3235,15 @@ fun WearTAKSettingsNav(
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.BATDOK, stringResource(R.string.batdok)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMMANDS, stringResource(R.string.chat_commands)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.COMPANION, stringResource(R.string.companion_app)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, stringResource(R.string.gunshot_detection)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, stringResource(R.string.data_sync)),
-                    PluginMenuEntry.BuiltIn(BuiltInPlugin.DITTO, stringResource(R.string.ditto)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, stringResource(R.string.esri)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.EVERYWHERE_COMMS, stringResource(R.string.everywhere_comms)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, stringResource(R.string.uas_detection)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SENSOR_MANAGER, stringResource(R.string.sensor_manager)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.SOMEWEAR_LABS, stringResource(R.string.somewear_labs)),
                     PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, stringResource(R.string.tablet_command)),
+                    PluginMenuEntry.Market(stringResource(R.string.takwerx_market_title)),
                 ) + pluginList.installedPluginMenuEntries()
             ).withoutSomewearPlaceholder().alphabetizedPluginEntries()
             val lifecycleOwner = LocalLifecycleOwner.current
@@ -3271,12 +3279,24 @@ fun WearTAKSettingsNav(
                     item {
                         WearTAKTitleChip(
                             title = "OpenVPN",
-                            route = "openvpn_settings",
+                            route = "openvpn_plugin",
                             navController = navController
                         )
                     }
                     itemsIndexed(items = menuEntries, key = { _, entry -> entry.key }) { _, entry ->
                         when (entry) {
+                            is PluginMenuEntry.Market -> WearTAKTitleChip(
+                                icon = {
+                                    Image(
+                                        painter = painterResource(R.drawable.takwerx_market),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                title = entry.title,
+                                route = "takwerx_market",
+                                navController = navController,
+                            )
                             is PluginMenuEntry.BuiltIn -> when (entry.kind) {
                                 BuiltInPlugin.BATDOK -> {
                                     BatdokPatientToggle(
@@ -3317,17 +3337,7 @@ fun WearTAKSettingsNav(
                                         onClick = { navController.navigate("chat_commands") }
                                     )
                                 }
-                                BuiltInPlugin.DITTO -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = stringResource(dittoPdlSubtitle(dittoPdlSource, dittoCustomPdl.isNotBlank())),
-                                        checked = enableDittoService,
-                                        onCheckedChange = { settingsVm.storeEnableDittoService(it) },
-                                        onClick = { navController.navigate("ditto_pdl") }
-                                    )
-                                }
+                                BuiltInPlugin.DITTO -> Unit
                                 BuiltInPlugin.SENSOR_MANAGER -> {
                                     BuiltInPluginToggleChip(
                                         kind = entry.kind,
@@ -3339,37 +3349,45 @@ fun WearTAKSettingsNav(
                                         onClick = { navController.navigate("sensor_manager") }
                                     )
                                 }
-                                BuiltInPlugin.DART -> {
-                                    BuiltInPluginToggleChip(
+                                BuiltInPlugin.DART, BuiltInPlugin.FALCON -> {
+                                    val isDart = entry.kind == BuiltInPlugin.DART
+                                    val packageName = if (isDart) PluginDetectionEventBridge.DART_PACKAGE
+                                        else PluginDetectionEventBridge.FALCON_PACKAGE
+                                    val detector = pluginList.firstOrNull {
+                                        it.packageName == packageName
+                                    }
+                                    AudioDetectorPluginChip(
                                         kind = entry.kind,
                                         phoneManagedSettings = phoneManagedSettings,
                                         title = entry.title,
-                                        label = stringResource(R.string.unfunded_request),
-                                        checked = enableGunshotDetection,
-                                        onCheckedChange = { settingsVm.storeEnableOnnxGunshotService(it) },
-                                        onClick = { navController.navigate("gunshot_detection") }
-                                    )
-                                }
-                                BuiltInPlugin.FALCON -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = stringResource(R.string.unfunded_request),
-                                        checked = enableUasDetection,
-                                        onCheckedChange = { settingsVm.storeEnableOnnxUasService(it) },
-                                        onClick = { navController.navigate("uav_detection") }
-                                    )
-                                }
-                                BuiltInPlugin.CRM -> {
-                                    BuiltInPluginToggleChip(
-                                        kind = entry.kind,
-                                        phoneManagedSettings = phoneManagedSettings,
-                                        title = entry.title,
-                                        label = stringResource(R.string.unfunded_request),
-                                        checked = enableCrm,
-                                        onCheckedChange = { settingsVm.storeEnableCrmService(it) },
-                                        onClick = { navController.navigate("crm_thresholds") }
+                                        checked = if (isDart) enableGunshotDetection else enableUasDetection,
+                                        installed = detector != null,
+                                        onCheckedChange = { enabled ->
+                                            if (isDart) settingsVm.storeEnableOnnxGunshotService(enabled)
+                                            else settingsVm.storeEnableOnnxUasService(enabled)
+                                            if (enabled && detector != null && !detector.isEnabled) {
+                                                pluginVm.loadPlugin(detector.pluginId)
+                                                val result = pluginVm.operationOutcome.value
+                                                if (result is PluginRepositoryOutcome.Failure) {
+                                                    Log.e(TAG, "Failed to load $packageName: ${result.reason}")
+                                                }
+                                            }
+                                        },
+                                        onDetails = {
+                                            navController.navigate(if (isDart) "gunshot_detection" else "uav_detection")
+                                        },
+                                        onUninstall = {
+                                            if (detector != null) {
+                                                pluginitem.value = detector
+                                                shouldShowDialog.value = true
+                                            }
+                                        },
+                                        onInfo = {
+                                            if (detector != null) {
+                                                pluginitem.value = detector
+                                                showPopup.value = true
+                                            }
+                                        },
                                     )
                                 }
                                 BuiltInPlugin.ESRI -> {
@@ -3408,7 +3426,15 @@ fun WearTAKSettingsNav(
                             }
                             is PluginMenuEntry.Installed -> {
                                 val item = entry.plugin
-                                val menuLabel = item.menuLabel(moppStatus, stringResource(R.string.mopp_none))
+                                val needsDittoPermission = item.packageName == TrustedCommunityPlugin.PACKAGE &&
+                                    item.isLoaded && dittoPermissionRecovery
+                                val isCrm = item.packageName == com.aitech.weartak_civ.integration.plugin.CRM_PLUGIN_PACKAGE
+                                val menuLabel = if (isCrm) {
+                                    stringResource(R.string.unfunded_request)
+                                } else if (needsDittoPermission) {
+                                    stringResource(R.string.companion_status_permission)
+                                } else item.dittoMenuLabel(
+                                    dittoSubtitle, item.menuLabel(moppStatus, stringResource(R.string.mopp_none)))
                                 WearTAKSwipeToRevealChip(
                                     onPrimaryActionClick = {
                                         pluginitem.value = item
@@ -3421,7 +3447,13 @@ fun WearTAKSettingsNav(
                                     chipType = { reveal ->
                                         WearTAKSplitToggleChip(
                                             appIcon = {
-                                                item.icon.let {
+                                                if (isCrm) {
+                                                    Image(
+                                                        painter = painterResource(R.drawable.ic_plugin_gauge),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.padding(end = 4.dp).size(24.dp),
+                                                    )
+                                                } else item.icon.let {
                                                     AndroidView(
                                                         modifier = Modifier
                                                             .size(25.dp)
@@ -3434,23 +3466,36 @@ fun WearTAKSettingsNav(
                                                     )
                                                 }
                                             },
-                                            title = item.title,
+                                            title = entry.title,
                                             label = menuLabel,
                                             modifier = Modifier.semantics {
                                                 if (menuLabel == null && item.desc.isNotBlank()) {
                                                     contentDescription = item.desc
                                                 }
                                             },
-                                            checked = item.isEnabled,
+                                            checked = if (isCrm) crmSettings?.enabled == true else item.isEnabled,
                                             onCheckedChange = {
-                                                when (it) {
-                                                    true -> pluginVm.loadPlugin(item.pluginId)
-                                                    false -> pluginVm.unloadPlugin(item.pluginId)
+                                                if (isCrm) {
+                                                    pluginVm.setCrmEnabled(item.pluginId, item.isEnabled, it)
+                                                } else {
+                                                    when (it) {
+                                                        true -> pluginVm.loadPlugin(item.pluginId)
+                                                        false -> pluginVm.unloadPlugin(item.pluginId)
+                                                    }
                                                 }
                                             },
+                                            enabled = !isCrm || !crmOperationPending,
                                             onClick = {
-                                                pluginMenuScope.launch {
-                                                    if (pluginVm.supportsHostedMainUi(item.pluginId)) {
+                                                if (isCrm) {
+                                                    pluginVm.openCrmThresholds()
+                                                } else pluginMenuScope.launch {
+                                                    if (needsDittoPermission) {
+                                                        if (!PluginActivityLauncher.launch(context, item.packageName)) {
+                                                            reveal.first.launch {
+                                                                reveal.second.animateTo(targetValue = RevealValue.RightRevealing)
+                                                            }
+                                                        }
+                                                    } else if (pluginVm.supportsHostedMainUi(item.pluginId)) {
                                                         navController.navigate(hostedPluginMainUiRoute(item.pluginId))
                                                     } else if (!PluginActivityLauncher.launch(context, item.packageName)) {
                                                         reveal.first.launch {
@@ -3616,13 +3661,7 @@ fun WearTAKSettingsNav(
                 navController = navController,
             )
         }
-        composable("openvpn_settings") {
-            OpenVpnSettingsPage(
-                navController = navController,
-                settingsVm = settingsVm,
-                servers = takServerList,
-            )
-        }
+        composable("openvpn_plugin") { OpenVpnPluginLaunchPage(navController) }
         composable("data_sync") {
             val serverMissions by dataRepository.takMissions.collectAsState()
             val enableDataSync by settingsVm.savedEnableDataSync.collectAsState()
@@ -3699,19 +3738,53 @@ fun WearTAKSettingsNav(
         composable("admin_preferences") {
             if (!isDevMode) {
                 LaunchedEffect(Unit) { navController.popBackStack() }
-            } else WearTAKPageWithBackArrow(
-                stringResource(R.string.admin_preferences),
-                columnContent = {
-                    item {
-                        WearTAKToggleChip(
-                            testTag = "settings_network_lock",
-                            checkedLive = networkPreferencesLocked,
-                            onCheckedChange = { settingsVm.storeNetworkPreferencesLocked(it) },
-                            title = stringResource(R.string.network_settings_lock),
-                        )
-                    }
-                },
-                navController,
+            } else {
+                val marketMonitor = remember(context.applicationContext) {
+                    (context.applicationContext as com.aitech.weartak_civ.WearTakApplication).marketUpdateMonitor
+                }
+                val marketLocked by marketMonitor.marketLock.locked.collectAsStateWithLifecycle()
+                val marketScope = rememberCoroutineScope()
+                var marketSaving by remember { mutableStateOf(false) }
+                WearTAKPageWithBackArrow(
+                    stringResource(R.string.admin_preferences),
+                    columnContent = {
+                        item {
+                            WearTAKToggleChip(
+                                testTag = "settings_network_lock",
+                                checkedLive = networkPreferencesLocked,
+                                onCheckedChange = { settingsVm.storeNetworkPreferencesLocked(it) },
+                                title = stringResource(R.string.network_settings_lock),
+                            )
+                        }
+                        item {
+                            WearTAKToggleChip(
+                                testTag = "settings_market_lock",
+                                checkedLive = marketLocked,
+                                enabled = !marketSaving,
+                                onCheckedChange = { locked ->
+                                    marketSaving = true
+                                    marketScope.launch {
+                                        val saved = withContext(Dispatchers.IO) {
+                                            marketMonitor.setMarketLocked(locked)
+                                        }
+                                        marketSaving = false
+                                        if (!saved) {
+                                            Toast.makeText(context, R.string.market_lock_save_error, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                title = stringResource(R.string.market_admin_lock),
+                            )
+                        }
+                    },
+                    navController,
+                )
+            }
+        }
+        composable("takwerx_market") {
+            TakwerxMarketPage(
+                navController = navController,
+                pluginViewModel = pluginVm,
             )
         }
         //Admin Preferences ^^^
@@ -3769,61 +3842,6 @@ fun WearTAKSettingsNav(
                 minimum = 0,
                 context = context,
                 confirmFunction = { settingsVm.storeOnnxUasTriggerThresholdPercent(it)}
-            )
-        }
-
-        composable("crm_thresholds") {
-            WearTAKPageWithBackArrow(
-                "CRM Thresholds",
-                columnContent = {
-                    item {
-                        Chip(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { context.startActivity(Intent(context, CrmReserveActivity::class.java)) },
-                            label = { Text(stringResource(R.string.crm_reserve)) })
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "poor_max_crm_threshold",
-                            title = "Poor Maximum",
-                            state = crmThresholdValues.poorMax,
-                            navController = navController,
-                            formatState = { value -> "${value ?: 0}%" }
-                        )
-                    }
-                    item {
-                        WearTAKTitleChipWithState(
-                            route = "moderate_max_crm_threshold",
-                            title = "Moderate Maximum",
-                            state = crmThresholdValues.moderateMax,
-                            navController = navController,
-                            formatState = { value -> "${value ?: 0}%" }
-                        )
-                    }
-                },
-                navController,
-            )
-        }
-        composable("poor_max_crm_threshold"){
-            WearTAKIntEntryPage(
-                navController = navController,
-                item = crmThresholdValues.poorMax,
-                label = "Poor Maximum",
-                maximum = 100,
-                minimum = 0,
-                context = context,
-                confirmFunction = { settingsVm.storeCrmThresholdRanges(it, crmThresholdValues.moderateMax,)}
-            )
-        }
-        composable("moderate_max_crm_threshold"){
-            WearTAKIntEntryPage(
-                navController = navController,
-                item = crmThresholdValues.moderateMax,
-                label = "Moderate Maximum",
-                maximum = 100,
-                minimum = 0,
-                context = context,
-                confirmFunction = { settingsVm.storeCrmThresholdRanges(crmThresholdValues.poorMax, it)}
             )
         }
 
@@ -4380,268 +4398,6 @@ fun WearTAKBackButton(
         )
     }
 }
-@Composable
-fun DittoPdlSelectionPage(
-    navController: NavController,
-    selectedSource: DittoPdlSource
-) {
-    val scope = rememberCoroutineScope()
-    val savedCustomPdl by dataRepository.getDittoCustomPdl.collectAsState(initial = "")
-    val liveStatus by com.aitech.weartak_civ.service.DittoService.liveStatus.collectAsStateWithLifecycle()
-    val enabled by dataRepository.getEnableDittoService.collectAsStateWithLifecycle(initialValue = false)
-    val context = LocalContext.current
-    val platformTransports = remember(context) {
-        com.aitech.weartak_civ.service.dittoDiagnosticTransports(context.packageManager)
-    }
-    val visibleStatus = if (enabled) liveStatus else liveStatus.copy(
-        peers = null, recovery = com.aitech.weartak_civ.service.DittoRecoveryStatus.STOPPED)
-    DittoIdentitySettingsPage(navController, selectedSource, savedCustomPdl,
-        visibleStatus.copy(transports = visibleStatus.transports ?: platformTransports),
-        onCommunitySelected = {
-            scope.launch { dataRepository.storeDittoPdlSource(DittoPdlSource.COMMUNITY) }
-        })
-}
-
-@Composable
-internal fun DittoIdentitySettingsPage(
-    navController: NavController,
-    selectedSource: DittoPdlSource,
-    savedCustomPdl: String,
-    liveStatus: com.aitech.weartak_civ.service.DittoLiveStatus,
-    onCommunitySelected: () -> Unit,
-) {
-    val showPdlHelp = remember { mutableStateOf(false) }
-    val communityTitle = stringResource(R.string.community_pdl)
-    val customTitle = stringResource(R.string.custom_pdl)
-    val pdlOptions = listOf(communityTitle, customTitle)
-
-    WearTAKPageWithBackArrow(
-        title = stringResource(R.string.ditto_identity),
-        columnContent = {
-            item {
-                WearTAKSelectableChip(
-                    selected = selectedSource == DittoPdlSource.COMMUNITY,
-                    onClick = onCommunitySelected,
-                    title = communityTitle,
-                    secondaryTitle = stringResource(R.string.community_pdl),
-                    combined = true,
-                    list = pdlOptions
-                )
-            }
-
-            item {
-                WearTAKSelectableChip(
-                    selected = selectedSource == DittoPdlSource.CUSTOM,
-                    onClick = {
-                        navController.navigate("ditto_custom_pdl")
-                    },
-                    title = customTitle,
-                    secondaryTitle = savedCustomPdl.ifBlank {
-                        stringResource(R.string.no_custom_pdl_saved)
-                    },
-                    combined = true,
-                    list = pdlOptions
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            item {
-                Chip(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        showPdlHelp.value = true
-                    },
-                    label = {
-                        Text(stringResource(R.string.pdl_help))
-                    },
-                    secondaryLabel = {
-                        Text(
-                            text = stringResource(R.string.pdl_help_summary),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = stringResource(R.string.pdl_help),
-                            modifier = Modifier.size(18.dp),
-                            tint = Color.LightGray
-                        )
-                    },
-                    colors = ChipDefaults.chipColors(
-                        backgroundColor = Color.DarkGray,
-                        contentColor = Color.White,
-                        secondaryContentColor = Color.LightGray
-                    )
-                )
-            }
-            dittoDiagnosticItems(liveStatus)
-        },
-        navController = navController
-    )
-
-    DittoPdlHelpDialog(showPdlHelp)
-}
-
-@Composable
-fun DittoPdlHelpDialog(
-    shouldShowDialog: MutableState<Boolean>
-) {
-    if (shouldShowDialog.value) {
-        Dialog(
-            onDismissRequest = {
-                shouldShowDialog.value = false
-            },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false
-            )
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = colors.background
-                ),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Info,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .size(22.dp),
-                        tint = Color.LightGray
-                    )
-
-                    Text(
-                        text = stringResource(R.string.pdl_help_instructions),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = 32.dp, bottom = 56.dp)
-                            .verticalScroll(rememberScrollState()),
-                        fontSize = 12.sp,
-                        lineHeight = 15.sp
-                    )
-
-                    Button(
-                        onClick = {
-                            shouldShowDialog.value = false
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .width(112.dp)
-                            .height(40.dp),
-                        contentPadding = PaddingValues(
-                            horizontal = 12.dp,
-                            vertical = 0.dp
-                        ),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Gray
-                        )
-                    ) {
-                        Text(
-                            text = stringResource(R.string.dismiss),
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DittoCustomPdlEntryPage(
-    navController: NavController
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val savedCustomPdl by dataRepository.getDittoCustomPdl.collectAsState(
-        initial = ""
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.background)
-            .padding(bottom = 16.dp)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        val textField = WearTAKOutlinedTextField(
-            string = savedCustomPdl,
-            label = stringResource(R.string.custom_pdl)
-        )
-
-        Row(
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            WearTAKConfirmCancelButtons(
-                onClickCancel = {
-                    navController.popBackStack()
-                },
-                onClickConfirm = {
-                    val value = textField.text.trim()
-
-                    val license = try {
-                        DittoCommunityLicenseHelper.parse(value)
-                    } catch (error: Exception) {
-                        Log.e(TAG, "Custom PDL is invalid", error)
-
-                        Toast.makeText(
-                            context,
-                            "Invalid PDL",
-                            Toast.LENGTH_LONG
-                        ).show()
-
-                        return@WearTAKConfirmCancelButtons
-                    }
-
-                    if (license.isExpired) {
-                        Toast.makeText(
-                            context,
-                            "Expired PDL",
-                            Toast.LENGTH_LONG
-                        ).show()
-
-                        return@WearTAKConfirmCancelButtons
-                    }
-
-                    scope.launch {
-                        dataRepository.storeDittoCustomPdl(value)
-                        dataRepository.storeDittoPdlSource(
-                            DittoPdlSource.CUSTOM
-                        )
-
-                        Toast.makeText(
-                            context,
-                            "PDL saved successfully",
-                            Toast.LENGTH_LONG
-                        ).show()
-
-                        navController.popBackStack(
-                            route = "ditto_pdl",
-                            inclusive = true
-                        )
-                    }
-                }
-            )
-        }
-    }
-}
-
 //Used wherever a string value needs to be edited
 @Composable
 fun WearTAKStringEntryPage(
@@ -6102,5 +5858,185 @@ fun WearTAKMultipleSelectionPagePreview() {
         repoList = listOf("Item 1", "Item 2", "Item 3"),
         nameList = listOf("Item 1", "Item 2", "Item 3"),
         confirmFunction = {  }
+    )
+}
+
+@Composable
+internal fun TakGovLinkPage(
+    navController: NavController,
+    state: TakGovLinkUiState,
+    onStartLinking: () -> Unit,
+    onCancelLinking: () -> Unit,
+    onRemoveLink: () -> Unit,
+) {
+    var confirmRemove by rememberSaveable { mutableStateOf(false) }
+
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text(stringResource(R.string.takgov_link_remove_title)) },
+            text = { Text(stringResource(R.string.takgov_link_remove_message)) },
+            confirmButton = {
+                Button(onClick = {
+                    confirmRemove = false
+                    onRemoveLink()
+                }) {
+                    Text(stringResource(R.string.takgov_link_remove_confirm))
+                }
+            },
+            dismissButton = {
+                Button(onClick = { confirmRemove = false }) {
+                    Text(stringResource(R.string.takgov_link_cancel))
+                }
+            },
+        )
+    }
+
+    WearTAKPageWithBackArrow(
+        title = stringResource(R.string.my_takgov_link),
+        navController = navController,
+        columnContent = {
+            if (state.linked == true) {
+                item {
+                    Text(
+                        text = stringResource(
+                            when (state.accessLevel) {
+                                TakGovAccessLevel.MIL -> R.string.takgov_linked_mil
+                                TakGovAccessLevel.CIV -> R.string.takgov_linked_civ
+                                null -> R.string.takgov_linked
+                            }
+                        ),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    )
+                }
+                item {
+                    TakGovActionChip(
+                        title = stringResource(R.string.takgov_link_remove),
+                        onClick = { confirmRemove = true },
+                    )
+                }
+            } else if (state.linked == false) {
+                if (state.storageError) {
+                    item {
+                        TakGovActionChip(
+                            title = stringResource(R.string.takgov_link_remove),
+                            onClick = { confirmRemove = true },
+                        )
+                    }
+                }
+                state.userCode?.let { code ->
+                    item {
+                        Text(
+                            text = code,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .testTag("takgov_user_code"),
+                        )
+                    }
+                    item {
+                        Text(
+                            text = TakGovDeviceAuthorizationRepository.REGISTER_DEVICE_URL,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .testTag("takgov_registration_url"),
+                        )
+                    }
+                    item {
+                        Text(
+                            text = stringResource(R.string.takgov_link_waiting),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
+                    item {
+                        TakGovActionChip(
+                            title = stringResource(R.string.takgov_link_cancel),
+                            onClick = onCancelLinking,
+                        )
+                    }
+                } ?: item {
+                    TakGovActionChip(
+                        title = stringResource(R.string.takgov_link_start),
+                        onClick = onStartLinking,
+                        enabled = !state.isBusy && !state.storageError,
+                    )
+                }
+                if (state.isBusy && state.userCode == null) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.takgov_link_requesting),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
+                }
+                val statusMessage = when {
+                    state.storageError -> R.string.takgov_link_storage_error
+                    state.actionError -> R.string.takgov_link_error
+                    state.phase == TakGovLinkPhase.DENIED -> R.string.takgov_link_denied
+                    state.phase == TakGovLinkPhase.EXPIRED -> R.string.takgov_link_expired
+                    else -> null
+                }
+                statusMessage?.let { message ->
+                    item {
+                        Text(
+                            text = stringResource(message),
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colors.error,
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        )
+                    }
+                }
+            } else {
+                if (state.storageError) {
+                    item {
+                        TakGovActionChip(
+                            title = stringResource(R.string.takgov_link_remove),
+                            onClick = { confirmRemove = true },
+                        )
+                    }
+                }
+                item {
+                    Text(
+                        text = stringResource(
+                            if (state.storageError) {
+                                R.string.takgov_link_storage_error
+                            } else {
+                                R.string.takgov_link_checking
+                            }
+                        ),
+                        textAlign = TextAlign.Center,
+                        color = if (state.storageError) MaterialTheme.colors.error else MaterialTheme.colors.onSurface,
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    )
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun TakGovActionChip(
+    title: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    Chip(
+        onClick = onClick,
+        enabled = enabled,
+        label = { Text(title) },
+        colors = ChipDefaults.chipColors(
+            backgroundColor = Color.DarkGray,
+            contentColor = Color.White,
+            secondaryContentColor = Color.LightGray,
+        ),
+        modifier = Modifier.fillMaxWidth(),
     )
 }

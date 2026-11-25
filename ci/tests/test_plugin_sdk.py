@@ -40,18 +40,38 @@ class PluginSdkTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "hash mismatch"):
                 SDK.verify_hash(path, "0" * 64)
 
+    def test_missing_platform_hash_fails_before_build(self):
+        with patch.object(SDK.os, "name", "posix"), \
+             patch.object(SDK.sys, "platform", "unsupported"), \
+             patch.object(SDK.sys, "argv", ["build_plugin_sdk.py"]):
+            with self.assertRaisesRegex(RuntimeError, "No verified combined plugin SDK artifact hash"):
+                SDK.main()
+
     def test_pin_is_immutable_and_default_has_no_legacy_fallback(self):
         pin = json.loads((ROOT / "ci" / "plugin-sdk.json").read_text())
         self.assertRegex(pin["commit"], r"^[0-9a-f]{40}$")
         self.assertRegex(pin["tree"], r"^[0-9a-f]{40}$")
-        self.assertEqual({"windows", "linux"}, pin["release_sha256"].keys())
+        platforms = set(pin["release_sha256"])
+        self.assertTrue({"linux"} <= platforms <= {"linux", "windows"})
         for expected in pin["release_sha256"].values():
             self.assertRegex(expected, r"^[0-9a-f]{64}$")
-        gradle = (ROOT / "app" / "build.gradle").read_text()
-        self.assertIn('pluginSdkPin.commit', gradle)
-        self.assertNotIn("rootProject.file('weartak-plugin-sdk-release.aar')", gradle)
-        self.assertIn("dependsOn tasks.named('verifyPluginSdk'), sdkNotices", gradle)
-        self.assertIn("include 'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'", gradle)
+        app_gradle = (ROOT / "app" / "build.gradle").read_text()
+        plugin_gradle = (ROOT / "openvpn-plugin" / "build.gradle").read_text()
+        sdk_gradle = (ROOT / "gradle" / "plugin-sdk.gradle").read_text()
+        self.assertIn("apply from: rootProject.file('gradle/plugin-sdk.gradle')", app_gradle)
+        self.assertIn("apply from: rootProject.file('gradle/plugin-sdk.gradle')", plugin_gradle)
+        self.assertIn("pluginSdkPin.commit.take(12)", sdk_gradle)
+        self.assertIn("pluginSdkPin.overlay.source_sha256.take(12)", sdk_gradle)
+        self.assertIn(
+            '".gradle/sdk/${pluginSdkIdentity}/build/outputs/aar/weartak-plugin-sdk-release.aar"',
+            sdk_gradle,
+        )
+        self.assertNotIn("weartak-plugin-sdk-release.aar", app_gradle)
+        self.assertNotIn("weartak-plugin-sdk-release.aar", plugin_gradle)
+        self.assertNotIn("rootProject.file('weartak-plugin-sdk-release.aar')", sdk_gradle)
+        self.assertIn("dependsOn tasks.named('verifyPluginSdk'), sdkNotices", sdk_gradle)
+        self.assertIn("'LICENSE', 'LICENSE-ADDITIONAL-PERMISSION.md'", sdk_gradle)
+        self.assertIn("implementation files(pluginSdkAarPath.get())", sdk_gradle)
         overlay = pin["overlay"]
         SDK.verify_hash(ROOT / overlay["archive"], overlay["archive_sha256"])
         SDK.verify_hash(ROOT / overlay["inventory"], overlay["source_sha256"])
@@ -105,11 +125,34 @@ class PluginSdkTests(unittest.TestCase):
 
     def test_build_sign_and_lint_paths_prepare_verified_sdk(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
-        for job, end in (("android_mopp_check:", "release_publisher_tests:"),
+        for job, end in (("android_host_regression:", "release_publisher_tests:"),
                          ("host_lint_debug:", "agp_resolution_diagnostic:"),
                          (".release_build:", "main_release:")):
             section = ci.split("\n" + job, 1)[1].split("\n" + end, 1)[0]
             self.assertIn("sh ci/build_plugin_sdk.sh", section)
+
+    def test_host_services_artifact_is_duplicate_checked_and_retained_with_hashes(self):
+        ci = (ROOT / ".gitlab-ci.yml").read_text()
+        self.assertIn("sh ci/verify_host_services_aar.sh", ci)
+        candidate = ci.split("\nvalidate_tak_sdk_host_pair:", 1)[1].split(
+            "\nrelease_publisher_tests:", 1
+        )[0]
+        self.assertIn("sh ci/build_plugin_sdk.sh", candidate)
+        self.assertIn("sh ci/verify_host_services_aar.sh", candidate)
+        self.assertIn("aegorsuch-weartak-313-ditto-host-contract", candidate)
+        self.assertIn(
+            "weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256",
+            ci,
+        )
+        official = ci.split("\nofficial_release:", 1)[1].split(
+            "\npublish_personal_github_main:", 1
+        )[0]
+        self.assertIn("expire_in: never", official)
+        self.assertIn(
+            "weartak-plugin-host-services-sdk/build/outputs/aar/"
+            "weartak-plugin-host-services-sdk-release.aar",
+            official,
+        )
 
     def test_android_bootstrap_uses_existing_shell_tools(self):
         helper = ROOT / "ci" / "build_plugin_sdk.sh"

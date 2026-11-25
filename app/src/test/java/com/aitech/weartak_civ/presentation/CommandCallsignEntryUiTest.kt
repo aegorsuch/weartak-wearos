@@ -23,7 +23,8 @@ import org.robolectric.shadows.ShadowToast
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class CommandCallsignEntryUiTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val writes = mutableListOf<List<String>>()
     private lateinit var nav: NavHostController
 

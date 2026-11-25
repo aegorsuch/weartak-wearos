@@ -32,12 +32,14 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class CompanionPluginUiTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test fun offOverridesEveryTransportState() {
         for (bluetooth in CompanionBluetoothState.entries)
@@ -187,12 +189,16 @@ class CompanionPluginUiTest {
             repository.storeEnableCompanionAppService(false)
         }
         val showDetails = mutableStateOf(true)
+        val completedWrites = AtomicInteger()
         compose.setContent {
             if (showDetails.value) {
                 val enabled by repository.getBondedLocationDiagnosticsEnabled.collectAsState(initial = true)
                 val scope = rememberCoroutineScope()
                 CompanionDetailsPage("Off", rememberNavController(), enabled) {
-                    scope.launch { repository.storeBondedLocationDiagnosticsEnabled(it) }
+                    scope.launch {
+                        repository.storeBondedLocationDiagnosticsEnabled(it)
+                        completedWrites.incrementAndGet()
+                    }
                 }
             }
         }
@@ -201,16 +207,20 @@ class CompanionPluginUiTest {
                 .performScrollToNode(hasText("Bonded Location Diagnostics"))
         }
         scrollToDiagnostics()
+        compose.waitUntil { compose.onAllNodes(isToggleable() and isOn()).fetchSemanticsNodes().size == 1 }
         compose.onNode(isToggleable()).assertIsOn().performClick()
+        compose.waitUntil { completedWrites.get() == 1 }
         compose.waitUntil { runBlocking { !repository.getBondedLocationDiagnosticsEnabled.first() } }
-        compose.onNode(isToggleable()).assertIsOff()
+        compose.waitUntil { compose.onAllNodes(isToggleable() and isOff()).fetchSemanticsNodes().size == 1 }
         compose.runOnIdle { showDetails.value = false }
         compose.waitForIdle()
         compose.runOnIdle { showDetails.value = true }
         scrollToDiagnostics()
+        compose.waitUntil { compose.onAllNodes(isToggleable() and isOff()).fetchSemanticsNodes().size == 1 }
         compose.onNode(isToggleable()).assertIsOff().performClick()
+        compose.waitUntil { completedWrites.get() == 2 }
         compose.waitUntil { runBlocking { repository.getBondedLocationDiagnosticsEnabled.first() } }
-        compose.onNode(isToggleable()).assertIsOn()
+        compose.waitUntil { compose.onAllNodes(isToggleable() and isOn()).fetchSemanticsNodes().size == 1 }
         val helper = "Compare watch and phone GNSS quality over a bonded Companion connection."
         compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText(helper))
         compose.onNodeWithText(helper).assertIsDisplayed()

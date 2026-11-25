@@ -41,7 +41,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w192dp-h192dp-round")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ServerCaTrustEditorTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private var selected by mutableStateOf<String?>(null)
     private var address by mutableStateOf("127.0.0.1")
     private val ca = TakServerCaTrustTest.certificate()

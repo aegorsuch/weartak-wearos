@@ -23,9 +23,15 @@ import com.weartak.plugin.sdk.transport.model.TransportResultParcel
 import com.weartak.plugin.sdk.transport.model.TransportSendRequestParcel
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.time.Duration
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.just
+import io.mockk.Runs
 import io.mockk.verify
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -37,6 +43,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.runBlocking
+import android.os.Bundle
+import com.weartak.plugin.sdk.model.PluginLifecycleState
+import com.weartak.plugin.sdk.model.PluginStatusParcel
+import com.weartak.plugin.sdk.model.PluginErrorParcel
+import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
+import com.weartak.plugin.sdk.aidl.IWearTakHostCallback
+import org.robolectric.shadows.ShadowLooper
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -173,6 +187,7 @@ class PluginConnectionBindTrustTest {
             plugin = FakeWearTakPlugin(pluginPkg)
             conn.onServiceConnected(intent.component!!, plugin.asBinder())
         }
+
         val ingress = mockk<PluginIngressPort>(relaxed = true)
         every { ingress.packagesForUid(any(), any()) } returns setOf(pluginPkg)
         val trust = mockk<PluginTrust>()
@@ -204,6 +219,204 @@ class PluginConnectionBindTrustTest {
         assertFalse(mgr.hasConnectionForTest(pluginPkg))
         assertEquals(3, bindFlags.size)
         assertEquals(Context.BIND_AUTO_CREATE, bindFlags.last())
+    }
+
+    @Test
+    fun trustedAudioPluginClaimsLegacyDetectorOnlyWhileHealthy() {
+        val packageName = PluginDetectionEventBridge.DART_PACKAGE
+        var hostCallback: IWearTakHostCallback? = null
+        val plugin = object : FakeWearTakPlugin(packageName, WearTakPluginV3Contract.CONTRACT_API_VERSION) {
+            override fun registerHostCallback(callback: IWearTakHostCallback?) {
+                super.registerHostCallback(callback)
+                hostCallback = callback
+            }
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(packageName))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(packageName)
+        val trust = mockk<PluginTrust>()
+        coEvery { trust.enforce(packageName, pluginUid, setOf(packageName)) } answers { Unit }
+        val manager = PluginManager(
+            app,
+            ingress,
+            trust,
+            settingsCoordinator = mockk(relaxed = true),
+        )
+
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        manager.refreshBindings()
+        awaitPluginLifecycle(packageName)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+
+        fun report(state: PluginLifecycleState, healthy: Boolean) {
+            hostCallback!!.onPluginStatusChanged(PluginStatusParcel(state, extras = Bundle().apply {
+                putBoolean(PluginDetectionEventBridge.DETECTOR_READY_EXTRA, healthy)
+            }))
+            ShadowLooper.shadowMainLooper().idle()
+        }
+        report(PluginLifecycleState.RUNNING, true)
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(14_999))
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(14_999))
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofMillis(1))
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+
+        hostCallback!!.onPluginStatusChanged(PluginStatusParcel(PluginLifecycleState.RUNNING))
+        ShadowLooper.shadowMainLooper().idle()
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        report(PluginLifecycleState.RUNNING, false)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        assertTrue(packageName in manager.audioDetectionDelegates.value)
+        hostCallback!!.onPluginError(PluginErrorParcel(3, "inference failed", false))
+        ShadowLooper.shadowMainLooper().idle()
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        report(PluginLifecycleState.STOPPED, true)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        manager.unbindPackage(packageName)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+        report(PluginLifecycleState.RUNNING, true)
+        assertFalse(packageName in manager.audioDetectionDelegates.value)
+    }
+
+    @Test
+    fun audioSettingsRejectionDetachesOnlyTheCurrentBinding() {
+        val packageName = PluginDetectionEventBridge.DART_PACKAGE
+        val plugin = FakeWearTakPlugin(packageName, WearTakPluginV3Contract.CONTRACT_API_VERSION)
+        val app = mockHostApp(listOf(resolveInfoFor(packageName))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(packageName)
+        val coordinator = mockk<PluginSettingsCoordinator>(relaxed = true)
+        val rejection = slot<(String, com.weartak.plugin.sdk.aidl.IWearTakPlugin) -> Unit>()
+        every { coordinator.onLegacyAudioSettingsRejected = capture(rejection) } just Runs
+        every { coordinator.connectionToken(packageName) } returns plugin
+        val manager = PluginManager(app, ingress, mockk(relaxed = true), coordinator)
+
+        manager.refreshBindings()
+        awaitPluginLifecycle(packageName)
+        assertTrue(manager.hasConnectionForTest(packageName))
+        rejection.captured(packageName, FakeWearTakPlugin(packageName))
+        ShadowLooper.shadowMainLooper().idle()
+        assertTrue(manager.hasConnectionForTest(packageName))
+        rejection.captured(packageName, plugin)
+        ShadowLooper.shadowMainLooper().idle()
+        assertFalse(manager.hasConnectionForTest(packageName))
+    }
+
+    @Test
+    fun handlerStatusIsReadOnlyFromReadyTrustedConnectionAndStopsOnUnbind() {
+        val handler = HandlerExertion.PACKAGE
+        var status = PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0,
+            Bundle().apply { putDouble("handler_exertion_fraction", 0.72) })
+        val plugin = object : FakeWearTakPlugin(handler) {
+            override fun getStatus() = status
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(handler))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(handler)
+        val mgr = PluginManager(app, ingress, mockk<PluginTrust>(relaxed = true))
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        mgr.refreshBindings()
+        awaitPluginLifecycle(handler)
+        assertEquals(0.72, runBlocking { HandlerExertion.read(mgr) }!!, 0.0)
+        status = PluginStatusParcel(PluginLifecycleState.RUNNING)
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        status = PluginStatusParcel(PluginLifecycleState.STOPPED, "", 0,
+            Bundle().apply { putDouble("handler_exertion_fraction", 0.9) })
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        mgr.unbindPackage(handler)
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        awaitPluginLifecycle(handler)
+    }
+
+    @Test
+    fun handlerStatusRejectsWrongTypeAndOutOfRangeValues() {
+        fun status(extras: Bundle) = PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0, extras)
+        for (invalid in listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.01, 1.01)) {
+            assertEquals(null, HandlerExertion.value(status(Bundle().apply {
+                putDouble("handler_exertion_fraction", invalid)
+            })))
+        }
+        assertEquals(null, HandlerExertion.value(status(Bundle().apply {
+            putFloat("handler_exertion_fraction", 0.5f)
+        })))
+        for (valid in listOf(0.0, 1.0)) {
+            assertEquals(valid, HandlerExertion.value(status(Bundle().apply {
+                putDouble("handler_exertion_fraction", valid)
+            }))!!, 0.0)
+        }
+    }
+
+    @Test
+    fun otherConnectedPluginCannotSupplyHandlerExertion() {
+        var calls = 0
+        val plugin = object : FakeWearTakPlugin(pluginPkg) {
+            override fun getStatus(): PluginStatusParcel {
+                calls++
+                return PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0,
+                    Bundle().apply { putDouble("handler_exertion_fraction", 0.8) })
+            }
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(pluginPkg))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(pluginPkg)
+        val mgr = PluginManager(app, ingress, mockk<PluginTrust>(relaxed = true))
+        mgr.refreshBindings()
+        awaitPluginLifecycle(pluginPkg)
+        assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        assertEquals(0, calls)
+        mgr.unbindPackage(pluginPkg)
+        awaitPluginLifecycle(pluginPkg)
+    }
+
+    @Test
+    fun handlerStatusTimeoutDoesNotReuseLateResultOrBlockUnbind() {
+        val handler = HandlerExertion.PACKAGE
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val returned = CountDownLatch(1)
+        val plugin = object : FakeWearTakPlugin(handler) {
+            override fun getStatus(): PluginStatusParcel {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                return PluginStatusParcel(PluginLifecycleState.RUNNING, "", 0,
+                    Bundle().apply { putDouble("handler_exertion_fraction", 0.9) }).also { returned.countDown() }
+            }
+        }
+        val app = mockHostApp(listOf(resolveInfoFor(handler))) { intent, conn ->
+            conn.onServiceConnected(intent.component!!, plugin.asBinder())
+        }
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(any(), any()) } returns setOf(handler)
+        val mgr = PluginManager(app, ingress, mockk<PluginTrust>(relaxed = true))
+        mgr.refreshBindings()
+        awaitPluginLifecycle(handler)
+        try {
+            assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            mgr.unbindPackage(handler)
+            assertEquals(null, runBlocking { HandlerExertion.read(mgr) })
+        } finally {
+            release.countDown()
+            assertTrue(returned.await(5, TimeUnit.SECONDS))
+            awaitPluginLifecycle(handler)
+        }
     }
 
     @Test

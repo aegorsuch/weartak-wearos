@@ -33,7 +33,8 @@ import kotlin.math.sqrt
 @Config(application = Application::class, sdk = [34], qualifiers = "w300dp-h300dp-round-340dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TopMetricRecoveryTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
 
     @Test fun homeAndMonitorAt480FontScale13SurviveRecreation() = verifySurfaces(480, 1.3f)
     @Test fun homeAndMonitorAt498FontScale11SurviveRecreation() = verifySurfaces(498, 1.1f)

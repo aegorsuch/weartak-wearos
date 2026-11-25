@@ -20,9 +20,7 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# For Ditto
--keep class live.ditto.internal.swig.ffi.** { *; }
--keep class live.ditto.** { *; }
+# For Jackson
 -keepnames class com.fasterxml.jackson.** { *; }
 
 # For Gson
@@ -52,14 +50,6 @@
 # Useful if you use reflection-based Gson adapters
 -keep class com.aitech.weartak_civ.** { *; }
 
-# ONNX Runtime minify crash prevention in release build (Java API + JNI bindings)
--keep class ai.onnxruntime.** { *; }
--keepclassmembers class ai.onnxruntime.** { *; }
--dontwarn ai.onnxruntime.**
-
-# JNI resolves these instance native methods by their generated symbol names.
--keep class com.aitech.weartak_civ.service.openvpn.OpenVpnNativeBridge { *; }
-
 # Jackson optional Java desktop APIs
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient
@@ -68,3 +58,8 @@
 # Apache Commons Lang optional MethodHandle support
 -dontwarn java.lang.invoke.MethodHandleProxies
 -dontwarn org.apache.commons.lang3.function.MethodInvokers
+
+# Market's explicit EdDSA provider instantiates these services by class name.
+-keep class net.i2p.crypto.eddsa.KeyFactory { *; }
+-keep class net.i2p.crypto.eddsa.EdDSAEngine { *; }
+-dontwarn sun.security.x509.X509Key

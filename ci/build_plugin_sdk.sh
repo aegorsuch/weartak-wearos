@@ -18,6 +18,54 @@ OVERLAY_SHA=$(jq -er .overlay.source_sha256 "$PIN")
 }
 SHORT="$(printf '%s' "$COMMIT" | cut -c1-12)-$(printf '%s' "$OVERLAY_SHA" | cut -c1-12)"
 CHECKOUT="$ROOT/.gradle/sdk/$SHORT"
+for name in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    case "$name" in
+        GIT_SSL_CAINFO|GIT_SSL_CAPATH) ;;
+        *) unset "$name" ;;
+    esac
+done
+configure_unauthenticated_git() {
+    export GIT_CONFIG_NOSYSTEM=1
+    export GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_TERMINAL_PROMPT=0
+    export GIT_CONFIG_PARAMETERS="'credential.helper=' 'http.extraHeader=' 'http.followRedirects=false' 'core.hooksPath=/dev/null'"
+}
+configure_tak_git_auth() {
+    credentials=$(printf '%s' "gitlab-ci-token:$job_token" | base64 | tr -d '\n')
+    [ -n "$credentials" ] || {
+        echo "Unable to prepare GitLab job-token authentication" >&2; exit 1;
+    }
+    export GIT_CONFIG_PARAMETERS="$GIT_CONFIG_PARAMETERS 'http.https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git/.extraHeader=Authorization: Basic $credentials'"
+    effective_header=$(git config --get-urlmatch http.extraHeader "$REPOSITORY/info/refs") || effective_header=
+    if [ "$effective_header" != "Authorization: Basic $credentials" ]; then
+        if [ -z "$effective_header" ]; then
+            echo "Plugin SDK fetch failed: scoped Git authorization header missing." >&2
+        else
+            echo "Plugin SDK fetch failed: scoped Git authorization configuration mismatch." >&2
+        fi
+        unset effective_header
+        exit 1
+    fi
+    unset effective_header
+}
+case "$REPOSITORY" in
+    https://github.com/*)
+        job_token=
+        unset CI_JOB_TOKEN
+        ;;
+    https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git)
+        [ -n "${CI_JOB_TOKEN:-}" ] || {
+            echo "TAK.gov SDK fetch requires CI_JOB_TOKEN" >&2; exit 1;
+        }
+        job_token=$CI_JOB_TOKEN
+        unset CI_JOB_TOKEN
+        ;;
+    *)
+        echo "Unsupported plugin SDK source host" >&2
+        exit 1
+        ;;
+esac
+configure_unauthenticated_git
 mkdir -p "$CHECKOUT"
 cd "$CHECKOUT"
 if [ ! -d .git ]; then
@@ -32,7 +80,49 @@ if git rev-parse --verify --quiet HEAD >/dev/null; then
         echo "Plugin SDK checkout contains tracked changes" >&2; exit 1;
     }
 fi
-git fetch --quiet --depth=1 origin "$COMMIT"
+if [ -n "$job_token" ]; then
+    configure_tak_git_auth
+fi
+if ! fetch_error=$(git fetch --quiet --depth=1 origin "$COMMIT" 2>&1); then
+    case "$fetch_error" in
+        *"couldn't find remote ref"*|*"not our ref"*|*"unadvertised object"*)
+            echo "Plugin SDK fetch failed: requested commit is unavailable." >&2 ;;
+        *"Authentication failed"*|*"403"*|*"401"*|*"access denied"*)
+            echo "Plugin SDK fetch failed: authentication or authorization rejected." >&2 ;;
+        *"404"*|*"not found"*)
+            echo "Plugin SDK fetch failed: repository or ref not found." >&2 ;;
+        *"bad config"*|*"invalid key"*|*"missing config"*|*"invalid config"*)
+            echo "Plugin SDK fetch failed: invalid Git configuration." >&2 ;;
+        *"dubious ownership"*|*"unsafe repository"*)
+            echo "Plugin SDK fetch failed: Git rejected repository ownership." >&2 ;;
+        *"SSL"*|*"certificate"*|*"TLS"*)
+            echo "Plugin SDK fetch failed: TLS verification or negotiation error." >&2 ;;
+        *"resolve host"*|*"connect to"*|*"timed out"*)
+            echo "Plugin SDK fetch failed: network connection error." >&2 ;;
+        *"redirect"*)
+            echo "Plugin SDK fetch failed: redirect refused." >&2 ;;
+        *"not a git repository"*|*"does not appear to be a git repository"*)
+            echo "Plugin SDK fetch failed: Git repository unavailable." >&2 ;;
+        *"could not read Username"*|*"terminal prompts disabled"*)
+            echo "Plugin SDK fetch failed: Git requested credentials." >&2 ;;
+        *"could not read Password"*)
+            echo "Plugin SDK fetch failed: Git requested a password." >&2 ;;
+        *"protocol"*)
+            echo "Plugin SDK fetch failed: unsupported or blocked protocol." >&2 ;;
+        *)
+            echo "Plugin SDK fetch failed: Git reported an unclassified error." >&2 ;;
+    esac
+    unset fetch_error
+    echo "Plugin SDK source fetch failed; verify pinned ref and job-token read settings." >&2
+    exit 1
+fi
+unset fetch_error
+# Keep the ephemeral token out of Git hooks, checkout processing and Gradle.
+unset CI_JOB_TOKEN job_token GIT_CONFIG_COUNT GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL GIT_TERMINAL_PROMPT
+for name in $(env | sed -n 's/^\(GIT_CONFIG_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$name"
+done
+unset credentials
 git -c core.autocrlf=false checkout --quiet --detach "$COMMIT"
 [ "$(git rev-parse HEAD)" = "$COMMIT" ] || {
     echo "Unexpected plugin SDK source revision" >&2; exit 1;
@@ -70,6 +160,7 @@ sha256sum -c "$INVENTORY"
 chmod +x gradlew
 ./gradlew assembleRelease --no-daemon --max-workers=2 \
     -Pkotlin.compiler.execution.strategy=in-process --console=plain
+java "$ROOT/ci/NormalizeSdkAarModes.java" build/outputs/aar/weartak-plugin-sdk-release.aar
 sha256sum build/outputs/aar/weartak-plugin-sdk-release.aar
 printf '%s  %s\n' "$SHA" build/outputs/aar/weartak-plugin-sdk-release.aar | sha256sum -c -
 printf 'Verified plugin SDK %s + overlay %s: %s\n' "$COMMIT" "$OVERLAY_SHA" "$SHA"

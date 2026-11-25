@@ -68,3 +68,5 @@ include ':app'
 include ':weartak-plugin-host-services-sdk'
 
 include ':voice-package-api'
+
+include ':openvpn-plugin'

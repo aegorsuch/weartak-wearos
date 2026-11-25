@@ -21,7 +21,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w192dp-h192dp-round", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class RouteBloodhoundTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val route = TakRoute("route", "testroute01", (0 until 2469).map {
         TakRoutePoint(0.0, it * 0.00001, name = if (it == 0) "Named start" else null)
     }, "server")

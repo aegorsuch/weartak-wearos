@@ -22,7 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxWidth
 import com.aitech.weartak_civ.R
 import com.aitech.weartak_civ.Utils
-import com.aitech.weartak_civ.data.GunshotOnnxRepository
+import com.aitech.weartak_civ.data.GunshotDetectionRepository
 import com.aitech.weartak_civ.data.audio.AudioDetectionEvent
 import com.aitech.weartak_civ.data.audio.AudioDetectionFeedback
 import com.aitech.weartak_civ.data.audio.AudioDetectionUserLabel
@@ -41,6 +41,8 @@ internal fun HomeWarningReviewHost(
     physioWarning: HomeStatusWarning? = null,
     dittoWarning: BleLinkWarning = BleLinkWarning.NONE,
     onDittoRetry: () -> Unit = {},
+    marketUpdateAvailable: Boolean = false,
+    onMarketUpdate: () -> Unit = {},
     content: @Composable (warnings: List<HomeStatusWarning>, onReviewWarnings: () -> Unit) -> Unit
 ) {
     val pending = listOfNotNull(gunshotPending, uasPending)
@@ -93,6 +95,15 @@ internal fun HomeWarningReviewHost(
             selectedDetector = "ditto"
             selectedUid = null
         })
+    }
+    if (marketUpdateAvailable) {
+        warnings.add(HomeStatusWarning(
+            "market-update",
+            TopMetricAlertSource.MARKET_UPDATE,
+            stringResource(R.string.market_update),
+            Utils.AlertChipState.Warning,
+            onMarketUpdate,
+        ))
     }
     content(warnings) {
         if (warnings.size == 1) warnings.first().onReview() else if (warnings.isNotEmpty()) selectedDetector = "picker"
@@ -177,7 +188,7 @@ internal fun HomeWarningReviewHost(
 @Composable
 private fun detectionPrompt(event: AudioDetectionEvent): String =
     stringResource(
-        if (event.detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
+        if (event.detectorKey == GunshotDetectionRepository.DETECTOR_KEY)
             R.string.audio_detection_gunshot_question else R.string.audio_detection_uas_question
     )
 

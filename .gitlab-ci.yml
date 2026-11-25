@@ -15,6 +15,7 @@ stages:
   - build
   - publish
   - draft
+  - sync
 
 .artifactory_credentials:
   extends: .artifactory_service_create_token_no_depends_bash
@@ -22,7 +23,7 @@ stages:
     - !reference [.artifactory_service_create_token_no_depends_bash, before_script]
     - export ARTIFACTORY_USER="$GITLAB_USER_EMAIL" ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"
 
-android_mopp_check:
+android_host_regression:
   extends: .artifactory_credentials
   stage: test
   image:
@@ -36,24 +37,32 @@ android_mopp_check:
       :app:assembleDebug :app:testDebugUnitTest
       --tests '*HostMoppPpeControlTest' --tests '*CompanionSelfStatusTest'
       --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
-      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest'
+      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest' --tests '*PluginTrustSenderBindingTest' --tests '*HostCommunityIdentityControlTest' --tests '*DittoPdlModeTest' --tests '*DittoMeshPermissionsTest'
       --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
       --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'
+      --tests '*GenericCotLifecycleTest' --tests '*NetworkTogglePersistenceTest' --tests '*DittoTrafficFenceTest'
       --tests '*DittoTrackLocationTest' --tests '*UnitPrefsTest' --console=plain
       --tests '*CotDispatchTransportResumeTest'
+      --tests '*CotDispatchServiceAlertReadinessTest' --tests '*TrackedPluginAlertTest' --tests '*MarkerJournalRepositoryTest' --tests '*PendingDittoChatTest'
+      --tests '*CotEndpointDispatcherTest' --tests '*GroupChatIntegrationTest' --tests '*CotMessageBuilderTest'
+      --tests '*DittoReceiveIntegrationTest' --tests '*MulticastChatCommandsTest'
       --tests '*HostServicesRequestsTest' --tests '*HostServicesV1ImplTest'
       --tests '*PluginTakHttpClientTest' --tests '*PluginTakServerSelectionTest'
       --tests '*PluginMapActionsTest' --tests '*PluginLifecycleIsolationTest'
-      --tests '*PluginSettingsCoordinatorTest'
+      --tests '*PluginSettingsCoordinatorTest' --tests '*CrmPluginStatusTest' --tests '*CrmHomeWarningTest' --tests '*HostCallbackIngressRoutingTest' --tests '*PpgSampleDeliveryTest' --tests '*PpgHostV1ImplTest' --tests '*SkinTempSpo2StillnessTest'
+      --tests '*Market*Test'
+      --tests '*HostControlImplTest' --tests '*HostControlVerifyCallerTest'
+      --tests '*PluginTransportHostV1ImplTest' --tests '*ChatServicePreferenceTest'
       --tests '*MapSourceTest' --tests '*MapCameraTest' --tests '*MapLayerLifecycleTest'
       --tests '*MapUserActionsTest' --tests '*MarkerReadabilityTest' --tests '*MapTargetSelectionTest'
       --tests '*MarkerBloodhoundActionsTest' --tests '*BloodhoundPickerActionsTest'
       --tests '*LollipopGeometryTest' --tests '*LollipopOverlayTest'
       --tests '*ElevationTest' --tests '*AwsTerrainProviderTest'
       --tests '*RouteDetailsViewTest' --tests '*RoutePointDetailsViewTest'
-      --tests '*TakServerCaTrustTest' --tests '*TakServerCaStorageTest'
+      --tests '*TakServerCaTrustTest' --tests '*TakServerCaStorageTest' --tests '*TakServerManagedReconcilerTest'
       --tests '*ServerCaTrustEditorTest' --tests '*TakEnrollmentTest'
+      --tests '*TakGovDeviceAuthorizationRepositoryTest' --tests '*TakGovUserInfoTest'
       --tests '*TakTransientRecoveryTest' --tests '*TakServerRegistrationServiceTest'
       --tests '*TakServerRegistrationTest' --tests '*ChatEnrollmentSaveTest'
       --tests '*HostRouteStatusControlTest' --tests '*ConnectionStatusPreferencesTest'
@@ -63,9 +72,9 @@ android_mopp_check:
       --tests '*AccessibilitySemanticsTest' --tests '*ServerFormValidationTest'
       --tests '*ManualAlertListScreenTest' --tests '*CommandCallsignEntryUiTest'
       --tests '*HostedPluginMainUiPageTest' --tests '*MapBezelZoomTest'
-      --tests '*NetworkConnectivityChipTest' --tests '*NetworkToggleChipSubtitleTest'
+      --tests '*NetworkConnectivityChipTest' --tests '*NetworkConnectivityRowTest' --tests '*NetworkToggleChipSubtitleTest'
       --tests '*PluginBondLockTest' --tests '*CompanionPluginUiTest'
-      --tests '*AudioDetectionPendingTest' --tests '*AudioDetectionWarningTest'
+      --tests '*AudioDetectionPendingTest' --tests '*AudioDetectionWarningTest' --tests '*ServiceConfigurationPermissionWarningTest'
       --tests '*CrmHomeWarningTest' --tests '*CrmWarningLifecycleTest'
       --tests '*TopMetricDisplayTest' --tests '*TopMetricRecoveryTest'
       --tests '*DittoBleRecoveryUiTest' --tests '*TopMetricSettingsUiTest'
@@ -81,8 +90,10 @@ android_mopp_check:
       --tests '*HostPkcs12ImportControlTest' --tests '*ReviewedCertificateApplyTest'
       --tests '*SettingsImeInputConnectionTest' --tests '*ChatP12*Test'
       --tests '*CompanionWatchInfoTest' --tests '*CompanionSettingsChangedTest'
+      --tests '*CotMessageParserTest' --tests '*CompanionPhoneUserRelayTest'
       :app:compileDebugAndroidTestKotlin
       :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:lintRelease
+    - sh ci/verify_host_services_aar.sh
   artifacts:
     when: always
     expire_in: 14 days
@@ -92,12 +103,44 @@ android_mopp_check:
       - app/build/reports/tests/
       - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
       - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
       - weartak-plugin-host-services-sdk/build/reports/lint-results-release.*
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-alert-point-feedback" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-333-remove-core-crm" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
+verify_tak_sdk_source_access:
+  stage: test
+  image:
+    name: python:3.12-bookworm
+    entrypoint: [""]
+  script:
+    - python3 ci/verify_tak_sdk_source_access.py
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-ditto-host-contract" && $CI_PIPELINE_SOURCE == "push"'
+validate_tak_sdk_host_pair:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - sh ci/build_plugin_sdk.sh
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process :weartak-plugin-host-services-sdk:assembleRelease :weartak-plugin-host-services-sdk:testReleaseUnitTest --console=plain
+    - sh ci/verify_host_services_aar.sh
+    - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+  artifacts:
+    expire_in: 14 days
+    paths:
+      - .gradle/sdk/*/build/outputs/aar/weartak-plugin-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-ditto-host-contract" && $CI_PIPELINE_SOURCE == "push"'
 release_publisher_tests:
   stage: test
   image:
@@ -109,6 +152,42 @@ release_publisher_tests:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH'
     - if: '$CI_COMMIT_TAG'
+
+wear_version_check:
+  stage: test
+  image:
+    name: python:3.12-bookworm
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  script:
+    - python ci/wear_version.py validate --ci
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+wear_version_fan_out:
+  stage: sync
+  image:
+    name: python:3.12-bookworm
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: "0"
+  dependencies: []
+  timeout: 1h
+  id_tokens:
+    WEARTAK_VERSION_ATTESTATION:
+      aud: https://git.tak.gov/weartak/version-sync
+  parallel:
+    matrix:
+      - WEARTAK_TARGET_PROJECT_ID: ["7025", "6988", "6952", "6948", "6942", "6941", "6933", "6912", "6910", "6890", "6786", "6737"]
+  script:
+    - python ci/wear_version.py fan-out --target "$WEARTAK_TARGET_PROJECT_ID"
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - wear-version.properties
 
 host_lint_debug:
   extends: .artifactory_credentials
@@ -195,6 +274,7 @@ agp_resolution_diagnostic:
       RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS
       RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD
       EOF
+    - chmod 600 "$CI_PROJECT_DIR/signing.properties"
 
     # Confirm the keystore/password/alias combination before spending 17 minutes building.
     - |
@@ -208,11 +288,14 @@ agp_resolution_diagnostic:
     - java -version
     - ./gradlew --version
 
+  after_script:
+    - rm -f "$CI_PROJECT_DIR/signing.properties" "$CI_PROJECT_DIR/app/weartak.keystore"
 
   script:
     # Build the same release APK that we previously built manually.
     # Share the 4Gi Gradle heap with Kotlin and bound workers within the 8Gi container.
-    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true clean assembleRelease
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true clean :app:assembleRelease :openvpn-plugin:assembleRelease :weartak-plugin-host-services-sdk:assembleRelease
+    - sh ci/verify_host_services_aar.sh
 
     # Verify that the resulting APK is signed with the established
     # WearTAK Android production certificate.
@@ -253,31 +336,109 @@ agp_resolution_diagnostic:
 
       echo "Release signing verified."
 
+      PLUGIN_APK_LIST="$(find openvpn-plugin/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)"
+      PLUGIN_APK_COUNT="$(printf '%s\n' "$PLUGIN_APK_LIST" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [ "$PLUGIN_APK_COUNT" != "1" ]; then
+        echo "ERROR: Expected exactly one signed OpenVPN plugin APK; found $PLUGIN_APK_COUNT."
+        exit 1
+      fi
+      PLUGIN_APK="$PLUGIN_APK_LIST"
+
+      APKANALYZER="/opt/android-sdk-linux/cmdline-tools/latest/bin/apkanalyzer"
+      if [ ! -x "$APKANALYZER" ]; then
+        echo "ERROR: apkanalyzer not found at $APKANALYZER"
+        exit 1
+      fi
+      PLUGIN_DEBUGGABLE="$("$APKANALYZER" manifest debuggable "$PLUGIN_APK")" || {
+        echo "ERROR: Unable to inspect OpenVPN plugin APK manifest."
+        exit 1
+      }
+      if [ "$PLUGIN_DEBUGGABLE" != "false" ]; then
+        echo "ERROR: OpenVPN plugin release APK must not be debuggable."
+        exit 1
+      fi
+      echo "OpenVPN plugin APK debuggable flag verified false."
+
+      "$APKSIGNER" verify "$PLUGIN_APK" || { echo "ERROR: Plugin APK signature verification failed."; exit 1; }
+      ACTUAL_PLUGIN_SIGNER="$(
+        "$APKSIGNER" verify --print-certs "$PLUGIN_APK" |
+        sed -n 's/.*certificate SHA-256 digest: //p' |
+        head -1 |
+        tr '[:upper:]' '[:lower:]'
+      )"
+      echo "OpenVPN plugin APK: $PLUGIN_APK"
+      echo "Plugin signer: $ACTUAL_PLUGIN_SIGNER"
+      if [ "$ACTUAL_PLUGIN_SIGNER" != "$EXPECTED_SIGNER" ]; then
+        echo "ERROR: OpenVPN plugin APK has unexpected Android signing certificate."
+        exit 1
+      fi
+      echo "OpenVPN plugin release signing verified."
+
     # Bind publication to the exact APK whose production signature was checked.
     - sha256sum "$APK" > app/build/outputs/apk/release/verified-apk.sha256
+    - sha256sum "$PLUGIN_APK" > openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
     - sha256sum weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar > weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
 
-batdok_signed_trial:
+# Protected, developer-only ARM64 qualification. The job deliberately has no
+# publication dependency or access to the release publisher's artifacts.
+arm64_qualification:
   extends: .release_build
   environment:
-    name: battak-trial
+    name: battak-release
     action: prepare
+  script:
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PbatdokAcceptance=true -PweartakArm64Qualification=true :app:clean :app:assembleRelease
+    - |
+      APK_LIST="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)"
+      APK_COUNT="$(printf '%s\n' "$APK_LIST" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+      if [ "$APK_COUNT" != "1" ]; then
+        echo "ERROR: Expected exactly one ARM64 qualification APK; found $APK_COUNT."
+        exit 1
+      fi
+      APK="$APK_LIST"
+
+      APKSIGNER="/opt/android-sdk-linux/build-tools/35.0.0/apksigner"
+      if [ ! -x "$APKSIGNER" ]; then
+        echo "ERROR: apksigner not found at $APKSIGNER"
+        exit 1
+      fi
+      if ! unzip -Z1 "$APK" | grep '^lib/arm64-v8a/' >/dev/null; then
+        echo "ERROR: Qualification APK does not contain ARM64 native libraries."
+        echo "Native library entries present:"
+        unzip -Z1 "$APK" | grep '^lib/' || true
+        exit 1
+      fi
+      if unzip -Z1 "$APK" | grep '^lib/armeabi-v7a/' >/dev/null; then
+        echo "ERROR: Qualification APK unexpectedly contains ARMv7 libraries."
+        exit 1
+      fi
+
+      EXPECTED_SIGNER="1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
+      "$APKSIGNER" verify "$APK" || { echo "ERROR: Qualification APK signature verification failed."; exit 1; }
+      ACTUAL_SIGNER="$(
+        "$APKSIGNER" verify --print-certs "$APK" |
+        sed -n 's/.*certificate SHA-256 digest: //p' |
+        head -1 |
+        tr '[:upper:]' '[:lower:]'
+      )"
+      if [ "$ACTUAL_SIGNER" != "$EXPECTED_SIGNER" ]; then
+        echo "ERROR: Qualification APK has unexpected signing certificate."
+        exit 1
+      fi
+
+      echo "ARM64 qualification APK signature and ABI verified."
+      sha256sum "$APK" > app/build/outputs/apk/release/arm64-qualification.sha256
   artifacts:
     when: on_success
     expire_in: 7 days
     access: developer
     paths:
       - app/build/outputs/apk/release/*.apk
-      - app/build/outputs/apk/release/verified-apk.sha256
+      - app/build/outputs/apk/release/arm64-qualification.sha256
       - app/build/outputs/apk/release/output-metadata.json
   rules:
-    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
-      when: manual
-      allow_failure: true
-    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_PIPELINE_SOURCE == "merge_request_event"'
-      when: manual
-      allow_failure: true
-    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
       when: manual
       allow_failure: true
 
@@ -290,6 +451,8 @@ batdok_signed_trial:
 
 main_release:
   extends: .release_build
+  # Artifact is restricted; publication and external use wait for the pipeline gates.
+  needs: []
   variables:
     GIT_DEPTH: "0"
   environment:
@@ -297,17 +460,21 @@ main_release:
     action: prepare
 
   artifacts:
-    when: always
+    when: on_success
     expire_in: 30 days
+    access: developer
     paths:
       - app/build/outputs/apk/release/*.apk
       - app/build/outputs/apk/release/verified-apk.sha256
       - app/build/outputs/apk/release/output-metadata.json
+      - openvpn-plugin/build/outputs/apk/release/*.apk
+      - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
       - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
       - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
 
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "push"'
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +498,12 @@ official_release:
     expire_in: never
     paths:
       - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/release/verified-apk.sha256
+      - openvpn-plugin/build/outputs/apk/release/*.apk
+      - openvpn-plugin/build/outputs/apk/release/verified-plugin-apk.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/weartak-plugin-host-services-sdk-release.aar
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-sdk.sha256
+      - weartak-plugin-host-services-sdk/build/outputs/aar/verified-classes.sha256
 
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/'

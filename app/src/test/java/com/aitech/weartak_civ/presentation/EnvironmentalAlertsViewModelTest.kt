@@ -37,7 +37,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w227dp-h300dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EnvironmentalAlertsViewModelTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private lateinit var repo: DataRepository
     private val engine = mockk<CepEngine>(relaxed = true)
 

@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -86,6 +87,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -539,11 +543,21 @@ fun ChatScreenDetailed(
         val roomId = room?.uid
         val replyMessage by reply.observeAsState(initial = "")
         val sendPreset = room?.let { rememberChatPresetSender(it) }
+        val listState = rememberLazyListState()
+        val nearNewest = listState.firstVisibleItemIndex <= 1
+        val lifecycleOwner = LocalLifecycleOwner.current
 
-        // Mark this room as read when entering detail
-        LaunchedEffect(key1 = roomId) {
+        LaunchedEffect(roomId, room?.messageList, lifecycleOwner) {
             if (roomId != null) {
-                dataRepository.markRoomRead(roomId)
+                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    dataRepository.markRoomRead(roomId)
+                }
+            }
+        }
+
+        LaunchedEffect(roomId, messageList.firstOrNull()) {
+            if (messageList.isNotEmpty() && nearNewest) {
+                listState.animateScrollToItem(0)
             }
         }
 
@@ -570,7 +584,10 @@ fun ChatScreenDetailed(
                     modifier = Modifier.padding(7.dp)
                 )
 
-                LazyColumn(horizontalAlignment = Alignment.CenterHorizontally) {
+                LazyColumn(
+                    state = listState,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     itemsIndexed(messageList, key = { _, message ->
                         "${message.uid.length}:${message.uid}" +
                             (message.messageId?.takeIf { it.isNotBlank() }?.let { "id:$it" }

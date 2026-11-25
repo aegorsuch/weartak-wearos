@@ -77,4 +77,7 @@
     <string name="tak_enrollment_connectivity_failed">无法访问服务器。请检查网络和服务器地址。</string>
     <string name="tak_enrollment_certificate_failed">证书数据无效或缺失。</string>
     <string name="tak_enrollment_failure">%1$s：%2$s</string>
+    <string name="market_admin_lock">锁定 TAKwerx Market</string>
+    <string name="market_locked">TAKwerx Market 已被管理员锁定</string>
+    <string name="market_lock_save_error">无法保存 Market 锁定设置。请检查管理员设置。</string>
 </resources>

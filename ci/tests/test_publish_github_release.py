@@ -1,22 +1,17 @@
 import copy
 import hashlib
-import importlib.util
 import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import urllib.error
 import urllib.parse
 import urllib.request
 
 
-SPEC = importlib.util.spec_from_file_location(
-    "publisher", Path(__file__).resolve().parents[1] / "publish_github_release.py"
-)
-p = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(p)
+from ci import publish_github_release as p
 
 
 def environment():
@@ -65,6 +60,7 @@ class FakeGitHub:
         self.synced_sources = []
         self.sync_failure = False
         self.sync_result = "synced"
+        self.notify_failure = False
         if state:
             self.release = {
                 "id": 1, "tag_name": p.TAG, "draft": False, "prerelease": False,
@@ -119,6 +115,11 @@ class FakeGitHub:
             raise p.PublishError("Injected non-fast-forward source failure")
         self.synced_sources.append(source_sha)
         return self.sync_result
+
+    def notify_market(self):
+        self.calls.append(("MARKET", "main", None))
+        if self.notify_failure:
+            raise p.PublishError("Market refresh dispatch failed; APK remains published.")
 
 
 class PublisherTests(unittest.TestCase):
@@ -186,13 +187,14 @@ class PublisherTests(unittest.TestCase):
         methods = [c[0] for c in api.calls]
         self.assertLess(methods.index("DOWNLOAD"), methods.index("PATCH"))
         self.assertEqual(api.synced_sources, [self.state["source_sha"]])
+        self.assertEqual(api.calls[-1], ("MARKET", "main", None))
 
     def personal_api(self, state=None):
         api = FakeGitHub(state)
         api.repository.update(full_name=p.PERSONAL_REPO, private=False)
         return api
 
-    def test_personal_uses_same_verified_artifact_after_exact_source_sync_without_dispatch(self):
+    def test_personal_uses_same_verified_artifact_after_exact_source_sync(self):
         api = self.personal_api()
         p.publish(api, self.state, *p.artifact(self.root))
         self.assertEqual(api.synced_sources, [self.state["source_sha"]])
@@ -248,10 +250,11 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(p.main(["--personal"]), 1)
         self.assertEqual(p.main(["--repository", "owner/repo"]), 1)
 
-    def test_publish_never_dispatches_to_another_repository(self):
+    def test_catalog_notification_does_not_change_release_api_destination(self):
         api = self.personal_api()
         self.publish(api)
         self.assertFalse(any(call[1] == "dispatches" for call in api.calls))
+        self.assertEqual(api.calls[-1], ("MARKET", "main", None))
 
     def test_manual_prose_survives_legacy_migration_and_repeated_updates(self):
         api = FakeGitHub()
@@ -335,6 +338,7 @@ class PublisherTests(unittest.TestCase):
         api.bad_download = True
         with self.assertRaises(p.PublishError):
             self.publish(api)
+        self.assertFalse(any(c[0] == "MARKET" for c in api.calls))
         self.assertEqual(api.items[0]["state"], "uploaded")
         newer = FakeGitHub(self.state | {"pipeline_iid": 13, "pipeline_id": "457"})
         self.publish(newer)
@@ -351,6 +355,7 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual({a["id"] for a in api.items}, {3, 4, 5, 100})
         methods = [c[0] for c in api.calls]
         self.assertLess(methods.index("PATCH"), methods.index("DELETE"))
+        self.assertLess(methods.index("DELETE"), methods.index("MARKET"))
         self.assertTrue(all("tags/" not in c[1] for c in api.calls if c[0] != "GET"))
         self.assertFalse(any(c[:2] == ("DELETE", "releases/1") for c in api.calls))
 
@@ -475,10 +480,23 @@ class PublisherTests(unittest.TestCase):
         api.fail = lambda method, path: method == "DELETE"
         with self.assertRaises(p.PublishError):
             self.publish(api)
+        self.assertFalse(any(c[0] == "MARKET" for c in api.calls))
         self.assertEqual(len(api.items), 2)
         api.fail = None
         self.publish(api)
         self.assertEqual(len(api.items), 1)
+
+    def test_notification_retry_reuses_published_verified_apk(self):
+        api = FakeGitHub()
+        api.notify_failure = True
+        with self.assertRaisesRegex(p.PublishError, "APK remains published"):
+            self.publish(api)
+        self.assertFalse(api.release["draft"])
+        api.notify_failure = False
+        api.calls.clear()
+        self.publish(api)
+        self.assertEqual(api.calls[-1], ("MARKET", "main", None))
+        self.assertFalse(any(c[0] == "POST" for c in api.calls))
 
     def test_bad_uploaded_size_or_state_never_deletes(self):
         for change in ({"size": 0}, {"state": "starter"}):
@@ -606,6 +624,72 @@ class PublisherTests(unittest.TestCase):
         with patch.dict(p.os.environ, {}, clear=True), patch.object(p, "GitHub") as github:
             self.assertEqual(p.main(), 1)
             github.assert_not_called()
+
+
+class MarketNotificationTests(unittest.TestCase):
+    def test_fixed_dispatch_uses_only_separate_catalog_credential(self):
+        response = MagicMock()
+        response.__enter__.return_value.status = 204
+        opener = MagicMock()
+        opener.open.return_value = response
+        with patch.dict(p.os.environ, {p.MARKET_TOKEN_VARIABLE: "catalog-only"}, clear=True), \
+                patch.object(p.urllib.request, "build_opener", return_value=opener) as factory:
+            p.GitHub("source-only").notify_market()
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.full_url, p.MARKET_DISPATCH_URL)
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data), {"ref": "main"})
+        self.assertEqual(request.get_header("Authorization"), "Bearer catalog-only")
+        self.assertEqual(opener.open.call_args.kwargs, {"timeout": 30})
+        self.assertIsInstance(factory.call_args.args[0], p.NoMarketRedirect)
+        for code in (301, 302, 303, 307, 308):
+            self.assertIsNone(p.NoMarketRedirect().redirect_request(
+                request, None, code, "redirect", {}, "https://other.example/"))
+
+    def test_missing_catalog_token_fails_without_reusing_source_token(self):
+        with patch.dict(p.os.environ, {}, clear=True), \
+                patch.object(p.urllib.request, "build_opener") as factory:
+            api = p.GitHub("source-only")
+            factory.reset_mock()
+            with self.assertRaisesRegex(p.PublishError, "missing MARKET_CATALOG_DISPATCH_TOKEN"):
+                api.notify_market()
+            factory.assert_not_called()
+
+    def test_source_publishing_token_cannot_be_reused_for_dispatch(self):
+        with patch.dict(p.os.environ, {p.MARKET_TOKEN_VARIABLE: "source-only"}, clear=True), \
+                patch.object(p.urllib.request, "build_opener") as factory:
+            api = p.GitHub("source-only")
+            factory.reset_mock()
+            with self.assertRaisesRegex(p.PublishError, "separate dispatch credential"):
+                api.notify_market()
+            factory.assert_not_called()
+
+    def test_dispatch_failures_are_redacted_and_preserve_recovery_guidance(self):
+        failures = [
+            urllib.error.HTTPError(p.MARKET_DISPATCH_URL, code, "sensitive-detail", {}, None)
+            for code in (302, 401, 403, 429, 500)
+        ] + [urllib.error.URLError("sensitive-detail"), TimeoutError("sensitive-detail")]
+        for error in failures:
+            with self.subTest(error=type(error).__name__), \
+                    patch.dict(p.os.environ, {p.MARKET_TOKEN_VARIABLE: "catalog-only"}, clear=True), \
+                    patch.object(p.urllib.request, "build_opener") as factory:
+                factory.return_value.open.side_effect = error
+                with self.assertRaises(p.PublishError) as raised:
+                    p.GitHub("source-only").notify_market()
+                message = str(raised.exception)
+                self.assertIn("verified APK remains published", message)
+                self.assertNotIn("sensitive-detail", message)
+                self.assertNotIn("catalog-only", message)
+                self.assertNotIn("source-only", message)
+
+    def test_only_204_confirms_dispatch_acceptance(self):
+        for status in (200, 202):
+            with self.subTest(status=status), \
+                    patch.dict(p.os.environ, {p.MARKET_TOKEN_VARIABLE: "catalog-only"}, clear=True), \
+                    patch.object(p.urllib.request, "build_opener") as factory:
+                factory.return_value.open.return_value.__enter__.return_value.status = status
+                with self.assertRaisesRegex(p.PublishError, f"unexpected HTTP {status}"):
+                    p.GitHub("source-only").notify_market()
 
 
 class SourceSyncTests(unittest.TestCase):

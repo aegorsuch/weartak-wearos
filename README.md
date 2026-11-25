@@ -46,28 +46,17 @@ authorization.
 
 This work extracts shared PKCS12 classification, CA review and guarded save logic
 from unmerged NFC MR !585 (`d6a7611a61eaebc9074ac3af9c7de135ecaf40e2`);
-it does not include NFC HCE, transport or prefilling. The SDK source pin is
-`86bdc8b04797c2cf6caa30e78e796abac1c2a330` from
-`https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git` (public mirror:
-`https://github.com/aegorsuch/weartak-plugin-sdk`), tree
-`a03d33bc077d81f80cdb53b04ea75e18cf0200a1`. Build that exact source with JDK 17
-and Android SDK 34 using `gradlew.bat assembleRelease`, then pass the resulting
-AAR to host Gradle using `-PweartakPluginSdkAar=<absolute-path>`.
-Alternatively, run `python ci/build_plugin_sdk.py` to build the pinned source
-into the default ignored SDK directory. Host Gradle verifies its SHA-256 before
-building; CI uses the same helper and hash check.
-For reproducible source extraction, use `git -c core.autocrlf=false archive`;
-Windows Git newline conversion otherwise changes packaged AIDL/proguard files.
-The neutral-source release AAR SHA-256 is
-`f90a36a6cada1a55a3154944a8b524119217cb95176fd055c2a7dd3aeafaa7a7`.
-That hash is Windows-specific. Verified Linux CI output is
-`beae3192d0e80d6e1f8da39ffbb20f5e0921c904a34ab44268b9b4b35e04faa1`;
-only generated manifest line endings differ. Source pin and all other AAR
-payload entries are identical. Build verification selects the exact platform hash.
+it does not include NFC HCE, transport or prefilling. The current SDK source,
+overlay and platform-specific AAR hashes are pinned in `ci/plugin-sdk.json`.
+For local builds, obtain an authorized checkout of the
+[SDK repository](https://git.tak.gov/weartak-plugins/weartak-plugin-sdk), then
+run `python ci/build_plugin_sdk.py --local-source <checkout-path>` with JDK 17
+and Android SDK 34. See `ci/README.md` for source verification and CI usage.
+Host Gradle verifies the combined AAR hash before building.
 The checked-in legacy AAR does not provide the new optional controls and must
 not be used for this integration. The SDK has no signed published AAR;
 source-built binaries are unsigned dependency artifacts, not signed releases.
-The canonical LF source manifest SHA-256 is
+The earlier Nearby-only canonical LF source manifest SHA-256 was
 `3ed70060a8435a90bd3b7369c1cc399183a0861139bf81462b821ad9757e45f9`.
 This includes the SDK owner-controlled Covered Work linking permission from
 SDK MR !9. It does not relicense Google Play services or other third-party code;
@@ -104,10 +93,25 @@ of production persistence.
 - Provides Wear OS activities, a Tile, and watch-face complications for common operations and status.
 - Supports managed configuration, allowing an enterprise mobility/MDM provider to apply settings and service enablement.
 - Includes a configurable complex-event-processing (CEP) engine for evaluating sensor/event streams and dispatching alerts.
-- Provides optional audio detection pipelines for gunshot and UAS events, and optional CRM inference.
+- Provides optional plugin-based gunshot detection, UAS detection, and CRM inference.
 - Hosts supported WearTAK plugins through the included plugin SDK contract.
+- Provides the optional watch-native TAKwerx Market for signed, curated
+  first-party and approved community plugin releases. See
+  [`docs/TAKWERX_MARKET.md`](docs/TAKWERX_MARKET.md) for catalog configuration
+  and publishing requirements.
 
 Some capabilities depend on hardware, permissions, credentials, configuration, and separately provisioned services or SDKs. In particular, mesh, companion, SITX, plugin, audio-detection, and managed-configuration features are optional.
+
+Gunshot detection requires the separately installed
+[DART plugin](https://github.com/aegorsuch/weartak-plugin-dart/releases/tag/TAK.gov-Forge-CI-CD-Pipeline-Release);
+there is no built-in gunshot fallback. Existing DART enable and threshold settings
+remain in WearTAK and are synchronized to the plugin when it connects. The host
+captures audio only when a plugin requests it. UAS detection requires the separately
+installed [FALCON plugin](https://git.tak.gov/weartak-plugins/weartak-plugin-falcon);
+there is no built-in UAS fallback. Existing FALCON enable and threshold settings
+remain in WearTAK and are synchronized to the plugin when it connects. An exact
+retry of the latest accepted plugin event on the same binding is acknowledged
+without creating another event.
 
 DART/FALCON detections show a yellow home top-display warning, not an automatic
 popup. Tap to review "Gunshot detected?" or "UAS detected?" with the model score.
@@ -121,7 +125,8 @@ a separate warning button keeps lower-priority reviews reachable beside it.
 When several warnings coexist, that button opens a compact selector so each
 domain remains reachable without answering another domain first.
 Pending review state survives activity recreation but is in memory, not persisted
-across process termination or reboot. Existing service feedback logging writes
+across process termination or reboot. Process-level feedback logging remains active
+for plugin and built-in detection and writes
 app-private `gunshot_debug/gunshot_feedback.jsonl` and `uas_debug/uas_feedback.jsonl`,
 including UID, detector, answer timestamp, tap-to-answer latency, and
 detection-to-feedback latency. These files have no explicit rotation; asynchronous
@@ -290,6 +295,7 @@ Improves map and plugin workflows, TAK enrollment and connection reliability, Ne
 - [p632](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839276) (Posted 051747Z NOV 26) — Simplified BATTAK and Stay Connected Off-Wrist controls, added sanitized BATTAK failure codes, and introduced review-only release changelog drafts. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
 - [p635](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1839827) (Posted 052053Z NOV 26) — Allowed BATTAK sharing with last valid known location while preserving its timestamp and accuracy, and added sanitized send/wait diagnostics. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
 - [p638](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1840501) (Posted 060016Z NOV 26) — Removed birth-year confirmation requirement for BATTAK ATMIST and heart rate, using saved profile birth year or default 1998. [Download current APK (p644)](https://github.com/aegorsuch/weartak-wearos/releases/download/TAK.gov-Forge-CI-CD-Pipeline-Release/WearTAK-5.8.4-p644.apk).
+- [p911](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/pipelines/1885033) (Posted 241648Z NOV 26) — Removed leftover Ditto/DART code from Core (unused publication retry/track expiry, Ditto SDK keep rules, unread DART caches); kept DART saved settings for plugin migration. Ditto now runs only as a plugin.
 
 Current APK links above download p644, not each historical entry's build. The
 single rolling release replaces older APKs; recheck these links when approving
@@ -2156,23 +2162,45 @@ TLS handshakes have a 15-second read deadline; connected CoT readers remain bloc
 Sideloaded PKCS12 passwords stay in runtime state rather than changing the saved
 configuration used to decide whether a connection needs replacing.
 
-### App-owned OpenVPN transport (preview)
+### Optional OpenVPN plugin (preview)
 
-**Plugins > OpenVPN** imports bounded, self-contained `.ovpn` profiles and stores
-profiles and username/password credentials encrypted on the watch. External
-certificate/key file references, static challenges, encrypted private keys and
-external-PKI profiles are not supported; embed certificate/key material in the
-profile. One app-owned tunnel can be active at a time. Assign its profile to a
-TAK server to route that server's CoT TLS and session-backed HTTPS traffic
-(channels, missions and packages) through the tunnel. A selected route fails
-closed while its profile is disconnected; it does not fall back to direct
-traffic. This does not install device-wide VPN routes or tunnel other app traffic.
+OpenVPN runtime, profile parser and encrypted profile storage, and profile
+controls ship in the separately installable `:openvpn-plugin` APK. Profiles and
+credentials are encrypted with an app-private Android Keystore key; host-stored
+profiles are not migrated. Re-import profiles in the plugin and explicitly
+clear old host-stored profiles if desired. External certificate/key file
+references, static challenges, encrypted private keys, and external-PKI
+profiles are unsupported; embed certificate/key material in the profile.
 
-TAK endpoint names resolve through Android's selected network, outside the VPN
-tunnel, and the TAK endpoint must resolve to IPv4. Automated tests cover profile parsing, native validation, encrypted credential
-storage and fail-closed routing; emulator instrumentation exercises JNI and
-encrypted storage. Real-server profile interoperability, VPN connectivity, and
-physical-watch validation remain unverified.
+An operator must explicitly select an imported plugin profile for each
+configured TAK server. Plugin discovery or its package-signing pin alone never
+grants route authority. The versioned v1 host-services API exposes only server
+identity and selection metadata; a separate raw-TCP provider carries bounded
+streams (4 active streams, 16 KiB I/O chunks, 60-second I/O timeouts) scoped to
+the host-selected server endpoint, port, profile, and connection-attempt
+generation. The first stream can open before CoT is established, avoiding a
+connection bootstrap deadlock. This byte-stream path is separate from plugin
+CoT/chat message transport.
+
+WearTAK retains TAK TLS, client identity, CA trust, SNI/hostname verification,
+and TAK socket ownership. No host private keys are passed to the plugin. Plugin
+absence, unload, process death, stale attempts, and stream errors fail closed;
+there is no direct-connection fallback, arbitrary host/port proxy, or
+device-wide `VpnService`. OpenVPN3 is licensed under MPL-2.0 for WearTAK;
+embedded HTTP remains BSL-1.0, and other dependency notices are packaged with
+the plugin without relicensing them. TAK.gov release jobs sign the plugin with
+the host's release identity, verify both APK signers, reject a debuggable plugin
+APK, and retain both APKs with SHA-256 checksums as CI artifacts. Local release
+builds without signing credentials are intentionally unsigned and are not
+production artifacts; production signature verification requires protected
+TAK.gov CI signing credentials.
+
+Automated tests cover profile parsing, native validation, encrypted credential
+storage and synthetic route/stream lifecycle behavior. Emulator instrumentation
+has exercised JNI, encrypted storage, host-owned TLS identity/trust, Binder
+lifecycle, and stopped/inactive-error cleanup. Real-server profile
+interoperability, VPN connectivity, and physical-watch validation remain
+unverified.
 
 While charging or docked, off-wrist TAK connections stay continuous under the
 existing server, network and Companion gates. Plugging in reconnects immediately
@@ -2290,7 +2318,8 @@ independent Samsung Health waste or a measured battery saving.
 ### Persistent developer menus and Logging
 
 Tap the version eight times in **Preferences** to unlock **Admin Preferences**
-and **Developer Preferences**. Repeat the same eight-tap gesture to hide them.
+and **Developer Preferences**, the first two entries in the menu. Repeat the
+same eight-tap gesture to lock them again.
 This local UI preference now survives navigation, process restart, reboot and
 in-place updates until explicitly disabled. It is not an authenticated admin
 session: phone-managed restrictions, network locking, licensing, platform
@@ -3331,18 +3360,10 @@ fail all builds. Unrelated ordinary builds with neither input remain buildable b
 show that BATTAK configuration is absent; they are not acceptance candidates.
 Private CI must set both inputs in the appropriate authorized scope and use the
 acceptance flag; no remote CI variables are created by this change.
-The shared CI release job enforces this flag for main, official and manual
-`batdok_signed_trial` builds. The trial is opt-in on canonical branch/MR pipelines,
-reuses existing production signing checks, and does not publish. Successful trial
-APK artifacts expire after seven days and require Developer access. Existing
-protected-variable permissions are unchanged: an authorized maintainer must
-ensure interoperability and signing inputs are available to the selected job;
-otherwise it fails visibly. Do not weaken variable protection to run a trial.
-The dedicated `battak-trial` environment uses preparation only, not deployment.
-A new web pipeline on the exact protected `aegorsuch-batdok-patient-sharing`
-candidate branch runs ordinary Android, lint and publisher tests before the
-manual trial becomes available. Trial-only compatibility variables must use
-environment scope `battak-trial`; earlier unprotected pipelines are not candidates.
+The shared CI release job enforces this flag for main and official builds.
+Existing protected-variable permissions are unchanged: authorized maintainers
+must ensure interoperability and signing inputs are available to each selected
+job; otherwise, it fails visibly. Do not weaken variable protection.
 Main releases use the separate `battak-release` preparation environment; their
 compatibility inputs must be scoped only to `battak-release`.
 Build validation checks presence/encoding, not receiver-compatible values.
@@ -3831,11 +3852,16 @@ artwork notice and pending distribution/licensing review under
 Bundled third-party SDKs remain subject to their own terms; their presence does
 not establish unrestricted redistribution rights.
 
+The Ditto SDK's [published binary-license notice](https://www.ditto.com/sdk-license)
+is bundled in the app at
+[`assets/licenses/ditto-sdk/LICENSE.txt`](app/src/main/assets/licenses/ditto-sdk/LICENSE.txt).
+Distribution remains subject to the applicable Ditto Agreement and Order Form.
+
 In particular, redistribution and GPLv3 linking compatibility have not been
 established for `app/libs/samsung-health-sensor-api-1.4.1.aar` or
 `app/libs/hail-sdk.aar`; neither archive includes a license or notice document.
-Other integrations, including Ditto and Google Play services, require review
-under their own terms. The model assets under `app/src/main/assets/` also
+Google Play services and other integrations require review under their own
+terms. The model assets under `app/src/main/assets/` also
 require provenance and distribution-rights confirmation. These unresolved
 boundaries prevent treating the entire dependency bundle as GPLv3-cleared;
 the core license is not a legal-clearance claim for a combined APK.

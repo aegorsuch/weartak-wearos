@@ -148,6 +148,13 @@ internal fun CompanionDetailsPage(
                 )
             }
             item {
+                Chip(
+                    onClick = { context.startActivity(Intent(context, WifiVoiceSetupActivity::class.java)) },
+                    label = { Text(stringResource(R.string.companion_wifi_voice_setup)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
                 WearTAKToggleChip(
                     testTag = "settings_companion_location_diagnostics",
                     checkedLive = diagnosticsEnabled,

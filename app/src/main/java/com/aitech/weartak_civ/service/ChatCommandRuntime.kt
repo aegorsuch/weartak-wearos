@@ -29,9 +29,7 @@ import com.aitech.weartak_civ.command.ProfileStore
 import com.aitech.weartak_civ.command.ServerEnrollment
 import com.aitech.weartak_civ.command.SetCallsignHandler
 import com.aitech.weartak_civ.command.SetLocationInputHandler
-import com.aitech.weartak_civ.command.SetDittoPdlHandler
 import com.aitech.weartak_civ.command.UseP12Handler
-import com.aitech.weartak_civ.command.ToggleDittoHandler
 import com.aitech.weartak_civ.command.NetworkMasterCommandHandler
 import com.aitech.weartak_civ.command.NetworkCommandPolicy
 import com.aitech.weartak_civ.WearTakApplication
@@ -123,16 +121,6 @@ object ChatCommandRuntime {
                     install = { id, p12 ->
                         repo.installChatP12(id, p12) { TAKConnectService.getInstance().registerServer(id) }
                     }
-                ),
-                "toggleditto" to ToggleDittoHandler(
-                    isLocked = { repo.phoneManagedSettingsLocked.first() || repo.getNetworkPreferencesLocked.first() },
-                    apply = { enabled -> DittoService.applyEnabled(appContext, repo, enabled) }
-                ),
-                "setpdl" to SetDittoPdlHandler(
-                    isLocked = { repo.phoneManagedSettingsLocked.first() || repo.getNetworkPreferencesLocked.first() },
-                    communityPdl = repo::communityDittoPdl,
-                    save = repo::storeDittoCommandSettings,
-                    apply = { DittoService.applySelectedIdentity(appContext, repo) }
                 ),
                 "loadprofile" to LoadProfileHandler(
                     source = { name -> readPreset(appContext, name) },

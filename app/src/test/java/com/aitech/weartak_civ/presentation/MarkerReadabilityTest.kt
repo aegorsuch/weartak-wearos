@@ -35,7 +35,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [34], qualifiers = "w300dp-h300dp-round-340dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MarkerReadabilityTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val lat = 35.12345678901234
     private val lon = -117.98765432109876
     private val title = "TEST01-W_193243Z"

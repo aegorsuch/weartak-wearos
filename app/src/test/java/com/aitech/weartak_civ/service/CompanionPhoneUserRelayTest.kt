@@ -123,8 +123,8 @@ class CompanionPhoneUserRelayTest {
             cot("remote").replace("</detail>", "<uid Droid='test-watch'/></detail>"),
             cot("remote").replace("</detail>", "<uid Droid='phone-self'/></detail>"),
             cot("remote").replace("</detail>", "<emergency type='911'/></detail>"),
-            cot("remote").replace("</detail>", "<biometrics><device><model>WEAROS</model></device></biometrics></detail>"),
-            cot("remote").replace("</detail>", "<physiology><device><model>WEAROS</model></device></physiology></detail>")
+            cot("remote").replace("</detail>", "<biometrics><device><model>WEAROS</model><uid>test-watch</uid></device></biometrics></detail>"),
+            cot("remote").replace("</detail>", "<physiology><device><model>WEAROS</model><uid>phone-self</uid></device></physiology></detail>")
         ).forEach { handle("phone_user_cot", userPayload(it)) }
         assertTrue(repo.receivedUserList.value.isEmpty())
 
@@ -155,6 +155,20 @@ class CompanionPhoneUserRelayTest {
             repo.receiveCompanionUserEvent(event, now + index)
         }
         assertEquals(512, repo.receivedUserList.value.size)
+    }
+
+    @Test fun remoteWearosDeviceMetadataReachesCompanionMapState() {
+        for (tag in listOf("physiology", "biometrics")) {
+            for (deviceUid in listOf("<uid>remote-watch</uid>", "")) {
+                repo.clearCompanionUsers()
+                val xml = cot("remote-phone").replace("</detail>",
+                    "<$tag><device><model>WEAROS</model>$deviceUid</device></$tag></detail>")
+                handle("phone_user_cot", userPayload(xml))
+                val user = repo.receivedUserList.value.single()
+                assertEquals("remote-phone", user.uid)
+                assertEquals("companion-phone-users", user.sourceServerId)
+            }
+        }
     }
 
     @Test fun phoneUidIsRequiredAndPhoneOrWatchIdentityCannotBeRemoved() {

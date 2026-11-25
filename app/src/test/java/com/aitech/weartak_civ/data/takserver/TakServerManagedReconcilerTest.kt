@@ -90,6 +90,71 @@ class TakServerManagedReconcilerTest {
         )
     }
 
+    @Test
+    fun omittedEnablePreservesSavedChoiceAcrossRepeatedReapplication() {
+        val configured = TakServerManagedReconciler.Configuration(
+            server("Alpha", "new-alpha.example", null),
+            enabled = null
+        )
+        for (enabled in listOf(false, true)) {
+            val existing = server("Alpha", "old-alpha.example", SERVER_A).copy(isEnabled = enabled)
+            val expected = configured.server.copy(isEnabled = enabled, serverId = SERVER_A)
+            val firstApply = TakServerManagedReconciler.resolveServer(configured, existing)
+
+            assertEquals(expected, firstApply)
+            assertEquals(expected, TakServerManagedReconciler.resolveServer(configured, firstApply))
+        }
+    }
+
+    @Test
+    fun explicitAdminEnableOverridesSavedChoiceInEitherDirection() {
+        for (enabled in listOf(false, true)) {
+            val configured = TakServerManagedReconciler.Configuration(
+                server("Alpha", "alpha.example", null),
+                enabled = enabled
+            )
+            val existing = configured.server.copy(isEnabled = !enabled, serverId = SERVER_A)
+
+            assertEquals(
+                configured.server.copy(isEnabled = enabled, serverId = SERVER_A),
+                TakServerManagedReconciler.resolveServer(configured, existing)
+            )
+        }
+    }
+
+    @Test
+    fun newServersDefaultEnabledUnlessAdminExplicitlyDisablesThem() {
+        val server = server("Alpha", "alpha.example", null)
+        for (enabled in listOf(null, false, true)) {
+            assertEquals(
+                server.copy(isEnabled = enabled ?: true),
+                TakServerManagedReconciler.resolveServer(
+                    TakServerManagedReconciler.Configuration(server, enabled),
+                    null
+                )
+            )
+        }
+    }
+
+    @Test
+    fun omittedEnableFollowsMatchedServerWhenManagedListIsReorderedAndEdited() {
+        val existing = listOf(
+            server("Alpha", "alpha.example", SERVER_A).copy(isEnabled = false),
+            server("Bravo", "bravo.example", SERVER_B)
+        )
+        val configured = listOf(
+            TakServerManagedReconciler.Configuration(server("Bravo", "new-bravo.example", null), null),
+            TakServerManagedReconciler.Configuration(server("Alpha", "new-alpha.example", null), null)
+        )
+        val matches = TakServerManagedReconciler.matchExistingIndexes(configured.map { it.server }, existing)
+        val resolved = configured.mapIndexed { index, configuration ->
+            TakServerManagedReconciler.resolveServer(configuration, matches[index]?.let(existing::get))
+        }
+
+        assertEquals(listOf(true, false), resolved.map { it.isEnabled })
+        assertEquals(listOf(SERVER_B, SERVER_A), resolved.map { it.serverId })
+    }
+
     private fun server(name: String, address: String, serverId: String?) = TakServerItem(
         isEnabled = true,
         name = name,

@@ -31,7 +31,7 @@ object CotMessageParser {
     private const val ACCESS_EXTERNAL_DTD = "http://javax.xml.XMLConstants/property/accessExternalDTD"
     private const val ACCESS_EXTERNAL_SCHEMA = "http://javax.xml.XMLConstants/property/accessExternalSchema"
 
-    /** Live remote PLI, not a dropped a-* point or a reflected watch position. */
+    /** Live remote PLI, including WEAROS devices, but not reflected local watch/phone identities. */
     fun parseCompanionUserOrNull(
         rawXml: String,
         watchUid: String,
@@ -58,9 +58,12 @@ object CotMessageParser {
             val devices = detail.getElementsByTagName("device")
             for (index in 0 until devices.length) {
                 val device = devices.item(index) as Element
-                if (device.getElementsByTagName("model").item(0)?.textContent == "WEAROS" ||
-                    device.getElementsByTagName("uid").item(0)?.textContent in setOf(watchUid, phoneUid)
-                ) return null
+                val deviceUids = device.getElementsByTagName("uid")
+                for (uidIndex in 0 until deviceUids.length) {
+                    if (deviceUids.item(uidIndex).textContent.trim() in setOf(watchUid, phoneUid)) {
+                        return null
+                    }
+                }
             }
         }
         val type = root.getAttribute("type")

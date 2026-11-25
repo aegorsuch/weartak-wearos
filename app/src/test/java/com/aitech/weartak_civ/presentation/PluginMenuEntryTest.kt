@@ -25,14 +25,15 @@ class PluginMenuEntryTest {
             PluginMenuEntry.BuiltIn(BuiltInPlugin.FALCON, "FALCON"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DART, "DART"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.DATA_SYNC, "Data Sync"),
-            PluginMenuEntry.BuiltIn(BuiltInPlugin.CRM, "CRM"),
+            installed("com.weartak.plugin.crm", "CRM"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.TABLET_COMMAND, "Tablet Command"),
+            PluginMenuEntry.Market("TAKwerx Market"),
             PluginMenuEntry.BuiltIn(BuiltInPlugin.ESRI, "ESRI"),
             installed("com.weartak.plugin.mopp", "MOPP"),
         )
 
         assertEquals(
-            listOf("alpha", "BATTAK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "ESRI", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "Tablet Command", "zulu"),
+            listOf("alpha", "BATTAK", "Commands", "Companion Plugin", "CRM", "DART", "Data Sync", "Ditto", "ESRI", "Everywhere Comms", "FALCON", "MOPP", "Sensor Manager", "Somewear Labs", "Tablet Command", "TAKwerx Market", "zulu"),
             entries.alphabetizedPluginEntries().map { it.title },
         )
         assertEquals("Somewear Labs", entries.first().title)
@@ -112,6 +113,51 @@ class PluginMenuEntryTest {
     }
 
     @Test
+    fun audioDetectorsUseLegacyEntriesWithoutDuplicatingInstalledPackages() {
+        for ((kind, packageName) in listOf(
+            BuiltInPlugin.DART to "com.weartak.plugin.dart",
+            BuiltInPlugin.FALCON to "com.weartak.plugin.falcon",
+        )) {
+            val detector = pluginUi("different-declared-id", "WearTAK detector").copy(
+                packageName = packageName,
+                isLoaded = false,
+                isEnabled = false,
+            )
+            val unrelated = pluginUi(packageName, kind.name).copy(packageName = "org.example.other")
+            val entries = (listOf(PluginMenuEntry.BuiltIn(kind, kind.name)) +
+                listOf(detector, unrelated).installedPluginMenuEntries()).alphabetizedPluginEntries()
+
+            assertEquals(2, entries.size)
+            assertEquals("builtin:${kind.name}", entries.first().key)
+            assertEquals(unrelated, (entries.last() as PluginMenuEntry.Installed).plugin)
+            assertEquals(1, listOf(detector.copy(isEnabled = true, isLoaded = true), unrelated)
+                .installedPluginMenuEntries().size)
+        }
+    }
+
+    @Test
+    fun handlerSortsByItsShortMenuNameWithoutRenamingOtherPackages() {
+        val handler = pluginUi("handler-id", "WearTAK Handler")
+            .copy(packageName = "com.weartak.plugin.handler")
+        val other = pluginUi("com.weartak.plugin.handler", "WearTAK Handler")
+            .copy(packageName = "org.example.handler")
+        val entries = listOf(other, pluginUi("mopp", "MOPP"), handler)
+            .installedPluginMenuEntries().alphabetizedPluginEntries()
+
+        assertEquals(listOf("Handler", "MOPP", "WearTAK Handler"), entries.map { it.title })
+        assertEquals("installed:handler-id", entries.first().key)
+    }
+
+    @Test
+    fun crmUsesLegacyMenuTitleOnlyForCrmPackage() {
+        val crm = pluginUi("crm-id", "WearTAK CRM").copy(packageName = "com.weartak.plugin.crm")
+        val other = pluginUi("com.weartak.plugin.crm", "WearTAK CRM")
+            .copy(packageName = "org.example.crm")
+        assertEquals(listOf("CRM", "WearTAK CRM"),
+            listOf(crm, other).installedPluginMenuEntries().map { it.title })
+    }
+
+    @Test
     fun hostedRouteEncodesArbitraryPluginId() {
         assertEquals(
             "plugin_main_ui/org.example.field%2Ftools",
@@ -152,6 +198,18 @@ class PluginMenuEntryTest {
         assertEquals(null, plugin.copy(pluginId = "com.weartak.plugin.gotenna").menuLabel(MoppStatus.NONE, "None"))
         assertEquals("MOPP2", plugin.copy(packageName = "com.weartak.plugin.mopp", pluginId = "other-id")
             .menuLabel(MoppStatus.LEVEL_2, "None"))
+    }
+
+    @Test
+    fun dittoSubtitleRequiresLoadedExactPackageAndFallsBackWhenUnknown() {
+        val plugin = pluginUi("id", "Ditto").copy(
+            packageName = "com.weartak.plugin.ditto", isLoaded = true)
+        assertEquals("Community PDL", plugin.dittoMenuLabel("Community PDL", "fallback"))
+        assertEquals("Private PDL", plugin.dittoMenuLabel("Private PDL", "fallback"))
+        assertEquals("fallback", plugin.dittoMenuLabel(null, "fallback"))
+        assertEquals("fallback", plugin.copy(isLoaded = false).dittoMenuLabel("Private PDL", "fallback"))
+        assertEquals("fallback", plugin.copy(packageName = "com.weartak.plugin.ditto.other")
+            .dittoMenuLabel("Private PDL", "fallback"))
     }
 
     private fun installed(id: String, title: String) = PluginMenuEntry.Installed(

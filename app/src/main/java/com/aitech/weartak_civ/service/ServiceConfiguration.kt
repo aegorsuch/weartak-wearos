@@ -98,27 +98,15 @@ class ServiceConfiguration(
             actOn && (physioOn || (dynamic && locationOn))
         }.distinctUntilChanged()
 
-        // Keep direct transports stopped briefly after a Companion drop to absorb reconnect flaps.
-        ServiceType.DITTO -> combine(
-            dataRepository.getEnableDittoService, dataRepository.watchTransportSuppressed, DittoService.isReconfiguring
-        ) { enabled, suppressed, reconfiguring ->
-            enabled && !suppressed && !reconfiguring
-        }.distinctUntilChanged()
+        ServiceType.DITTO -> kotlinx.coroutines.flow.flowOf(false)
         ServiceType.HAIL -> dataRepository.getEnableHailService.distinctUntilChanged()
         ServiceType.CHAT  -> dataRepository.getEnableChatService.distinctUntilChanged()
         ServiceType.BLE_BEACON -> dataRepository.getEnableBleBeaconService.distinctUntilChanged()
         ServiceType.GEOFENCE  -> dataRepository.getEnableGeofenceService.distinctUntilChanged()
         ServiceType.BLOOD_HOUND -> dataRepository.getEnableBloodhoundCompassService.distinctUntilChanged()
-        ServiceType.AUDIO_CAP -> combine(
-            dataRepository.getEnableOnnxGunshotService.distinctUntilChanged(),
-            dataRepository.getEnableOnnxUasService.distinctUntilChanged(),
-            audioCaptureRepository.activeConsumers,
-        ) { gunshotOn, uasOn, consumers ->
-            gunshotOn || uasOn || consumers.isNotEmpty()
-        }.distinctUntilChanged()
-        ServiceType.ONNX_GUNSHOT -> dataRepository.getEnableOnnxGunshotService.distinctUntilChanged()
-        ServiceType.ONNX_UAS -> dataRepository.getEnableOnnxUasService.distinctUntilChanged()
-        ServiceType.CRM_INFERENCE -> dataRepository.getEnableCrmService.distinctUntilChanged()
+        ServiceType.AUDIO_CAP -> audioCaptureRepository.activeConsumers
+            .map { it.isNotEmpty() }
+            .distinctUntilChanged()
 
         // Core consumers remain live; BATTERY is now a process-owned virtual observer.
         ServiceType.TAK_CONNECT,
@@ -155,8 +143,7 @@ class ServiceConfiguration(
         )
 
         ServiceType.HEART_RATE,
-        ServiceType.SKIN_TEMP,
-        ServiceType.CRM_INFERENCE -> requiredPerms(ServiceType.PHYSIO)
+        ServiceType.SKIN_TEMP -> requiredPerms(ServiceType.PHYSIO)
         ServiceType.ACTIVITY_RECOGNITION -> listOf(android.Manifest.permission.ACTIVITY_RECOGNITION)
 
         ServiceType.BLE_BEACON -> buildList {
@@ -187,13 +174,6 @@ class ServiceConfiguration(
         ServiceType.AUDIO_CAP -> listOf(
             android.Manifest.permission.RECORD_AUDIO
         )
-        ServiceType.ONNX_GUNSHOT -> listOf(
-            android.Manifest.permission.RECORD_AUDIO
-        )
-        ServiceType.ONNX_UAS -> listOf(
-            android.Manifest.permission.RECORD_AUDIO
-        )
-
         ServiceType.SITX_SERVICE -> emptyList()
 
         ServiceType.TAK_CONNECT,

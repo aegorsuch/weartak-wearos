@@ -2,21 +2,220 @@
 
 ## Immutable plugin SDK source
 
+The SDK builder accepts credential-free HTTPS sources on `github.com` or the
+exact TAK.gov SDK URL `https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git`.
+GitHub fetches remain unauthenticated. TAK.gov fetches use only
+the current job's ephemeral `CI_JOB_TOKEN`, passed to Git as HTTP Basic
+authentication for `gitlab-ci-token` through process environment configuration;
+the token is not put in a remote URL, command argument, file or log. The source
+SDK project must permit repository reads by the WearOS core job token. For a
+private source project, allowlist only the WearOS core project with repository
+read permission. For an internal project, GitLab may permit reads outside the
+allowlist unless repository visibility is restricted; verify access with an
+actual core CI job token before pinning. Do not disable the allowlist or grant
+write access for this build. See
+[GitLab CI/CD job token access rules](https://docs.gitlab.com/ci/jobs/ci_job_token/).
+
+The builder removes `CI_JOB_TOKEN` and temporary Git auth configuration before
+running the SDK Gradle build. Do not substitute a personal access token for a
+CI job token. For local builds, first obtain an authorized Git checkout of the
+[SDK repository](https://git.tak.gov/weartak-plugins/weartak-plugin-sdk) using
+your normal Git credential helper; never put credentials in the repository URL.
+Then run `python ci/build_plugin_sdk.py --local-source <checkout-path>`. The
+builder fetches the pinned commit from that local Git repository without
+credentials and independently verifies its commit, tree, overlay and final AAR
+hash. The local-source option is unavailable in CI. The current SDK pin has only a
+verified Linux AAR hash; Windows builds fail closed until a verified Windows
+hash is added.
+The branch-scoped `verify_tak_sdk_source_access` job tests core CI repository
+read access against the expected immutable SDK commit/tree without building or
+logging credentials.
+
+On Linux, the builders normalize supported AAR ZIP file modes from `0600` to
+`0644` after the SDK build, without changing file contents or process umask.
+Unsupported ZIP structures fail closed. The pinned full AAR SHA-256 is still
+checked afterward; normalization does not accept a different artifact.
+
+Host AAR verification runs with the launcher's JDK 17 and shell tools, not
+Python. It checks the Linux SDK AAR against the manifest hash, rejects class
+duplicates within either AAR and across the pair, and writes the host
+`classes.jar` SHA-256 to `verified-classes.sha256`.
+
+## Host and plugin version synchronization
+
+Plugin CI codes use `baseVersionCode` from
+[`wear-version.properties`](../wear-version.properties):
+`baseVersionCode * 10000 + CI_PIPELINE_IID`. Each plugin
+uses its own project IID, **1..9999**, never the host IID. Base codes **1..209999**
+reserve the entire IID range below Android's `2100000000` maximum. Reject IID
+10000; do not wrap, truncate or reset it. Before a project exhausts its IID
+range, a separate reviewed version-code scheme migration is required.
+
+### Protected-main fan-out and consumer contract
+
+`wear_version_fan_out` runs only on protected canonical project **6739** `main`
+**push** pipelines where this manifest changed, after existing build, publication
+and draft stages succeed. Branches, MRs, tags, web/API/scheduled/downstream
+pipelines and ordinary main code changes cannot fan out. The script rechecks
+identity, checkout, ancestral comparison, manifest change and version bounds.
+Its 12 independent matrix jobs POST
+`/api/v4/projects/<target-id>/trigger/pipeline` using their ephemeral
+`CI_JOB_TOKEN`, creating native linked multi-project pipelines. No PAT or
+pipeline-trigger token is used. Each job targets exactly one approved ref:
+
+| Plugin | Project ID | Ref |
+| --- | --- | --- |
+| OpenVPN | 7025 | `main` |
+| Aster | 6988 | `main` |
+| Lattice | 6952 | `main` |
+| Nearby Drop | 6948 | `main` |
+| TAK-CAD | 6942 | `main` |
+| goTenna | 6941 | `main` |
+| MOPP | 6933 | `main` |
+| LACE | 6912 | `main` |
+| Sextant | 6910 | `main` |
+| Edge Scout | 6890 | `master` |
+| Ditto | 6786 | `aegorsuch-weartak-313-ditto-plugin-extraction` |
+| Somewear | 6737 | `main` |
+
+Forwarded variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `WEARTAK_VERSION_NAME` | Manifest `versionName` |
+| `WEARTAK_BASE_VERSION_CODE` | Manifest `baseVersionCode` |
+| `WEARTAK_VERSION_SOURCE_PROJECT_ID` | Exactly `6739` |
+| `WEARTAK_VERSION_SOURCE_SHA` | Exact full host commit SHA, not floating `main` |
+| `WEARTAK_VERSION_ATTESTATION` | Short-lived GitLab-signed OIDC ID token |
+
+Forwarded variables and `CI_PIPELINE_SOURCE=pipeline` alone are **not**
+upstream authentication. The host JWT proves a protected-main host job; it
+does **not** uniquely bind that job to a particular downstream pipeline.
+Before building/signing, consumers must authenticate
+`GET https://git.tak.gov/api/v4/job` with their **own** `CI_JOB_TOKEN` in the
+`JOB-TOKEN` header. Require the returned `pipeline.source` to equal `pipeline`,
+the pipeline's project ID to equal the expected consumer project, matching job
+and pipeline refs, and a branch rather than a tag. Do not substitute forwarded
+variables or unverified environment values for this server-returned identity.
+Missing fields or an unavailable endpoint must fail closed.
+
+Consumers must also verify from job-token-authorized GitLab branch metadata
+that this actual target ref is both **protected** and the project's **default
+branch**, and matches its approved ref above. The job endpoint alone does not
+establish branch protection/default status. The approved Ditto extraction ref
+must remain blocked from signing if it does not satisfy this gate; reconciling
+that ref with the protected-default-branch requirement needs separate review,
+not an implicit exception or a host-side ref change.
+
+Together with the exclusive external-initiator allowlist below, consumers must
+verify the
+attestation's **RS256 signature** with GitLab's trusted JWKS, `iss` exactly
+`https://git.tak.gov`, `aud` exactly
+`https://git.tak.gov/weartak/version-sync`, and required `exp`, `nbf`, `iat`.
+Require signed `project_id`/`job_project_id=6739`, matching
+`project_path`/`job_project_path=core/weartak-core/wearos-tak-civ`,
+`ref=main`, `ref_type=branch`, `ref_path=refs/heads/main`,
+`ref_protected=true`, `pipeline_source=push`, and
+`sha=WEARTAK_VERSION_SOURCE_SHA`. Do not trust decoded-but-unverified claims or
+token-supplied key URLs. Missing/invalid/expired claims must fail closed, never
+fall back to an unsigned/default version for a triggered release.
+
+Then fetch
+`GET https://git.tak.gov/api/v4/projects/6739/repository/files/wear-version.properties/raw?ref=<verified-source-sha>`
+using the **consumer's own** job token, parse strictly, compare both manifest
+values to the forwarded values, and validate base/IID bounds before Gradle.
+Do not pass the host job token downstream. This authenticates a host version
+release request, not plugin source compatibility; existing tests, signing,
+release and destination/ref gates remain required.
+
+The trigger job declares `id_tokens` and `timeout: 1h`, setting token lifetime
+to one hour. Validate early in the downstream pipeline; long queue delays or
+retries after expiry must fail, requiring a newly authorized upstream job.
+Keep tokens out of logs, artifacts and shell tracing. The ID token is sent
+only in the downstream trigger POST body; the host helper does not write it
+to disk, commit it or publish it as an artifact. This is **not zero-persistence**:
+GitLab may retain the assertion in downstream pipeline metadata until normal
+retention cleanup; this contract permits that retention. Restrict pipeline
+visibility to authorized members. Retention does not extend the token's
+one-hour validity: consumers must fail closed on expiry, even while metadata
+remains available. The token can be replayed until expiry;
+neither the JWT nor the job endpoint by itself proves a unique upstream-to-
+downstream relationship. Consumers must retain their normal stale-release/
+serialization safeguards, and signing must remain blocked until the external
+initiator restrictions and a live host trigger are verified.
+Matrix jobs do not wait for downstream completion: success means creation,
+not successful plugin builds. Inspect linked downstream status separately.
+No automatic trigger retry is configured; on an ambiguous timeout inspect the
+pipeline graph before retrying that target to avoid duplicate builds.
+
+### External setup blockers (not configured by this change)
+
+Maintainers must review these prerequisites before enabling production use:
+
+- Verify the host manifest and version-sync implementation have landed on
+  canonical project **6739** protected **main**. A local host commit or branch
+  pipeline is not activation evidence; consumers must verify the exact signed
+  source SHA and pinned manifest from canonical main.
+- In **each target's Settings > CI/CD > Job token permissions**, explicitly add
+  host project **6739** as its **only external project initiator**. The target's
+  own inherent project entry is not an external initiator. Verify the complete
+  project allowlist and **all group-level allowlist entries**: no other external
+  project or group may provide an alternate initiation path. Keep inbound
+  allowlist enforcement enabled; do not allow every project or rely on a
+  permissive public/internal-project setting. This requires review of effective
+  permissions, not merely finding project 6739 in a partial list.
+  The triggering user must also have permission
+  to create target pipelines, supply pipeline variables (currently Developer
+  minimum on all 12), and run the chosen protected ref/release jobs. Allowlisting
+  does not grant those user permissions.
+- In host project **6739**, permit each consumer's inbound job token to read
+  the pinned manifest. Restrict any fine-grained permissions to the necessary
+  repository-read and pipeline-trigger operations supported by the instance.
+- Land consumer validation and downstream pipeline/release rules before host
+  activation; verify the consumer's own `/api/v4/job` response, protected default
+  target branch metadata, and the signed host claims/SHA before allowing any
+  signing. Targets must admit authenticated `pipeline` source builds on the
+  exact approved refs without weakening protected signing/publication rules.
+- **Do not enable or claim downstream signing is enabled** until every target's
+  exclusive external-initiator policy (including absence of alternate group
+  entries), effective user/ref permissions, and a live authorized host trigger
+  with successful consumer provenance validation have been verified.
+
+Read-only inspection on 2026-11-16 found protected host `main`, self-only
+direct project allowlists on all 12 targets, and host inbound project entries
+`6739`, `6786`, `7025`. Target group allowlists/enforcement and effective user
+permissions still require maintainer review; a missing direct entry alone is
+not proof that no inherited/group access exists. No allowlists, permissions,
+protection or project settings were changed.
+
+TAK.gov reports GitLab **19.5.3**. Public discovery at
+[`/.well-known/openid-configuration`](https://git.tak.gov/.well-known/openid-configuration)
+reports issuer `https://git.tak.gov` and
+[`/oauth/discovery/keys`](https://git.tak.gov/oauth/discovery/keys), with RSA
+RS256 keys. This verifies discovery/key availability and documented feature
+support, not successful job-token authorization or issuance of a live CI ID
+token. An authorized protected-main pipeline remains the end-to-end gate;
+no pipeline was created to test it.
+
+References: [job-token allowlists and user permissions](https://docs.gitlab.com/ci/jobs/ci_job_token/),
+[native API downstream pipelines](https://docs.gitlab.com/ci/pipelines/downstream_pipelines/#trigger-a-multi-project-pipeline-by-using-the-api),
+[GitLab ID-token claims](https://docs.gitlab.com/ci/secrets/id_token_authentication/).
+
+## Immutable plugin SDK source
+
 Run `python ci/build_plugin_sdk.py` before host Gradle. `ci/plugin-sdk.json`
 pins upstream source commit/tree, the additive transport-v1 overlay, and the
-combined release AAR SHA-256. This unpublished composite is **not** unchanged
-SDK `86bdc8b`: all canonical APIs and notices remain intact, with 17 frozen
+combined release AAR SHA-256. Upstream SDK `35b294158c60ab455eb27ad7e69407efc6a6affc`
+adds the unpublished shared Ditto contracts. This composite retains the
+canonical APIs and notices, with 17 frozen
 transport source/AIDL/test files added. The repository includes the overlay-only
 ZIP and per-file inventory under `ci/plugin-sdk-transport/`; both are independently
 SHA-256 pinned. The helpers verify the ZIP inventory and every added source,
 reject canonical-file replacement and unexpected untracked sources, then build.
-Exact artifact hashes are platform-specific. Windows neutral-checkout release:
-`6ec84b18e1c8ac6b4be727083c4ea7a572150b521384270212434c239e5a1e0b`.
-Linux neutral-source release (Temurin 17, Android API/build-tools 34, Gradle 8.10.2):
-`8f911b81ac85e691ad182097fe0ef0f00ffa0d2da3442d3d2f03c5ec2529184f`.
-Both platforms passed 210 SDK tests per debug/release variant, both assemblies,
-and debug/release lint without errors. Independent AAR comparison found only
-generated `AndroidManifest.xml` newline differences; `classes.jar` is byte-identical.
+Exact artifact hashes are platform-specific and recorded in `ci/plugin-sdk.json`.
+Qualification uses Temurin 17, Android API/build-tools 34, and Gradle 8.10.2.
+Generated `AndroidManifest.xml` newlines can differ between Windows and Linux;
+API-equivalent bytes are not a substitute for an independently verified platform hash.
 Neither old canonical-only nor old
 transport-only AAR hashes are accepted. The helpers and host select the exact hash for their
 verified platform, not an unrestricted allowlist. Other platforms fail closed
@@ -25,8 +224,9 @@ The helpers restore tracked files directly from Git blobs (including paths with
 explicit newline attributes), build using
 JDK 17/Android SDK 34 and fails on a hash mismatch. Android CI jobs run the same
 pin through `sh ci/build_plugin_sdk.sh` before testing, lint or signing; the
-Android launcher has Git/jq but no Python. Both helpers enforce remote, exact
-commit/tree, neutral checkout and final AAR hash. Source and outputs stay under ignored
+Android launcher has Git/jq but no Python. Both helpers enforce the configured
+repository identity, exact commit/tree, neutral checkout and final AAR hash.
+Source and outputs stay under ignored
 `.gradle/sdk/<12-character-source-prefix>-<12-character-overlay-prefix>`, outside host `clean`; the complete
 commit, tree and overlay identities are still checked. The short directory avoids Windows AIDL
 path limits. No SDK publisher is required.
@@ -39,7 +239,54 @@ under `assets/licenses/weartak-plugin-sdk/`. The public source commit plus pinne
 overlay identify the corresponding combined SDK source. These notices do not
 relicense host or third-party material, or authorize distribution of this snapshot.
 
+### Authenticated local host identity
+
+Plugins query `IWearTakPluginControl.getDeviceStatus()` off their main thread,
+using the authenticated control supplied during initialization. Its telemetry
+includes `KEY_TAK_UID` (`takUid`) when Core's local TAK identity is available,
+and `KEY_CALLSIGN` (`callsign`) when configured. This works offline and does not
+require outbound CoT traffic. Missing keys mean unsupported or unavailable;
+an empty callsign must not be replaced with an invented identity.
+
+The TAK UID is distinct from `PluginInitParcel.hostUid` (Android Binder UID).
+It is scoped to Core's signing/user/device context, not a permanent identifier.
+Existing authenticated `onHostSettingsChanged` callbacks can trigger a serialized,
+off-Binder requery when callsign changes. Discard identity and stale query results
+on binding loss; reacquire on rebind. Callbacks are best-effort, and this interface
+does not provide a peer roster or a live UID-reassignment subscription.
+
+### Managed chat ingress
+
+The managed `chat_service_enabled` restriction now applies to the saved chat
+service preference. Explicit `true` or `false` overrides the saved value;
+an absent restriction preserves the saved value (enabled by default).
+Transport chat ingress still requires the negotiated `CHAT_UTF8` capability,
+plain nonblank UTF-8 text, sender UID/callsign and recipient UID. The broadcast
+recipient is exactly `All Chat Rooms`. This chat-setting repair is separate
+from the additive device-status identity key.
+
+## Protected ARM64 qualification
+
+`arm64_qualification` is an optional manual job in protected canonical `main`
+push pipelines. It uses the established release signing certificate but builds
+only `arm64-v8a`, verifies the signature and ABI contents, and retains the APK,
+checksum, and Gradle metadata as developer-only artifacts for seven days. It
+has no publication dependency and is not included in the GitHub release
+publisher. Do not publish or install qualification artifacts.
+
+The `weartakArm64Qualification` Gradle property is fail-closed: it accepts only
+the explicit `:app:assembleRelease` task, optionally preceded by
+`:app:clean`; all other task combinations and ABI overrides are rejected.
+Ordinary release builds still package only `armeabi-v7a`; debug emulator ABI
+options and official release behavior are unchanged.
+
 ## Host full-lint quality gate
+
+`wear_version_check` validates the root `wear-version.properties` against the
+pipeline's base revision. Update that file for host version changes: a higher
+`versionName` requires a higher `baseVersionCode`, and neither may decrease.
+Gradle and changelog verification both read the manifest. To check a proposed
+edit locally, run `python ci/wear_version.py validate --base HEAD` before committing.
 
 `host_lint_debug` runs full `:app:lintDebug` in merge-request, branch and tag pipelines.
 It uses the shared ephemeral Artifactory credential bootstrap, like other Android jobs.
@@ -106,7 +353,7 @@ Robolectric's separate Android runtime resolver receives the same approved
 repository and credentials when both are available; no static credentials
 or token values are committed or printed.
 
-`android_mopp_check` runs debug assembly and focused host/plugin regression
+`android_host_regression` runs debug assembly and focused host/plugin regression
 tests on merge requests and main pushes without production signing setup.
 Main release jobs still wait for successful test-stage jobs. Existing release
 lint checks remain enabled. Full `lintDebug` is not a new blocking gate: the
@@ -280,6 +527,33 @@ fails. An unprotected pipeline is intentionally excluded from publication by rul
 not reported as a successful upload. The script also enforces the source gates.
 
 ## Personal destination and source synchronization
+
+### Immediate Market catalog refresh
+
+After verifying the uploaded stable APK and published release, removing older
+owned assets, and saving the publication receipt, the publisher requests a Market
+catalog refresh on `aegorsuch/weartak-wearos` `main`. It does not notify for
+source-only synchronization, draft generation, superseded pipelines, or failed
+publication. Dispatch queues the existing GitHub Actions workflow; it does not
+mean catalog deployment has completed. Hourly refresh remains the recovery path.
+
+Create a separate [fine-grained token](https://github.com/settings/personal-access-tokens/new)
+restricted to `aegorsuch/weartak-wearos`, with **Actions: read and write** only
+(plus implicit metadata read). Do not broaden or reuse the source-publishing
+token or local CLI credentials. Store it as `MARKET_CATALOG_DISPATCH_TOKEN` in
+the [canonical project's CI/CD variables](https://git.tak.gov/core/weartak-core/wearos-tak-civ/-/settings/ci_cd):
+masked, protected, hidden if supported, with expansion disabled and scope matching
+the publish job. Provision it before merging this hook.
+
+Missing credentials, transport failures, denied access, redirects, or any result
+other than HTTP 204 fail the publish job explicitly **after** the verified APK
+is published; the release is not rolled back. Retry the latest authorized
+publisher job to reverify the same APK and request refresh without uploading it
+again, or [run the catalog workflow manually](https://github.com/aegorsuch/weartak-wearos/actions/workflows/publish-market-catalog.yml).
+No APKs are installed automatically. Catalog membership, HTTPS, signature,
+package, signer, checksum, and host compatibility checks remain unchanged.
+
+### Source synchronization
 
 `publish_personal_github_main` is the only publisher job. It uses the protected
 canonical `main` push gate, waits for all earlier stages, downloads the same-pipeline

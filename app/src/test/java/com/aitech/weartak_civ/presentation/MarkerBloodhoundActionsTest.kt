@@ -28,7 +28,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [34], qualifiers = "w227dp-h227dp-round", application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MarkerBloodhoundActionsTest {
-    @get:Rule val compose = createComposeRule()
+    val compose = createComposeRule()
+    @get:Rule val composeRules = org.junit.rules.RuleChain.outerRule(registerComposeTestActivity()).around(compose)
     private val repository = mockk<BloodhoundRepository>(relaxed = true)
     private val marker = DataRepository.DroppedMarker(
         DataRepository.MarkerCotType.DROP, "pin", DataRepository.MarkerType.FRIENDLY,

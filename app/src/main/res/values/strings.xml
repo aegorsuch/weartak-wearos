@@ -27,6 +27,8 @@
     <string name="audio_detection_feedback_failed">Response not recorded. Try again.</string>
     <string name="accessibility_edit">Edit</string>
     <string name="manual_alert_validation_error">Alert must be unique, 1–60 characters, and the list can hold up to 20.</string>
+    <string name="manual_alert_requested">Requesting alert. Delivery is not confirmed.</string>
+    <string name="manual_alert_cancel_requested">Requesting cancellation. Delivery is not confirmed.</string>
     <string name="ca_trust_advanced">Advanced</string>
     <string name="ca_trust_advanced_hide">Hide advanced</string>
     <string name="ca_trust_import">Import CA...</string>
@@ -96,6 +98,8 @@
     <string name="connection_route_suppressed">Suppressed</string>
     <string name="network_preferences_checklist">Network Preferences Checklist</string>
     <string name="network_plugin_forwarding">Forward outbound CoT</string>
+    <string name="ditto_network_off_unconfirmed">New host traffic blocked; prior work or plugin networking may continue</string>
+    <string name="ditto_network_policy_pending">Policy unresolved; new host traffic held off</string>
     <string name="network_preferences_checklist_save_failed">Could not save Network Preferences Checklist</string>
     <string name="open_transport_settings">Open %1$s settings</string>
     <string name="invalid_managed_network_configuration">Invalid managed network configuration. Settings were not applied. Contact your administrator.</string>
@@ -452,7 +456,7 @@
     <string name="tak_server_connection_name_default" translatable="false">Connection Name</string>
 
     <string name="tak_server_connection_enabled_title" translatable="false">TAK Server Connection Enabled</string>
-    <string name="tak_server_connection_enabled_description" translatable="false">Enable/Disable this TAK server connection</string>
+    <string name="tak_server_connection_enabled_description" translatable="false">Enable/Disable this TAK server connection. If omitted, preserve the saved switch; new servers default enabled.</string>
     <string name="tak_server_connection_enabled_default" translatable="false">true</string>
 
     <string name="tak_server_address_title" translatable="false">TAK Server Address/URL</string>
@@ -968,11 +972,33 @@
     <string name="high_atm_pressure_threshold">High Pressure Threshold (hPa)</string>
     <string name="server_connected_multicast">Server Connected Multicast</string>
     <string name="phone_uplink_active" translatable="false">Phone uplink active</string>
-    <string name="marker_stored_error_msg">Marker details stored and will be sent when connected and/or location is updated</string>
+    <string name="marker_stored_error_msg">Marker delivery is not confirmed.</string>
+    <string name="marker_save_unconfirmed">Marker save not confirmed. Check the marker list before retrying.</string>
+    <string name="marker_saved_locally">Marker saved locally. Delivery may still be pending.</string>
+    <string name="marker_submission_unknown">Marker saved locally. Submission outcome is unknown.</string>
+    <string name="marker_request_invalid">Invalid marker request.</string>
     <string name="group">Group</string>
     <string name="my_callsign">My Callsign</string>
-    <string name="my_team">My Team</string>
     <string name="my_role">My Role</string>
+    <string name="my_takgov_link">My TAK.gov Link</string>
+    <string name="takgov_linked">Linked</string>
+    <string name="takgov_linked_civ">Linked (Civ)</string>
+    <string name="takgov_linked_mil">Linked (Mil)</string>
+    <string name="takgov_unlinked">Unlinked</string>
+    <string name="takgov_link_checking">Checking</string>
+    <string name="takgov_link_start">Link TAK.gov account</string>
+    <string name="takgov_link_requesting">Requesting device code</string>
+    <string name="takgov_link_waiting">Waiting for approval</string>
+    <string name="takgov_link_cancel">Cancel linking</string>
+    <string name="takgov_link_remove">Remove link</string>
+    <string name="takgov_link_remove_title">Remove TAK.gov link?</string>
+    <string name="takgov_link_remove_message">Saved TAK.gov authorization will be removed from this watch.</string>
+    <string name="takgov_link_remove_confirm">Remove</string>
+    <string name="takgov_link_denied">TAK.gov authorization was denied.</string>
+    <string name="takgov_link_expired">Authorization expired. Start again to retry.</string>
+    <string name="takgov_link_error">Could not link to TAK.gov. Check connection and try again.</string>
+    <string name="takgov_link_storage_error">Saved link is unavailable. Link TAK.gov again.</string>
+    <string name="my_team">My Team</string>
     <string name="my_user_metrics">My User Metrics</string>
     <string name="reporting_strategy">Reporting</string>
     <string name="location_input">Location Input</string>
@@ -1025,6 +1051,40 @@
     <string name="exertion_alert_threshold">Exertion Alert Threshold</string>
     <string name="bloodhound_compass">Bloodhound</string>
     <string name="plugins">Plugins</string>
+    <string name="takwerx_market_title">TAKwerx Market</string>
+    <string name="market_admin_lock">TAKwerx Market Lock</string>
+    <string name="market_locked">TAKwerx Market locked by admin</string>
+    <string name="market_lock_save_error">Could not save Market lock. Check admin settings.</string>
+    <string name="market_not_configured">No signed catalog is configured for this build.</string>
+    <string name="market_refresh">Refresh catalog</string>
+    <string name="market_loading">Loading catalog…</string>
+    <string name="market_empty">No plugins are currently published.</string>
+    <string name="market_catalog_error">Catalog could not be loaded. Check connection and retry.</string>
+    <string name="market_offline">No internet connection. Catalog will refresh when connection returns.</string>
+    <string name="market_catalog_invalid">Signed catalog failed signature or format verification.</string>
+    <string name="market_catalog_unavailable">Could not check for updates. Try again.</string>
+    <string name="market_no_updates">No newer compatible WearTAK or approved-plugin releases.</string>
+    <string name="market_update_available">Update available</string>
+    <string name="market_plugin_by_publisher">%1$s by %2$s</string>
+    <string name="market_host_name" translatable="false">WearTAK-WearOS</string>
+    <string name="market_official">Official</string>
+    <string name="market_community">Community</string>
+    <string name="market_source">Source code</string>
+    <string name="market_source_unavailable">No app can open this source link.</string>
+    <string name="market_incompatible">Not compatible with this WearTAK version</string>
+    <string name="market_installed_version">Installed: %1$s</string>
+    <string name="market_install">Install</string>
+    <string name="market_update">Update</string>
+    <string name="market_up_to_date">Up to date</string>
+    <string name="market_newer_installed">Newer version already installed</string>
+    <string name="market_signer_mismatch">Installed signer differs from catalog</string>
+    <string name="market_play_managed">WearTAK updates managed by Google Play</string>
+    <string name="market_package_unavailable">Cannot verify installed package</string>
+    <string name="market_permission_needed">Allow installs from WearTAK, then return and retry</string>
+    <string name="market_permission_settings_error">Could not open Android install permission settings.</string>
+    <string name="market_download_verifying">Downloading and verifying…</string>
+    <string name="market_installer_confirmation">Confirm installation in Android installer.</string>
+    <string name="market_install_error">Could not prepare package for installation.</string>
     <string name="openvpn" translatable="false">OpenVPN</string>
     <string name="openvpn_service_running">OpenVPN tunnel active</string>
     <string name="n_a">N/A</string>
@@ -1064,6 +1124,8 @@
     <string name="some_servers_connected">Some Servers Connected</string>
     <string name="ditto_identity">Ditto Edge Sync Identity</string>
     <string name="community_pdl">Community PDL</string>
+    <string name="ditto_private_pdl">Private PDL</string>
+    <string name="ditto_pdl_not_configured">Not configured</string>
     <string name="custom_pdl">Custom PDL</string>
     <string name="use_default_community_identity">Use default community identity</string>
     <string name="enter_your_own_identity">Enter your own identity</string>
@@ -1131,6 +1193,8 @@
     <string name="network_disconnected_group">%1$s · Not connected</string>
     <string name="network_no_group">No group selected</string>
     <string name="network_toggle_failed">Unable to change connectivity. Check plugin settings and network locks.</string>
+    <string name="crm_settings_change_failed">Unable to change CRM. Check the plugin connection and try again.</string>
+    <string name="crm_settings_open_failed">Unable to open CRM settings. Check the plugin connection and try again.</string>
     <string name="ditto_custom_subtitle">Custom PDL</string>
     <string name="ditto_no_pdl_subtitle">None</string>
     <string name="network_server_ratio" translatable="false">%1$d/%2$d</string>
@@ -1142,4 +1206,5 @@
     </plurals>
     <string name="debug_stay_connected_off_wrist">Stay Connected Off-Wrist</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Could not save off-wrist connection setting. Try again.</string>
+    <string name="companion_wifi_voice_setup">Pair Voice over Wi-Fi</string>
 </resources>

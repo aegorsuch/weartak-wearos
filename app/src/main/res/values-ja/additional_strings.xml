@@ -77,4 +77,7 @@
     <string name="tak_enrollment_connectivity_failed">サーバーに接続できません。ネットワークとサーバーアドレスを確認してください。</string>
     <string name="tak_enrollment_certificate_failed">証明書データが無効または不足しています。</string>
     <string name="tak_enrollment_failure">%1$s：%2$s</string>
+    <string name="market_admin_lock">TAKwerx Marketのロック</string>
+    <string name="market_locked">TAKwerx Marketは管理者によってロックされています</string>
+    <string name="market_lock_save_error">Marketのロックを保存できませんでした。管理者設定を確認してください。</string>
 </resources>

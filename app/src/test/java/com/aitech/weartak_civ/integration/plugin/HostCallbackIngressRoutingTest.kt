@@ -56,4 +56,23 @@ class HostCallbackIngressRoutingTest {
             ingress.onSensorBatchFromPlugin("com.plugin.pkg", 100, any())
         }
     }
+
+    @Test
+    fun interceptedSensorEventsDoNotEnterCepIncludingBatches() {
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        val cb = HostCallbackImpl(
+            ingress, PluginSettingsCoordinator(mockk(relaxed = true)), "com.plugin.pkg", 100,
+            interceptSensorEvent = { it.sensorKey == "crm_status_v1" },
+        )
+        val intercepted = SensorEventParcel("crm_status_v1", System.currentTimeMillis())
+        val ordinary = SensorEventParcel("other", System.currentTimeMillis())
+
+        cb.onSensorEvent(intercepted)
+        cb.onSensorBatchEvent(mutableListOf(intercepted, ordinary))
+
+        verify(exactly = 0) { ingress.onSensorEventFromPlugin(any(), any(), any()) }
+        verify(exactly = 1) {
+            ingress.onSensorBatchFromPlugin("com.plugin.pkg", 100, listOf(ordinary))
+        }
+    }
 }

@@ -73,9 +73,11 @@ class InteractionIdentityPliTest {
         every { repo.isCompanionConnected } returns companionConnected
         every { repo.bestKnownLocation() } answers { currentLocation.value }
         every { repo.getEnableSitxService } returns flowOf(false)
+        every { repo.getEnableTakEndpoint } returns flowOf(false)
         every { repo.sitxStatus } returns MutableStateFlow(DataRepository.SitxServerStatus.DISCONNECTED)
         every { repo.multicastPublisherRunning } returns MutableStateFlow(false)
         every { repo.anyEndpointConnected } returns MutableStateFlow(true)
+        every { repo.shouldSuppressWatchTransportNow() } returns false
         coEvery { repo.snapshotInteractionPli(any()) } coAnswers {
             realRepo.snapshotInteractionPli(firstArg())
         }

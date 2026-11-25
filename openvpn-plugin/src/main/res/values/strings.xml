@@ -1,0 +1,4 @@
+<resources>
+    <string name="openvpn">OpenVPN</string>
+    <string name="openvpn_service_running">OpenVPN tunnel active</string>
+</resources>

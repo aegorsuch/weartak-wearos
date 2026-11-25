@@ -13,7 +13,6 @@ import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.location.Location
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -23,15 +22,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,7 +39,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,9 +71,7 @@ import com.aitech.weartak_civ.CAT_MANUAL_ALERT
 import com.aitech.weartak_civ.DESC_SOS_ALERT
 import com.aitech.weartak_civ.cot.ManualAlertTypes
 import com.aitech.weartak_civ.presentation.MainActivity.Constants.dataRepository
-import com.aitech.weartak_civ.presentation.MainActivity.Constants.enableLocationService
 import com.aitech.weartak_civ.presentation.SosActivity.Constants.TAG
-import com.aitech.weartak_civ.presentation.SosActivity.Constants.isAlertingLiveData
 import com.aitech.weartak_civ.presentation.SosActivity.Constants.manualAlertOptions
 import com.aitech.weartak_civ.presentation.SosActivity.Constants.manualAlertType
 import com.aitech.weartak_civ.presentation.SosActivity.Constants.manualAlertTypeSaved
@@ -99,7 +92,6 @@ class SosActivity : ComponentActivity() {
 companion object Constants{
     lateinit var sosActivity : SosActivity
     val TAG = "WearTAK-" + SosActivity::class.java.simpleName
-    val isAlertingLiveData = MutableLiveData<Boolean>(false)
     val manualAlertOptions: List<Utils.TextSelectionButton> = ManualAlertTypes.options.map {
         Utils.TextSelectionButton(it.shortCode, it.displayName)
     }
@@ -126,16 +118,7 @@ companion object Constants{
     fun PreviewMessageCardAlerting() {
         WearTAKCIVTheme {
             Surface {
-                val isAlerting = MutableLiveData<Boolean>(false)
-                val showDialog = remember { mutableStateOf(true) }
-                val successFailure = remember { mutableStateOf(true) }
-
-                SuccessDialogActivity(
-                    showDialog,
-                    successFailure,
-                    isAlerting,
-                    LocalContext.current
-                )
+                SuccessDialogActivity(false)
             }
         }
     }
@@ -144,13 +127,13 @@ companion object Constants{
     fun PreviewAlertScreen() {
         WearTAKCIVTheme {
             Surface {
-                val isAlerting = MutableLiveData<Boolean>(true)
                 val isConfirmed = remember { mutableStateOf(true) }
 
                 ConfirmationAlertPage(
                     isConfirmed,
                     isConfirmed,
-                    isAlerting,
+                    true,
+                    "",
                     {},
                     {}
                 )
@@ -179,14 +162,15 @@ companion object Constants{
 fun ConfirmationAlertPage(
     shouldShowDialog: MutableState<Boolean>,
     isConfirmed: MutableState<Boolean>,
-    isAlerting: MutableLiveData<Boolean>,
+    isAlerting: Boolean,
+    alertDescription: String,
     confirmFunction: () -> Unit,
     exitActivity: () -> Unit,
     ) {
     if (shouldShowDialog.value) {
         AlertDialog(
-            containerColor = if (isAlerting.value == true) Color.Red else colors.background,
-            modifier = (if (isAlerting.value == true) {
+            containerColor = if (isAlerting) Color.Red else colors.background,
+            modifier = (if (isAlerting) {
                 Modifier
                     .fillMaxSize()
                     .background(Color.Red)
@@ -199,6 +183,7 @@ fun ConfirmationAlertPage(
             }).automationRoot("sos_confirmation"),
             onDismissRequest = {
                 shouldShowDialog.value = false
+                if (isAlerting) exitActivity()
             },
             icon = {
                 Icon(
@@ -211,11 +196,10 @@ fun ConfirmationAlertPage(
             text = {
                 Text(
                     text = when {
-                        isAlerting.value == true && manualAlertTypeSaved.value.isNullOrEmpty() -> "Cancel Manual Alert?"
-                        isAlerting.value == true && !manualAlertTypeSaved.value.isNullOrEmpty() -> "Cancel Alert: ${manualAlertTypeSaved.value!!.trim()}?"
-                        isAlerting.value == false && manualAlertType.value.isNullOrEmpty() -> "Send Manual Alert?"
-                        isAlerting.value == false && !manualAlertType.value.isNullOrEmpty() -> "Send Alert: ${manualAlertTypeSaved.value!!.trim()}?"
-                        else -> {"ERROR"} // Note: This will never be reached
+                        isAlerting && alertDescription.isEmpty() -> "Cancel Manual Alert?"
+                        isAlerting -> "Cancel Alert: ${alertDescription.trim()}?"
+                        manualAlertType.value.isNullOrEmpty() -> "Send Manual Alert?"
+                        else -> "Send Alert: ${manualAlertTypeSaved.value.orEmpty().trim()}?"
                     },
                     textAlign = TextAlign.Center,
                     fontSize = 10.sp,
@@ -235,13 +219,13 @@ fun ConfirmationAlertPage(
                     modifier = Modifier.fillMaxWidth(0.45f).automationRoot("sos_confirm"),
                     contentPadding = PaddingValues(0.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isAlerting.value == true) Color.Black else Color.Red),
+                        containerColor = if (isAlerting) Color.Black else Color.Red),
                 ) {
                     androidx.compose.material3.Text(
                         text = stringResource(R.string.confirm),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = if (isAlerting.value == true) Color.White else Color.Black
+                        color = if (isAlerting) Color.White else Color.Black
                     )
                 }
             },
@@ -249,7 +233,7 @@ fun ConfirmationAlertPage(
             dismissButton = {
                 Button(
                     onClick = {
-                        if (isAlertingLiveData.value == true){
+                        if (isAlerting){
                             exitActivity()
                         }
                         shouldShowDialog.value = false
@@ -273,12 +257,8 @@ fun ConfirmationAlertPage(
 }
 
 @Composable
-fun SuccessDialogActivity(
-    shouldShowDialog: MutableState<Boolean>,
-    successBoolean : MutableState<Boolean>,
-    isAlerting: MutableLiveData<Boolean>,
-    context:Context) {
-    Dialog(onDismissRequest = { shouldShowDialog.value = false }) {
+fun SuccessDialogActivity(cancelling: Boolean) {
+    Dialog(onDismissRequest = {}) {
         Card(
             modifier = Modifier
                 .automationRoot("sos_result")
@@ -293,74 +273,26 @@ fun SuccessDialogActivity(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (successBoolean.value) {
-                    Icon(
-                        Icons.Rounded.Check,
-                        modifier = Modifier.size(25.dp),
-                        contentDescription = null,
-                        tint = Color.Green
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = stringResource(R.string.success),
-                        textAlign = TextAlign.Center,
-                    )
-                    isAlerting.value = isAlerting.value != true
-                    isAlerting.postValue(isAlerting.value)
-                    requestSosComplicationUpdate(context)
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = when {
-                            isAlerting.value == true && manualAlertType.value.isNullOrEmpty() -> "Manual Alert Sent"
-                            isAlerting.value == true && !manualAlertType.value.isNullOrEmpty() -> "Alert Sent: ${manualAlertTypeSaved.value!!.trim()}"
-                            isAlerting.value == false && manualAlertTypeSaved.value.isNullOrEmpty() -> "Manual Alert Cancelled"
-                            isAlerting.value == false && !manualAlertTypeSaved.value.isNullOrEmpty() -> "Alert Cancelled: ${manualAlertTypeSaved.value!!.trim()}"
-                            else -> {"ERROR"} // Note: This will never be reached
-                        },
-                        textAlign = TextAlign.Center,
-                    )
-                    Log.w(TAG, "SuccessDialogActivity (successBoolean=true) isAlertingLiveData = ${isAlertingLiveData.value}")
-                } else {
-                    Icon(
-                        Icons.Rounded.Clear,
-                        modifier = Modifier.size(25.dp),
-                        contentDescription = null,
-                        tint = Color.Red
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = stringResource(R.string.error),
-                        textAlign = TextAlign.Center,
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = if (isAlerting.value == true)
-                                    "Cancel Alert will be sent when reconnected"
-                                else
-                                    "Alert will be sent when reconnected",
-                        textAlign = TextAlign.Center,
-                    )
-
-                    isAlerting.value = isAlerting.value == true
-                    isAlerting.postValue(isAlerting.value)
-                    Log.w(TAG, "SuccessDialogActivity (successBoolean=false) isAlertingLiveData = ${isAlertingLiveData.value}")
-                }
+                Text(
+                    text = stringResource(if (cancelling) R.string.manual_alert_cancel_requested
+                        else R.string.manual_alert_requested),
+                    textAlign = TextAlign.Center,
+                )
             }
         }
     }
 }
 
-fun manualAlertOrClearRequest(isAlerting: Boolean){
+fun manualAlertOrClearRequest(alert: DataRepository.CustomEmergencyAlert?){
     CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
         val timeMillis = System.currentTimeMillis()
-        if (isAlerting != true) {
+        if (alert == null) {
             Log.d(TAG, "Manual Alert Triggered")
             val descManualAlert = manualAlertTypeSaved.value
             dataRepository.addManualAlertRequest(DataRepository.AlertState.ALERT, CAT_MANUAL_ALERT, if (descManualAlert.isNullOrEmpty()) DESC_SOS_ALERT else descManualAlert.trim(), timeMillis)
         } else {
             Log.d(TAG, "Cancel Manual Alert Triggered")
-            dataRepository.clearManualAlertRequestLast()
+            dataRepository.clearManualAlertRequestUid(alert.uuid, alert.activationId)
         }
     }
 }
@@ -368,23 +300,16 @@ fun manualAlertOrClearRequest(isAlerting: Boolean){
 @Composable
 private fun SuccessfulCotSentCheck(
     shouldShowConfirm: MutableState<Boolean>,
-    anyEndpointConnected: Boolean?,
-    context: Context,
     exitActivity: () -> Unit,
-    successBoolean: MutableState<Boolean>,
-    location: Location?,
-    locationChecked: Boolean,
     dialog: @Composable () -> Unit,
     successFunction: () -> Unit
 ){
     if (shouldShowConfirm.value) {
-        successBoolean.value = locationChecked && (anyEndpointConnected == true)
         LaunchedEffect(Unit) {
-            delay(1000) // Delay for 5 seconds
-            shouldShowConfirm.value = false // Dismiss the dialog
+            delay(1000)
+            shouldShowConfirm.value = false
             exitActivity()
             successFunction()
-//            context.startActivity(Intent(context, MainActivity::class.java))
         }
         dialog()
     }
@@ -394,25 +319,18 @@ private fun SuccessfulCotSentCheck(
 @Composable
 fun SosCivApp(exitActivity: () -> Unit, context: Context) {
     val isConfirmed = remember { mutableStateOf(false) }
-    val isDismissed = remember { mutableStateOf(false) }
-    val successBoolean = remember { mutableStateOf(false) }
     val shouldShowConfirm = remember { mutableStateOf(false) }
-    isAlertingLiveData.observeAsState()
-    val anyEndpointConnected by dataRepository.anyEndpointConnected.collectAsStateWithLifecycle(initialValue = false)
-//    val anyEndpointConnected = connectedEndpoints.isNotEmpty()
-
-    val location = dataRepository.latestLocation.value
-    var locationEnabled by remember { mutableStateOf(enableLocationService) }
+    val manualAlerts by dataRepository.manualAlertList.collectAsStateWithLifecycle()
+    val activeAlert = manualAlerts.filter { it.alertState == DataRepository.AlertState.ALERT }
+        .maxByOrNull { it.timeMillis }
+    var cancellationTarget by remember { mutableStateOf<DataRepository.CustomEmergencyAlert?>(null) }
+    var cancelling by remember { mutableStateOf(false) }
     val navController = rememberSwipeDismissableNavController()
     val savedAlertsStore = remember(context.applicationContext) {
         (context.applicationContext as WearTakApplication).savedCustomAlerts
     }
     val savedAlerts by savedAlertsStore.alerts.collectAsStateWithLifecycle(initialValue = emptyList())
     val licenseKey by dataRepository.getLicense.collectAsState(initial = "License")
-    LaunchedEffect(locationEnabled, anyEndpointConnected) {
-        successBoolean.value = locationEnabled && anyEndpointConnected
-    }
-
     // react to changes in the license.
     LaunchedEffect(licenseKey) {
         val currentDestination = navController.currentBackStackEntry?.destination?.route
@@ -445,12 +363,18 @@ fun SosCivApp(exitActivity: () -> Unit, context: Context) {
         if (!isConfirmed.value) {
             manualAlertType.value = description
             manualAlertTypeSaved.value = description
-            successBoolean.value = locationEnabled && anyEndpointConnected
+            cancelling = false
             isConfirmed.value = true
-            manualAlertOrClearRequest(false)
+            manualAlertOrClearRequest(null)
         }
     }
-    if (isAlertingLiveData.value == false) {
+    LaunchedEffect(activeAlert?.uuid, isConfirmed.value) {
+        if (activeAlert != null && cancellationTarget == null && !isConfirmed.value) {
+            cancellationTarget = activeAlert
+            shouldShowConfirm.value = true
+        }
+    }
+    if (activeAlert == null && cancellationTarget == null && !isConfirmed.value) {
                 ManualAlertListScreen(
                     builtInAlerts = manualAlertOptions.map { it.longText },
                     savedAlerts = savedAlerts,
@@ -462,39 +386,30 @@ fun SosCivApp(exitActivity: () -> Unit, context: Context) {
                         exitActivity()
                     },
                 )
-            } else {
-                shouldShowConfirm.value = true
             }
 
             ConfirmationAlertPage(
                 shouldShowDialog = shouldShowConfirm,
                 isConfirmed = isConfirmed,
-                isAlerting = isAlertingLiveData,
+                isAlerting = cancellationTarget != null,
+                alertDescription = cancellationTarget?.description.orEmpty(),
                 confirmFunction = {
-                    successBoolean.value = locationEnabled && anyEndpointConnected
-                    manualAlertOrClearRequest(true)
+                    cancellationTarget?.let {
+                        cancelling = true
+                        manualAlertOrClearRequest(it)
+                    }
                 },
                 exitActivity = { exitActivity() }
             )
 
             SuccessfulCotSentCheck(
                 isConfirmed,
-                anyEndpointConnected,
-                context,
                 {
                     exitActivity()
                     manualAlertType.value = ""
                 },
-                successBoolean,
-                location,
-                locationEnabled,
                 {
-                    SuccessDialogActivity(
-                    isConfirmed,
-                    successBoolean,
-                    isAlertingLiveData,
-                    context
-                )
+                    SuccessDialogActivity(cancelling)
                 },
                 {}
             )

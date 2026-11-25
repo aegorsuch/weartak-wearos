@@ -4,10 +4,13 @@ import com.aitech.weartak_civ.cot.CotMessageKind
 import com.aitech.weartak_civ.cot.CotCompanionPayload
 import com.aitech.weartak_civ.cot.CotOutboundMessage
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.integration.plugin.MoppPluginAvailability
+import com.aitech.weartak_civ.integration.plugin.TrustedCommunityPlugin
 import com.aitech.weartak_civ.presentation.MainActivity
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.spyk
 import io.mockk.verify
 import org.junit.After
 import org.junit.Before
@@ -64,7 +67,10 @@ class CotDispatchTransportResumeTest {
             graceActive = false
             true
         }
-        val service = CotDispatchService()
+        val app = mockk<WearTakApplication>(relaxed = true)
+        every { app.pluginManager.connectionFor(TrustedCommunityPlugin.PACKAGE) } returns null
+        val service = spyk(CotDispatchService())
+        every { service.applicationContext } returns app
         CotDispatchService::class.java.getDeclaredField("dataRepository").apply {
             isAccessible = true
             set(service, repository)
@@ -73,6 +79,7 @@ class CotDispatchTransportResumeTest {
         service.resumeWatchTransportsForDispatch(CotMessageKind.PLI)
         assertTrue(graceActive)
         verify(exactly = 0) { repository.resumeWatchTransportsImmediately() }
+        verify(exactly = 0) { app.pluginManager.connectionFor(any()) }
         every { repository.shouldSuppressWatchTransportNow() } returns true
         assertTrue(service.shouldDeferPliForTransportGrace(CotMessageKind.PLI))
 
@@ -83,27 +90,11 @@ class CotDispatchTransportResumeTest {
         graceActive = true
         service.resumeWatchTransportsForDispatch(CotMessageKind.EMERGENCY)
         assertFalse(graceActive)
+        verify(exactly = 1) { app.pluginManager.connectionFor(TrustedCommunityPlugin.PACKAGE) }
         graceActive = true
         service.resumeWatchTransportsForDispatch(CotMessageKind.MARKER)
         assertFalse(graceActive)
         verify(exactly = 3) { repository.resumeWatchTransportsImmediately() }
     }
 
-    @Test fun emergencyWithoutFixResumesDittoEvenWhenSentAsChatNotice() {
-        io.mockk.mockkObject(DittoService.Companion)
-        every { DittoService.resumeSyncForAlert() } returns Unit
-        val repository = mockk<DataRepository>(relaxed = true)
-        every { repository.isCompanionConnected } returns kotlinx.coroutines.flow.MutableStateFlow(false)
-        val service = CotDispatchService()
-        CotDispatchService::class.java.getDeclaredField("dataRepository").apply {
-            isAccessible = true
-            set(service, repository)
-        }
-        service.resumeWatchTransportsForDispatch(CotMessageKind.PLI)
-        service.resumeWatchTransportsForDispatch(CotMessageKind.CHAT)
-        verify(exactly = 0) { DittoService.resumeSyncForAlert() }
-        service.resumeWatchTransportsForDispatch(CotMessageKind.CHAT, emergencyNotice = true)
-        service.resumeWatchTransportsForDispatch(CotMessageKind.EMERGENCY)
-        verify(exactly = 2) { DittoService.resumeSyncForAlert() }
-    }
 }

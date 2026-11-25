@@ -138,7 +138,9 @@ internal class DittoCotReceiver(
                     require(doc.time <= now() + MAX_FUTURE_MS) { "Future-dated Ditto point" }
                     if (!repository.dittoPointIngress.accept(point)) continue
                     if (point.deleted) {
-                        repository.receiveDittoPointDeletion(doc.uid, doc.sourceId, doc.time, bloodhounds)
+                        repository.receiveSourcePointDeletion(
+                            doc.uid, doc.sourceId, doc.time, bloodhounds, repository.dittoPointLedger::owns
+                        )
                         continue
                     }
                 }

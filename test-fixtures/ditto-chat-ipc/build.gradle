@@ -1,0 +1,13 @@
+plugins {
+    id 'com.android.application' version '8.13.2'
+}
+
+android {
+    namespace 'org.weartak.chatipcfixture'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'org.weartak.chatipcfixture'
+        minSdk 34
+        targetSdk 34
+    }
+}

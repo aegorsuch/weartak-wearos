@@ -77,4 +77,7 @@
     <string name="tak_enrollment_connectivity_failed">Server nicht erreichbar. Netzwerk und Serveradresse prüfen.</string>
     <string name="tak_enrollment_certificate_failed">Ungültige oder fehlende Zertifikatsdaten.</string>
     <string name="tak_enrollment_failure">%1$s – %2$s</string>
+    <string name="market_admin_lock">TAKwerx Market sperren</string>
+    <string name="market_locked">TAKwerx Market durch Administrator gesperrt</string>
+    <string name="market_lock_save_error">Market-Sperre konnte nicht gespeichert werden. Administratoreinstellungen prüfen.</string>
 </resources>

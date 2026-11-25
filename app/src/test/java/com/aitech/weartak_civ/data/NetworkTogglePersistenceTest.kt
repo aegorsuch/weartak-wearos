@@ -172,6 +172,7 @@ class NetworkTogglePersistenceTest {
             assertFalse(repo.getEnableMulticast.first())
             assertFalse(repo.getEnableSitxService.first())
             assertFalse(repo.getEnableDittoService.first())
+            assertFalse(repo.getDittoPluginNetworkEnabled.first())
             assertFalse(repo.getEnableCompanionAppService.first())
         } finally {
             repo.setPhoneManagementSessionActive(false)
@@ -179,5 +180,56 @@ class NetworkTogglePersistenceTest {
             repo.storeNetworkPreferencesLocked(false)
             repo.storeEnableTakEndpoint(true)
         }
+    }
+
+    @Test fun dittoPluginNetworkPolicyPersistsAndHonorsBothNetworkLocks() = runBlocking {
+        val repo = DataRepository(RuntimeEnvironment.getApplication())
+        assertTrue(repo.getDittoPluginNetworkEnabled.first())
+        assertNull(repo.storeDittoPluginNetworkEnabled(false))
+        assertFalse(DataRepository(RuntimeEnvironment.getApplication())
+            .getDittoPluginNetworkEnabled.first())
+
+        repo.storeNetworkPreferencesLocked(true)
+        assertNotNull(repo.storeDittoPluginNetworkEnabled(true))
+        assertFalse(repo.getDittoPluginNetworkEnabled.first())
+        repo.storeNetworkPreferencesLocked(false)
+
+        repo.enablePhoneManagedSettings("AA:BB")
+        repo.setPhoneManagementSessionActive(true)
+        try {
+            assertNotNull(repo.storeDittoPluginNetworkEnabled(true))
+            assertFalse(repo.getDittoPluginNetworkEnabled.first())
+            repo.storeManagedNetworkToggles(ditto = true)
+            assertTrue(repo.getDittoPluginNetworkEnabled.first())
+        } finally {
+            repo.setPhoneManagementSessionActive(false)
+            repo.clearPhoneManagedSettingsForPeer("AA:BB")
+        }
+    }
+
+    @Test fun legacyDittoForwardingChoiceMigratesOnceAndManagedPolicyWins() = runBlocking {
+        val repo = DataRepository(RuntimeEnvironment.getApplication())
+        assertNull(repo.storeDittoPluginNetworkEnabled(true))
+        assertTrue(repo.initializeDittoPluginNetworkPolicy(legacyEnabled = false))
+        assertNull(repo.storeDittoPluginNetworkEnabled(false))
+        assertFalse(repo.initializeDittoPluginNetworkPolicy(legacyEnabled = true))
+
+        repo.legacyDataStore().edit { it.clear() }
+        assertFalse(repo.initializeDittoPluginNetworkPolicy(legacyEnabled = false))
+        assertFalse(repo.getDittoPluginNetworkEnabled.first())
+
+        repo.legacyDataStore().edit { it.clear() }
+        assertTrue(repo.initializeDittoPluginNetworkPolicy(legacyEnabled = true))
+        assertTrue(repo.getDittoPluginNetworkEnabled.first())
+
+        repo.legacyDataStore().edit { it.clear() }
+        repo.storeNetworkPreferencesLocked(true)
+        assertFalse(repo.initializeDittoPluginNetworkPolicy(legacyEnabled = false))
+        assertNotNull(repo.storeDittoPluginNetworkEnabled(true))
+        assertFalse(repo.getDittoPluginNetworkEnabled.first())
+        repo.storeManagedNetworkToggles(ditto = true)
+        assertTrue(repo.initializeDittoPluginNetworkPolicy(legacyEnabled = false))
+        assertTrue(repo.getDittoPluginNetworkEnabled.first())
+        repo.storeNetworkPreferencesLocked(false)
     }
 }

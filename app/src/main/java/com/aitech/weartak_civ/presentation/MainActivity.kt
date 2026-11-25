@@ -124,7 +124,6 @@ import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUp
 import com.aitech.weartak_civ.DEFAULT_BIRTH_YEAR
 import com.aitech.weartak_civ.DEFAULT_ON_FOOT_REPORTING_INTERVAL
 import com.aitech.weartak_civ.DEFAULT_CONSTANT_REPORTING_INTERVAL
-import com.aitech.weartak_civ.DEFAULT_ONNX_GUNSHOT_TRIGGER_THRESHOLD_PERCENT
 import com.aitech.weartak_civ.DEFAULT_ONNX_UAS_TRIGGER_THRESHOLD_PERCENT
 import com.aitech.weartak_civ.DEFAULT_RESTING_HR
 import com.aitech.weartak_civ.DEFAULT_STATIONARY_REPORTING_INTERVAL
@@ -144,6 +143,8 @@ import com.aitech.weartak_civ.complication.ChatComplicationService.Companion.CHA
 import com.aitech.weartak_civ.complication.ChatComplicationService.Companion.CHAT_ENABLED_NO_NEW_MESSAGE
 import com.aitech.weartak_civ.complication.StatusIconsComplicationService
 import com.aitech.weartak_civ.data.DataRepository
+import com.aitech.weartak_civ.data.CrmThresholdRanges
+import com.aitech.weartak_civ.integration.plugin.PluginActivityLauncher
 import com.aitech.weartak_civ.data.takserver.TakServerEndpointIdentity
 import com.aitech.weartak_civ.data.takserver.TakServerManagedReconciler
 import com.aitech.weartak_civ.events.MessageEvent
@@ -217,7 +218,6 @@ import com.aitech.weartak_civ.DEFAULT_ENABLE_HEART_RATE_SERVICE
 import com.aitech.weartak_civ.DEFAULT_ENABLE_HIGH_ATM_PRESSURE_ALERT
 import com.aitech.weartak_civ.DEFAULT_ENABLE_LOCATION_SERVICE
 import com.aitech.weartak_civ.DEFAULT_ENABLE_MULTICAST_ON_WIFI
-import com.aitech.weartak_civ.DEFAULT_ENABLE_ONNX_GUNSHOT
 import com.aitech.weartak_civ.DEFAULT_ENABLE_ONNX_UAS
 import com.aitech.weartak_civ.DEFAULT_ENABLE_PHYSIOLOGICAL_ALERTS
 import com.aitech.weartak_civ.DEFAULT_ENABLE_PHYSIOLOGICAL_SERVICES
@@ -266,10 +266,12 @@ import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
 import com.aitech.weartak_civ.Utils.getNullableBoolean
 import com.aitech.weartak_civ.Utils.setAirplaneMode
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.market.MarketRefreshStatus
+import com.aitech.weartak_civ.market.MarketUpdateSnapshot
 import com.aitech.weartak_civ.cep.di.CepProvider
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.aitech.weartak_civ.data.BloodhoundRepository
-import com.aitech.weartak_civ.data.GunshotOnnxRepository
+import com.aitech.weartak_civ.data.GunshotDetectionRepository
 import com.aitech.weartak_civ.data.UasOnnxRepository
 import com.aitech.weartak_civ.data.DataRepository.SitxServerStatus
 import com.aitech.weartak_civ.data.secure.sitx.SitxSecretsRepository
@@ -322,8 +324,6 @@ class MainActivity : ComponentActivity() {
         )
         var enableLocationService : Boolean =  DEFAULT_ENABLE_LOCATION_SERVICE
         var enableBetaFeatures : Boolean = DEFAULT_ENABLE_BETA_FEATURES
-        var enableOnnxGunshotService : Boolean = DEFAULT_ENABLE_ONNX_GUNSHOT
-        var onnxGunshotTriggerThresholdPercent : Int = DEFAULT_ONNX_GUNSHOT_TRIGGER_THRESHOLD_PERCENT
         var enableOnnxUasService : Boolean = DEFAULT_ENABLE_ONNX_UAS
         var onnxUasTriggerThresholdPercent : Int = DEFAULT_ONNX_UAS_TRIGGER_THRESHOLD_PERCENT
         var enableBleBeaconService : Boolean = DEFAULT_ENABLE_BLE_BEACON_SERVICE
@@ -549,14 +549,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val gunshotOnnxRepo by lazy {
-        try {
-            (applicationContext as WearTakApplication).gunshotOnnxRepo
-        } catch (_: Throwable) {
-            GunshotOnnxRepository(applicationContext)
-        }
-    }
-
     private fun collectAudioRecordingFlows() {
         lifecycleScope.launch {
             audioRepo.getRecordingSessionState
@@ -637,6 +629,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        (application as? WearTakApplication)?.marketUpdateMonitor?.retryInterruptedRefresh()
         Log.i(TAG, "MainActivity onResume()")
     }
 
@@ -815,8 +808,6 @@ class MainActivity : ComponentActivity() {
             bloodhoundProximityRadiusMeters = dataRepository.getBloodhoundProximityRadiusMeters.first()
             bloodhoundProximityIntensity = dataRepository.getBloodhoundProximityIntensity.first()
             enableBetaFeatures             = dataRepository.getEnableBetaFeatures.first()
-            enableOnnxGunshotService       = dataRepository.getEnableOnnxGunshotService.first()
-            onnxGunshotTriggerThresholdPercent = dataRepository.getOnnxGunshotTriggerThresholdPercent.first()
             enableOnnxUasService           = dataRepository.getEnableOnnxUasService.first()
             onnxUasTriggerThresholdPercent = dataRepository.getOnnxUasTriggerThresholdPercent.first()
 
@@ -1120,6 +1111,9 @@ class MainActivity : ComponentActivity() {
 
         val context = mainActivity.applicationContext
         dataRepository = (context.applicationContext as WearTakApplication).repo
+        com.aitech.weartak_civ.integration.plugin.DittoMeshPermissions.observe(
+            this, (application as WearTakApplication).pluginManager
+        )
         bhRepo = (context.applicationContext as WearTakApplication).bhRepo
         sitxRepo = (context.applicationContext as WearTakApplication).sitxRepo
 
@@ -1326,20 +1320,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun reconcileManagedTakServers(
-        configuredServers: List<DataRepository.TakServerItem>,
+        configuredServers: List<TakServerManagedReconciler.Configuration>,
         managedConfigurationIsAuthoritative: Boolean
     ): Boolean {
         var changed = false
         val handler = Handler(Looper.getMainLooper())
-        val uniqueManagedServers = configuredServers.distinctBy(TakServerEndpointIdentity::key)
+        val uniqueManagedServers = configuredServers.distinctBy {
+            TakServerEndpointIdentity.key(it.server)
+        }
         val existingServers = takServerList.toList()
         val existingMatches = TakServerManagedReconciler.matchExistingIndexes(
-            configured = uniqueManagedServers,
+            configured = uniqueManagedServers.map { it.server },
             existing = existingServers
         )
 
-        for ((managedIndex, managedServer) in uniqueManagedServers.withIndex()) {
-            val endpointKey = TakServerEndpointIdentity.key(managedServer)
+        for ((managedIndex, configuration) in uniqueManagedServers.withIndex()) {
+            val endpointKey = TakServerEndpointIdentity.key(configuration.server)
             val matchedExistingIndex = existingMatches[managedIndex]
             val matchedExisting = matchedExistingIndex?.let(existingServers::get)
             val index = matchedExisting?.serverId?.let { serverId ->
@@ -1347,7 +1343,7 @@ class MainActivity : ComponentActivity() {
             } ?: matchedExistingIndex ?: -1
             if (index >= 0) {
                 val existing = takServerList[index]
-                val managedWithStableId = managedServer.copy(serverId = existing.serverId)
+                val managedWithStableId = TakServerManagedReconciler.resolveServer(configuration, existing)
                 if (managedWithStableId != existing) {
                     changed = true
                     dataRepository.updateTakServerItem(index, managedWithStableId)
@@ -1358,7 +1354,9 @@ class MainActivity : ComponentActivity() {
                     }
                     takServerList = dataRepository.awaitTakServerList()
                 }
-            } else if (dataRepository.addTakServerItem(managedServer) == DataRepository.TakServerAddResult.ADDED) {
+            } else if (dataRepository.addTakServerItem(
+                    TakServerManagedReconciler.resolveServer(configuration, null)
+                ) == DataRepository.TakServerAddResult.ADDED) {
                 changed = true
                 takServerList = dataRepository.awaitTakServerList()
                 val addedIndex = takServerList.indexOfFirst {
@@ -1373,7 +1371,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (managedConfigurationIsAuthoritative) {
-            val managedKeys = uniqueManagedServers.map(TakServerEndpointIdentity::key).toSet()
+            val managedKeys = uniqueManagedServers.map { TakServerEndpointIdentity.key(it.server) }.toSet()
             val staleIndexes = takServerList.indices.filter {
                 TakServerEndpointIdentity.key(takServerList[it]) !in managedKeys
             }.sortedDescending()
@@ -1440,6 +1438,11 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, R.string.invalid_managed_network_configuration, Toast.LENGTH_LONG).show()
             return
         }
+        val enableChatServiceConfigUpdate = runBlocking {
+            dataRepository.applyManagedChatServiceSetting(
+                appRestrictions.getNullableBoolean("chat_service_enabled")
+            )
+        }
 
         // Store previous license before getting new license and validating it
         val prevLicenseIsValid = isLicenseValid()
@@ -1454,7 +1457,7 @@ class MainActivity : ComponentActivity() {
         val enableTabletCommandEndpointConfigUpdate =
             managedNetwork.tabletCommand ?: enableTabletCommandEndpoint
 
-        var serverEnableTAKConnectService: Boolean = true
+        var serverEnableTAKConnectService: Boolean? = null
         var serverName: String? = null
         var serverAddress: String? = null
         var serverPort: String? = null
@@ -1463,7 +1466,7 @@ class MainActivity : ComponentActivity() {
         var serverPassword: String? = null
         var serverCertPassword: String? = null
         var serverCertificate: String? = null
-        val takServerListConfig: MutableList<DataRepository.TakServerItem> = mutableListOf()
+        val takServerListConfig: MutableList<TakServerManagedReconciler.Configuration> = mutableListOf()
         val serverParcels = appRestrictions.getParcelableArray("tak_server_list")  // we don't know how many configurations will be set on the Knox Managed Configuration page, so we to loop through all the servers in the list.
         if (serverParcels != null) {
             val serverCount = serverParcels.size
@@ -1483,7 +1486,7 @@ class MainActivity : ComponentActivity() {
 
                     // set companion obj by looking for key in bundle, fallback on current
                     serverName = serverBundle.getString("tak_server_connection_name", null) // set companion obj by looking for key, fallback on current
-                    serverEnableTAKConnectService = serverBundle.getBoolean("tak_server_connection_enabled", true)
+                    serverEnableTAKConnectService = serverBundle.getNullableBoolean("tak_server_connection_enabled")
                     serverAddress = serverBundle.getString("tak_server_address", null)
                     serverUseCert = serverBundle.getBoolean("tak_server_use_certificate", false)
                     serverPort = (serverBundle.getInt("tak_server_port", 8089)).toString()
@@ -1491,7 +1494,12 @@ class MainActivity : ComponentActivity() {
                     serverPassword = serverBundle.getString("tak_server_password", null)
                     serverCertPassword = serverBundle.getString("tak_server_cert_password", null)
                     serverCertificate = serverBundle.getString("tak_server_cert", null)
-                    takServerListConfig.add(DataRepository.TakServerItem(serverEnableTAKConnectService, serverName, serverAddress, serverPort.toInt(), serverUseCert, serverUsername, serverPassword, serverCertificate, serverCertPassword))
+                    takServerListConfig.add(
+                        TakServerManagedReconciler.Configuration(
+                            DataRepository.TakServerItem(serverEnableTAKConnectService ?: true, serverName, serverAddress, serverPort.toInt(), serverUseCert, serverUsername, serverPassword, serverCertificate, serverCertPassword),
+                            enabled = serverEnableTAKConnectService
+                        )
+                    )
                     Log.v(TAG, "========================================")
                 } else {
                     Log.e(TAG, "Invalid server bundle at index $i")
@@ -1565,6 +1573,7 @@ class MainActivity : ComponentActivity() {
         localMap[ServiceType.ACTIVITY_RECOGNITION] = enableActRecService
         localMap[ServiceType.SKIN_TEMP]  = enableSkinTempService
         localMap[ServiceType.DITTO]      = enableDittoService
+        localMap[ServiceType.CHAT]       = enableChatServiceConfigUpdate
         localMap[ServiceType.COMPANION_APP] = enableCompanionAppService
         localMap[ServiceType.BLE_BEACON] = enableBleBeaconService
         localMap[ServiceType.HAIL]        = enableHailService
@@ -1615,6 +1624,7 @@ class MainActivity : ComponentActivity() {
         cfgUpdateMap[ServiceType.ACTIVITY_RECOGNITION] = enableActivityRecognitionServiceConfigUpdate
         cfgUpdateMap[ServiceType.SKIN_TEMP] = enableSkinTempServiceConfigUpdate
         cfgUpdateMap[ServiceType.DITTO] = enableDittoServiceConfigUpdate
+        cfgUpdateMap[ServiceType.CHAT] = enableChatServiceConfigUpdate
         cfgUpdateMap[ServiceType.BLE_BEACON] = enableBleBeaconServiceConfigUpdate
         cfgUpdateMap[ServiceType.HAIL]       = enableHailServiceConfigUpdate
         cfgUpdateMap[ServiceType.SITX_SERVICE] = enableSitxServiceConfigUpdate
@@ -2483,18 +2493,19 @@ fun MainScreen(
     //Log.d(TAG, "MainScreen called")
     val dismissState = rememberSwipeToDismissBoxState()
     val hasUnreadMessages by dataRepository.hasUnread.collectAsState() // monitor the number of unread messages
-    val isAlerting by SosActivity.isAlertingLiveData.observeAsState()
+    val manualAlerts by dataRepository.manualAlertList.collectAsStateWithLifecycle()
+    val isAlerting = manualAlerts.any { it.alertState == DataRepository.AlertState.ALERT }
     val activeItem by bhRepo.activeBhItemUi.collectAsState()
     val northBearing by dataRepository.azimuthTrueDegSmoothed.collectAsStateWithLifecycle()
     val hasUnreadBloodhounds by dataRepository.hasUnreadBloodhounds.collectAsState()
 
     // Get the repo for gunshots
     val context = LocalContext.current
-    val gunshotOnnxRepo = remember(context.applicationContext) {
+    val gunshotDetectionRepo = remember(context.applicationContext) {
         try {
-            (context.applicationContext as WearTakApplication).gunshotOnnxRepo
+            (context.applicationContext as WearTakApplication).gunshotDetectionRepo
         } catch (_: Throwable) {
-            GunshotOnnxRepository(context.applicationContext)
+            GunshotDetectionRepository(context.applicationContext)
         }
     }
     val uasRepo = remember(context.applicationContext) {
@@ -2504,14 +2515,24 @@ fun MainScreen(
             UasOnnxRepository(context.applicationContext)
         }
     }
-    val pendingGunshot by gunshotOnnxRepo.pendingGunshot.collectAsStateWithLifecycle()
+    val pendingGunshot by gunshotDetectionRepo.pendingGunshot.collectAsStateWithLifecycle()
     val pendingUas by uasRepo.pendingUas.collectAsStateWithLifecycle()
     val dittoWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
-    val crmInference by dataRepository.latestCrmInference.collectAsStateWithLifecycle()
-    val crmThresholds by settingsVm.savedCrmThresholdRanges.collectAsStateWithLifecycle()
-    val crmEnabled by settingsVm.savedEnableCrmService.collectAsStateWithLifecycle()
+    val pluginManager = (context.applicationContext as WearTakApplication).pluginManager
+    val crmStatus by pluginManager.crmPluginStatus.status.collectAsStateWithLifecycle()
+    val crmSettings by pluginManager.settingsCoordinator.crmSettings.collectAsStateWithLifecycle()
+    val crmInference = crmPluginInference(crmStatus)
+    val crmThresholds = crmSettings?.thresholds ?: CrmThresholdRanges()
+    val crmEnabled = crmPluginWarningEnabled(crmStatus, crmSettings)
     val worn by dataRepository.latestIsDeviceWorn.collectAsStateWithLifecycle()
     val crmWarning = rememberCrmHomeWarning(crmInference, crmThresholds, crmEnabled, worn)
+    val marketUpdateMonitor = remember(context.applicationContext) {
+        (context.applicationContext as? WearTakApplication)?.marketUpdateMonitor
+    }
+    val marketUpdateSnapshot by marketUpdateMonitor?.snapshot?.collectAsStateWithLifecycle()
+        ?: remember {
+            mutableStateOf(MarketUpdateSnapshot(status = MarketRefreshStatus.NOT_CONFIGURED))
+        }
     val physioEnabled by settingsVm.savedEnablePhysiologicalServices.collectAsStateWithLifecycle()
     val physioAlertsEnabled by settingsVm.savedEnablePhysiologicalAlerts.collectAsStateWithLifecycle()
     val physioAlerts by dataRepository.physioAndAutoGenAlertList.collectAsStateWithLifecycle()
@@ -2532,22 +2553,28 @@ fun MainScreen(
             gunshotPending = pendingGunshot,
             uasPending = pendingUas,
             findEvent = { detectorKey, uid ->
-                if (detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
-                    gunshotOnnxRepo.getEventFromUid(uid) else uasRepo.getEventFromUid(uid)
+                if (detectorKey == GunshotDetectionRepository.DETECTOR_KEY)
+                    gunshotDetectionRepo.getEventFromUid(uid) else uasRepo.getEventFromUid(uid)
             },
             emitFeedback = { event, feedback ->
-                if (event.detectorKey == GunshotOnnxRepository.DETECTOR_KEY)
-                    gunshotOnnxRepo.tryEmitGunshotFeedback(feedback) else uasRepo.tryEmitUasFeedback(feedback)
+                if (event.detectorKey == GunshotDetectionRepository.DETECTOR_KEY)
+                    gunshotDetectionRepo.tryEmitGunshotFeedback(feedback) else uasRepo.tryEmitUasFeedback(feedback)
             },
             crmWarning = crmWarning,
-            onCrmDetails = { context.startActivity(Intent(context, CrmReserveActivity::class.java)) },
+            onCrmDetails = { PluginActivityLauncher.launch(context, "com.weartak.plugin.crm") },
             physioWarning = if (physioState != Utils.AlertChipState.None)
                 HomeStatusWarning("physio", TopMetricAlertSource.PHYSIO,
                     physioAlert ?: stringResource(R.string.top_display_metric), physioState, openPhysio) else null,
             dittoWarning = dittoWarning,
             onDittoRetry = {
                 dataRepository.requestDittoBleRecovery(DataRepository.DittoBleRecoveryAction.RETRY_NOW)
-            }
+            },
+            marketUpdateAvailable = marketUpdateSnapshot.showUpdateWarning,
+            onMarketUpdate = {
+                openMarketUpdates(context) {
+                    marketUpdateMonitor?.markUpdatesReviewed()
+                }
+            },
         ) { warnings, onReviewWarnings ->
         SwipeToDismissBox(
             state = dismissState,
@@ -2844,7 +2871,8 @@ internal fun HomeTopMetricCard(
         warnings.any { it.source == TopMetricAlertSource.DETECTION },
         crm?.let { if (it.chipState == Utils.AlertChipState.Emergency)
             com.aitech.weartak_civ.data.CrmDisplayState.POOR else com.aitech.weartak_civ.data.CrmDisplayState.MODERATE },
-        warnings.any { it.source == TopMetricAlertSource.DITTO_BLE }
+        warnings.any { it.source == TopMetricAlertSource.DITTO_BLE },
+        warnings.any { it.source == TopMetricAlertSource.MARKET_UPDATE },
     )
     val primary = warnings.firstOrNull { it.source == source && it.source != TopMetricAlertSource.PHYSIO }
     val detectionCount = warnings.count { it.source == TopMetricAlertSource.DETECTION }
@@ -2876,6 +2904,7 @@ internal fun HomeTopMetricCard(
                     TopMetricAlertSource.DETECTION -> "audio-detection-warning"
                     TopMetricAlertSource.CRM -> "crm-warning-indicator"
                     TopMetricAlertSource.DITTO_BLE -> "ditto_ble_warning_indicator"
+                    TopMetricAlertSource.MARKET_UPDATE -> "market-update-warning"
                     else -> error("Primary warning must have a review domain")
                 })
                 else if (metric.physiological || containsAlert) Modifier
@@ -3091,7 +3120,6 @@ fun TroubleshootingIcons(sitxVm: SitxViewModel, settingsVm: WearTAKSettingsViewM
         val sitxEvent by sitxVm.lastEvent.collectAsStateWithLifecycle(initialValue=null)
 
         val sitxStatus by dataRepository.sitxStatus.collectAsStateWithLifecycle()
-        val dittoSyncActive by com.aitech.weartak_civ.service.DittoService.syncActive.collectAsStateWithLifecycle()
         val priority by dataRepository.connectionStatusPreferences.priority
             .collectAsStateWithLifecycle(initialValue = com.aitech.weartak_civ.data.defaultConnectionPriority)
         val app = context.applicationContext as WearTakApplication
@@ -3118,10 +3146,6 @@ fun TroubleshootingIcons(sitxVm: SitxViewModel, settingsVm: WearTAKSettingsViewM
             }
             if (multicastConnected) add(HomeConnectionStatus("multicast", R.drawable.multicast_connected,
                 R.string.tak_sa_multicast, R.string.plugin_route_connected))
-            if (dittoSyncActive && DataRepository.Endpoint.DITTO in endpoints) {
-                add(HomeConnectionStatus("ditto", R.drawable.ic_integration_ditto,
-                    R.string.ditto, R.string.ditto_sync_active))
-            }
             plugins.filter { it.isLoaded && pluginToggles[it.packageName]?.enabled != false }.forEach { plugin ->
                 pluginRouteStatuses[plugin.packageName].orEmpty().values.forEach { route ->
                     if (pluginRouteIsActive(route.state)) {

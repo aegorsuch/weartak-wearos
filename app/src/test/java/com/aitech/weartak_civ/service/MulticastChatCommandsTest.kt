@@ -3,9 +3,11 @@ package com.aitech.weartak_civ.service
 import android.app.Application
 import android.net.Network
 import com.aitech.weartak_civ.TakMulticastEndpoints
+import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.WifiMulticastReceiver
 import com.aitech.weartak_civ.command.PendingServerEnrollment
 import com.aitech.weartak_civ.cot.TakServerCotIngestor
+import com.aitech.weartak_civ.cot.TakServerCotIngestResult
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.DittoPdlSource
 import com.aitech.weartak_civ.events.TakChatEvent
@@ -56,6 +58,7 @@ class MulticastChatCommandsTest {
 
     @Before fun setUp() = runBlocking {
         val app = RuntimeEnvironment.getApplication()
+        WearTakApplication.AppCtx.init(app)
         MainActivity.mainActivity = mockk { every { applicationContext } returns app }
         MainActivity.device_uid = "test-watch"
         MainActivity.callsign = "TEST-WATCH"
@@ -71,8 +74,6 @@ class MulticastChatCommandsTest {
             true
         }
         coEvery { ChatCommandReplies.sendConfirmedWrite(any(), any(), any(), any()) } returns true
-        mockkObject(DittoService.Companion)
-        coEvery { DittoService.applySelectedIdentity(any(), any()) } returns true
         // Re-run the production lazy initializer against this repository, not another fixture's
         // retained process singleton. Do not duplicate its runtime/handler wiring in the test.
         mockkObject(TAKConnectService.Companion, recordPrivateCalls = true)
@@ -110,8 +111,33 @@ class MulticastChatCommandsTest {
         EventBus.getDefault().unregister(delivery)
         PendingServerEnrollment.clear()
         unmockkObject(TAKConnectService.Companion)
-        unmockkObject(DittoService.Companion)
         unmockkObject(ChatCommandReplies)
+    }
+
+    @Test fun pluginIngressAcceptsCotBeforeMainActivityStarts() = runBlocking {
+        val activityField = MainActivity::class.java.getDeclaredField("mainActivity").apply {
+            isAccessible = true
+        }
+        val previousActivity = activityField.get(null)
+        activityField.set(null, null)
+        try {
+            val factory = TAKConnectService::class.java.declaredMethods.single {
+                it.returnType == TakServerCotIngestor::class.java && it.parameterCount == 0
+            }.apply { isAccessible = true }
+            val ingestor = factory.invoke(null) as TakServerCotIngestor
+            every { TAKConnectService.Companion getProperty "cotIngestor" } returns ingestor
+            val now = Instant.ofEpochMilli(now)
+            val xml = """<event version="2.0" uid="test-watch" type="a-f-G-U-C" how="m-g"
+                time="$now" start="$now" stale="${now.plusSeconds(600)}">
+                <point lat="38" lon="-77" hae="0" ce="10" le="10"/>
+                <detail><contact callsign="TEST-WATCH"/></detail></event>"""
+            assertEquals(
+                TakServerCotIngestResult.USER,
+                TAKConnectService.handleInboundCotWithResult(xml, "plugin:com.weartak.plugin.ditto"),
+            )
+        } finally {
+            activityField.set(null, previousActivity)
+        }
     }
 
     @Test fun productionMulticastCommandPolicyAndCrossTransportMatrix() = runBlocking {
@@ -122,7 +148,6 @@ class MulticastChatCommandsTest {
             ::disabledCommandsStayOrdinaryChatAndNeverExecute,
             ::emptyAllowlistAndNonAllowedSenderAreConsumedWithoutReplyOrExecution,
             ::allCommandsAcceptAllowedGroupAndBroadcastAndRejectUnlistedSenders,
-            ::pdlCommandAcceptsAllowedGroupAndBroadcastAndRepliesToOriginalRoom,
             ::anotherRecipientAndSelfEchoNeverExecuteOrRender,
             ::watchUidMembershipSupportsDirectChatWithoutRemarksToButNotMissingRecipient,
             ::staleAndInvalidCommandsCannotMutateProfile,
@@ -200,40 +225,6 @@ class MulticastChatCommandsTest {
         coVerify(exactly = 0) { repo.storeCallsign(any()) }
         assertTrue(replies.isEmpty())
         assertTrue(delivery.events.isEmpty())
-    }
-
-    private fun pdlCommandAcceptsAllowedGroupAndBroadcastAndRepliesToOriginalRoom() = runBlocking {
-        val json = """{"v":2,"it":"SK","a":"12345678-1234-1234-1234-123456789abc","s":"synthetic-key","t":"synthetic-token","e":4102444800000}"""
-        val buffer = java.io.ByteArrayOutputStream()
-        java.util.zip.DeflaterOutputStream(buffer).use { it.write(json.toByteArray()) }
-        val pdl = java.util.Base64.getUrlEncoder().encodeToString(buffer.toByteArray())
-        val text = "#weartakcommandsetpdl $pdl"
-        multicast(
-            xml(id = "allowed-direct", text = text),
-            xml(id = "allowed-group", text = text, room = "synthetic-group"),
-            xml(id = "allowed-all", text = text, room = "All Chat Rooms"),
-            xml(id = "denied-direct", text = text, sender = "OTHER-TEST"),
-            xml(id = "denied-group", text = text, room = "synthetic-group", sender = "OTHER-TEST"),
-            xml(id = "denied-all", text = text, room = "All Chat Rooms", sender = "OTHER-TEST"),
-            xml(id = "non-member", text = text, room = "synthetic-group", participant = "other-watch"),
-            xml(id = "self", text = text, senderUid = "test-watch")
-        )
-        coVerify(exactly = 3) { repo.storeDittoCommandSettings(DittoPdlSource.CUSTOM, pdl) }
-        coVerify(exactly = 3) { DittoService.applySelectedIdentity(any(), repo) }
-        coVerify(exactly = 1) {
-            ChatCommandReplies.send(any(), repo, match {
-                it.replyRoomUid == "synthetic-group" && it.replyRoomTitle == "Synthetic chat" &&
-                    it.replyParticipantUids == listOf("synthetic-sender", "test-watch")
-            }, any())
-        }
-        assertEquals(listOf("synthetic-group", "All Chat Rooms"), groupReplyUids)
-        assertEquals(3, replies.size)
-        assertTrue(replies.all { it.startsWith("Ditto updated: source=custom app=12345678") })
-        assertTrue(delivery.events.isEmpty())
-        val logs = org.robolectric.shadows.ShadowLog.getLogs().joinToString { it.msg }
-        assertFalse(logs.contains(pdl))
-        assertFalse(logs.contains("synthetic-key"))
-        assertFalse(logs.contains("synthetic-token"))
     }
 
     private fun watchUidMembershipSupportsDirectChatWithoutRemarksToButNotMissingRecipient() = runBlocking {
