@@ -131,6 +131,7 @@ class WearTakApplication : Application() {
         MainActivity.device_uid = "WEAROS_" + Secure.getString(this.getContentResolver(), Secure.ANDROID_ID)
         takServerRepo = TakServerSecretsRepository(TakServerEncryptedDataStore(applicationContext))
         repo = DataRepository(applicationContext)
+        repo.refreshManagedHailServicePolicy()
         diagnostics.bindRepository(repo)
         batteryPowerObserver = BatteryPowerObserver(this, repo).also { it.start() }
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {

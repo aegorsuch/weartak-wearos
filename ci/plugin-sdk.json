@@ -1,7 +1,7 @@
 {
   "repository": "https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git",
-  "commit": "53ce7ae49740978c46f9c3f40896139b3286935d",
-  "tree": "aaeb4ef235883aca6046ac7eeab8f1e7c99f0968",
+  "commit": "a44028555de747a81e2d229589ff0070d5d11876",
+  "tree": "08eefd9b0e6d6f1697658b8266cd953467b6877e",
   "overlay": {
     "archive": "ci/plugin-sdk-transport/transport-v1-overlay.zip",
     "archive_sha256": "a51f54fbfc1c95a9583ac97daeec2f957fb42de87d27a9bbd823597184033ffd",
@@ -9,6 +9,6 @@
     "source_sha256": "a818af15b3328b817b972e2fe81d9585cb54e9a952a0ec8e13936ee5987ee6a6"
   },
   "release_sha256": {
-    "linux": "49af20aaa08d476cce4c199813c5ebf52b4516c7e499571eb130d81b33eb25ca"
+    "linux": "ae2d54ee9a6cfb99f28f4045098eef36c35e86ce7262556d24b4a1531ae7e3ca"
   }
 }

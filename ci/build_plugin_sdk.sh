@@ -3,12 +3,26 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 PIN="$ROOT/ci/plugin-sdk.json"
+CHECKSUM_ONLY=0
+case "${1:-}" in
+    "")
+        ;;
+    --checksum-only)
+        CHECKSUM_ONLY=1
+        ;;
+    *)
+        echo "Usage: $0 [--checksum-only]" >&2
+        exit 2
+        ;;
+esac
 REPOSITORY=$(jq -er .repository "$PIN")
 COMMIT=$(jq -er .commit "$PIN")
 TREE=$(jq -er .tree "$PIN")
-SHA=$(jq -er .release_sha256.linux "$PIN") || {
-    echo "No verified combined plugin SDK artifact hash for Linux" >&2; exit 1;
-}
+if [ "$CHECKSUM_ONLY" -eq 0 ]; then
+    SHA=$(jq -er .release_sha256.linux "$PIN") || {
+        echo "No verified combined plugin SDK artifact hash for Linux" >&2; exit 1;
+    }
+fi
 ARCHIVE="$ROOT/$(jq -er .overlay.archive "$PIN")"
 ARCHIVE_SHA=$(jq -er .overlay.archive_sha256 "$PIN")
 INVENTORY="$ROOT/$(jq -er .overlay.inventory "$PIN")"
@@ -161,6 +175,14 @@ chmod +x gradlew
 ./gradlew assembleRelease --no-daemon --max-workers=2 \
     -Pkotlin.compiler.execution.strategy=in-process --console=plain
 java "$ROOT/ci/NormalizeSdkAarModes.java" build/outputs/aar/weartak-plugin-sdk-release.aar
-sha256sum build/outputs/aar/weartak-plugin-sdk-release.aar
+ACTUAL_SHA=$(sha256sum build/outputs/aar/weartak-plugin-sdk-release.aar | cut -d ' ' -f1)
+if [ "$CHECKSUM_ONLY" -eq 1 ]; then
+    printf 'Combined SDK release SHA-256: %s (source %s, tree %s, overlay %s)\n' \
+        "$ACTUAL_SHA" "$COMMIT" "$TREE" "$OVERLAY_SHA"
+    exit 0
+fi
+[ "$ACTUAL_SHA" = "$SHA" ] || {
+    echo "Plugin SDK hash mismatch: expected $SHA, got $ACTUAL_SHA" >&2; exit 1;
+}
 printf '%s  %s\n' "$SHA" build/outputs/aar/weartak-plugin-sdk-release.aar | sha256sum -c -
 printf 'Verified plugin SDK %s + overlay %s: %s\n' "$COMMIT" "$OVERLAY_SHA" "$SHA"

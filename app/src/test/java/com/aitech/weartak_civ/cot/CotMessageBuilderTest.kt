@@ -3,6 +3,7 @@ package com.aitech.weartak_civ.cot
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.integration.plugin.HandlerExertion
 import com.aitech.weartak_civ.service.LegacyPliPayloadBuilder
+import com.aitech.weartak_civ.service.HailPliDetailSelector
 import com.aitech.weartak_civ.service.BatteryPowerObserver.DockType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -15,6 +16,50 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.xml.sax.InputSource
 
 class CotMessageBuilderTest {
+    @Test fun pliUsesOnlyNativeHailUntilPluginCutoverIsVerified() {
+        for (nativeDetail in listOf("<__hail>native</__hail>", "")) {
+            var nativeCalls = 0
+            var pluginCalls = 0
+            val detail = HailPliDetailSelector.select(
+                native = { nativeCalls++; nativeDetail },
+                plugin = { pluginCalls++; "<__hail>plugin</__hail>" },
+            )
+            val xml = CotMessageBuilder.pli(pliSnapshot(),
+                CotMessageBuilder.PliOptions("EAGLE", "Medic", "Blue", false, detail))
+            val event = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(InputSource(StringReader(xml))).documentElement
+            val hail = event.getElementsByTagName("__hail")
+            assertEquals(1, nativeCalls)
+            assertEquals(0, pluginCalls)
+            assertEquals(if (nativeDetail.isEmpty()) 0 else 1, hail.length)
+            if (nativeDetail.isNotEmpty()) assertEquals("native", hail.item(0).textContent)
+        }
+    }
+
+    @Test fun pliNeverFallsBackToNativeHailWhenPluginDetailIsEmpty() {
+        for (pluginDetail in listOf("<__hail>plugin</__hail>", "")) {
+            var nativeCalls = 0
+            var pluginCalls = 0
+            val detail = HailPliDetailSelector.select(
+                native = { nativeCalls++; "<__hail>native</__hail>" },
+                plugin = { pluginCalls++; pluginDetail },
+                usePlugin = true,
+            )
+            val xml = CotMessageBuilder.pli(pliSnapshot(),
+                CotMessageBuilder.PliOptions("EAGLE", "Medic", "Blue", false, detail))
+            val event = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+                .parse(InputSource(StringReader(xml))).documentElement
+            val hail = event.getElementsByTagName("__hail")
+            assertEquals(0, nativeCalls)
+            assertEquals(1, pluginCalls)
+            assertEquals("watch-1", event.getAttribute("uid"))
+            assertEquals(1, event.getElementsByTagName("point").length)
+            assertEquals(1, event.getElementsByTagName("contact").length)
+            assertEquals(if (pluginDetail.isEmpty()) 0 else 1, hail.length)
+            if (pluginDetail.isNotEmpty()) assertEquals("plugin", hail.item(0).textContent)
+        }
+    }
+
     @Test fun handlerOverrideChangesOnlyOutboundExertion() {
         val native = pliSnapshot().copy(monitoredPhysio = physio().data)
         val replaced = HandlerExertion.pli(native, 0.75)

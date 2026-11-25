@@ -26,6 +26,7 @@ import com.aitech.weartak_civ.Utils.startForegroundServiceCompat
 import com.aitech.weartak_civ.Utils.stopForegroundServiceCompat
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.integration.plugin.PluginCotEgress
+import com.aitech.weartak_civ.integration.plugin.HailPliPolicy
 import com.aitech.weartak_civ.data.CompanionAppRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.DataRepository.PhysioData
@@ -66,6 +67,7 @@ import com.aitech.weartak_civ.service.TAKConnectService.Companion.sendDataTAKSer
 import com.aitech.weartak_civ.service.sitx.SitxServiceCommand
 import com.aitech.weartak_civ.service.sitx.SitxServiceCommandBus
 import com.rain.hail.sdk.HailDetail
+import com.weartak.plugin.sdk.pli.v1.PliSnapshotV1
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -1490,13 +1492,37 @@ class CotDispatchService : Service() {
         }
         compatibilityPayloads.tabletCommandJson?.let { tabletCommandJsonMsg = it }
 
-        val hailDetail = buildHailDetail(snapshot.physioData.data, callsign)
+        val hailDetail = HailPliDetailSelector.select(
+            native = { buildHailDetail(snapshot.physioData.data, callsign) },
+            plugin = { buildPluginHailDetail(snapshot) },
+        )
         val xml = CotMessageBuilder.pli(
             snapshot,
             CotMessageBuilder.PliOptions(callsign, role, teamValue, enableBatdokCot, hailDetail),
         )
         Log.e("WEARTAK_COT_XML", "XML=$xml")
         return xml
+    }
+
+    private fun buildPluginHailDetail(snapshot: DataRepository.PliSnapshot): String {
+        val app = applicationContext as WearTakApplication
+        val connection = app.pluginManager.connectionFor(HailPliPolicy.PACKAGE) ?: return ""
+        val managedPolicy = dataRepository.managedHailServicePolicy.value
+        val physio = snapshot.physioData.data
+        val request = PliSnapshotV1(
+            requestId = UUID.randomUUID().toString(),
+            eventTimeMillis = snapshot.time.time,
+            deviceUid = snapshot.systemData.deviceId,
+            callsign = snapshot.systemData.callsign,
+            physioSampleTimeMillis = snapshot.physioData.timeMillis,
+            activeManualEmergency = manualAlertMap.isNotEmpty(),
+            heartRateBpm = physio.heartRateBpm,
+            skinTemperatureF = physio.skinTempF,
+            ageYears = physio.ageYears,
+            weightKg = physio.weightKg,
+            managedHailEnabled = managedPolicy.enabled?.takeIf { it },
+        )
+        return connection.buildHailPliDetails(request.toBundle(), HailPliPolicy.policyCode(managedPolicy))
     }
 
     private var gateCtr = 0

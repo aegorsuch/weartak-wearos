@@ -15,6 +15,7 @@ import com.aitech.weartak_civ.service.AppDiagnostics
 import com.aitech.weartak_civ.service.ProcessingStage
 
 import android.content.Context
+import android.content.RestrictionsManager
 import android.annotation.SuppressLint
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
@@ -147,6 +148,7 @@ import com.aitech.weartak_civ.service.HailService
 import com.aitech.weartak_civ.service.HailService.HailLicenseStates
 import com.aitech.weartak_civ.service.ReactiveServiceManager.ServiceType
 import com.aitech.weartak_civ.WearTakApplication
+import com.aitech.weartak_civ.integration.managedconfig.ManagedHailPolicyCache
 import com.aitech.weartak_civ.data.secure.takserver.TakServerSecretsRepository
 import com.aitech.weartak_civ.data.secure.crypto.EncryptedSerializer.DecryptResult
 import com.aitech.weartak_civ.data.model.TakServerChannels
@@ -1107,6 +1109,20 @@ class DataRepository(
     val getEnableHailService: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[ENABLE_HAIL_SERVICE] ?: DEFAULT_ENABLE_HAIL_SERVICE
     }
+
+    data class ManagedHailServicePolicy(
+        val loaded: Boolean,
+        val enabled: Boolean?,
+    )
+
+    private val managedHailPolicyCache = ManagedHailPolicyCache(repoScope) {
+        val manager = context.getSystemService(Context.RESTRICTIONS_SERVICE) as? RestrictionsManager
+            ?: throw IllegalStateException("RestrictionsManager unavailable")
+        manager.applicationRestrictions ?: throw IllegalStateException("Application restrictions unavailable")
+    }
+    val managedHailServicePolicy: StateFlow<ManagedHailServicePolicy> = managedHailPolicyCache.policy
+
+    fun refreshManagedHailServicePolicy() = managedHailPolicyCache.refresh()
 
     suspend fun storeEnableBatdokCot(enable: Boolean) {
         batdokSharing.setEnabled(enable)

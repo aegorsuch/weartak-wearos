@@ -2,6 +2,7 @@ import base64
 import importlib.util
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,16 @@ PROBE_SPEC = importlib.util.spec_from_file_location(
 PROBE = importlib.util.module_from_spec(PROBE_SPEC)
 with mock.patch.dict(sys.modules, {"build_plugin_sdk": SDK}):
     PROBE_SPEC.loader.exec_module(PROBE)
+
+
+def ci_job_body(ci, name):
+    match = re.search(
+        rf"(?ms)^{re.escape(name)}:[ \t]*\n(.*?)(?=^[A-Za-z0-9_.-]+:[ \t]*(?:\n|$)|\Z)",
+        ci,
+    )
+    if match is None:
+        raise ValueError(f"CI job not found: {name}")
+    return match.group(1)
 
 
 class PluginSdkAuthTests(unittest.TestCase):
@@ -65,15 +76,20 @@ class PluginSdkAuthTests(unittest.TestCase):
 
     def test_source_access_probe_is_scoped_to_the_current_core_branch(self):
         ci = (ROOT / ".gitlab-ci.yml").read_text()
-        job = ci.split("\nverify_tak_sdk_source_access:", 1)[1].split(
-            "\nrelease_publisher_tests:", 1
-        )[0]
+        job = ci_job_body(ci, "verify_tak_sdk_source_access")
 
         self.assertIn("name: python:3.12-bookworm", job)
         self.assertIn("python3 ci/verify_tak_sdk_source_access.py", job)
         self.assertIn("aegorsuch-weartak-313-ditto-host-contract", job)
         self.assertIn("CI_PROJECT_ID == \"6739\"", job)
         self.assertNotIn("allow_failure", job)
+
+    def test_ci_job_extraction_stops_at_next_top_level_job(self):
+        ci = "probe:\n  script: check\nnext_job:\n  allow_failure: false\n"
+        self.assertEqual("  script: check\n", ci_job_body(ci, "probe"))
+        self.assertIn("allow_failure", ci_job_body(ci, "next_job"))
+        with self.assertRaisesRegex(ValueError, "CI job not found"):
+            ci_job_body(ci, "missing")
 
     def test_source_probe_checks_pinned_commit_after_fetching_moving_branch(self):
         with mock.patch.object(PROBE, "fetch_source") as fetch, \

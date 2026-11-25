@@ -21,6 +21,7 @@ import com.weartak.plugin.sdk.model.PluginMainUiSchemaParcel
 import com.weartak.plugin.sdk.model.PluginStatusParcel
 import com.weartak.plugin.sdk.model.SettingsApplyResultParcel
 import com.weartak.plugin.sdk.model.SettingsSchemaParcel
+import com.weartak.plugin.sdk.pli.v1.PliDetailContractV1
 import com.weartak.plugin.sdk.v2.aidl.IWearTakPluginHostControlV2
 import com.weartak.plugin.sdk.v3.WearTakPluginV3Contract
 import com.weartak.plugin.sdk.v3.aidl.IWearTakPluginHostControlV3
@@ -381,6 +382,8 @@ internal class OpenVpnPluginBinder : IWearTakPlugin.Stub() {
     override fun getMainUiSchema() = PluginMainUiSchemaParcel()
     override fun getMainUiState() = Bundle()
     override fun invokeMainUiAction(action: String?, payload: Bundle?) = Unit
+    override fun buildPliDetails(snapshot: Bundle?) =
+        Bundle().apply { putInt(PliDetailContractV1.KEY_STATUS, PliDetailContractV1.DISABLED) }
 
     internal fun hostUid(): Int = hostUid
     internal fun isProviderActive(): Boolean = started.get()
