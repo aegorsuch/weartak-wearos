@@ -24,12 +24,20 @@ your normal Git credential helper; never put credentials in the repository URL.
 Then run `python ci/build_plugin_sdk.py --local-source <checkout-path>`. The
 builder fetches the pinned commit from that local Git repository without
 credentials and independently verifies its commit, tree, overlay and final AAR
-hash. The local-source option is unavailable in CI. The current SDK pin has only a
-verified Linux AAR hash; Windows builds fail closed until a verified Windows
-hash is added.
+hash. The local-source option is unavailable in CI. Until a combined AAR hash is
+verified, regular SDK builds fail closed on every platform.
 The branch-scoped `verify_tak_sdk_source_access` job tests core CI repository
 read access against the expected immutable SDK commit/tree without building or
 logging credentials.
+
+The manual `compute_combined_plugin_sdk_checksum` job is scoped to the HAIL
+extraction branch. It builds the pinned SDK source plus the core overlay, applies
+the Linux AAR mode normalization, and prints the resulting release AAR SHA-256
+with source/tree/overlay provenance. It declares no CI artifacts and does not
+publish the AAR. `--checksum-only` skips only the final expected-hash comparison
+to produce a candidate digest; normal `ci/build_plugin_sdk.sh` and Gradle
+`verifyPluginSdk` remain fail-closed until that digest is reviewed and added to
+the platform hash pin.
 
 On Linux, the builders normalize supported AAR ZIP file modes from `0600` to
 `0644` after the SDK build, without changing file contents or process umask.
@@ -216,6 +224,8 @@ Exact artifact hashes are platform-specific and recorded in `ci/plugin-sdk.json`
 Qualification uses Temurin 17, Android API/build-tools 34, and Gradle 8.10.2.
 Generated `AndroidManifest.xml` newlines can differ between Windows and Linux;
 API-equivalent bytes are not a substitute for an independently verified platform hash.
+If a platform hash is absent, the SDK helper and host Gradle fail closed; do not
+reuse a hash from another source revision or platform.
 Neither old canonical-only nor old
 transport-only AAR hashes are accepted. The helpers and host select the exact hash for their
 verified platform, not an unrestricted allowlist. Other platforms fail closed
