@@ -116,6 +116,68 @@ android_host_regression:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-333-remove-core-crm" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
+position_log_emulator_apk:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - chmod +x gradlew
+    - sh ci/build_plugin_sdk.sh
+    - ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process -PweartakEmulatorAbi=x86_64 :app:assembleDebug
+    - |
+      set -eu
+      APK_DIR="app/build/outputs/apk/debug"
+      APK_COUNT="$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' | wc -l | tr -d ' ')"
+      if [ "$APK_COUNT" != "1" ]; then
+        echo "ERROR: Expected one debug APK, found $APK_COUNT."
+        exit 1
+      fi
+      APK="$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print)"
+      METADATA="$APK_DIR/output-metadata.json"
+      python3 - "$METADATA" "$APK" <<'PY'
+      import json
+      import pathlib
+      import sys
+
+      metadata = json.loads(pathlib.Path(sys.argv[1]).read_text())
+      apk = pathlib.Path(sys.argv[2])
+      if metadata.get("variantName") != "debug":
+          raise SystemExit("ERROR: APK is not the debug variant.")
+      if metadata.get("applicationId") != "com.aitech.weartak_civ.dev":
+          raise SystemExit("ERROR: Unexpected debug application ID.")
+      elements = metadata.get("elements", [])
+      if len(elements) != 1 or elements[0].get("outputFile") != apk.name:
+          raise SystemExit("ERROR: APK does not match output metadata.")
+      print("APK provenance: variant=debug applicationId=com.aitech.weartak_civ.dev "
+            f"versionName={elements[0].get('versionName')} "
+            f"versionCode={elements[0].get('versionCode')} file={apk.name}")
+      PY
+      APKSIGNER="/opt/android-sdk-linux/build-tools/35.0.0/apksigner"
+      "$APKSIGNER" verify "$APK"
+      "$APKSIGNER" verify --print-certs "$APK" > "$APK_DIR/signer.txt"
+      unzip -Z1 "$APK" | grep '^lib/x86_64/' >/dev/null
+      if unzip -Z1 "$APK" | grep '^lib/armeabi-v7a/' >/dev/null; then
+        echo "ERROR: Emulator APK unexpectedly contains ARMv7 libraries."
+        exit 1
+      fi
+      sha256sum "$APK" > "$APK_DIR/sha256.txt"
+      echo "Signed debug emulator APK and x86_64 ABI verified."
+  artifacts:
+    when: on_success
+    expire_in: 7 days
+    access: developer
+    paths:
+      - app/build/outputs/apk/debug/*.apk
+      - app/build/outputs/apk/debug/output-metadata.json
+      - app/build/outputs/apk/debug/signer.txt
+      - app/build/outputs/apk/debug/sha256.txt
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-338-diagnostics-position-log" && $CI_PIPELINE_SOURCE == "push"'
+      when: manual
+      allow_failure: true
+
 verify_tak_sdk_source_access:
   stage: test
   image:
