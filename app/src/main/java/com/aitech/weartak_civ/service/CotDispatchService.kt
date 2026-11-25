@@ -162,20 +162,76 @@ class CotDispatchService : Service() {
 
     private val endpointDispatcher by lazy {
         CotEndpointDispatcher(
-            sendTak = ::sendDataTAKServers,
+            sendTak = { xml, queued -> sendDataTAKServers(xml, queued) },
+            sendTrackedTakPli = { message ->
+                val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+                val location = snapshot?.loc
+                if (snapshot == null || location == null) {
+                    sendDataTAKServers(message.xml, false)
+                } else {
+                    val log = (applicationContext as WearTakApplication).positionLog
+                    sendDataTAKServers(message.xml, false, onWriteStart = {
+                        val routeId = log.startRoute(snapshot.systemData.deviceId, location, PositionBearer.TAK_SERVER)
+                        val callback: (Boolean) -> Unit = { written ->
+                            log.recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.TAK_SERVER,
+                                written, message.positionAttemptId, routeId)
+                        }
+                        callback
+                    })
+                }
+            },
             sendSitx = { xml -> SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot(xml)) },
             sendDitto = { _, _ -> error("Bundled Ditto route is unavailable") },
             sendMulticast = ::sendMulticastDatagram,
             sendPliMulticast = NetworkUtils.MulticastPublisher::send,
+            sendTrackedMulticastPli = { message ->
+                val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+                val location = snapshot?.loc
+                val log = (applicationContext as WearTakApplication).positionLog
+                val routeId = if (snapshot != null && location != null)
+                    log.startRoute(snapshot.systemData.deviceId, location, PositionBearer.MULTICAST) else null
+                val written = NetworkUtils.MulticastPublisher.sendPliWithResult(message.xml)
+                if (snapshot != null && location != null) {
+                    log.recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.MULTICAST,
+                        written, message.positionAttemptId, routeId)
+                }
+            },
+            sendTrackedSitxPli = { message ->
+                val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot
+                val location = snapshot?.loc
+                val callback: ((Boolean) -> Unit)? = if (snapshot != null && location != null) {
+                    val log = (applicationContext as WearTakApplication).positionLog
+                    val routeId = log.startRoute(snapshot.systemData.deviceId, location, PositionBearer.SITX)
+                    val result: (Boolean) -> Unit = { accepted ->
+                        log.recordRouteResult(snapshot.systemData.deviceId, location, PositionBearer.SITX,
+                            accepted, message.positionAttemptId, routeId)
+                    }
+                    result
+                } else null
+                if (!SitxServiceCommandBus.trySend(SitxServiceCommand.SendCot(message.xml, onResult = callback))) {
+                    callback?.invoke(false)
+                }
+            },
             sendPlugin = { xml ->
                 PluginCotEgress.offer(applicationContext as WearTakApplication, xml)
+            },
+            sendTrackedPluginPli = { message ->
+                recordUntrackedPosition(message, PositionUntrackedRoute.PLUGIN)
+                PluginCotEgress.offer(applicationContext as WearTakApplication, message.xml,
+                    excludeDitto = message.excludeDittoPlugin)
             },
             sendPluginWithoutDitto = { xml ->
                 PluginCotEgress.offer(applicationContext as WearTakApplication, xml, excludeDitto = true)
             },
             sendCompanion = { payload ->
                 when (payload) {
-                    is CotCompanionPayload.Pli -> capRepo.enqueuePliSnapshotForBle(payload.snapshot)
+                    is CotCompanionPayload.Pli -> {
+                        payload.snapshot.loc?.let { location ->
+                            (applicationContext as WearTakApplication).positionLog
+                                .recordUntracked(payload.snapshot.systemData.deviceId, location, PositionUntrackedRoute.COMPANION)
+                        }
+                        capRepo.enqueuePliSnapshotForBle(payload.snapshot)
+                    }
                     is CotCompanionPayload.Chat -> capRepo.enqueueChatSnapshotForBle(payload.snapshot)
                     is CotCompanionPayload.Marker -> capRepo.enqueueMarkerSnapshotForBle(payload.snapshot)
                     is CotCompanionPayload.OwnedPointDeletion ->
@@ -455,9 +511,11 @@ class CotDispatchService : Service() {
                 !locationAnnouncementAllowed() || !dataRepository.isCurrentLocationInput(location))
                 return@withLock false
             val available = readyPliAnnouncementAvailability()
+            val trackedMessage = trackedPositionMessage(message)
             val accepted = if (available.companion && capRepo.gateway.session != null) {
-                endpointDispatcher.dispatchGateway(message) { capRepo.offerGatewayCot(message.xml) }
-            } else endpointDispatcher.dispatch(message, available, readyPliOnly = true)
+                recordUntrackedPosition(trackedMessage, PositionUntrackedRoute.COMPANION)
+                endpointDispatcher.dispatchGateway(trackedMessage) { capRepo.offerGatewayCot(message.xml) }
+            } else endpointDispatcher.dispatch(trackedMessage, available, readyPliOnly = true)
             if (accepted) {
                 outboundAnnouncementGate.complete()
                 Log.i(TAG, "Announced current self PLI after outbound route became usable")
@@ -1583,6 +1641,20 @@ class CotDispatchService : Service() {
         return enabled && connected
     }
 
+    private fun trackedPositionMessage(message: CotOutboundMessage): CotOutboundMessage {
+        val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot ?: return message
+        val location = snapshot.loc ?: return message
+        val attempt = (applicationContext as WearTakApplication).positionLog
+            .beginAttempt(snapshot.systemData.deviceId, location, actualReportingIntervalSecs.coerceAtLeast(1) * 1_000L)
+        return message.copy(positionAttemptId = attempt)
+    }
+
+    private fun recordUntrackedPosition(message: CotOutboundMessage, route: PositionUntrackedRoute) {
+        val snapshot = (message.companionPayload as? CotCompanionPayload.Pli)?.snapshot ?: return
+        val location = snapshot.loc ?: return
+        (applicationContext as WearTakApplication).positionLog.recordUntracked(snapshot.systemData.deviceId, location, route)
+    }
+
     private suspend fun dispatch(message: CotOutboundMessage): Boolean {
         if (com.aitech.weartak_civ.command.SensitiveEnrollment.containsSensitiveXml(message.xml)) {
             Log.w(TAG, "Sensitive enrollment command excluded from outbound CoT")
@@ -1607,6 +1679,7 @@ class CotDispatchService : Service() {
                 accepted = false
                 return false
             }
+            val trackedMessage = if (message.kind == CotMessageKind.PLI) trackedPositionMessage(message) else message
             if (shouldDeferPliForTransportGrace(message.kind)) {
                 Log.i(TAG, "Deferring self PLI while direct transports are in Companion grace")
                 accepted = false
@@ -1628,12 +1701,13 @@ class CotDispatchService : Service() {
                     CotMessageKind.PLI, CotMessageKind.MARKER, CotMessageKind.MARKER_CLEAR,
                     CotMessageKind.CHAT, CotMessageKind.EMERGENCY
                 )) {
-                val gatewayAccepted = endpointDispatcher.dispatchGateway(message) { capRepo.offerGatewayCot(message.xml) }
+                if (message.kind == CotMessageKind.PLI) recordUntrackedPosition(trackedMessage, PositionUntrackedRoute.COMPANION)
+                val gatewayAccepted = endpointDispatcher.dispatchGateway(trackedMessage) { capRepo.offerGatewayCot(message.xml) }
                 if (!gatewayAccepted) Log.w(TAG, "Gateway output queue full; CoT not sent")
                 accepted = gatewayAccepted
                 return gatewayAccepted
             }
-            val outbound = if (trackedAlert) message.copy(excludeDittoPlugin = true) else message
+            val outbound = if (trackedAlert) trackedMessage.copy(excludeDittoPlugin = true) else trackedMessage
             val availability = endpointAvailability().let {
                 if (!outbound.excludeDittoPlugin) it else it.copy(
                     ditto = false,

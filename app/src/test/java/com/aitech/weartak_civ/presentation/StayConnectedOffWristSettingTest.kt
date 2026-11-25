@@ -63,9 +63,17 @@ class StayConnectedOffWristSettingTest {
         compose.onNode(hasScrollAction()).performScrollToNode(hasText(title))
         compose.onNodeWithText("TAK + Ditto", substring = true).assertDoesNotExist()
         compose.onNodeWithText(title).assertIsOff().performClick()
-        compose.waitUntil { runBlocking { repository.stayConnectedOffWrist.first() } }
+        compose.waitUntil {
+            runBlocking { repository.stayConnectedOffWrist.first() } &&
+                compose.onAllNodes(isToggleable() and isOn() and hasText(title))
+                    .fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText(title).assertIsOn().performClick()
-        compose.waitUntil { runBlocking { !repository.stayConnectedOffWrist.first() } }
+        compose.waitUntil {
+            !runBlocking { repository.stayConnectedOffWrist.first() } &&
+                compose.onAllNodes(isToggleable() and isOff() and hasText(title))
+                    .fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText(title).assertIsOff()
         runBlocking { repository.storeStayConnectedOffWrist(true) }
         compose.waitUntil {

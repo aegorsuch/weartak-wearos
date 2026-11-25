@@ -147,6 +147,25 @@ class AppDiagnosticsTest {
             events.map { it.asJsonObject["metrics"].asJsonObject["CONNECTED_COUNT"].asInt })
     }
 
+    @Test fun sosAndReportingTransitionsRetainIndividualTimestamps() = runBlocking {
+        val diagnostics = AppDiagnostics(app).also { recorder = it }
+        diagnostics.setEnabled(true)
+        val capture = AppDiagnostics::class.java.getDeclaredMethod(
+            "capture", DiagnosticEvent::class.java, Map::class.java
+        ).apply { isAccessible = true }
+        listOf(1L, 2L).forEach {
+            capture.invoke(diagnostics, DiagnosticEvent.SOS_TRIGGER, mapOf(DiagnosticMetric.START_MS to it))
+        }
+        listOf(1L, 0L, 1L).forEach {
+            capture.invoke(diagnostics, DiagnosticEvent.LOCATION_REPORTING_STATE, mapOf(DiagnosticMetric.ACTIVE to it))
+        }
+        val events = JsonParser.parseString(diagnostics.exportJson()).asJsonObject["events"].asJsonArray
+        assertEquals(listOf(1L, 2L), events.filter { it.asJsonObject["event"].asString == "SOS_TRIGGER" }
+            .map { it.asJsonObject["metrics"].asJsonObject["START_MS"].asLong })
+        assertEquals(listOf(1L, 0L, 1L), events.filter { it.asJsonObject["event"].asString == "LOCATION_REPORTING_STATE" }
+            .map { it.asJsonObject["metrics"].asJsonObject["ACTIVE"].asLong })
+    }
+
     @Test fun powerAndDockThrottleTransitionsKeepDistinctAppliedPolicyRecords() = runBlocking {
         val diagnostics = AppDiagnostics(app).also { recorder = it }
         diagnostics.setEnabled(true)
@@ -257,7 +276,7 @@ class AppDiagnosticsTest {
         assertTrue(events.size() in 1 until 30)
         assertTrue(events.first().asJsonObject["elapsedMs"].asLong > 0)
         assertEquals(29, events.last().asJsonObject["elapsedMs"].asInt)
-        now += 4 * 24 * 60 * 60 * 1000L
+        now += 8 * 24 * 60 * 60 * 1000L
         assertEquals(0, JsonParser.parseString(journal.exportJson()).asJsonObject["events"].asJsonArray.size())
         journal.append(sample(31))
         journal.clear()
@@ -265,7 +284,7 @@ class AppDiagnosticsTest {
         assertEquals("not diagnostics", unrelated.readText())
     }
 
-    @Test fun productionCapacityRetainsTwelveHourSixtySecondTrialTrace() {
+    @Test fun productionCapacityRetainsTwentyFourHourSixtySecondTrialTrace() {
         val root = temporary.newFolder()
         val start = System.currentTimeMillis()
         var now = start
@@ -281,7 +300,7 @@ class AppDiagnosticsTest {
             DiagnosticEvent.BATTERY, DiagnosticEvent.POWER_CHANGED,
             DiagnosticEvent.CONNECTIVITY, DiagnosticEvent.APP_EVENT
         )
-        repeat(12 * 60) { minute ->
+        repeat(24 * 60) { minute ->
             now = start + minute * 60_000L
             events.forEachIndexed { index, event ->
                 journal.append(DiagnosticRecord(
@@ -297,12 +316,12 @@ class AppDiagnosticsTest {
             }
         }
         val stored = root.listFiles()!!.filter { it.name.startsWith("events") }
-        assertTrue(stored.size in 2..3)
-        assertTrue(stored.all { it.length() <= 2 * 1024 * 1024L })
+        assertTrue(stored.size in 1..3)
+        assertTrue(stored.all { it.length() <= 4 * 1024 * 1024L })
         val retained = JsonParser.parseString(journal.exportJson()).asJsonObject["events"].asJsonArray
-        assertEquals(12 * 60 * events.size, retained.size())
+        assertEquals(24 * 60 * events.size, retained.size())
         assertEquals(0L, retained.first().asJsonObject["elapsedMs"].asLong)
-        assertEquals(719 * 60_000L + events.lastIndex, retained.last().asJsonObject["elapsedMs"].asLong)
+        assertEquals(1439 * 60_000L + events.lastIndex, retained.last().asJsonObject["elapsedMs"].asLong)
     }
 
     @Test fun storageAndIncompleteExportFailuresAreExplicit() {

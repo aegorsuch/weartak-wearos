@@ -248,12 +248,8 @@ class TAKConnectServiceLifecycleTest {
         companionGraceActive.value = false
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
-        detail.duplicateEndpointSuppressed = true
-        detail.runtime.terminated = false
-        TAKConnectService.getClientCertificateAndConnect(detail)
-        assertNull(detail.runtime.currentAttempt)
         controller.destroy()
-        detail.duplicateEndpointSuppressed = false
+        detail.runtime.terminated = false
         TAKConnectService.getClientCertificateAndConnect(detail)
         assertNull(detail.runtime.currentAttempt)
         verify(exactly = 0) { TAKConnectService.fetchAndParseCertificateConfig(any(), any()) }

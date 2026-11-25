@@ -2326,6 +2326,11 @@ class DataRepository(
     val clearManualAlert: SharedFlow<ClearRequest> = _clearManualAlert
 
     suspend fun addManualAlertRequest(alertState: AlertState, category: String, description: String, timeMillis: Long) {
+        if (alertState == AlertState.ALERT) {
+            com.aitech.weartak_civ.service.AppDiagnostics.record(
+                com.aitech.weartak_civ.service.DiagnosticEvent.SOS_TRIGGER,
+                mapOf(com.aitech.weartak_civ.service.DiagnosticMetric.START_MS to timeMillis))
+        }
         requestInteractionPliRefresh(if (alertState == AlertState.CANCEL) PliRefreshReason.MANUAL_ALERT_CLEARED else PliRefreshReason.MANUAL_ALERT_ACTIVATED)
         _addManualAlert.emit(ManualAlertRequest(alertState, category, description, timeMillis))
     }
