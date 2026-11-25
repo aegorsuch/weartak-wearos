@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tak_companion_active">Companion نشط</string>
+    <string name="tak_companion_active_detail">اتصال TAK المباشر معلّق. أوقف WearTAK Companion للاتصال مباشرةً. يمكن أن يبقى البلوتوث مفعّلاً.</string>
+    <string name="tak_companion_waiting_detail">اتصال TAK المباشر معلّق بينما ينتظر WearTAK الهاتف.</string>
+</resources>

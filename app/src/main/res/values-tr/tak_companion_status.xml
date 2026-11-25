@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tak_companion_active">Companion etkin</string>
+    <string name="tak_companion_active_detail">Doğrudan TAK bağlantısı duraklatıldı. Doğrudan bağlanmak için WearTAK Companion uygulamasını kapatın. Bluetooth açık kalabilir.</string>
+    <string name="tak_companion_waiting_detail">WearTAK telefonu beklerken doğrudan TAK bağlantısı duraklatılır.</string>
+</resources>

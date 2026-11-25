@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="se.takcampus.voice.permission.BIND_PLUGIN_DEV" />
+
+    <uses-permission android:name="se.takcampus.voice.permission.BIND_VOICE_PACKAGE_DEV" />
+
     <queries>
         <package android:name="com.weartak.plugin.ditto.syntheticfixture" />
     </queries>
@@ -9,6 +13,7 @@
             android:name="com.google.android.wearable"
             android:required="${wearableSharedLibraryRequired}"
             tools:replace="android:required" />
+        <activity android:name="com.aitech.weartak_civ.debug.VoiceStandaloneConsentActivity" android:exported="true" />
         <provider
             android:name="com.aitech.weartak_civ.debug.DevBadgeInitializer"
             android:authorities="${applicationId}.devbadge"

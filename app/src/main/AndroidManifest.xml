@@ -120,6 +120,7 @@
             android:name=".presentation.CertificateImportActivity"
             android:exported="false"
             android:excludeFromRecents="true" />
+        <activity android:name=".presentation.WifiVoiceSetupActivity" android:exported="false" />
         <activity android:name=".presentation.ServerPackageExportActivity"
             android:exported="false" android:excludeFromRecents="true" />
         <!-- Prevent dependency receivers from starting the WearTAK process at boot or after

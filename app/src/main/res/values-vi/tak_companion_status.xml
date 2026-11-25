@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tak_companion_active">Companion đang hoạt động</string>
+    <string name="tak_companion_active_detail">Kết nối TAK trực tiếp đang tạm dừng. Hãy tắt WearTAK Companion để kết nối trực tiếp. Bạn có thể giữ Bluetooth bật.</string>
+    <string name="tak_companion_waiting_detail">Kết nối TAK trực tiếp đang tạm dừng trong khi WearTAK chờ điện thoại.</string>
+</resources>

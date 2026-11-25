@@ -556,6 +556,8 @@ class PluginConnectionBindTrustTest {
         val oldSessionId = provider1.registrationResult!!.sessionId!!
         mgr.unbindPackage(pluginPkg)
         awaitPluginLifecycle(pluginPkg)
+        // closeBinding dispatches this callback on its IO scope, independently of lifecycle cleanup.
+        assertTrue(provider1.callback.closed.await(5, java.util.concurrent.TimeUnit.SECONDS))
         assertTrue(provider1.callback.sessionClosed)
         assertEquals(
             TransportResultCode.INACTIVE_SESSION,
@@ -708,6 +710,7 @@ class PluginConnectionBindTrustTest {
 
     private class FakeTransportCallback : IPluginTransportCallbackV1.Stub() {
         val sentMessages = AtomicInteger()
+        val closed = java.util.concurrent.CountDownLatch(1)
         @Volatile
         var sessionClosed = false
             private set
@@ -722,6 +725,7 @@ class PluginConnectionBindTrustTest {
 
         override fun onSessionClosed(sessionId: String?, reason: Int) {
             sessionClosed = true
+            closed.countDown()
         }
     }
 }

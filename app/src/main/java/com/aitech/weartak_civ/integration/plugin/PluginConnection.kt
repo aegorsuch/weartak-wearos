@@ -76,6 +76,14 @@ class PluginConnection(
     private var pluginInfoSnapshot: PluginInfoParcel? = null
     @Volatile
     private var apiVersionSnapshot: Int = -1
+    @Volatile private var companionFeatures = emptyMap<String, Int>()
+    @Volatile private var companionReady = false
+    @Volatile private var hostVoicePackages: VoicePackageBroker.Binding? = null
+    internal fun companionFeaturesSnapshot(): Map<String, Int> =
+        if (hasVerifiedTrust && companionReady) companionFeatures + ("voice_channels_v1" to if (hostVoicePackages?.ready() == true) 1 else 0) else emptyMap()
+    internal fun companionReady(): Boolean = hasVerifiedTrust && companionReady
+
+
     private var hostControl: HostControlImpl? = null
     private var hostCallback: HostCallbackImpl? = null
     private var hostPcmControlV3: HostPcmControlV3Impl? = null
@@ -596,11 +604,20 @@ class PluginConnection(
             manager.settingsCoordinator.registerTransportHost(pluginPackage, transportV1)
         }
 
+        val voicePackages = app.voicePackages.newBinding(pluginPackage, pluginUid, available = { companionReady && !closed }) {
+            !closed && trustVerified && pluginBinder === service && service.isBinderAlive &&
+                manager.connectionFor(pluginPackage) === this
+        }
+        hostVoicePackages = voicePackages
         val init = PluginInitParcel(
             hostPackageName = app.packageName,
             hostUid = android.os.Process.myUid(),
             pluginIdExpected = pluginPackage,
             hostExtras = android.os.Bundle().apply {
+                if (voicePackages != null) {
+                    putInt(com.weartak.voice.api.VoicePackageContract.EXTRA_VERSION, 1)
+                    putBinder(com.weartak.voice.api.VoicePackageContract.EXTRA_CONTROL, voicePackages)
+                }
                 putInt(com.weartak.plugin.sdk.MainUiActionContract.HOST_PRESENTATION_VERSION_KEY,
                     com.weartak.plugin.sdk.MainUiActionContract.PRESENTATION_VERSION)
                 putInt(HostServicesContract.EXTRA_VERSION, HostServicesContract.VERSION)
@@ -667,6 +684,12 @@ class PluginConnection(
             if (!pluginOnlyProfile) iface.startPlugin()
             if (closed) return
             transportV1.activateBinding()
+            // Optional extension over the frozen SDK Bundle API; old plugins return an empty Bundle.
+            companionFeatures = runCatching {
+                val state = iface.mainUiState
+                listOf("voice_channels_v1", "vx_mission_package_v1", "ptt_watch_button_v1", "ptt_media_button_v1")
+                    .filter { state.getInt(it, 0) == 1 }.associateWith { 1 }
+            }.getOrDefault(emptyMap())
         } catch (e: RemoteException) {
             Log.e(TAG, "plugin lifecycle failed pkg=$pluginPackage", e)
             postFailure("remote_exception")
@@ -677,6 +700,7 @@ class PluginConnection(
                 ready = true
                 if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.activate(this)
                 mainHandler.removeCallbacks(handshakeTimeout)
+                companionReady = true
                 PluginDiagnostics.markConnected(pluginPackage)
                 if (pluginPackage == TrustedCommunityPlugin.PACKAGE) manager.onConnectionInitialized(this)
                 moppControl?.ready()
@@ -818,6 +842,8 @@ class PluginConnection(
         dittoPdlModeState.close()
         pluginOnlyPliProducer?.close()
         hostPointEndpoint?.revoke()
+        hostVoicePackages?.close()
+        hostVoicePackages = null
         revokeCertificateSessions()
         Log.i(TAG, "tearDownBinder pkg=$pluginPackage reason=$reason")
         var pointToDrain: HostPointEndpointV1? = null
@@ -871,6 +897,8 @@ class PluginConnection(
             // Local revocation must not wait for a remote lifecycle transaction.
             hostCallback?.close()
             manager.settingsCoordinator.unregisterPlugin(pluginPackage)
+            companionReady = false
+            companionFeatures = emptyMap()
             plugin = null
             pluginInfoSnapshot = null
             apiVersionSnapshot = -1

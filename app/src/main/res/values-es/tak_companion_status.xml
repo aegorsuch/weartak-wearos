@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tak_companion_active">Companion activo</string>
+    <string name="tak_companion_active_detail">Conexión directa a TAK en pausa. Desactiva WearTAK Companion para conectarte directamente. Bluetooth puede seguir activado.</string>
+    <string name="tak_companion_waiting_detail">La conexión directa a TAK está en pausa mientras WearTAK espera al teléfono.</string>
+</resources>

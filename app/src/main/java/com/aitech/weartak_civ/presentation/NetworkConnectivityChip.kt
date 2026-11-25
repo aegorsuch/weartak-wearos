@@ -106,8 +106,9 @@ internal fun NetworkConnectivityChip(
 ) {
     val bondLocked = phoneManagedSettings && row.key != "companion"
     val toggleEnabled = !networkPreferencesLocked && !bondLocked
-    val subtitle = networkControlSubtitle(row.subtitle, bondLocked)
-    val statusDescription = networkControlSubtitle(row.statusDescription, bondLocked)
+    val showTakPause = row.key == "tak" && row.suppressed
+    val subtitle = networkControlSubtitle(row.subtitle, bondLocked && !showTakPause)
+    val statusDescription = networkControlSubtitle(row.statusDescription, bondLocked && !showTakPause)
     val route = row.settingsRoute
     if (!row.toggleAvailable) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp)

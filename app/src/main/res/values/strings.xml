@@ -1221,4 +1221,5 @@
     </plurals>
     <string name="debug_stay_connected_off_wrist">Stay Connected Off-Wrist</string>
     <string name="debug_stay_connected_off_wrist_save_failed">Could not save off-wrist connection setting. Try again.</string>
+    <string name="companion_wifi_voice_setup">Pair Voice over Wi-Fi</string>
 </resources>
