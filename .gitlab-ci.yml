@@ -38,7 +38,7 @@ android_host_regression:
       --tests '*HostMoppPpeControlTest' --tests '*CompanionSelfStatusTest'
       --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
       --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest' --tests '*PluginTrustSenderBindingTest' --tests '*HostCommunityIdentityControlTest' --tests '*DittoPdlModeTest' --tests '*DittoMeshPermissionsTest'
-      --tests '*LegacyHailMigrationTest' --tests '*ManagedHailPolicyCacheTest' --tests '*HailMigrationExtrasTest' --tests '*PliDetailRegistryTest' --tests '*PliDetailXmlTest'
+      --tests '*ManagedHailPolicyCacheTest' --tests '*HailPliPolicyTest' --tests '*PliDetailRegistryTest' --tests '*PliDetailXmlTest'
       --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
       --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
       --tests '*PluginMenuEntryTest' --tests '*CompanionSelfStatusServiceTest'

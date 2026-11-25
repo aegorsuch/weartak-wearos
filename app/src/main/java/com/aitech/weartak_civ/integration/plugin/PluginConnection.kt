@@ -94,7 +94,6 @@ class PluginConnection(
     @Volatile private var closed = false
     @Volatile private var trustVerified = false
     @Volatile private var hailDataEligible = false
-    @Volatile private var hailMigrationReady = false
     @Volatile private var ready = false
     internal val hasVerifiedTrust: Boolean get() = trustVerified && !closed
     private val dittoPdlModeState = DittoPdlModeState()
@@ -112,7 +111,7 @@ class PluginConnection(
     internal fun buildHailPliDetails(snapshot: Bundle, policyCode: Int): String =
         if (isHailPliProviderActive()) {
             manager.buildHailPliDetails(Bundle(snapshot).apply {
-                putInt(HailMigrationExtras.POLICY_SNAPSHOT, policyCode)
+                putInt(HailPliPolicy.POLICY_SNAPSHOT, policyCode)
             })
         } else ""
 
@@ -125,12 +124,12 @@ class PluginConnection(
             null
         }
         return restrictions != null &&
-            HailMigrationExtras.policyMatches(restrictions, app.repo.managedHailServicePolicy.value, expected)
+            HailPliPolicy.policyMatches(restrictions, app.repo.managedHailServicePolicy.value, expected)
     }
 
     private fun buildVerifiedHailPliDetails(iface: IWearTakPlugin, snapshot: Bundle): Bundle {
-        val expected = snapshot.getInt(HailMigrationExtras.POLICY_SNAPSHOT, -1)
-        snapshot.remove(HailMigrationExtras.POLICY_SNAPSHOT)
+        val expected = snapshot.getInt(HailPliPolicy.POLICY_SNAPSHOT, -1)
+        snapshot.remove(HailPliPolicy.POLICY_SNAPSHOT)
         if (managedHailPolicyCurrent(expected) && isHailPliProviderActive()) {
             val result = iface.buildPliDetails(snapshot)
             if (managedHailPolicyCurrent(expected) && isHailPliProviderActive()) return result
@@ -140,7 +139,7 @@ class PluginConnection(
     }
 
     private fun isHailPliProviderActive(): Boolean {
-        if (pluginPackage != HailMigrationExtras.PACKAGE || !hailDataEligible || !hailMigrationReady || !trustVerified ||
+        if (pluginPackage != HailPliPolicy.PACKAGE || !hailDataEligible || !trustVerified ||
             !ready || closed || pluginBinder?.isBinderAlive != true ||
             manager.connectionFor(pluginPackage) !== this || !manager.isEnabled(pluginPackage)
         ) return false
@@ -239,7 +238,6 @@ class PluginConnection(
 
     private val deathRecipient = IBinder.DeathRecipient {
         ready = false
-        hailMigrationReady = false
         manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
@@ -396,7 +394,7 @@ class PluginConnection(
             return
         }
         trustVerified = true
-        if (pluginPackage == HailMigrationExtras.PACKAGE) {
+        if (pluginPackage == HailPliPolicy.PACKAGE) {
             hailDataEligible = try {
                 pluginTrust.isApprovedHailSigner(pluginPackage, pluginUid, senderPackages)
             } catch (error: PackageManager.NameNotFoundException) {
@@ -664,23 +662,13 @@ class PluginConnection(
             manager.settingsCoordinator.registerTransportHost(pluginPackage, transportV1)
         }
 
-        val hailMigration = if (HailMigrationExtras.eligible(pluginPackage, hailDataEligible)) {
-            try {
-                runBlocking { app.repo.legacyHailMigration() }
-            } catch (error: Exception) {
-                Log.e(TAG, "HAIL migration failed; plugin PLI data disabled: ${error.javaClass.simpleName}")
-                null
-            }
-        } else null
-        hailMigrationReady = hailMigration != null
         if (closed) return
         val init = PluginInitParcel(
             hostPackageName = app.packageName,
             hostUid = android.os.Process.myUid(),
             pluginIdExpected = pluginPackage,
             hostExtras = android.os.Bundle().apply {
-                if (hailMigration != null) {
-                    HailMigrationExtras.putInto(this, hailMigration)
+                if (pluginPackage == HailPliPolicy.PACKAGE && hailDataEligible) {
                     putInt(PliDetailContractV1.EXTRA_VERSION, PliDetailContractV1.VERSION)
                 }
                 putInt(com.weartak.plugin.sdk.MainUiActionContract.HOST_PRESENTATION_VERSION_KEY,
@@ -757,7 +745,7 @@ class PluginConnection(
         mainHandler.post {
             if (!closed && manager.onConnectionReady(this)) {
                 ready = true
-                if (pluginPackage == HailMigrationExtras.PACKAGE && hailDataEligible && hailMigrationReady) {
+                if (pluginPackage == HailPliPolicy.PACKAGE && hailDataEligible) {
                     val registration = manager.registerHailPliDetails(
                         owner = this,
                         isActive = ::isHailPliProviderActive,
@@ -795,7 +783,6 @@ class PluginConnection(
 
     override fun onServiceDisconnected(name: ComponentName?) {
         ready = false
-        hailMigrationReady = false
         manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
@@ -813,7 +800,6 @@ class PluginConnection(
 
     override fun onBindingDied(name: ComponentName?) {
         ready = false
-        hailMigrationReady = false
         manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()
@@ -914,7 +900,6 @@ class PluginConnection(
         afterRemoteCleanup: (() -> Unit)? = null,
     ) {
         ready = false
-        hailMigrationReady = false
         manager.unregisterHailPliDetails(this)
         if (pluginPackage == CRM_PLUGIN_PACKAGE) manager.crmPluginStatus.clear(this)
         dittoPdlModeState.close()

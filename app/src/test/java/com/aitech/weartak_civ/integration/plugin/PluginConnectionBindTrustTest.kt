@@ -529,6 +529,34 @@ class PluginConnectionBindTrustTest {
     }
 
     @Test
+    fun hailInitializationDoesNotExportLegacyConfiguration() {
+        val hailPackage = PluginTrust.HAIL_PLUGIN_PACKAGE
+        for (approved in listOf(false, true)) {
+            val plugin = FakeWearTakPlugin(hailPackage, WearTakPluginV3Contract.CONTRACT_API_VERSION)
+            val app = mockHostApp(listOf(resolveInfoFor(hailPackage))) { intent, conn ->
+                conn.onServiceConnected(intent.component!!, plugin.asBinder())
+            }
+            val ingress = mockk<PluginIngressPort>(relaxed = true)
+            every { ingress.packagesForUid(any(), any()) } returns setOf(hailPackage)
+            val trust = mockk<PluginTrust>(relaxed = true)
+            every { trust.isApprovedHailSigner(hailPackage, pluginUid, setOf(hailPackage)) } returns approved
+            val mgr = PluginManager(app, ingress, trust)
+
+            mgr.refreshBindings()
+            awaitPluginLifecycle(hailPackage)
+
+            val extras = requireNotNull(plugin.lastInit).hostExtras
+            assertFalse(extras.keySet().any { it.startsWith("com.weartak.plugin.hail.migration.") })
+            assertEquals(
+                if (approved) com.weartak.plugin.sdk.pli.v1.PliDetailContractV1.VERSION else 0,
+                extras.getInt(com.weartak.plugin.sdk.pli.v1.PliDetailContractV1.EXTRA_VERSION),
+            )
+            mgr.unbindPackage(hailPackage)
+            awaitPluginLifecycle(hailPackage)
+        }
+    }
+
+    @Test
     fun verifiedBindingRegistersUnavailableTransportAndFencesRestartedSession() {
         val provider1 = FakeUnavailableTransportPlugin(pluginPkg)
         val provider2 = FakeUnavailableTransportPlugin(pluginPkg)

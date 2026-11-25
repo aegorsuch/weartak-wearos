@@ -26,7 +26,7 @@ import com.aitech.weartak_civ.Utils.startForegroundServiceCompat
 import com.aitech.weartak_civ.Utils.stopForegroundServiceCompat
 import com.aitech.weartak_civ.WearTakApplication
 import com.aitech.weartak_civ.integration.plugin.PluginCotEgress
-import com.aitech.weartak_civ.integration.plugin.HailMigrationExtras
+import com.aitech.weartak_civ.integration.plugin.HailPliPolicy
 import com.aitech.weartak_civ.data.CompanionAppRepository
 import com.aitech.weartak_civ.data.DataRepository
 import com.aitech.weartak_civ.data.DataRepository.PhysioData
@@ -1448,7 +1448,7 @@ class CotDispatchService : Service() {
 
     private fun buildPluginHailDetail(snapshot: DataRepository.PliSnapshot): String {
         val app = applicationContext as WearTakApplication
-        val connection = app.pluginManager.connectionFor(HailMigrationExtras.PACKAGE) ?: return ""
+        val connection = app.pluginManager.connectionFor(HailPliPolicy.PACKAGE) ?: return ""
         val managedPolicy = dataRepository.managedHailServicePolicy.value
         val physio = snapshot.physioData.data
         val request = PliSnapshotV1(
@@ -1464,7 +1464,7 @@ class CotDispatchService : Service() {
             weightKg = physio.weightKg,
             managedHailEnabled = managedPolicy.enabled?.takeIf { it },
         )
-        return connection.buildHailPliDetails(request.toBundle(), HailMigrationExtras.policyCode(managedPolicy))
+        return connection.buildHailPliDetails(request.toBundle(), HailPliPolicy.policyCode(managedPolicy))
     }
 
     private var gateCtr = 0
