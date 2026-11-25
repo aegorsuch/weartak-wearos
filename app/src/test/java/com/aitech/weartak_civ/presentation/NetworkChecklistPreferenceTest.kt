@@ -93,4 +93,16 @@ class NetworkChecklistPreferenceTest {
             assertEquals(1, changes)
         }
     }
+
+    @Test fun developerOptionsOffersDirectLogExport() {
+        var exports = 0
+        compose.setContent {
+            DebugInformationPage(
+                DebugDisplayInfo("test", 1, "debug", "test", "test", "WIFI", "test", "N/A", 8000),
+                {}, {}, {}, onExportLogs = { exports++ })
+        }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Export logs"))
+        compose.onNodeWithText("Export logs").performClick()
+        compose.runOnIdle { assertEquals(1, exports) }
+    }
 }

@@ -23,6 +23,7 @@ class VoicePackageBrokerTest {
     @get:Rule val folder = TemporaryFolder()
     private lateinit var app: WearTakApplication
     private var cert = byteArrayOf(1, 2, 3)
+    private var updated = 1L
     private var live = true
     private lateinit var broker: VoicePackageBroker
     private lateinit var binding: VoicePackageBroker.Binding
@@ -37,13 +38,18 @@ class VoicePackageBrokerTest {
         val pm = mockk<PackageManager>()
         val signing = mockk<SigningInfo>()
         every { signing.apkContentsSigners } answers { arrayOf(Signature(cert)) }
-        every { pm.getPackageInfo(any<String>(), any<Int>()) } returns PackageInfo().apply { signingInfo = signing }
+        every { pm.getPackageInfo(any<String>(), any<Int>()) } answers { PackageInfo().apply {
+            signingInfo = signing
+            applicationInfo = ApplicationInfo().apply { uid = Binder.getCallingUid() }
+            lastUpdateTime = updated
+        } }
+        every { pm.getPackagesForUid(any()) } returns arrayOf("voice.test")
         every { pm.getPackageUid(any<String>(), any<Int>()) } returns Binder.getCallingUid()
         app = mockk<WearTakApplication>()
         every { app.filesDir } returns folder.root
         every { app.packageManager } returns pm
-        broker = VoicePackageBroker(app)
-        binding = broker.newBinding("voice.test", Binder.getCallingUid()) { live }
+        broker = VoicePackageBroker(app) { pkg, _ -> pkg == "voice.test" }
+        binding = requireNotNull(broker.newBinding("voice.test", Binder.getCallingUid()) { live })
         binding.registerReceiver(receiver)
     }
     private fun stage(bytes: ByteArray = "never-write-payload".toByteArray()): String {
@@ -67,13 +73,12 @@ class VoicePackageBrokerTest {
         Assert.assertThrows(SecurityException::class.java) { binding.takePackage(offer!!.getString("handle")) }
         cert = byteArrayOf(1, 2, 3); live = false
         Assert.assertThrows(SecurityException::class.java) { binding.getCapabilities() }
-        val wrongUid = broker.newBinding("voice.other", Binder.getCallingUid() + 1) { true }
-        Assert.assertThrows(SecurityException::class.java) { wrongUid.getCapabilities() }
+        assertNull(broker.newBinding("voice.test", Binder.getCallingUid() + 1) { true })
     }
     @Test fun foreignReceiverAndOriginCannotTakeOrReadTheOffer() {
         val id = stage()
-        val other = broker.newBinding("voice.other", Binder.getCallingUid()) { true }; other.registerReceiver(receiver)
-        assertFalse(broker.canDeliver())
+        assertNull(broker.newBinding("voice.other", Binder.getCallingUid()) { true })
+        val other = requireNotNull(broker.newBinding("voice.test", Binder.getCallingUid()) { true })
         Assert.assertThrows(SecurityException::class.java) { other.takePackage(offer!!.getString("handle")) }
         Assert.assertThrows(IllegalStateException::class.java) { broker.statusForOrigin(id, "tak:foreign") }
         assertNotNull(binding.takePackage(offer!!.getString("handle")))
@@ -88,6 +93,14 @@ class VoicePackageBrokerTest {
         Assert.assertThrows(SecurityException::class.java) { binding.takePackage(second) }
         assertEquals(0, broker.readyCount())
     }
+    @Test fun replacementRequiresFreshBindingEvenWithSameSignerAndUid() {
+        updated++
+        Assert.assertThrows(SecurityException::class.java) { binding.getCapabilities() }
+        assertFalse(broker.canDeliver())
+    }
+    @Test fun unknownSignerNeverReceivesAControl() {
+        assertNull(VoicePackageBroker(app).newBinding("voice.test", Binder.getCallingUid()) { true })
+    }
     @Test fun invalidStateCannotClaimAppliedWithoutStaging() {
         val id = stage(); val hash = offer!!.getString("payloadSha256")
         Assert.assertThrows(IllegalStateException::class.java) { binding.reportState(id, hash, hash, C.APPLIED, C.OK) }
@@ -97,7 +110,7 @@ class VoicePackageBrokerTest {
         val id = stage(); val hash = offer!!.getString("payloadSha256")!!
         binding.takePackage(offer!!.getString("handle")); binding.close()
         assertEquals(C.FAILED, broker.status(id).getInt("state"))
-        val replacement = broker.newBinding("voice.test", Binder.getCallingUid()) { true }
+        val replacement = requireNotNull(broker.newBinding("voice.test", Binder.getCallingUid()) { true })
         replacement.registerReceiver(receiver)
         assertEquals(C.STAGED, replacement.reportState(id, hash, hash, C.STAGED, C.OK).getInt("state"))
         assertEquals(C.APPLIED, replacement.reportState(id, hash, hash, C.APPLIED, C.OK).getInt("state"))

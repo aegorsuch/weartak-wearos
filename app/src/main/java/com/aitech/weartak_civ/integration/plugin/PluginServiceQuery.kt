@@ -13,9 +13,13 @@ import com.weartak.plugin.sdk.WearTakPluginContract
  */
 internal object PluginServiceQuery {
     internal const val VOICE_DEV_PERMISSION = "se.takcampus.voice.permission.BIND_PLUGIN_DEV"
-    internal fun allowedBindPermission(permission: String?, packageName: String, debugHost: Boolean = com.aitech.weartak_civ.BuildConfig.DEBUG): Boolean =
-        permission == WearTakPluginContract.PERMISSION_BIND_PLUGIN ||
-            (debugHost && packageName == "se.takcampus.voice.watch.dev" && permission == VOICE_DEV_PERMISSION)
+    internal const val VOICE_RELEASE_PERMISSION = "se.takcampus.voice.watch.permission.BIND_PLUGIN"
+    internal fun allowedBindPermission(permission: String?, packageName: String,
+        debugHost: Boolean = com.aitech.weartak_civ.BuildConfig.DEBUG): Boolean = when (packageName) {
+        "se.takcampus.voice.watch" -> !debugHost && permission == VOICE_RELEASE_PERMISSION
+        "se.takcampus.voice.watch.dev" -> debugHost && permission == VOICE_DEV_PERMISSION
+        else -> permission == WearTakPluginContract.PERMISSION_BIND_PLUGIN
+    }
 
     const val MENU_SUBTITLE = "com.weartak.plugin.MENU_SUBTITLE"
 

@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           repository: aegorsuch/weartak-takwerx-market
-          ref: d8a6d9a8b223f3d8d4bca776b21ac25b9a92367d
+          ref: a78f3e5faadffbc6d981c53c61813314b1a54d86
           persist-credentials: false
       - run: node --test market-publisher/tests/publish_catalog.test.mjs
 
@@ -34,9 +34,9 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    uses: aegorsuch/weartak-takwerx-market/.github/workflows/publish-market-catalog.yml@d8a6d9a8b223f3d8d4bca776b21ac25b9a92367d
+    uses: aegorsuch/weartak-takwerx-market/.github/workflows/publish-market-catalog.yml@a78f3e5faadffbc6d981c53c61813314b1a54d86
     with:
-      publisher_ref: d8a6d9a8b223f3d8d4bca776b21ac25b9a92367d
+      publisher_ref: a78f3e5faadffbc6d981c53c61813314b1a54d86
       market_catalog_public_key: ${{ vars.MARKET_CATALOG_PUBLIC_KEY }}
     secrets:
       catalog_signing_key: ${{ secrets.MARKET_CATALOG_SIGNING_KEY }}

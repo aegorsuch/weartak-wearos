@@ -1,0 +1,92 @@
+package com.aitech.weartak_civ.service
+
+import java.io.OutputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+internal object DiagnosticsPackage {
+    suspend fun bytes(positionLog: PositionLog, diagnostics: AppDiagnostics): ByteArray {
+        val output = LimitedPackageBuffer()
+        write(output, positionLog, diagnostics)
+        return output.toByteArray()
+    }
+
+    suspend fun write(
+        output: OutputStream,
+        positionLog: PositionLog,
+        diagnostics: AppDiagnostics
+    ) {
+        val events = diagnostics.exportJson()
+        val packageId = UUID.randomUUID().toString()
+        val manifest = """
+            <MissionPackageManifest version="2">
+              <Configuration>
+                <Parameter name="uid" value="$packageId"/>
+                <Parameter name="name" value="WearTAK diagnostics"/>
+                <Parameter name="onReceiveImport" value="false"/>
+                <Parameter name="onReceiveDelete" value="false"/>
+              </Configuration>
+              <Contents>
+                <Content zipEntry="FILES/positions.csv" ignore="false"><Parameter name="isCOT" value="false"/></Content>
+                <Content zipEntry="FILES/diagnostics.json" ignore="false"><Parameter name="isCOT" value="false"/></Content>
+                <Content zipEntry="FILES/README.txt" ignore="false"><Parameter name="isCOT" value="false"/></Content>
+              </Contents>
+            </MissionPackageManifest>
+        """.trimIndent()
+        ZipOutputStream(output).use { zip ->
+            fun writeEntry(name: String, text: String) {
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(text.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
+            writeEntry("MANIFEST/manifest.xml", manifest)
+            zip.putNextEntry(ZipEntry("FILES/positions.csv"))
+            val writer = zip.writer(Charsets.UTF_8)
+            positionLog.export(writer)
+            zip.closeEntry()
+            writeEntry("FILES/diagnostics.json", events)
+            writeEntry("FILES/README.txt", """
+                Sensitive location history. Limit distribution.
+                Accuracy is Android Location.accuracy: estimated 68% horizontal radius in metres.
+                Empty accuracy means unavailable. Bearer and relay may be unknown.
+                Disposition describes observed handoffs, not receipt; untracked routes remain unknown.
+                never_sent is limited to newly generated fixes rejected before selection for reporting.
+                sent_immediately means a first-attempt handoff within one reporting interval of the fix and before another PLI.
+                buffered_sent_later means a later attempt or a handoff after that interval or another PLI.
+                These classifications do not prove how long a transport buffered a message.
+                untracked_offers lists plugin/companion offers, not successful transmission.
+                A blank route status means no result was observed. Relay status is not exposed.
+                TAK_SERVER and MULTICAST socket_written mean a socket write succeeded.
+                write_unconfirmed means no successful write was observed; partial writes are possible.
+                SITX api_accepted means its WebSocket accepted the message into its queue.
+                Route attempt counts are observed submissions; pending means no completion was observed,
+                not necessarily that work is still in flight. Pre-accounting attempts are not counted.
+                These handoffs do not confirm receipt. Plugin and companion routes are not tracked.
+                Only active Android location callbacks are recorded; abrupt termination can lose queued fixes.
+                Position log incomplete: ${positionLog.storageFailed.value}.
+                Incomplete logs suppress never_sent because missing events may change the result.
+                Position logging is opt-in and retention is bounded.
+            """.trimIndent())
+        }
+    }
+
+    private class LimitedPackageBuffer : ByteArrayOutputStream() {
+        override fun write(value: Int) {
+            checkCapacity(1)
+            super.write(value)
+        }
+
+        override fun write(bytes: ByteArray, offset: Int, length: Int) {
+            checkCapacity(length)
+            super.write(bytes, offset, length)
+        }
+
+        private fun checkCapacity(length: Int) {
+            if (length > com.aitech.weartak_civ.data.takserver.MAX_DATA_PACKAGE_BYTES - size())
+                throw IOException("Diagnostics package exceeds upload size limit")
+        }
+    }
+}

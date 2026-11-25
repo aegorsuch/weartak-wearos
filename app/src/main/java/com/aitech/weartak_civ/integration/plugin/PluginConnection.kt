@@ -605,7 +605,8 @@ class PluginConnection(
         }
 
         val voicePackages = app.voicePackages.newBinding(pluginPackage, pluginUid, available = { companionReady && !closed }) {
-            !closed && trustVerified && pluginBinder?.isBinderAlive == true
+            !closed && trustVerified && pluginBinder === service && service.isBinderAlive &&
+                manager.connectionFor(pluginPackage) === this
         }
         hostVoicePackages = voicePackages
         val init = PluginInitParcel(
@@ -613,8 +614,10 @@ class PluginConnection(
             hostUid = android.os.Process.myUid(),
             pluginIdExpected = pluginPackage,
             hostExtras = android.os.Bundle().apply {
-                putInt(com.weartak.voice.api.VoicePackageContract.EXTRA_VERSION, 1)
-                putBinder(com.weartak.voice.api.VoicePackageContract.EXTRA_CONTROL, voicePackages)
+                if (voicePackages != null) {
+                    putInt(com.weartak.voice.api.VoicePackageContract.EXTRA_VERSION, 1)
+                    putBinder(com.weartak.voice.api.VoicePackageContract.EXTRA_CONTROL, voicePackages)
+                }
                 putInt(com.weartak.plugin.sdk.MainUiActionContract.HOST_PRESENTATION_VERSION_KEY,
                     com.weartak.plugin.sdk.MainUiActionContract.PRESENTATION_VERSION)
                 putInt(HostServicesContract.EXTRA_VERSION, HostServicesContract.VERSION)

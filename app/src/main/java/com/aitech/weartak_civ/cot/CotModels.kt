@@ -112,6 +112,8 @@ data class CotMarkerDetail(
     val mapShape: CotMapShape? = null,
     val isCamera: Boolean = false,
     val hasUrgentDetail: Boolean = false,
+    /** `<archive/>` in the detail: the sender wants it kept, so it is never removed for being stale. */
+    val archived: Boolean = false,
 )
 
 data class CotMapShape(

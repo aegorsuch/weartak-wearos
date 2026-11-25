@@ -214,6 +214,23 @@ object CotMessageParser {
         eventTypeOrNull(rawXml) == "u-d-r" &&
             radioSilenceGeofenceCallsign.containsMatchIn(rawXml)
 
+    /** ATAK marks an item to keep with an `<archive/>` element directly in its detail. */
+    internal fun isArchived(rawXml: String): Boolean {
+        if (!rawXml.contains("archive")) return false
+        val root = parseDocumentOrNull(rawXml)?.documentElement ?: return false
+        if (root.tagName != "event") return false
+        val children = root.childNodes
+        for (index in 0 until children.length) {
+            val detail = children.item(index) as? Element ?: continue
+            if (detail.tagName != "detail") continue
+            val fields = detail.childNodes
+            for (field in 0 until fields.length) {
+                if ((fields.item(field) as? Element)?.tagName == "archive") return true
+            }
+        }
+        return false
+    }
+
     internal fun isCamera(rawXml: String): Boolean {
         val root = parseDocumentOrNull(rawXml)?.documentElement ?: return false
         if (root.tagName != "event") return false
@@ -390,6 +407,7 @@ object CotMessageParser {
         mapShape = if (eventTypeOrNull(rawXml)?.let(::isMapShapeType) == true) mapShape(rawXml) else null,
         isCamera = isCamera(rawXml),
         hasUrgentDetail = urgentDetail.containsMatchIn(rawXml),
+        archived = isArchived(rawXml),
     )
 
     private fun circleRadius(rawXml: String): Double? {

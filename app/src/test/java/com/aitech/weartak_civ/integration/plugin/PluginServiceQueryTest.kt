@@ -30,6 +30,17 @@ class PluginServiceQueryTest {
         org.junit.Assert.assertFalse(PluginServiceQuery.allowedBindPermission(null, "se.takcampus.voice.watch.dev", true))
     }
 
+    @Test fun releaseVoiceUsesItsOwnPermissionAndExistingPluginsKeepTheirPermission() {
+        val pkg = "se.takcampus.voice.watch"
+        val voice = PluginServiceQuery.VOICE_RELEASE_PERMISSION
+        val common = WearTakPluginContract.PERMISSION_BIND_PLUGIN
+        assertTrue(PluginServiceQuery.allowedBindPermission(voice, pkg, false))
+        org.junit.Assert.assertFalse(PluginServiceQuery.allowedBindPermission(voice, pkg, true))
+        org.junit.Assert.assertFalse(PluginServiceQuery.allowedBindPermission(voice, "other", false))
+        org.junit.Assert.assertFalse(PluginServiceQuery.allowedBindPermission(common, pkg, false))
+        assertTrue(PluginServiceQuery.allowedBindPermission(common, "other", false))
+    }
+
     private val component = ComponentName("com.weartak.plugin.sample", ".SamplePluginService")
 
     private fun metadataPackageManager(metadata: Bundle?): PackageManager = mockk {

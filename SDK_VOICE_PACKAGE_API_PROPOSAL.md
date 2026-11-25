@@ -19,7 +19,7 @@ This is a prototype contract, not a claim that the upstream SDK already provides
 - Discovery action: `com.weartak.plugin.action.PLUGIN_SERVICE`
 - SDK API: 3; source pin `86bdc8b04797c2cf6caa30e78e796abac1c2a330`.
 - Current DEV APK signing certificate SHA-256:
-  `28c02ac13c4f745f736223a9425003d0e4ee72b7fcc3a145cc5ecc30051c1c9d`
+  `93007577c1e14281020cc33651e559d1204d7d733577ab48c955e5e67da83ead`
 
 That fingerprint is the development certificate, not a production registration.
 The production fingerprint must come from the actual signed release APK.
@@ -29,7 +29,7 @@ register an SDK plugin service.
 For side-by-side testing with the older prototype, our matching DEV host/plugin
 use `se.takcampus.voice.permission.BIND_PLUGIN_DEV`, still signature protected.
 Only the debug host admits that permission, only for the Voice DEV package.
-Release uses the template's standard `com.weartak.plugin.permission.BIND_PLUGIN`.
+Release Voice declares `se.takcampus.voice.watch.permission.BIND_PLUGIN` with `signature|knownSigner`. Release WearTAK requests it. Voice verifies the current WearTAK release signer from TAK.gov job 8034608. WearTAK withholds the broker until the current Voice release signer is independently verified and approved.
 A stock host will not discover the DEV permission variant without that test patch.
 
 ## Optional discovery without changing the frozen SDK

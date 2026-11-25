@@ -22,7 +22,9 @@ sealed class SitxServiceCommand {
     data class ConnectSelectedGroups(
         val groups: List<SitxTakService.TakServerItem>
     ) : SitxServiceCommand()
-    data class SendCot(val xml: String, val flowTag: String? = null): SitxServiceCommand()
+    data class SendCot(
+        val xml: String, val flowTag: String? = null, val onResult: ((Boolean) -> Unit)? = null
+    ): SitxServiceCommand()
     object Stop: SitxServiceCommand()
 }
 

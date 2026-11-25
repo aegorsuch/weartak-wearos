@@ -26,6 +26,7 @@ class VoiceStandaloneAdapter(private val app: WearTakApplication) {
                 val uid = app.packageManager.getPackageUid(PACKAGE, 0)
                 gateway = remote
                 val control = app.voicePackages.newBinding(PACKAGE, uid) { epoch == generation && gateway === remote && bound }
+                    ?: error("Standalone voice signing identity was not approved")
                 binding = control
                 remote.initialize(app.packageName, android.os.Process.myUid(), control)
             } catch (_: Exception) { android.os.Handler(android.os.Looper.getMainLooper()).post { if (epoch == generation) disconnect() } }

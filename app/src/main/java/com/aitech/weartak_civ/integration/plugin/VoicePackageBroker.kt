@@ -11,7 +11,19 @@ import java.util.UUID
 class VoicePackageStageException(val code: Int, message: String) : java.io.IOException(message)
 
 /** One bounded, host-owned memory handoff for TAK and Companion. Never contains credentials. */
-class VoicePackageBroker(private val app: WearTakApplication) {
+class VoicePackageBroker(
+    private val app: WearTakApplication,
+    private val approveSigner: (String, String) -> Boolean = { pkg, cert ->
+        when (pkg) {
+            "se.takcampus.voice.watch" -> !com.aitech.weartak_civ.BuildConfig.DEBUG &&
+                RELEASE_CERT.isNotEmpty() && cert == RELEASE_CERT
+            "se.takcampus.voice.watch.dev" -> com.aitech.weartak_civ.BuildConfig.DEBUG && cert == DEV_CERT
+            VoiceStandaloneAdapter.PACKAGE -> com.aitech.weartak_civ.BuildConfig.DEBUG &&
+                app.packageManager.checkSignatures(app.packageName, pkg) == PackageManager.SIGNATURE_MATCH
+            else -> false
+        }
+    },
+) {
     private val lock = Any()
     private val main = Handler(Looper.getMainLooper())
     private val bindings = mutableSetOf<Binding>()
@@ -48,11 +60,24 @@ class VoicePackageBroker(private val app: WearTakApplication) {
         val record = records[id] ?: return Bundle().apply { putInt("code", C.UNAVAILABLE) }
         check(record.origin == origin) { "Foreign voice origin" }; statusBundle(record)
     }
-    fun newBinding(pkg: String, uid: Int, available: (() -> Boolean)? = null, current: () -> Boolean): Binding =
-        Binding(pkg, uid, signer(pkg), current, available ?: current).also { synchronized(lock) { bindings.add(it) } }
-    private fun signer(pkg: String): String {
-        val info = app.packageManager.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES)
-        return requireNotNull(info.signingInfo).apkContentsSigners.map { digest(it.toByteArray()) }.sorted().joinToString(",")
+    fun newBinding(pkg: String, uid: Int, available: (() -> Boolean)? = null, current: () -> Boolean): Binding? {
+        val installation = readInstallation(pkg, uid) ?: return null
+        if (!approveSigner(pkg, installation.first)) return null
+        return Binding(pkg, uid, installation.first, installation.second, current, available ?: current)
+            .also { synchronized(lock) { bindings.add(it) } }
+    }
+
+    private fun readInstallation(pkg: String, uid: Int): Pair<String, Long>? {
+        val pm = app.packageManager
+        if (pm.getPackagesForUid(uid)?.singleOrNull() != pkg) return null
+        return try {
+            val info = pm.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES)
+            val signer = info.signingInfo?.apkContentsSigners?.singleOrNull() ?: return null
+            if (info.applicationInfo?.uid != uid) return null
+            digest(signer.toByteArray()) to info.lastUpdateTime
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
     }
     fun readyCount(): Int = synchronized(lock) { bindings.count { it.ready() } }
     fun canDeliver() = readyCount() == 1
@@ -118,7 +143,7 @@ class VoicePackageBroker(private val app: WearTakApplication) {
         runCatching { offer.binding.callback?.onRevoked(handle, code) }
     }
     private fun expire(handle: String) = fail(handle, C.UNAVAILABLE)
-    inner class Binding internal constructor(val pkg: String, private val uid: Int, private val cert: String,
+    inner class Binding internal constructor(val pkg: String, private val uid: Int, private val cert: String, private val installedAt: Long,
         private val current: () -> Boolean, private val available: () -> Boolean) : IVoicePackageControlV1.Stub() {
         val identity = "$pkg:$cert"
         val token = UUID.randomUUID().toString()
@@ -126,7 +151,7 @@ class VoicePackageBroker(private val app: WearTakApplication) {
         @Volatile internal var callback: IVoicePackageReceiverV1? = null
         private var death: IBinder.DeathRecipient? = null
         fun active(): Boolean = !closed && current() && runCatching {
-            app.packageManager.getPackageUid(pkg, 0) == uid && signer(pkg) == cert
+            approveSigner(pkg, cert) && readInstallation(pkg, uid) == (cert to installedAt)
         }.getOrDefault(false)
         fun ready(): Boolean = available() && active() && callback?.asBinder()?.isBinderAlive == true
         private fun authenticate() {
@@ -205,6 +230,10 @@ class VoicePackageBroker(private val app: WearTakApplication) {
         fun close() { closed = true; revokeReceiver(); synchronized(lock) { bindings.remove(this) } }
     }
     companion object {
+        // Enable only after review of the fingerprint from the signed Voice release APK.
+        private const val RELEASE_CERT = ""
+        private const val DEV_CERT = "93007577c1e14281020cc33651e559d1204d7d733577ab48c955e5e67da83ead"
+
         fun digest(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
     }
