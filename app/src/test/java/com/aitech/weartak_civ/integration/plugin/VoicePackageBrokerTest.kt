@@ -68,6 +68,67 @@ class VoicePackageBrokerTest {
         assertFalse(metadata.contains("never-write-payload"))
         assertEquals(C.APPLIED, VoicePackageBroker(app).status(id).getInt("state"))
     }
+    @Test fun companionResendsAfterPluginDataClearAndKeepsCanonicalReceipt() {
+        val bytes = "mission".toByteArray()
+        val hash = VoicePackageBroker.digest(bytes)
+        val id = UUID.randomUUID().toString()
+        val origin = "companion:test"
+        broker.stage(C.JSON, bytes, id, origin)
+        binding.takePackage(offer!!.getString("handle"))
+        binding.reportState(id, hash, hash, C.STAGED, C.OK)
+        binding.reportState(id, hash, hash, C.REJECTED, C.OK)
+        assertEquals(C.REJECTED, broker.stage(C.JSON, bytes, id, origin).getInt("state"))
+        assertEquals(1, offers)
+
+        // The restarted plugin has no local receipts to sync after Android Clear data.
+        binding.unregisterReceiver(receiver)
+        binding.registerReceiver(receiver)
+        val retry = broker.stage(C.JSON, bytes, UUID.randomUUID().toString(), origin)
+        assertEquals(C.DOWNLOADED, retry.getInt("state"))
+        assertEquals(id, retry.getString("transferId"))
+        assertEquals(id, offer!!.getString("transferId"))
+        assertEquals(2, offers)
+        assertArrayEquals(bytes, binding.takePackage(offer!!.getString("handle")).getByteArray("payload"))
+        binding.reportState(id, hash, hash, C.STAGED, C.OK)
+        assertEquals(C.STAGED, broker.stage(C.JSON, bytes, id, origin).getInt("state"))
+        assertEquals(2, offers)
+    }
+
+    @Test fun companionKeepsReceiptConfirmedByRestartedPlugin() {
+        val bytes = "mission".toByteArray()
+        val hash = VoicePackageBroker.digest(bytes)
+        val id = UUID.randomUUID().toString()
+        val origin = "companion:test"
+        broker.stage(C.JSON, bytes, id, origin)
+        binding.takePackage(offer!!.getString("handle"))
+        binding.reportState(id, hash, hash, C.STAGED, C.OK)
+        binding.reportState(id, hash, hash, C.APPLIED, C.OK)
+        binding.close()
+        val replacement = requireNotNull(broker.newBinding("voice.test", Binder.getCallingUid()) { true })
+        replacement.registerReceiver(receiver)
+        replacement.reportState(id, hash, hash, C.APPLIED, C.OK)
+        assertEquals(C.APPLIED, broker.stage(C.JSON, bytes, id, origin).getInt("state"))
+        assertEquals(1, offers)
+    }
+
+    @Test fun receiptSyncDuringResendKeepsPayloadAvailable() {
+        val bytes = "mission".toByteArray()
+        val hash = VoicePackageBroker.digest(bytes)
+        val id = UUID.randomUUID().toString()
+        val origin = "companion:test"
+        broker.stage(C.JSON, bytes, id, origin)
+        binding.takePackage(offer!!.getString("handle"))
+        binding.reportState(id, hash, hash, C.STAGED, C.OK)
+        binding.unregisterReceiver(receiver)
+        binding.registerReceiver(receiver)
+        broker.stage(C.JSON, bytes, id, origin)
+
+        binding.reportState(id, hash, hash, C.STAGED, C.OK)
+        assertArrayEquals(bytes, binding.takePackage(offer!!.getString("handle")).getByteArray("payload"))
+        ShadowLooper.shadowMainLooper().idleFor(Duration.ofSeconds(121))
+        assertEquals(C.STAGED, broker.status(id).getInt("state"))
+    }
+
     @Test fun everyCallRechecksLiveBindingAndSigner() {
         stage(); cert = byteArrayOf(9, 8, 7)
         Assert.assertThrows(SecurityException::class.java) { binding.takePackage(offer!!.getString("handle")) }

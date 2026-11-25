@@ -30,7 +30,7 @@ class VoicePackageBroker(
     private val offers = mutableMapOf<String, Offer>()
     private val records = linkedMapOf<String, Record>()
     private data class Record(val id: String, val hash: String, val origin: String, val recipient: String,
-        val owner: String, var state: Int = C.DOWNLOADED, var missionHash: String = "", var error: Int = C.OK, var taken: Boolean = false)
+        var owner: String, var state: Int = C.DOWNLOADED, var missionHash: String = "", var error: Int = C.OK, var taken: Boolean = false)
     private data class Offer(val handle: String, val record: Record, val kind: Int, val bytes: ByteArray,
         val binding: Binding, val expires: Long, val originCurrent: () -> Boolean)
     private val metadata = android.util.AtomicFile(java.io.File(app.filesDir, "voice-package-receipts.json"))
@@ -102,21 +102,23 @@ class VoicePackageBroker(
             check(originCurrent()) { "Origin session ended" }
             val receiver = bindings.filter { it.ready() }.singleOrNull() ?: throw VoicePackageStageException(C.UNAVAILABLE, "Enable exactly one voice receiver")
             val recipient = receiver.identity
-            records.values.firstOrNull { it.origin == origin && it.hash == hash && it.recipient == recipient &&
-                it.state in setOf(C.DOWNLOADED, C.STAGED, C.APPLIED, C.REJECTED) }?.let { return statusBundle(it) }
+            val prior = records.values.firstOrNull { it.origin == origin && it.hash == hash && it.recipient == recipient &&
+                it.state in setOf(C.DOWNLOADED, C.STAGED, C.APPLIED, C.REJECTED) }
             records[id]?.let { previous ->
-                require(previous.hash == hash && previous.origin == origin && previous.recipient == recipient &&
-                    previous.state in setOf(C.FAILED, C.EXPIRED)) { "Transfer ID already used" }
-                records.remove(id)
+                require(previous.hash == hash && previous.origin == origin && previous.recipient == recipient) { "Transfer ID already used" }
             }
+            // Companion may resend identical bytes after the user clears only the plugin's data.
+            // A new receiver confirms its surviving receipts through reportState during registration.
+            if (prior != null && (!origin.startsWith("companion:") || prior.owner == receiver.token)) return statusBundle(prior)
+            val transferId = prior?.id ?: id
             if (offers.size >= 4) throw VoicePackageStageException(C.BUSY, "Voice staging busy")
             // Keep total receipts bounded, including pending reviews. Never evict an active lease/review.
-            while (records.size >= 64) {
+            while (transferId !in records && records.size >= 64) {
                 val oldest = records.values.firstOrNull { it.state !in setOf(C.DOWNLOADED, C.STAGED) }
                     ?: error("Voice receipt store full")
                 records.remove(oldest.id)
             }
-            val record = Record(id, hash, origin, recipient, receiver.token); records[id] = record
+            val record = Record(transferId, hash, origin, recipient, receiver.token); records[transferId] = record
             Offer(UUID.randomUUID().toString(), record, kind, bytes.copyOf(), receiver,
                 SystemClock.elapsedRealtime() + 120_000, originCurrent).also { offers[it.handle] = it }
         }
@@ -128,17 +130,22 @@ class VoicePackageBroker(
             }
         }, 120_000)
         val metadata = Bundle().apply {
-            putInt("version", 1); putString("handle", offer.handle); putString("transferId", id)
+            putInt("version", 1); putString("handle", offer.handle); putString("transferId", offer.record.id)
             putString("payloadSha256", hash); putInt("payloadKind", kind); putInt("byteCount", bytes.size)
             putString("originId", origin); putLong("expiresAtElapsedRealtime", offer.expires)
         }
         try { offer.binding.callback?.onOffer(metadata) ?: error("Voice receiver disconnected") }
         catch (failure: Exception) { fail(offer.handle, C.UNAVAILABLE); throw failure }
-        return status(id)
+        return status(offer.record.id)
     }
     private fun fail(handle: String, code: Int) {
         val offer = synchronized(lock) {
-            offers.remove(handle)?.also { it.bytes.fill(0); it.record.state = C.EXPIRED; it.record.error = code; persist() }
+            offers.remove(handle)?.also {
+                it.bytes.fill(0)
+                if (it.record.state == C.DOWNLOADED) {
+                    it.record.state = C.EXPIRED; it.record.error = code; persist()
+                }
+            }
         } ?: return
         runCatching { offer.binding.callback?.onRevoked(handle, code) }
     }
@@ -146,7 +153,8 @@ class VoicePackageBroker(
     inner class Binding internal constructor(val pkg: String, private val uid: Int, private val cert: String, private val installedAt: Long,
         private val current: () -> Boolean, private val available: () -> Boolean) : IVoicePackageControlV1.Stub() {
         val identity = "$pkg:$cert"
-        val token = UUID.randomUUID().toString()
+        var token = UUID.randomUUID().toString()
+            private set
         @Volatile private var closed = false
         @Volatile internal var callback: IVoicePackageReceiverV1? = null
         private var death: IBinder.DeathRecipient? = null
@@ -167,7 +175,8 @@ class VoicePackageBroker(
                 check(callback == null || callback?.asBinder() == receiver.asBinder()) { "Receiver already registered" }
                 if (callback == null) {
                     val recipient = IBinder.DeathRecipient { revokeReceiver() }
-                    receiver.asBinder().linkToDeath(recipient, 0); death = recipient; callback = receiver
+                    receiver.asBinder().linkToDeath(recipient, 0); death = recipient
+                    token = UUID.randomUUID().toString(); callback = receiver
                 }
             }
             return Bundle().apply { putInt("code", C.OK); putInt("version", 1) }
@@ -200,9 +209,12 @@ class VoicePackageBroker(
                     else -> false
                 }) { "Invalid voice state transition" }
                 if (state == C.STAGED || state == C.APPLIED) require(!missionHash.isNullOrEmpty())
-                record.state = state; record.error = error; record.missionHash = missionHash.orEmpty()
+                record.owner = token; record.state = state; record.error = error; record.missionHash = missionHash.orEmpty()
                 persist()
-                offers.values.filter { it.record === record }.map { it.handle }.forEach { handle -> offers.remove(handle)?.bytes?.fill(0) }
+                // A startup receipt sync can win the race with takePackage for the same resend.
+                if (state == C.FAILED) {
+                    offers.values.filter { it.record === record }.map { it.handle }.forEach { handle -> offers.remove(handle)?.bytes?.fill(0) }
+                }
                 return statusBundle(record)
             }
         }
