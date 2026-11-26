@@ -3571,7 +3571,6 @@ class DataRepository(
     }
 
     suspend fun storeLatestHeartRate(heartRate: Int, measuredAtMillis: Long? = null) {
-        Log.e("HR_REPO", "storeLatestHeartRate($heartRate)")
         recordHeartRateSample(heartRate, measuredAtMillis)
         _latestHeartRate.emit(heartRate)
     }

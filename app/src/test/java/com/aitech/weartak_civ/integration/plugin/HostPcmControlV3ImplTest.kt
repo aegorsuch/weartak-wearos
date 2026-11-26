@@ -10,6 +10,8 @@
 package com.aitech.weartak_civ.integration.plugin
 
 import android.content.Context
+import android.os.IBinder
+import android.os.RemoteException
 import androidx.test.core.app.ApplicationProvider
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.weartak.plugin.sdk.v3.aidl.IWearTakPcmCallback
@@ -17,6 +19,8 @@ import com.weartak.plugin.sdk.v3.model.PcmBatchParcel
 import com.weartak.plugin.sdk.v3.model.PcmStreamStateParcel
 import com.weartak.plugin.sdk.v3.model.PcmSubscriptionRequestParcel
 import com.weartak.plugin.sdk.v3.model.PcmSubscriptionStatus
+import io.mockk.every
+import io.mockk.mockk
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -111,6 +115,50 @@ class HostPcmControlV3ImplTest {
 
         unauthorized.close()
         authorized.close()
+    }
+
+    @Test
+    fun callbackDeathReleasesCaptureLease() {
+        val repository = AudioCaptureRepository(context)
+        val callback = mockk<IWearTakPcmCallback>(relaxed = true)
+        val binder = mockk<IBinder>(relaxed = true)
+        var deathRecipient: IBinder.DeathRecipient? = null
+        every { callback.asBinder() } returns binder
+        every { binder.linkToDeath(any(), any()) } answers {
+            deathRecipient = firstArg()
+            Unit
+        }
+        val control = control(repository, "com.test.gunshot", callbackUid = 100)
+
+        val result = control.subscribePcm(PcmSubscriptionRequestParcel(), callback)
+        assertTrue(result.accepted)
+        assertEquals(setOf("plugin:com.test.gunshot"), repository.activeConsumers.value)
+
+        requireNotNull(deathRecipient).binderDied()
+
+        assertTrue(repository.activeConsumers.value.isEmpty())
+        assertEquals(
+            PcmSubscriptionStatus.NOT_ACTIVE,
+            control.unsubscribePcm(result.subscriptionId).status,
+        )
+        control.close()
+    }
+
+    @Test
+    fun callbackDeathRegistrationFailureDoesNotAcquireCaptureLease() {
+        val repository = AudioCaptureRepository(context)
+        val callback = mockk<IWearTakPcmCallback>(relaxed = true)
+        val binder = mockk<IBinder>(relaxed = true)
+        every { callback.asBinder() } returns binder
+        every { binder.linkToDeath(any(), any()) } throws RemoteException("callback is dead")
+        val control = control(repository, "com.test.gunshot", callbackUid = 100)
+
+        val result = control.subscribePcm(PcmSubscriptionRequestParcel(), callback)
+
+        assertFalse(result.accepted)
+        assertEquals(PcmSubscriptionStatus.REMOTE_ERROR, result.status)
+        assertTrue(repository.activeConsumers.value.isEmpty())
+        control.close()
     }
 
     private fun control(

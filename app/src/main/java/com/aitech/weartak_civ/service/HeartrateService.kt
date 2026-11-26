@@ -144,9 +144,6 @@ class HeartrateService: Service() {
                 reconcileSensors()
             }
         }
-        scope.launch {
-            sharedRepository.latestExertion.collect { Log.d(TAG, "Exertion updated: $it") }
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
