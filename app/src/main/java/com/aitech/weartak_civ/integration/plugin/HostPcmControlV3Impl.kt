@@ -39,6 +39,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -59,6 +60,7 @@ class HostPcmControlV3Impl(
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val pkcs12Import: HostPkcs12ImportControl? = null,
     private val serverPackages: HostServerPackageControl? = null,
+    private val dartAudioConsent: DartAudioConsent? = null,
 ) : IWearTakPluginHostControlV3.Stub() {
 
     private val lock = Any()
@@ -66,6 +68,16 @@ class HostPcmControlV3Impl(
     private val consumerId = "plugin:$pluginPackage"
     private var activeSubscription: ActiveSubscription? = null
     @Volatile private var closed = false
+    private val revokeDartSubscription: () -> Unit = {
+        val id = synchronized(lock) { activeSubscription?.id }
+        if (id != null) stopSubscription(id, notify = true)
+    }
+
+    init {
+        if (pluginPackage == PluginDetectionEventBridge.DART_PACKAGE) {
+            dartAudioConsent?.addRevocation(revokeDartSubscription)
+        }
+    }
 
     override fun subscribePcm(
         request: PcmSubscriptionRequestParcel?,
@@ -78,6 +90,19 @@ class HostPcmControlV3Impl(
             return rejected(PcmSubscriptionStatus.INVALID_REQUEST)
         }
 
+        if (pluginPackage == PluginDetectionEventBridge.DART_PACKAGE) {
+            return dartAudioConsent?.whileEnabled { subscribeAllowed(request, callback) } ?: run {
+                Log.w(TAG, "DART PCM subscription rejected: monitoring is disabled")
+                rejected(PcmSubscriptionStatus.UNAUTHORIZED)
+            }
+        }
+        return subscribeAllowed(request, callback)
+    }
+
+    private fun subscribeAllowed(
+        request: PcmSubscriptionRequestParcel,
+        callback: IWearTakPcmCallback,
+    ): PcmSubscriptionResultParcel {
         synchronized(lock) {
             if (closed) return rejected(PcmSubscriptionStatus.UNAUTHORIZED)
             activeSubscription?.let { current ->
@@ -147,6 +172,7 @@ class HostPcmControlV3Impl(
             closed = true
             activeSubscription?.id
         }
+        dartAudioConsent?.removeRevocation(revokeDartSubscription)
         if (currentId != null) stopSubscription(currentId, notify = false)
         scope.cancel()
     }
@@ -197,11 +223,18 @@ class HostPcmControlV3Impl(
                 chunks += next
             }
 
+            if (pluginPackage == PluginDetectionEventBridge.DART_PACKAGE &&
+                dartAudioConsent?.enabled?.value != true
+            ) return
             if (!listeningSent) {
                 subscription.callback.onPcmStreamState(
                     PcmStreamStateParcel(subscription.id, PcmStreamState.LISTENING),
                 )
                 listeningSent = true
+            }
+            if (pluginPackage == PluginDetectionEventBridge.DART_PACKAGE) {
+                currentCoroutineContext().ensureActive()
+                if (dartAudioConsent?.enabled?.value != true) return
             }
             subscription.callback.onPcmBatch(
                 PcmBatchParcel(
@@ -229,11 +262,11 @@ class HostPcmControlV3Impl(
             val current = activeSubscription
             if (current?.id != id) return
             activeSubscription = null
+            audioRepo.releaseConsumer(consumerId)
             current
         }
         runCatching { subscription.callback.asBinder().unlinkToDeath(subscription.deathRecipient, 0) }
         subscription.job?.cancel()
-        audioRepo.releaseConsumer(consumerId)
         if (notify) {
             scope.launch {
                 runCatching {
@@ -252,12 +285,12 @@ class HostPcmControlV3Impl(
                 false
             } else {
                 activeSubscription = null
+                audioRepo.releaseConsumer(consumerId)
                 true
             }
         }
         if (!removed) return
         runCatching { subscription.callback.asBinder().unlinkToDeath(subscription.deathRecipient, 0) }
-        audioRepo.releaseConsumer(consumerId)
     }
 
     private fun verifyCaller(): Boolean {

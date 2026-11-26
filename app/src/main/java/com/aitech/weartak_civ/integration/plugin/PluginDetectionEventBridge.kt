@@ -20,12 +20,23 @@ import com.weartak.plugin.sdk.v2.model.V2HostResultParcel
 class PluginDetectionEventBridge(
     private val pluginPackage: String,
     private val detectorKey: String,
+    private val dartAudioConsent: DartAudioConsent? = null,
     private val acceptEvent: (AudioDetectionEvent) -> Boolean,
 ) {
     private var lastAccepted: DetectionEventParcel? = null
 
     @Synchronized
     fun publish(event: DetectionEventParcel): V2HostResultParcel {
+        if (pluginPackage == DART_PACKAGE) {
+            return dartAudioConsent?.whileEnabled { publishAllowed(event) } ?: run {
+                Log.w(TAG, "DART detection rejected: monitoring is disabled")
+                rejected()
+            }
+        }
+        return publishAllowed(event)
+    }
+
+    private fun publishAllowed(event: DetectionEventParcel): V2HostResultParcel {
         if (event.pluginId != pluginPackage || event.streamKey != detectorKey) {
             Log.w(TAG, "detection event identity mismatch pkg=$pluginPackage stream=${event.streamKey}")
             return rejected()
@@ -71,9 +82,13 @@ class PluginDetectionEventBridge(
     companion object {
         private const val TAG = "PluginDetectionBridge"
 
-        fun forPlugin(app: WearTakApplication, pluginPackage: String): PluginDetectionEventBridge? =
+        fun forPlugin(
+            app: WearTakApplication,
+            pluginPackage: String,
+            dartAudioConsent: DartAudioConsent,
+        ): PluginDetectionEventBridge? =
             when (pluginPackage) {
-                DART_PACKAGE -> PluginDetectionEventBridge(pluginPackage, "gunshot") {
+                DART_PACKAGE -> PluginDetectionEventBridge(pluginPackage, "gunshot", dartAudioConsent) {
                     app.gunshotDetectionRepo.acceptPluginEvent(it)
                 }
                 FALCON_PACKAGE -> PluginDetectionEventBridge(pluginPackage, "uas") {

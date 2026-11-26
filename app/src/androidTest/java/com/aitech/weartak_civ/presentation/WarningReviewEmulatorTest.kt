@@ -62,6 +62,7 @@ class WarningReviewEmulatorTest {
                                 if (displayed.detectorKey == "gunshot") dart = null else falcon = null
                                 true
                             },
+                            dartEnabled = true,
                             crmWarning = crm,
                             onCrmDetails = {}
                         ) { warnings, review ->

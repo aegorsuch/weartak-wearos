@@ -72,6 +72,7 @@ class AudioDetectionWarningTest {
     private val answers = mutableListOf<Pair<String, AudioDetectionFeedback>>()
     private val physio = mutableStateOf(Utils.AlertChipState.None)
     private val available = mutableStateOf(true)
+    private val dartEnabled = mutableStateOf(true)
     private val crm = mutableStateOf<CrmHomeWarning?>(null)
     private val ditto = mutableStateOf(BleLinkWarning.NONE)
     private var dittoRetries = 0
@@ -111,6 +112,7 @@ class AudioDetectionWarningTest {
                             available.value && if (event.detectorKey == "gunshot")
                                 dart.tryEmitFeedback(feedback) else falcon.tryEmitFeedback(feedback)
                         },
+                        dartEnabled = dartEnabled.value,
                         crmWarning = crm.value,
                         onCrmDetails = { crmDetails++ },
                         physioWarning = if (physio.value == Utils.AlertChipState.None) null else
@@ -137,6 +139,31 @@ class AudioDetectionWarningTest {
             }
         }
         return restoration
+    }
+
+    @Test fun disablingDartHidesPendingWarningAndOpenReviewWithoutDeletingHistory() {
+        detect(dart, "dart")
+        show()
+        compose.onNodeWithTag("audio-detection-warning").performClick()
+        assertReview("Gunshot detected?", 91)
+        compose.runOnIdle { dartEnabled.value = false }
+        compose.onNodeWithTag("audio-detection-dialog").assertDoesNotExist()
+        compose.onNodeWithTag("audio-detection-warning").assertDoesNotExist()
+        assertEquals("dart", dart.pendingEvent.value?.uid)
+        assertEquals("dart", dart.getEventFromUid("dart")?.uid)
+        compose.runOnIdle { dartEnabled.value = true }
+        compose.onNodeWithTag("audio-detection-warning").assertIsDisplayed()
+        compose.onNodeWithTag("audio-detection-dialog").assertDoesNotExist()
+    }
+
+    @Test fun disabledDartDoesNotHideUasWarning() {
+        detect(dart, "dart")
+        detect(falcon, "falcon")
+        dartEnabled.value = false
+        show()
+        compose.onNodeWithTag("audio-detection-warning").performClick()
+        assertReview("UAS detected?", 91)
+        assertEquals("dart", dart.pendingEvent.value?.uid)
     }
 
     private fun back() {

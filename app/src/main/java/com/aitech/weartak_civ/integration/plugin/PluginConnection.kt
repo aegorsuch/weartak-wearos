@@ -396,6 +396,15 @@ class PluginConnection(
             return
         }
         trustVerified = true
+        if (pluginPackage == PluginDetectionEventBridge.DART_PACKAGE) {
+            try {
+                runBlocking { manager.dartAudioConsent.initialize() }
+            } catch (error: java.io.IOException) {
+                Log.e(TAG, "DART consent unavailable; refusing plugin initialization", error)
+                postFailure("dart_consent_unavailable")
+                return
+            }
+        }
         if (pluginPackage == HailPliPolicy.PACKAGE) {
             hailDataEligible = try {
                 pluginTrust.isApprovedHailSigner(pluginPackage, pluginUid, senderPackages)
@@ -460,7 +469,7 @@ class PluginConnection(
                 pluginPackage,
                 pluginUid,
                 isActive = { !closed },
-                detectionEventBridge = PluginDetectionEventBridge.forPlugin(app, pluginPackage),
+                detectionEventBridge = PluginDetectionEventBridge.forPlugin(app, pluginPackage, manager.dartAudioConsent),
             )
         } else {
             null
@@ -500,7 +509,8 @@ class PluginConnection(
             }, consumeWearerLaunch = consumeLaunch)
             serverPackages = packages
             HostPcmControlV3Impl(app.audioRepo, pluginPackage, pluginUid,
-                pkcs12Import = importer, serverPackages = packages)
+                pkcs12Import = importer, serverPackages = packages,
+                dartAudioConsent = manager.dartAudioConsent)
         } else {
             null
         }

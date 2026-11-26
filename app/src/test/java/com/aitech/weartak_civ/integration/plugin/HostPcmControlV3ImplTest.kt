@@ -16,6 +16,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.aitech.weartak_civ.data.AudioCaptureRepository
 import com.weartak.plugin.sdk.v3.aidl.IWearTakPcmCallback
 import com.weartak.plugin.sdk.v3.model.PcmBatchParcel
+import com.weartak.plugin.sdk.v3.model.PcmStreamState
 import com.weartak.plugin.sdk.v3.model.PcmStreamStateParcel
 import com.weartak.plugin.sdk.v3.model.PcmSubscriptionRequestParcel
 import com.weartak.plugin.sdk.v3.model.PcmSubscriptionStatus
@@ -24,6 +25,7 @@ import io.mockk.mockk
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,6 +39,77 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class HostPcmControlV3ImplTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
+
+    @Test
+    fun dartOptOutRevokesOnlyDartAndRequiresOptInBeforeSubscribing() = runBlocking {
+        val repository = AudioCaptureRepository(context)
+        val consent = DartAudioConsent({ false }, {})
+        val dart = HostPcmControlV3Impl(
+            audioRepo = repository,
+            pluginPackage = PluginDetectionEventBridge.DART_PACKAGE,
+            expectedPluginUid = 101,
+            callerUidProvider = { 101 },
+            dispatcher = Dispatchers.Unconfined,
+            dartAudioConsent = consent,
+        )
+        val other = control(repository, "com.test.uas", callbackUid = 102)
+        val callback = RecordingPcmCallback()
+        val request = PcmSubscriptionRequestParcel()
+        assertFalse(dart.subscribePcm(request, callback).accepted)
+        consent.initialize()
+        assertFalse(dart.subscribePcm(request, callback).accepted)
+        assertTrue(other.subscribePcm(request, RecordingPcmCallback()).accepted)
+        consent.setEnabled(true)
+        assertTrue(dart.subscribePcm(request, callback).accepted)
+        consent.setEnabled(false)
+        assertEquals(setOf("plugin:com.test.uas"), repository.activeConsumers.value)
+        assertFalse(dart.subscribePcm(request, callback).accepted)
+        dart.close()
+        other.close()
+    }
+
+    @Test
+    fun dartOptOutDuringListeningCallbackDoesNotDispatchQueuedBatchAfterReenable() = runBlocking {
+        val repository = AudioCaptureRepository(context)
+        val consent = DartAudioConsent({ true }, {})
+        consent.initialize()
+        val listening = CountDownLatch(1)
+        val releaseListening = CountDownLatch(1)
+        val batch = CountDownLatch(1)
+        val callback = object : IWearTakPcmCallback.Stub() {
+            override fun onPcmStreamState(state: PcmStreamStateParcel?) {
+                if (state?.state == PcmStreamState.LISTENING) {
+                    listening.countDown()
+                    releaseListening.await(5, TimeUnit.SECONDS)
+                }
+            }
+            override fun onPcmBatch(value: PcmBatchParcel?) { batch.countDown() }
+        }
+        val dart = HostPcmControlV3Impl(
+            audioRepo = repository,
+            pluginPackage = PluginDetectionEventBridge.DART_PACKAGE,
+            expectedPluginUid = 101,
+            callerUidProvider = { 101 },
+            dispatcher = Dispatchers.IO,
+            dartAudioConsent = consent,
+        )
+        try {
+            assertTrue(dart.subscribePcm(PcmSubscriptionRequestParcel(requestedChunksPerBatch = 1), callback).accepted)
+            for (sequence in 0 until 100) {
+                repository.tryEmitChunk(chunk(sequence.toLong()))
+                if (listening.await(20, TimeUnit.MILLISECONDS)) break
+            }
+            assertEquals(0L, listening.count)
+            consent.setEnabled(false)
+            consent.setEnabled(true)
+            releaseListening.countDown()
+            assertFalse(batch.await(250, TimeUnit.MILLISECONDS))
+            assertTrue(dart.subscribePcm(PcmSubscriptionRequestParcel(), RecordingPcmCallback()).accepted)
+        } finally {
+            releaseListening.countDown()
+            dart.close()
+        }
+    }
 
     @Test
     fun subscribe_isIdempotentAndUnsubscribeReleasesLease() {

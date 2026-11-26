@@ -169,6 +169,7 @@ class DittoBleRecoveryUiTest {
                     uasPending = null,
                     findEvent = { _, _ -> null },
                     emitFeedback = { _, _ -> true },
+                    dartEnabled = false,
                     dittoWarning = if (viaPicker) BleLinkWarning.DISCONNECTED else BleLinkWarning.NONE,
                     marketUpdateAvailable = true,
                     onMarketUpdate = { openMarketUpdates(activityContext) { reviewed = true } },
