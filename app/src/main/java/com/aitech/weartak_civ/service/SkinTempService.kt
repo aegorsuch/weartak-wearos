@@ -162,7 +162,7 @@ class SkinTempService : Service() {
      */
     private val SPO2_TIMEOUT_MS: Long = 30_000L
     private val SPO2_BACKOFF_AFTER_TIMEOUT_MS: Long = 5 * 60_000L
-    // Strict 1-hour minimum gap between SpO2 attempts (monotonic)
+    // Minimum 30-second gap between SpO2 attempts (monotonic)
     private val SPO2_MIN_GAP_MS: Long = 30_000L
     private val SPO2_PPG_RED_SUSTAIN_REQUIRED_MS: Long = 30_000L
     private val SPO2_EMIT_FRESHNESS_MS: Long = 35_000L

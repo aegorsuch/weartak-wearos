@@ -81,7 +81,7 @@ class PluginConnection(
     private var apiVersionSnapshot: Int = -1
     private var hostControl: HostControlImpl? = null
     private var hostCallback: HostCallbackImpl? = null
-    private var hostPcmControlV3: HostPcmControlV3Impl? = null
+    @Volatile private var hostPcmControlV3: HostPcmControlV3Impl? = null
     @Volatile private var hostTransportV1: PluginTransportHostV1Impl? = null
     @Volatile private var hostPointEndpoint: HostPointEndpointV1? = null
     @Volatile private var hostMoppControl: HostMoppPpeControl? = null
@@ -248,6 +248,7 @@ class PluginConnection(
         hostRouteStatusControl?.close()
         hostPpgV1?.close()
         hostMoppControl?.close()
+        closeHostPcmControlV3()
         sessionActive = false
         certificateImport?.close()
         serverPackages?.close()
@@ -265,6 +266,7 @@ class PluginConnection(
         hostRouteStatusControl?.close()
         hostPpgV1?.close()
         hostMoppControl?.close()
+        closeHostPcmControlV3()
         PluginDiagnostics.recordBinderDeath(pluginPackage)
         manager.onConnectionDied(this)
     }
@@ -794,6 +796,7 @@ class PluginConnection(
         hostRouteStatusControl?.close()
         hostPpgV1?.close()
         hostMoppControl?.close()
+        closeHostPcmControlV3()
         Log.w(TAG, "onServiceDisconnected pkg=$pluginPackage")
         manager.onConnectionLost(this@PluginConnection)
     }
@@ -811,6 +814,7 @@ class PluginConnection(
         hostRouteStatusControl?.close()
         hostPpgV1?.close()
         hostMoppControl?.close()
+        closeHostPcmControlV3()
         Log.w(TAG, "onBindingDied pkg=$pluginPackage")
         manager.onConnectionLost(this)
     }
@@ -889,6 +893,13 @@ class PluginConnection(
         serverPackages?.close()
     }
 
+    private fun closeHostPcmControlV3() {
+        val control = synchronized(stateLock) {
+            hostPcmControlV3.also { hostPcmControlV3 = null }
+        }
+        control?.close()
+    }
+
     /**
      * Revokes local state immediately and schedules remote cleanup. [afterRemoteCleanup] runs
      * once remote cleanup has finished (or immediately when none is needed), so callers can keep
@@ -946,7 +957,7 @@ class PluginConnection(
             mainHandler.removeCallbacks(audioHealthTimeout)
             hostServicesV1?.close()
             hostOpenVpnServicesV1?.close()
-            hostPcmControlV3?.close()
+            closeHostPcmControlV3()
             transportToClose = hostTransportV1
             transportToClose?.prepareForPluginStop()
             transportToClose?.let {
