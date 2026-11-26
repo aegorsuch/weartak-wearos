@@ -4294,10 +4294,19 @@ class DataRepository(
         prefs[ENABLE_ONNX_GUNSHOT_SERVICE] ?: DEFAULT_ENABLE_ONNX_GUNSHOT
     }
 
+    val dartAudioConsent by lazy {
+        com.aitech.weartak_civ.integration.plugin.DartAudioConsent(
+            read = { getEnableOnnxGunshotService.first() },
+            write = { enabled ->
+                context.dataStore.edit { prefs ->
+                    prefs[ENABLE_ONNX_GUNSHOT_SERVICE] = enabled
+                }
+            },
+        )
+    }
+
     suspend fun storeEnableOnnxGunshotService(enableOnnxGunshot: Boolean) {
-        context.dataStore.edit { prefs ->
-            prefs[ENABLE_ONNX_GUNSHOT_SERVICE] = enableOnnxGunshot
-        }
+        dartAudioConsent.setEnabled(enableOnnxGunshot)
     }
 
     val getOnnxGunshotTriggerThresholdPercent: Flow<Int> = context.dataStore.data.map { prefs ->

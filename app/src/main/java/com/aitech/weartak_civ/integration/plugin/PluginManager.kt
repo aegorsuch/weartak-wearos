@@ -49,6 +49,7 @@ open class PluginManager(
     val settingsCoordinator: PluginSettingsCoordinator = PluginSettingsCoordinator(app),
     private val pluginStateStore: PluginStateStore? = null,
     private val dittoNetworkPolicyRepository: DataRepository? = null,
+    internal val dartAudioConsent: DartAudioConsent = DartAudioConsent({ false }, {}),
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val connections = ConcurrentHashMap<String, PluginConnection>()

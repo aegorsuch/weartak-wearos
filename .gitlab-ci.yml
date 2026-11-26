@@ -79,6 +79,7 @@ android_host_regression:
       --tests '*NetworkConnectivityChipTest' --tests '*NetworkConnectivityRowTest' --tests '*NetworkToggleChipSubtitleTest'
       --tests '*PluginBondLockTest' --tests '*CompanionPluginUiTest'
       --tests '*AudioDetectionPendingTest' --tests '*AudioDetectionWarningTest' --tests '*ServiceConfigurationPermissionWarningTest'
+      --tests '*DartAudioConsentTest' --tests '*HostControlV2ImplTest' --tests '*HostPcmControlV3ImplTest'
       --tests '*CrmHomeWarningTest' --tests '*CrmWarningLifecycleTest'
       --tests '*TopMetricDisplayTest' --tests '*TopMetricRecoveryTest'
       --tests '*DittoBleRecoveryUiTest' --tests '*TopMetricSettingsUiTest'
@@ -116,6 +117,7 @@ android_host_regression:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-313-alert-point-feedback" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-310-hail-core-removal" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-333-remove-core-crm" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-369-dart-opt-in" && $CI_PIPELINE_SOURCE == "push"'
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-batdok-patient-sharing" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_PIPELINE_SOURCE == "web"'
 
 verify_tak_sdk_source_access:

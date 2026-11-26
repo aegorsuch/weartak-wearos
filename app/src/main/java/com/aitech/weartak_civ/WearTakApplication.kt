@@ -199,6 +199,7 @@ class WearTakApplication : Application() {
         pluginManager = PluginManager(
             this, pluginIngress, pluginStateStore = pluginStateStore,
             dittoNetworkPolicyRepository = repo,
+            dartAudioConsent = repo.dartAudioConsent,
         )
         pluginRepository = HostPluginRepository(this, pluginManager, pluginStateStore)
         diagnostics.bindConnectivity(repo, pluginManager.settingsCoordinator)

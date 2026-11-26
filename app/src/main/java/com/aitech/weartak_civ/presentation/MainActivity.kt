@@ -2517,6 +2517,7 @@ fun MainScreen(
     }
     val pendingGunshot by gunshotDetectionRepo.pendingGunshot.collectAsStateWithLifecycle()
     val pendingUas by uasRepo.pendingUas.collectAsStateWithLifecycle()
+    val dartEnabled by dataRepository.dartAudioConsent.enabled.collectAsStateWithLifecycle()
     val dittoWarning by dataRepository.dittoBleLinkWarning.collectAsStateWithLifecycle()
     val pluginManager = (context.applicationContext as WearTakApplication).pluginManager
     val crmStatus by pluginManager.crmPluginStatus.status.collectAsStateWithLifecycle()
@@ -2552,6 +2553,7 @@ fun MainScreen(
         HomeWarningReviewHost(
             gunshotPending = pendingGunshot,
             uasPending = pendingUas,
+            dartEnabled = dartEnabled,
             findEvent = { detectorKey, uid ->
                 if (detectorKey == GunshotDetectionRepository.DETECTOR_KEY)
                     gunshotDetectionRepo.getEventFromUid(uid) else uasRepo.getEventFromUid(uid)

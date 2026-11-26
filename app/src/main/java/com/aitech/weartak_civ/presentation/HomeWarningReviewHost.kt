@@ -36,6 +36,7 @@ internal fun HomeWarningReviewHost(
     uasPending: AudioDetectionEvent?,
     findEvent: (detectorKey: String, uid: String) -> AudioDetectionEvent?,
     emitFeedback: (AudioDetectionEvent, AudioDetectionFeedback) -> Boolean,
+    dartEnabled: Boolean,
     crmWarning: CrmHomeWarning? = null,
     onCrmDetails: () -> Unit = {},
     physioWarning: HomeStatusWarning? = null,
@@ -45,7 +46,7 @@ internal fun HomeWarningReviewHost(
     onMarketUpdate: () -> Unit = {},
     content: @Composable (warnings: List<HomeStatusWarning>, onReviewWarnings: () -> Unit) -> Unit
 ) {
-    val pending = listOfNotNull(gunshotPending, uasPending)
+    val pending = listOfNotNull(gunshotPending.takeIf { dartEnabled }, uasPending)
         .sortedWith(compareByDescending<AudioDetectionEvent> { it.timestamp }
             .thenBy { it.detectorKey }.thenBy { it.uid })
     var selectedDetector by rememberSaveable { mutableStateOf<String?>(null) }
@@ -53,8 +54,8 @@ internal fun HomeWarningReviewHost(
     var shownAtMs by rememberSaveable { mutableStateOf(0L) }
     var feedbackFailed by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(gunshotPending?.uid) {
-        if (gunshotPending != null) {
+    LaunchedEffect(gunshotPending?.uid, dartEnabled) {
+        if (gunshotPending != null && dartEnabled) {
             Utils.vibrateWatch(vibDurationMs = 150, numberOfVibes = 2, timeBtwnVibesMs = 120)
         }
     }
@@ -68,6 +69,10 @@ internal fun HomeWarningReviewHost(
         selectedDetector = null
         selectedUid = null
         feedbackFailed = false
+    }
+
+    LaunchedEffect(dartEnabled) {
+        if (!dartEnabled && selectedDetector == GunshotDetectionRepository.DETECTOR_KEY) dismissReview()
     }
 
     val warnings = pending.map { event ->
@@ -153,7 +158,10 @@ internal fun HomeWarningReviewHost(
     }
 
     // Resolve the saved identity from history, never from the replaceable pending selector.
-    val event = selectedUid?.let { uid -> selectedDetector?.let { findEvent(it, uid) } }
+    val event = selectedUid?.let { uid ->
+        selectedDetector?.takeUnless { !dartEnabled && it == GunshotDetectionRepository.DETECTOR_KEY }
+            ?.let { findEvent(it, uid) }
+    }
     if (event != null) {
         fun answer(label: AudioDetectionUserLabel) {
             if (selectedUid != event.uid || selectedDetector != event.detectorKey) return
