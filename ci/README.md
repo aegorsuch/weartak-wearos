@@ -473,9 +473,9 @@ are required; an initial all-zero before SHA remains release-eligible. Official
 tag and manual signed-trial behavior is unchanged. No job rewrites README,
 creates a commit or automatically approves a draft.
 
-WearOS base version is `5.8.4`, base code `584`. CI retains the existing
-`584 * 10000 + CI_PIPELINE_IID` code and `5.8.4-p<IID>+<sha>` name convention;
-this increases codes above the previous `583` base without changing signing or
+WearOS base version is `5.9.0`, base code `590`. CI retains the existing
+`590 * 10000 + CI_PIPELINE_IID` code and `5.9.0-p<IID>+<sha>` name convention;
+this increases codes above the previous `584` base without changing signing or
 the fixed rolling-release URL.
 
 Successful **protected `main` push pipelines** from
