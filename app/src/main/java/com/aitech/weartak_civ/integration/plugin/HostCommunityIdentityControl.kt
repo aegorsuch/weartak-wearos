@@ -92,7 +92,7 @@ internal object TrustedCommunityPlugin {
         }
     }
 
-    fun supportsQuiescentReplacement(context: Context, uid: Int): Boolean {
+    fun supportsQuiescentReplacement(context: Context, uid: Int, reportedVersion: String?): Boolean {
         val pm = context.packageManager
         return try {
             val packages = pm.getPackagesForUid(uid)?.toSet() ?: return false
@@ -106,7 +106,7 @@ internal object TrustedCommunityPlugin {
             val signers = info.signingInfo?.apkContentsSigners ?: return false
             val digests = signers.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()) }
             matchesQuiescentReplacement(uid, packages, info.applicationInfo?.uid, digests,
-                info.longVersionCode, info.versionName)
+                info.longVersionCode, info.versionName, reportedVersion)
         } catch (_: PackageManager.NameNotFoundException) {
             false
         } catch (_: SecurityException) {
@@ -120,7 +120,11 @@ internal object TrustedCommunityPlugin {
 
     internal fun matchesQuiescentReplacement(
         uid: Int, packages: Set<String>, packageUid: Int?, digests: List<ByteArray>,
-        versionCode: Long, versionName: String?,
+        versionCode: Long, versionName: String?, reportedVersion: String?,
     ): Boolean = matches(uid, packages, packageUid, digests) &&
-        versionCode == 5840079L && versionName == GATE_VERSION_NAME
+        versionName == reportedVersion && when (versionCode) {
+            5840079L -> versionName == GATE_VERSION_NAME
+            5900091L -> versionName == "5.9.0-p91+f06619a8"
+            else -> false
+        }
 }
