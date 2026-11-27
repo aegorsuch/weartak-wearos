@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import platform as platform_info
 import subprocess
 import sys
 from urllib.parse import urlsplit
@@ -17,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TAK_GOV_SDK_REPOSITORY = (
     "https://git.tak.gov/weartak-plugins/weartak-plugin-sdk.git"
 )
+WEARTAK_373_SDK_COMMIT = "e9db0e6d88f2bcb23af90fa74e4b01fcc49c4dbd"
+WEARTAK_373_SDK_TREE = "fdc25c49c98a84e97b91a4fef1992386bf6223b9"
 GIT_ENVIRONMENT_KEYS = (
     "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP", "SystemRoot",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH",
@@ -129,6 +132,24 @@ def verify_hash(path, expected):
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
     if actual != expected:
         raise RuntimeError(f"Plugin SDK hash mismatch: expected {expected}, got {actual}")
+    return actual
+
+
+def validate_candidate_context(platform_name, environment):
+    if platform_name != "windows":
+        raise RuntimeError("Windows candidate checksum mode is Windows-only")
+    if (
+        environment.get("CI") != "true"
+        or environment.get("CI_SERVER_HOST") != "git.tak.gov"
+        or environment.get("CI_PROJECT_ID") != "6739"
+        or environment.get("CI_PROJECT_PATH") != "core/weartak-core/wearos-tak-civ"
+        or environment.get("CI_COMMIT_BRANCH") != "main"
+        or environment.get("CI_COMMIT_REF_PROTECTED") != "true"
+        or environment.get("CI_PIPELINE_SOURCE") not in ("push", "web")
+    ):
+        raise RuntimeError(
+            "Windows candidate checksum requires the protected Core main pipeline"
+        )
 
 
 def verify_checkout_clean(checkout):
@@ -197,6 +218,11 @@ def apply_overlay(checkout, overlay, root=ROOT):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--candidate-hash",
+        action="store_true",
+        help="Emit a non-publishing WEARTAK-373 Windows candidate checksum from protected CI",
+    )
+    parser.add_argument(
         "--local-source", type=Path,
         help="Fetch the pinned commit from an independently authenticated local Git checkout",
     )
@@ -205,8 +231,16 @@ def main():
         raise RuntimeError("--local-source is only supported outside CI")
     pin = json.loads((ROOT / "ci" / "plugin-sdk.json").read_text(encoding="utf-8"))
     platform = "windows" if os.name == "nt" else sys.platform
-    expected = pin["release_sha256"].get(platform)
-    if not expected:
+    if args.candidate_hash:
+        validate_candidate_context(platform, os.environ)
+        if args.local_source is not None:
+            raise RuntimeError("Windows candidate checksum mode does not accept local sources")
+        pin["commit"] = WEARTAK_373_SDK_COMMIT
+        pin["tree"] = WEARTAK_373_SDK_TREE
+        expected = None
+    else:
+        expected = pin["release_sha256"].get(platform)
+    if not args.candidate_hash and not expected:
         raise RuntimeError(f"No verified combined plugin SDK artifact hash for {platform}")
     overlay = pin["overlay"]
     identity = f"{pin['commit'][:12]}-{overlay['source_sha256'][:12]}"
@@ -252,8 +286,55 @@ def main():
     if platform == "linux":
         subprocess.run(["java", str(ROOT / "ci" / "NormalizeSdkAarModes.java"), str(aar)],
                        cwd=checkout, env=credential_free_environment(), check=True)
-    verify_hash(aar, expected)
-    print(f"Verified plugin SDK {pin['commit']} + overlay {overlay['source_sha256']} ({platform}): {expected}")
+    actual = hashlib.sha256(aar.read_bytes()).hexdigest()
+    if args.candidate_hash:
+        inventory_entries = [
+            line.split("  ", 1) for line in
+            (ROOT / overlay["inventory"]).read_text(encoding="ascii").splitlines()
+        ]
+        java_version = subprocess.run(
+            ["java", "-version"],
+            cwd=checkout,
+            env=credential_free_environment(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=True,
+        ).stdout.splitlines()[0]
+        report = {
+            "candidate_only": True,
+            "publishing": False,
+            "platform": platform,
+            "os_version": platform_info.platform(),
+            "core_builder_commit": os.environ["CI_COMMIT_SHA"],
+            "core_builder_tree": run("git", "rev-parse", "HEAD^{tree}", cwd=ROOT),
+            "runner_id": os.environ.get("CI_RUNNER_ID"),
+            "runner_arch": os.environ.get("CI_RUNNER_EXECUTABLE_ARCH"),
+            "python_version": platform_info.python_version(),
+            "java_version": java_version,
+            "sdk_repository": pin["repository"],
+            "sdk_commit": pin["commit"],
+            "sdk_tree": pin["tree"],
+            "overlay_archive_sha256": hashlib.sha256(
+                (ROOT / overlay["archive"]).read_bytes()
+            ).hexdigest(),
+            "overlay_inventory_sha256": hashlib.sha256(
+                (ROOT / overlay["inventory"]).read_bytes()
+            ).hexdigest(),
+            "overlay_sources": [
+                {"path": path, "sha256": digest} for digest, path in inventory_entries
+            ],
+            "aar_sha256": actual,
+        }
+        report_path = ROOT / "plugin-sdk-windows-candidate.json"
+        if report_path.is_symlink():
+            raise RuntimeError("Windows candidate report cannot be a symbolic link")
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(report, sort_keys=True))
+    else:
+        if actual != expected:
+            raise RuntimeError(f"Plugin SDK hash mismatch: expected {expected}, got {actual}")
+        print(f"Verified plugin SDK {pin['commit']} + overlay {overlay['source_sha256']} ({platform}): {expected}")
     print(f"AAR: {aar}")
 
 

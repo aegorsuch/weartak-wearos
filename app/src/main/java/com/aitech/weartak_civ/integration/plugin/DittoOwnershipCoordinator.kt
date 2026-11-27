@@ -14,6 +14,9 @@ private fun isCanonicalUuid(value: String): Boolean = try {
     false
 }
 
+internal fun isCanonicalDittoIncarnationId(value: String?): Boolean =
+    value != null && value.length == 32 && value.all { it in '0'..'9' || it in 'a'..'f' }
+
 /**
  * Host-process durable ownership fence. Proof providers are deliberately supplied by callers;
  * this process-local coordinator does not treat Binder replies, disconnects, or missing state
@@ -35,7 +38,14 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
         init {
             require(isCanonicalUuid(sessionId))
             require(generation > 0)
-            require(isCanonicalUuid(incarnationId))
+            require(isCanonicalDittoIncarnationId(incarnationId))
+        }
+    }
+
+    data class AcquisitionIntent(val sessionId: String, val incarnationId: String) {
+        init {
+            require(isCanonicalUuid(sessionId))
+            require(isCanonicalDittoIncarnationId(incarnationId))
         }
     }
 
@@ -44,6 +54,7 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
         val lease: Lease? = null,
         val operationId: String? = null,
         val everGranted: Boolean = false,
+        val acquisitionIntent: AcquisitionIntent? = null,
     )
 
     fun interface FreshInstallVerifier {
@@ -66,6 +77,8 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
     private var snapshot = load()
     private var revision = 0L
     private var inFlight = 0
+    private var pendingAcquireIntent: AcquisitionIntent? = null
+    private var grantableLease: Lease? = null
     private var drain = completedDrain()
 
     init {
@@ -107,30 +120,77 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
         if (snapshot.phase != Phase.UNSUPPORTED) {
             persist(snapshot.copy(phase = Phase.UNSUPPORTED))
         }
+        pendingAcquireIntent = null
+        grantableLease = null
         true
     }
 
-    /** Persists uncertainty before callers perform any side-effectful remote operation. */
-    fun beginAcquire(lease: Lease): Boolean = synchronized(lock) {
-        if (snapshot.phase != Phase.CLEAN || inFlight != 0 || snapshot.lease == lease) {
-            return@synchronized false
+    /** Persists the acquire intent before callers invoke any side-effectful remote operation. */
+    fun beginAcquireIntent(sessionId: String, incarnationId: String): Boolean {
+        if (!isCanonicalUuid(sessionId) || !isCanonicalDittoIncarnationId(incarnationId)) {
+            return false
         }
-        drain = completedDrain()
-        persist(snapshot.copy(phase = Phase.UNCERTAIN, lease = lease, operationId = null))
-        true
+        val intent = AcquisitionIntent(sessionId, incarnationId)
+        return synchronized(lock) {
+            if (snapshot.phase != Phase.CLEAN || inFlight != 0) return@synchronized false
+            val previousLease = snapshot.lease
+            if (previousLease?.sessionId == sessionId &&
+                previousLease.incarnationId == incarnationId
+            ) return@synchronized false
+            drain = completedDrain()
+            persist(
+                snapshot.copy(
+                    phase = Phase.UNCERTAIN,
+                    lease = null,
+                    operationId = null,
+                    everGranted = false,
+                    acquisitionIntent = intent,
+                ),
+            )
+            pendingAcquireIntent = intent
+            grantableLease = null
+            true
+        }
+    }
+
+    /** Binds a successful acquire reply to intent persisted before the remote call. */
+    fun recordAcquiredLease(
+        sessionId: String,
+        generation: Long,
+        incarnationId: String,
+    ): Boolean {
+        if (generation <= 0 || !isCanonicalUuid(sessionId) ||
+            !isCanonicalDittoIncarnationId(incarnationId)
+        ) return false
+        val lease = Lease(sessionId, generation, incarnationId)
+        return synchronized(lock) {
+            val intent = snapshot.acquisitionIntent
+            if (snapshot.phase != Phase.UNCERTAIN || intent == null ||
+                pendingAcquireIntent != intent ||
+                intent.sessionId != sessionId || intent.incarnationId != incarnationId ||
+                snapshot.operationId != null || snapshot.everGranted
+            ) return@synchronized false
+            persist(snapshot.copy(lease = lease, acquisitionIntent = null))
+            pendingAcquireIntent = null
+            grantableLease = lease
+            true
+        }
     }
 
     fun confirmVerifiedGrant(lease: Lease, verifier: GrantVerifier): Boolean {
         val verifiedRevision = synchronized(lock) {
             if (snapshot.phase != Phase.UNCERTAIN || snapshot.lease != lease ||
-                snapshot.operationId != null
+                snapshot.acquisitionIntent != null ||
+                snapshot.operationId != null || snapshot.everGranted ||
+                grantableLease != lease
             ) return@synchronized null
             revision
         } ?: return false
         if (!verifier.verify(lease)) return false
         return synchronized(lock) {
             if (revision != verifiedRevision || snapshot.phase != Phase.UNCERTAIN ||
-                snapshot.lease != lease ||
+                snapshot.lease != lease || snapshot.acquisitionIntent != null ||
+                snapshot.everGranted || grantableLease != lease ||
                 snapshot.operationId != null
             ) {
                 return@synchronized false
@@ -165,6 +225,7 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
             }
             drain = CompletableDeferred()
             persist(snapshot.copy(phase = Phase.DRAINING, operationId = operationId))
+            grantableLease = null
             completeDrain = inFlight == 0
             drain
         }
@@ -185,6 +246,8 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
             } else {
                 revision += 1
             }
+            pendingAcquireIntent = null
+            grantableLease = null
             completeDrain = inFlight == 0
             true
         }
@@ -208,6 +271,7 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
                 snapshot.operationId != operationId || inFlight != 0 || !drain.isCompleted
             ) return@synchronized false
             persist(snapshot.copy(phase = Phase.CLEAN, operationId = null))
+            grantableLease = null
             true
         }
     }
@@ -233,8 +297,22 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
         if (raw.toByteArray(Charsets.UTF_8).size > MAX_BYTES) return Snapshot(Phase.CORRUPT)
         return try {
             val root = JSONObject(raw)
-            require(root.keys().asSequence().toSet() == ROOT_KEYS)
-            require(root.get("version") == VERSION)
+            val version = root.get("version")
+            val acquisitionIntent = when (version) {
+                1 -> {
+                    require(root.keys().asSequence().toSet() == ROOT_KEYS_V1)
+                    null
+                }
+                VERSION -> {
+                    require(root.keys().asSequence().toSet() == ROOT_KEYS_V2)
+                    if (root.isNull("acquisitionIntent")) {
+                        null
+                    } else {
+                        readAcquisitionIntent(root.getJSONObject("acquisitionIntent"))
+                    }
+                }
+                else -> throw IllegalArgumentException("Invalid ownership journal version")
+            }
             val phase = Phase.valueOf(root.getString("phase"))
             require(phase !in setOf(
                 Phase.UNINITIALIZED, Phase.CORRUPT, Phase.STORAGE_ERROR,
@@ -244,7 +322,7 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
             val everGranted = root.get("everGranted") as? Boolean
                 ?: throw IllegalArgumentException("Invalid ownership journal")
             if (operationId != null) require(isCanonicalUuid(operationId))
-            validate(Snapshot(phase, lease, operationId, everGranted))
+            validate(Snapshot(phase, lease, operationId, everGranted, acquisitionIntent))
         } catch (_: JSONException) {
             Snapshot(Phase.CORRUPT)
         } catch (_: IllegalArgumentException) {
@@ -263,6 +341,14 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
         )
     }
 
+    private fun readAcquisitionIntent(value: JSONObject): AcquisitionIntent {
+        require(value.keys().asSequence().toSet() == ACQUISITION_INTENT_KEYS)
+        return AcquisitionIntent(
+            value.getString("sessionId"),
+            value.getString("incarnationId"),
+        )
+    }
+
     private fun exactLong(value: Any): Long {
         return when (value) {
             is Int -> value.toLong()
@@ -273,27 +359,38 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
 
     private fun validate(value: Snapshot): Snapshot {
         when (value.phase) {
-            Phase.UNCERTAIN ->
-                require(value.lease != null)
+            Phase.UNCERTAIN -> {
+                if (value.acquisitionIntent == null) {
+                    require(value.lease != null)
+                } else {
+                    require(value.lease == null)
+                    require(value.operationId == null)
+                    require(!value.everGranted)
+                }
+            }
             Phase.ACTIVE -> {
                 require(value.lease != null)
                 require(value.everGranted)
                 require(value.operationId == null)
+                require(value.acquisitionIntent == null)
             }
             Phase.DRAINING -> {
                 require(value.lease != null)
                 require(value.everGranted)
                 require(value.operationId != null)
+                require(value.acquisitionIntent == null)
             }
             Phase.CLEAN, Phase.UNSUPPORTED -> {
                 require(value.operationId == null)
                 if (value.lease != null) require(value.everGranted)
+                require(value.acquisitionIntent == null)
             }
             Phase.UNINITIALIZED, Phase.CORRUPT, Phase.STORAGE_ERROR ->
                 throw IllegalArgumentException("Invalid persisted ownership phase")
         }
         if (value.everGranted) require(value.lease != null)
         if (value.operationId != null) require(value.everGranted)
+        if (value.acquisitionIntent != null) require(value.phase == Phase.UNCERTAIN)
         return value
     }
 
@@ -311,6 +408,14 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
             .put("lease", lease)
             .put("operationId", value.operationId ?: JSONObject.NULL)
             .put("everGranted", value.everGranted)
+            .put(
+                "acquisitionIntent",
+                value.acquisitionIntent?.let {
+                    JSONObject()
+                        .put("sessionId", it.sessionId)
+                        .put("incarnationId", it.incarnationId)
+                } ?: JSONObject.NULL,
+            )
             .toString()
         require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_BYTES)
         val committed = try {
@@ -329,7 +434,15 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
 
     private fun storageFailed() {
         val previous = snapshot
-        snapshot = Snapshot(Phase.STORAGE_ERROR, previous.lease, previous.operationId, previous.everGranted)
+        snapshot = Snapshot(
+            Phase.STORAGE_ERROR,
+            previous.lease,
+            previous.operationId,
+            previous.everGranted,
+            previous.acquisitionIntent,
+        )
+        pendingAcquireIntent = null
+        grantableLease = null
         revision += 1
         if (drain.isCompleted) drain = CompletableDeferred()
         if (inFlight == 0) drain.complete(Unit)
@@ -339,9 +452,11 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
 
     private companion object {
         const val KEY = "ditto-ownership-journal-v1"
-        const val VERSION = 1
+        const val VERSION = 2
         const val MAX_BYTES = 2048
-        val ROOT_KEYS = setOf("version", "phase", "lease", "operationId", "everGranted")
+        val ROOT_KEYS_V1 = setOf("version", "phase", "lease", "operationId", "everGranted")
+        val ROOT_KEYS_V2 = ROOT_KEYS_V1 + "acquisitionIntent"
         val LEASE_KEYS = setOf("sessionId", "generation", "incarnationId")
+        val ACQUISITION_INTENT_KEYS = setOf("sessionId", "incarnationId")
     }
 }
