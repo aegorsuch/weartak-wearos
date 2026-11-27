@@ -251,6 +251,25 @@ class DittoOwnershipCoordinatorTest {
     }
 
     @Test
+    fun impossibleJournalPhaseCombinationsAreCorrupt() {
+        val leaseJson =
+            """"lease":{"sessionId":"00000000-0000-0000-0000-000000000001","generation":1,"incarnationId":"00000000-0000-0001-0000-000000000001"}"""
+        val invalidStates = listOf(
+            """{"version":1,"phase":"CLEAN",$leaseJson,"operationId":null,"everGranted":false}""",
+            """{"version":1,"phase":"ACTIVE",$leaseJson,"operationId":"00000000-0000-0000-0000-000000000002","everGranted":true}""",
+        )
+
+        invalidStates.forEach { raw ->
+            val prefs = preferences()
+            assertTrue(prefs.edit().putString("ditto-ownership-journal-v1", raw).commit())
+            assertEquals(
+                DittoOwnershipCoordinator.Phase.CORRUPT,
+                DittoOwnershipCoordinator(prefs).snapshot().phase,
+            )
+        }
+    }
+
+    @Test
     fun failedJournalCommitPoisonsCoordinator() {
         val delegate = preferences()
         val failing = object : SharedPreferences by delegate {

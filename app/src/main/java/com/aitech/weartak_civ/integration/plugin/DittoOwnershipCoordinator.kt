@@ -273,17 +273,27 @@ internal class DittoOwnershipCoordinator(private val preferences: SharedPreferen
 
     private fun validate(value: Snapshot): Snapshot {
         when (value.phase) {
+            Phase.UNCERTAIN ->
+                require(value.lease != null)
+            Phase.ACTIVE -> {
+                require(value.lease != null)
+                require(value.everGranted)
+                require(value.operationId == null)
+            }
+            Phase.DRAINING -> {
+                require(value.lease != null)
+                require(value.everGranted)
+                require(value.operationId != null)
+            }
+            Phase.CLEAN, Phase.UNSUPPORTED -> {
+                require(value.operationId == null)
+                if (value.lease != null) require(value.everGranted)
+            }
             Phase.UNINITIALIZED, Phase.CORRUPT, Phase.STORAGE_ERROR ->
                 throw IllegalArgumentException("Invalid persisted ownership phase")
-            Phase.UNCERTAIN, Phase.ACTIVE, Phase.DRAINING ->
-                require(value.lease != null)
-            Phase.CLEAN, Phase.UNSUPPORTED -> Unit
         }
-        if (value.phase == Phase.ACTIVE || value.phase == Phase.DRAINING) {
-            require(value.everGranted)
-        }
-        if (value.phase == Phase.DRAINING) require(value.operationId != null)
-        if (value.operationId != null) require(value.lease != null)
+        if (value.everGranted) require(value.lease != null)
+        if (value.operationId != null) require(value.everGranted)
         return value
     }
 
