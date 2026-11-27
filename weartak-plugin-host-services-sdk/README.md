@@ -34,18 +34,25 @@ same pinned source commit. The resulting Kotlin metadata targets 2.0.
 ## Ditto runtime handoff
 
 Ditto ownership and runtime contracts come from the public `weartak-plugin-sdk`;
-this module does not define or duplicate them. The integration target is the
-single `IDittoRuntimeV1` service. Do not bind the legacy discovery interface or
-a separate ownership endpoint.
+this module does not define or duplicate them. The current stable handoff design
+uses separate plugin-owned incarnation and drain endpoints. Their service and
+permission identifiers remain draft until the SDK candidate and implementation
+are qualified; do not bind the dormant `IDittoRuntimeV1` or legacy discovery
+interface.
 
-Runtime binding, lease acquisition, identity loading and plugin activation remain
-disabled while the handoff restriction is unresolved. Before attempting native
-quiescence, the WearOS host must persist a restart fence. Keep the bundled engine
-fenced after process restart, malformed fence state, Binder death, timeout or
-uncertain release. Binder loss or a lease result alone does not prove plugin
-native teardown; never clear the fence or resume fallback until plugin shutdown
-and release are independently verified. Preserve the existing bundled Ditto
-behavior when the shared plugin is absent or incompatible.
+Stable-runtime binding, lease acquisition, identity loading through the new
+service and activation remain disabled while the handoff restriction is
+unresolved; existing p79/p91 legacy paths remain unchanged. Before attempting
+native quiescence, the WearOS host must durably record uncertainty. A persisted
+clean terminal state permits ordinary restart without resetting identity or store;
+active or draining state recovered after process death becomes uncertain.
+Missing or malformed state and unsupported protocol are distinct from clean
+state and cannot authorize fallback. Binder loss or a lease result alone does
+not prove plugin native teardown; only independent, qualified evidence may
+clear uncertainty. Core's `DittoOwnershipCoordinator` implements the journal
+and process-local admission fence, but has no production caller, interprocess
+lock or evidence verifier; it does not activate this draft. Preserve existing
+legacy behavior until the complete ownership transition is qualified.
 
 `FencedOwnership` is only an in-memory helper; it is not authorization,
 cross-host exclusion or shutdown proof.

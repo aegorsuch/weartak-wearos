@@ -37,7 +37,7 @@ android_host_regression:
       :app:assembleDebug :app:testDebugUnitTest
       --tests '*HostMoppPpeControlTest' --tests '*CompanionSelfStatusTest'
       --tests '*MoppSettingsTest' --tests '*SelfStatusRemarksTest'
-      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest' --tests '*PluginTrustSenderBindingTest' --tests '*HostCommunityIdentityControlTest' --tests '*DittoPdlModeTest' --tests '*DittoMeshPermissionsTest'
+      --tests '*PluginConnectionBinderDeathTest' --tests '*PluginConnectionBindTrustTest' --tests '*PluginTrustSenderBindingTest' --tests '*HostCommunityIdentityControlTest' --tests '*DittoPdlModeTest' --tests '*DittoMeshPermissionsTest' --tests '*DittoOwnershipCoordinatorTest'
       --tests '*ManagedHailPolicyCacheTest' --tests '*HailPliPolicyTest' --tests '*PliDetailRegistryTest' --tests '*PliDetailXmlTest'
       --tests '*PluginManagerLifecycleMockTest' --tests '*PluginUiModelsTest'
       --tests '*PluginStateStoreTest' --tests '*PluginPackageRemoved*Test'
@@ -142,6 +142,39 @@ compute_combined_plugin_sdk_checksum:
     - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_COMMIT_BRANCH == "aegorsuch-weartak-310-hail-core-removal"'
       when: manual
       allow_failure: false
+
+qualify_weartak_373_plugin_sdk_checksum:
+  extends: .artifactory_credentials
+  stage: test
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - |
+      set -eu
+      SDK_COMMIT=e9db0e6d88f2bcb23af90fa74e4b01fcc49c4dbd
+      SDK_TREE=fdc25c49c98a84e97b91a4fef1992386bf6223b9
+      TEMP_PIN=$(mktemp)
+      trap 'rm -f "$TEMP_PIN"' EXIT
+      jq --arg commit "$SDK_COMMIT" --arg tree "$SDK_TREE" \
+        '.commit = $commit | .tree = $tree' ci/plugin-sdk.json > "$TEMP_PIN"
+      mv "$TEMP_PIN" ci/plugin-sdk.json
+      OVERLAY_ARCHIVE=$(jq -er .overlay.archive ci/plugin-sdk.json)
+      OVERLAY_INVENTORY=$(jq -er .overlay.inventory ci/plugin-sdk.json)
+      printf 'SDK candidate commit: %s\nSDK candidate tree: %s\n' "$SDK_COMMIT" "$SDK_TREE"
+      printf 'Core builder commit: %s\nCore builder tree: %s\n' \
+        "$CI_COMMIT_SHA" "$(git rev-parse 'HEAD^{tree}')"
+      printf 'Runner platform: %s/%s\n' "$(uname -s)" "$(uname -m)"
+      printf 'Overlay archive and inventory hashes:\n'
+      sha256sum "$OVERLAY_ARCHIVE" "$OVERLAY_INVENTORY"
+      printf 'Overlay per-file hashes:\n'
+      cat "$OVERLAY_INVENTORY"
+      sh ci/build_plugin_sdk.sh --checksum-only
+  rules:
+    - if: '$CI_SERVER_HOST == "git.tak.gov" && $CI_PROJECT_ID == "6739" && $CI_PROJECT_PATH == "core/weartak-core/wearos-tak-civ" && $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "aegorsuch-weartak-373-ditto-ownership-core"'
+      when: manual
+      allow_failure: false
+    - when: never
 
 validate_tak_sdk_host_pair:
   extends: .artifactory_credentials
