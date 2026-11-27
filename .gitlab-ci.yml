@@ -152,7 +152,7 @@ qualify_weartak_373_plugin_sdk_checksum:
   script:
     - |
       set -eu
-      SDK_COMMIT=c535a5f07bbd78c62cc9d2d44ce58139dd30e542
+      SDK_COMMIT=e9db0e6d88f2bcb23af90fa74e4b01fcc49c4dbd
       SDK_TREE=fdc25c49c98a84e97b91a4fef1992386bf6223b9
       TEMP_PIN=$(mktemp)
       trap 'rm -f "$TEMP_PIN"' EXIT
