@@ -130,9 +130,19 @@ class HostCommunityIdentityControlTest {
         val digest = "1579b600cd84e619e76a91c2db6b031938c999bc2aad926b9a51ec2b166d348d"
             .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         val packages = setOf(TrustedCommunityPlugin.PACKAGE)
-        fun matches(code: Long, name: String?, signers: List<ByteArray> = listOf(digest)) =
-            TrustedCommunityPlugin.matchesQuiescentReplacement(42, packages, 42, signers, code, name)
+        fun matches(code: Long, name: String?, signers: List<ByteArray> = listOf(digest),
+            reported: String? = name) =
+            TrustedCommunityPlugin.matchesQuiescentReplacement(42, packages, 42, signers, code, name, reported)
         assertTrue(matches(5840079, "5.8.4-p79+82730d83"))
+        assertTrue(matches(5900091, "5.9.0-p91+f06619a8"))
+        assertFalse(matches(5840079, "5.9.0-p91+f06619a8"))
+        assertFalse(matches(5900091, "5.8.4-p79+82730d83"))
+        assertFalse(matches(5900091, "5.9.0-p91+different"))
+        assertFalse(matches(5900091, "5.9.0-p91+f06619a8", reported = "5.8.4-p79+82730d83"))
+        assertFalse(matches(5840079, "5.8.4-p79+82730d83", reported = "5.9.0-p91+f06619a8"))
+        assertFalse(matches(5900091, "5.9.0-p91+f06619a8", reported = null))
+        assertFalse(matches(5900091, "5.9.0-p91+f06619a8", listOf(ByteArray(32))))
+        assertFalse(matches(5900091, "5.9.0-p91+f06619a8", listOf(digest, digest)))
         assertFalse(matches(5840035, "5.8.4-p35+d981f7a5"))
         assertFalse(matches(5840051, "5.8.4-p51+fb070252"))
         assertFalse(matches(5840056, "5.8.4-p56+e966b948"))
@@ -149,9 +159,13 @@ class HostCommunityIdentityControlTest {
         assertFalse(matches(5840079, null))
         assertFalse(matches(5840079, "5.8.4-p79+82730d83", listOf(digest, digest)))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages + "other", 42, listOf(digest), 5840079, "5.8.4-p79+82730d83"))
+            42, packages + "other", 42, listOf(digest), 5840079, "5.8.4-p79+82730d83", "5.8.4-p79+82730d83"))
         assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
-            42, packages, 43, listOf(digest), 5840079, "5.8.4-p79+82730d83"))
+            42, packages, 43, listOf(digest), 5840079, "5.8.4-p79+82730d83", "5.8.4-p79+82730d83"))
+        assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
+            42, setOf("other"), 42, listOf(digest), 5900091, "5.9.0-p91+f06619a8", "5.9.0-p91+f06619a8"))
+        assertFalse(TrustedCommunityPlugin.matchesQuiescentReplacement(
+            42, packages, 43, listOf(digest), 5900091, "5.9.0-p91+f06619a8", "5.9.0-p91+f06619a8"))
     }
 
     @Test fun boundDittoPluginDoesNotReceiveLegacyIdentityControl() {
@@ -206,7 +220,44 @@ class HostCommunityIdentityControlTest {
         }
     }
 
+    @Test fun pluginOnlyStartupRejectsReportedVersionMismatch() {
+        val packageName = TrustedCommunityPlugin.PACKAGE
+        val app = mockk<WearTakApplication>(relaxed = true)
+        val ingress = mockk<PluginIngressPort>(relaxed = true)
+        every { ingress.packagesForUid(app, Process.myUid()) } returns setOf(packageName)
+        val manager = mockk<PluginManager>(relaxed = true)
+        val component = ComponentName(packageName, ".PluginService")
+        val connection = PluginConnection(app, ingress, component, Process.myUid(), manager,
+            mockk<PluginTrust>(relaxed = true), pluginOnlyEnabled = { true })
+        val plugin = object : FakeWearTakPlugin(packageName, apiVersion = 2) {
+            override fun getPluginInfo() = com.weartak.plugin.sdk.model.PluginInfoParcel(
+                pluginId = packageName, displayName = "Fake",
+                versionName = "5.9.0-p91+f06619a8", packageName = packageName,
+            )
+        }
+        mockkObject(TrustedCommunityPlugin)
+        every {
+            TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid(), "5.9.0-p91+f06619a8")
+        } returns false
+        try {
+            connection.onServiceConnected(component, plugin.asBinder())
+            awaitPluginLifecycle(packageName)
+            assertEquals(0, plugin.initializePluginV2Calls)
+            verify { manager.onConnectionFailed(connection, "ditto_runtime_version_unverified") }
+        } finally {
+            connection.tearDownBinder("test")
+            awaitPluginLifecycle(packageName)
+            unmockkObject(TrustedCommunityPlugin)
+        }
+    }
+
     @Test fun pluginOnlyStartupProvidesDeviceStatusWithoutHostIdentity() {
+        for (version in listOf(TrustedCommunityPlugin.GATE_VERSION_NAME, "5.9.0-p91+f06619a8")) {
+            checkPluginOnlyStartup(version)
+        }
+    }
+
+    private fun checkPluginOnlyStartup(version: String) {
         val packageName = TrustedCommunityPlugin.PACKAGE
         val app = mockk<WearTakApplication>(relaxed = true)
         val context = org.robolectric.RuntimeEnvironment.getApplication()
@@ -258,7 +309,7 @@ class HostCommunityIdentityControlTest {
         val plugin = object : FakeWearTakPlugin(packageName, apiVersion = 2) {
             override fun getPluginInfo() = com.weartak.plugin.sdk.model.PluginInfoParcel(
                 pluginId = packageName, displayName = "Fake",
-                versionName = TrustedCommunityPlugin.GATE_VERSION_NAME, packageName = packageName,
+                versionName = version, packageName = packageName,
             )
             private lateinit var control: IWearTakPluginControl
             private lateinit var transport: IPluginTransportHostV1
@@ -303,7 +354,10 @@ class HostCommunityIdentityControlTest {
         mockkObject(TAKConnectService.Companion)
         every { TAKConnectService.isAnyTakConnected } returns false
         every { TrustedCommunityPlugin.verify(app, Process.myUid()) } returns true
-        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid()) } returns true
+        var installedVersion = version
+        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid(), any()) } answers {
+            thirdArg<String?>() == installedVersion
+        }
         try {
             fun nextTransition(): String? {
                 val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
@@ -339,7 +393,11 @@ class HostCommunityIdentityControlTest {
             assertEquals("start", nextTransition())
             assertNotEquals(oldSession, plugin.sessionId)
             assertEquals(plugin.sessionId, connection.quiescentReplacementSession())
-            every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid()) } returns false
+            installedVersion = if (version == TrustedCommunityPlugin.GATE_VERSION_NAME) {
+                "5.9.0-p91+f06619a8"
+            } else {
+                TrustedCommunityPlugin.GATE_VERSION_NAME
+            }
             assertNull(connection.quiescentReplacementSession())
             pluginOnlyEnabled = false
             assertEquals(PointContractV1.REGISTER_UNAUTHORIZED, pointHost.register("stale", pointPlugin))

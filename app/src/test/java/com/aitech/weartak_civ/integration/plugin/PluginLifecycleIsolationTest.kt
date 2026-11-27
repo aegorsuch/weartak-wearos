@@ -292,7 +292,7 @@ class PluginLifecycleIsolationTest {
         mockkObject(TAKConnectService.Companion)
         every { TAKConnectService.isAnyTakConnected } returns false
         every { TrustedCommunityPlugin.verify(app, Process.myUid()) } returns true
-        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid()) } returns true
+        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid(), TrustedCommunityPlugin.GATE_VERSION_NAME) } returns true
         val manager = manager(repository)
         fun awaitStart(latch: CountDownLatch) {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
@@ -460,7 +460,7 @@ class PluginLifecycleIsolationTest {
         mockkObject(TAKConnectService.Companion)
         every { TAKConnectService.isAnyTakConnected } returns false
         every { TrustedCommunityPlugin.verify(app, Process.myUid()) } returns true
-        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid()) } returns true
+        every { TrustedCommunityPlugin.supportsQuiescentReplacement(app, Process.myUid(), TrustedCommunityPlugin.GATE_VERSION_NAME) } returns true
         val manager = manager(repository)
         try {
             withTimeout(5_000) { manager.dittoNetworkPolicyLoaded.first { it } }

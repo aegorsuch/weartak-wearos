@@ -182,8 +182,8 @@ class PluginConnection(
 
     internal fun quiescentReplacementSession(): String? = synchronized(stateLock) {
         if (!dittoCotAvailable() ||
-            pluginInfoSnapshot?.versionName != TrustedCommunityPlugin.GATE_VERSION_NAME ||
-            !TrustedCommunityPlugin.supportsQuiescentReplacement(app, pluginUid)) return@synchronized null
+            !TrustedCommunityPlugin.supportsQuiescentReplacement(
+                app, pluginUid, pluginInfoSnapshot?.versionName)) return@synchronized null
         hostTransportV1?.activeGeneralDittoSession()
     }
 
@@ -426,8 +426,7 @@ class PluginConnection(
         val pluginOnlyProfile = pluginPackage == TrustedCommunityPlugin.PACKAGE && pluginOnlyEnabled()
         dittoUsesPluginOnlyLifecycle = pluginOnlyProfile
         if (pluginOnlyProfile && (!deathLinked ||
-                info.versionName != TrustedCommunityPlugin.GATE_VERSION_NAME ||
-                !TrustedCommunityPlugin.supportsQuiescentReplacement(app, pluginUid))) {
+                !TrustedCommunityPlugin.supportsQuiescentReplacement(app, pluginUid, info.versionName))) {
             Log.e(TAG, "Ditto plugin lacks verified runtime exclusion pkg=$pluginPackage")
             postFailure("ditto_runtime_version_unverified")
             return
@@ -456,7 +455,7 @@ class PluginConnection(
                 manager.dittoTrafficFence.currentGeneration() == dittoTrafficGeneration &&
                 !closed && trustVerified && pluginBinder === service && service.isBinderAlive &&
                 manager.connectionFor(pluginPackage) === this &&
-                TrustedCommunityPlugin.supportsQuiescentReplacement(app, pluginUid)
+                TrustedCommunityPlugin.supportsQuiescentReplacement(app, pluginUid, info.versionName)
         }
         val control = HostControlImpl(
             app, ingress, pluginPackage, pluginUid, isActive = { !closed },
