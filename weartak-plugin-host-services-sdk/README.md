@@ -43,16 +43,30 @@ interface.
 Stable-runtime binding, lease acquisition, identity loading through the new
 service and activation remain disabled while the handoff restriction is
 unresolved; existing p79/p91 legacy paths remain unchanged. Before attempting
-native quiescence, the WearOS host must durably record uncertainty. A persisted
+native quiescence or calling effectful lease acquisition, the WearOS host must
+durably record an intent for the host session token and incarnation. It binds
+the returned generation only after a successful acquire reply; lost or
+ambiguous replies leave an unresolved intent and cannot start another acquire.
+A persisted
 clean terminal state permits ordinary restart without resetting identity or store;
 active or draining state recovered after process death becomes uncertain.
 Missing or malformed state and unsupported protocol are distinct from clean
 state and cannot authorize fallback. Binder loss or a lease result alone does
 not prove plugin native teardown; only independent, qualified evidence may
 clear uncertainty. Core's `DittoOwnershipCoordinator` implements the journal
-and process-local admission fence, but has no production caller, interprocess
-lock or evidence verifier; it does not activate this draft. Preserve existing
-legacy behavior until the complete ownership transition is qualified.
+and process-local admission fence, and `DittoHostWitnessAuthority` contains
+Core-side grant/status logic. Neither has a production caller, cross-process
+adapter or evidence verifier; neither activates this draft. A previously
+granted lease recovered as uncertain cannot be re-granted under the same tuple.
+During a matching drain, death of the exact registered worker-lifetime Binder is
+necessary but not sufficient for clean state; independent host-egress and
+broker/worker drain evidence is also required. Unexpected lifetime death remains
+uncertain.
+Preserve existing legacy behavior until the complete ownership transition is
+qualified.
+The host-generated incarnation ID is 128-bit random data encoded as 32
+lowercase hexadecimal characters; its witness must bind the exact live session
+Binder, generation, incarnation, connection, and worker lifetime Binder.
 
 `FencedOwnership` is only an in-memory helper; it is not authorization,
 cross-host exclusion or shutdown proof.
