@@ -58,6 +58,10 @@ and process-local admission fence, and `DittoHostWitnessAuthority` contains
 Core-side grant/status logic. Neither has a production caller, cross-process
 adapter or evidence verifier; neither activates this draft. A previously
 granted lease recovered as uncertain cannot be re-granted under the same tuple.
+During a matching drain, death of the exact registered worker-lifetime Binder is
+necessary but not sufficient for clean state; independent host-egress and
+broker/worker drain evidence is also required. Unexpected lifetime death remains
+uncertain.
 Preserve existing legacy behavior until the complete ownership transition is
 qualified.
 The host-generated incarnation ID is 128-bit random data encoded as 32

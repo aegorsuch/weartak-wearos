@@ -13,10 +13,19 @@ class WindowsCandidateChecksumContextTests(unittest.TestCase):
             "CI_COMMIT_BRANCH": "main",
             "CI_COMMIT_REF_PROTECTED": "true",
             "CI_PIPELINE_SOURCE": "push",
+            "CI_JOB_ID": "8049000",
+            "CI_PIPELINE_ID": "1892700",
         }
 
     def test_only_protected_core_main_pipeline_is_allowed(self):
         builder.validate_candidate_context("windows", self.environment)
+
+    def test_candidate_build_is_forced_uncached_but_normal_build_is_unchanged(self):
+        candidate = builder.build_arguments("gradlew.bat", candidate=True)
+        normal = builder.build_arguments("gradlew.bat")
+        for flag in ("--rerun-tasks", "--no-build-cache", "--no-configuration-cache"):
+            self.assertIn(flag, candidate)
+            self.assertNotIn(flag, normal)
 
     def test_rejects_non_windows_execution(self):
         with self.assertRaises(RuntimeError):
@@ -33,5 +42,13 @@ class WindowsCandidateChecksumContextTests(unittest.TestCase):
             with self.subTest(key=key, value=value):
                 environment = dict(self.environment)
                 environment[key] = value
+                with self.assertRaises(RuntimeError):
+                    builder.validate_candidate_context("windows", environment)
+
+    def test_requires_ci_job_and_pipeline_provenance(self):
+        for key in ("CI_JOB_ID", "CI_PIPELINE_ID"):
+            with self.subTest(key=key):
+                environment = dict(self.environment)
+                environment.pop(key)
                 with self.assertRaises(RuntimeError):
                     builder.validate_candidate_context("windows", environment)

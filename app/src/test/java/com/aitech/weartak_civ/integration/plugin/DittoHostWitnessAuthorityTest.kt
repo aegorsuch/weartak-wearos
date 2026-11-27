@@ -4,6 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Binder
+import android.os.IBinder
+import io.mockk.every
+import io.mockk.mockk
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.*
@@ -27,6 +30,21 @@ class DittoHostWitnessAuthorityTest {
         number,
         number.toString(16).padStart(32, '0'),
     )
+
+    private fun lifetimeBinder(): Pair<IBinder, () -> Unit> {
+        var alive = true
+        var deathRecipient: IBinder.DeathRecipient? = null
+        val binder = mockk<IBinder>(relaxed = true)
+        every { binder.isBinderAlive } answers { alive }
+        every { binder.linkToDeath(any(), any()) } answers {
+            deathRecipient = firstArg()
+        }
+        every { binder.unlinkToDeath(any(), any()) } returns true
+        return binder to {
+            alive = false
+            requireNotNull(deathRecipient).binderDied()
+        }
+    }
 
     private data class Fixture(
         val coordinator: DittoOwnershipCoordinator,
@@ -189,7 +207,7 @@ class DittoHostWitnessAuthorityTest {
     fun cleanStopRetiresWitnessOnlyAfterIndependentProof() {
         val fixture = fixture()
         val lease = fixture.binding.lease
-        val lifetime = Binder()
+        val (lifetime, die) = lifetimeBinder()
         assertEquals(
             DittoHostWitnessAuthority.Status.GRANTED,
             fixture.authority.register(
@@ -199,6 +217,14 @@ class DittoHostWitnessAuthorityTest {
         )
         val operationId = UUID.randomUUID().toString()
         assertTrue(requireNotNull(fixture.authority.beginDrain(lease, operationId)).isCompleted)
+        die()
+        assertEquals(
+            DittoHostWitnessAuthority.Status.REVOKED,
+            fixture.authority.getGrantStatus(
+                callerUid, fixture.binding.sessionBinder, lease.generation,
+                lease.incarnationId, lifetime,
+            ),
+        )
         assertFalse(fixture.authority.confirmCleanStop(lease, operationId) { _, _ -> false })
         assertEquals(DittoOwnershipCoordinator.Phase.DRAINING, fixture.coordinator.snapshot().phase)
 
@@ -211,6 +237,26 @@ class DittoHostWitnessAuthorityTest {
                 lease.incarnationId, lifetime,
             ),
         )
+    }
+
+    @Test
+    fun unexpectedWorkerDeathLeavesOwnershipUncertain() {
+        val fixture = fixture()
+        val lease = fixture.binding.lease
+        val (lifetime, die) = lifetimeBinder()
+        assertEquals(
+            DittoHostWitnessAuthority.Status.GRANTED,
+            fixture.authority.register(
+                callerUid, fixture.binding.sessionBinder, lease.generation,
+                lease.incarnationId, lifetime,
+            ),
+        )
+
+        die()
+
+        assertEquals(DittoOwnershipCoordinator.Phase.UNCERTAIN, fixture.coordinator.snapshot().phase)
+        assertNull(fixture.coordinator.admit(lease))
+        assertNull(fixture.authority.beginDrain(lease, UUID.randomUUID().toString()))
     }
 
     @Test

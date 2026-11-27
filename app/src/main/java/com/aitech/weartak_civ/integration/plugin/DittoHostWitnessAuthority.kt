@@ -43,6 +43,8 @@ internal class DittoHostWitnessAuthority(
     ) {
         val dead = AtomicBoolean(false)
         val linked = AtomicBoolean(false)
+        var expectedDrainOperationId: String? = null
+        var deathObserved = false
         lateinit var deathRecipient: IBinder.DeathRecipient
     }
 
@@ -189,9 +191,12 @@ internal class DittoHostWitnessAuthority(
         operationId: String,
     ) = synchronized(lock) {
         if (closed || registered?.binding?.lease != lease) return@synchronized null
-        coordinator.beginDrain(lease, operationId)
+        val result = coordinator.beginDrain(lease, operationId)
+        if (result != null) registered?.expectedDrainOperationId = operationId
+        result
     }
 
+    /** Requires matching worker death plus independent proof that host and broker work drained. */
     fun confirmCleanStop(
         lease: DittoOwnershipCoordinator.Lease,
         operationId: String,
@@ -201,14 +206,21 @@ internal class DittoHostWitnessAuthority(
             if (closed) return@synchronized null
             registered?.takeIf { it.binding.lease == lease }
         } ?: return false
-        if (record.dead.get() || !record.lifetime.isBinderAlive ||
-            !isCurrent(record.binding, currentLease())
-        ) {
+        val expectedDeath = synchronized(lock) {
+            registered === record &&
+                record.expectedDrainOperationId == operationId &&
+                record.deathObserved && record.dead.get()
+        }
+        if (!expectedDeath || !isCurrent(record.binding, currentLease())) {
             return false
         }
         if (!coordinator.confirmCleanStop(lease, operationId) { verifiedLease, verifiedOperation ->
                 verifier.verify(verifiedLease, verifiedOperation) &&
-                    !record.dead.get() && record.lifetime.isBinderAlive &&
+                    synchronized(lock) {
+                        registered === record &&
+                            record.expectedDrainOperationId == verifiedOperation &&
+                            record.deathObserved && record.dead.get()
+                    } &&
                     isCurrent(record.binding, currentLease())
             }
         ) return false
@@ -275,7 +287,18 @@ internal class DittoHostWitnessAuthority(
             record.lifetime === lifetime
 
     private fun statusFor(record: Record): Status {
-        if (record.dead.get() || !record.lifetime.isBinderAlive || !record.binding.isActive()) {
+        if (record.dead.get() || !record.lifetime.isBinderAlive) {
+            val snapshot = coordinator.snapshot()
+            if (record.deathObserved &&
+                record.expectedDrainOperationId != null &&
+                snapshot.phase == DittoOwnershipCoordinator.Phase.DRAINING &&
+                snapshot.lease == record.binding.lease &&
+                snapshot.operationId == record.expectedDrainOperationId
+            ) return Status.REVOKED
+            coordinator.markUncertain(record.binding.lease)
+            return Status.UNCERTAIN
+        }
+        if (!record.binding.isActive()) {
             coordinator.markUncertain(record.binding.lease)
             return Status.UNCERTAIN
         }
@@ -326,8 +349,17 @@ internal class DittoHostWitnessAuthority(
                     coordinator.markUncertain(record.binding.lease)
                 }
                 registered === record -> {
-                    registered = null
-                    coordinator.markUncertain(record.binding.lease)
+                    val snapshot = coordinator.snapshot()
+                    if (record.expectedDrainOperationId != null &&
+                        snapshot.phase == DittoOwnershipCoordinator.Phase.DRAINING &&
+                        snapshot.lease == record.binding.lease &&
+                        snapshot.operationId == record.expectedDrainOperationId
+                    ) {
+                        record.deathObserved = true
+                    } else {
+                        registered = null
+                        coordinator.markUncertain(record.binding.lease)
+                    }
                 }
                 else -> Unit
             }

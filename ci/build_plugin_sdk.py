@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import platform as platform_info
 import subprocess
 import sys
+import tempfile
 from urllib.parse import urlsplit
 import zipfile
 
@@ -150,6 +151,18 @@ def validate_candidate_context(platform_name, environment):
         raise RuntimeError(
             "Windows candidate checksum requires the protected Core main pipeline"
         )
+    if not environment.get("CI_JOB_ID") or not environment.get("CI_PIPELINE_ID"):
+        raise RuntimeError("Windows candidate checksum requires CI job and pipeline IDs")
+
+
+def build_arguments(wrapper, candidate=False):
+    arguments = [
+        str(wrapper), "assembleRelease", "--no-daemon", "--max-workers=2",
+        "-Pkotlin.compiler.execution.strategy=in-process", "--console=plain",
+    ]
+    if candidate:
+        arguments.extend(("--rerun-tasks", "--no-build-cache", "--no-configuration-cache"))
+    return arguments
 
 
 def verify_checkout_clean(checkout):
@@ -244,8 +257,16 @@ def main():
         raise RuntimeError(f"No verified combined plugin SDK artifact hash for {platform}")
     overlay = pin["overlay"]
     identity = f"{pin['commit'][:12]}-{overlay['source_sha256'][:12]}"
-    checkout = ROOT / ".gradle" / "sdk" / identity
-    checkout.mkdir(parents=True, exist_ok=True)
+    candidate_checkout = (
+        tempfile.TemporaryDirectory(prefix="weartak-373-sdk-candidate-")
+        if args.candidate_hash else None
+    )
+    checkout = (
+        Path(candidate_checkout.name) / identity
+        if candidate_checkout is not None
+        else ROOT / ".gradle" / "sdk" / identity
+    )
+    checkout.mkdir(parents=True, exist_ok=candidate_checkout is None)
     if not (checkout / ".git").exists():
         run("git", "init", "--quiet", cwd=checkout)
         run("git", "remote", "add", "origin", pin["repository"], cwd=checkout)
@@ -279,9 +300,12 @@ def main():
     wrapper = checkout / ("gradlew.bat" if os.name == "nt" else "gradlew")
     if os.name != "nt":
         wrapper.chmod(wrapper.stat().st_mode | 0o100)
-    subprocess.run([str(wrapper), "assembleRelease", "--no-daemon", "--max-workers=2",
-                    "-Pkotlin.compiler.execution.strategy=in-process", "--console=plain"],
-                   cwd=checkout, env=credential_free_environment(), check=True)
+    subprocess.run(
+        build_arguments(wrapper, candidate=args.candidate_hash),
+        cwd=checkout,
+        env=credential_free_environment(),
+        check=True,
+    )
     aar = checkout / "build" / "outputs" / "aar" / "weartak-plugin-sdk-release.aar"
     if platform == "linux":
         subprocess.run(["java", str(ROOT / "ci" / "NormalizeSdkAarModes.java"), str(aar)],
@@ -306,6 +330,10 @@ def main():
             "publishing": False,
             "platform": platform,
             "os_version": platform_info.platform(),
+            "ci_job_id": os.environ["CI_JOB_ID"],
+            "ci_pipeline_id": os.environ["CI_PIPELINE_ID"],
+            "ci_pipeline_url": os.environ.get("CI_PIPELINE_URL"),
+            "ci_pipeline_source": os.environ.get("CI_PIPELINE_SOURCE"),
             "core_builder_commit": os.environ["CI_COMMIT_SHA"],
             "core_builder_tree": run("git", "rev-parse", "HEAD^{tree}", cwd=ROOT),
             "runner_id": os.environ.get("CI_RUNNER_ID"),
