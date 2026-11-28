@@ -23,7 +23,7 @@ TAK_GOV_SDK_REPOSITORY = (
 WEARTAK_373_SDK_COMMIT = "e9db0e6d88f2bcb23af90fa74e4b01fcc49c4dbd"
 WEARTAK_373_SDK_TREE = "fdc25c49c98a84e97b91a4fef1992386bf6223b9"
 GIT_ENVIRONMENT_KEYS = (
-    "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP", "SystemRoot",
+    "PATH", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP", "SystemRoot",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH",
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
 )
@@ -57,7 +57,7 @@ def validate_repository(repository):
     return parsed
 
 
-def git_fetch_environment(repository, source_env=None):
+def git_fetch_environment(repository, isolated_home, source_env=None):
     source_env = os.environ if source_env is None else source_env
     parsed = validate_repository(repository)
     env = {key: source_env[key] for key in GIT_ENVIRONMENT_KEYS if key in source_env}
@@ -83,14 +83,16 @@ def git_fetch_environment(repository, source_env=None):
             )
         )
     env.update(
-        GIT_CONFIG_COUNT=str(len(settings)),
+        HOME=str(isolated_home),
+        XDG_CONFIG_HOME=str(isolated_home),
+        GIT_CONFIG_PARAMETERS=" ".join(
+            "'" + f"{key}={value}".replace("'", "'\\''") + "'"
+            for key, value in settings
+        ),
         GIT_CONFIG_NOSYSTEM="1",
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_TERMINAL_PROMPT="0",
     )
-    for index, (key, value) in enumerate(settings):
-        env[f"GIT_CONFIG_KEY_{index}"] = key
-        env[f"GIT_CONFIG_VALUE_{index}"] = value
     return env
 
 
@@ -150,22 +152,24 @@ def sanitize_git_stderr(stderr, token=None):
 
 def fetch_source(checkout, repository, ref, local_source=None):
     if local_source is None:
-        env = git_fetch_environment(repository)
+        auth_repository = repository
         source = "origin"
     else:
         validate_repository(repository)
         source = str(local_source.resolve(strict=True))
         if not Path(source).is_dir():
             raise RuntimeError("Local plugin SDK source must be a directory")
-        env = git_fetch_environment("https://github.com/aegorsuch/weartak-plugin-sdk.git")
-    result = subprocess.run(
-        ["git", "fetch", "--quiet", "--depth=1", "--no-tags", "--", source, ref],
-        cwd=checkout,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+        auth_repository = "https://github.com/aegorsuch/weartak-plugin-sdk.git"
+    with tempfile.TemporaryDirectory(prefix="weartak-sdk-git-home-") as isolated_home:
+        env = git_fetch_environment(auth_repository, isolated_home)
+        result = subprocess.run(
+            ["git", "fetch", "--quiet", "--depth=1", "--no-tags", "--", source, ref],
+            cwd=checkout,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
     if result.returncode:
         if local_source is not None:
             raise RuntimeError("Pinned plugin SDK commit unavailable in local source")

@@ -3,6 +3,7 @@ import importlib.util
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,10 @@ def ci_job_body(ci, name):
 
 
 class PluginSdkAuthTests(unittest.TestCase):
+    def setUp(self):
+        self.git_home = tempfile.TemporaryDirectory()
+        self.addCleanup(self.git_home.cleanup)
+
     def test_linux_builder_scopes_auth_to_sdk_and_clears_it_before_build(self):
         helper = (ROOT / "ci" / "build_plugin_sdk.sh").read_text()
 
@@ -140,29 +145,46 @@ class PluginSdkAuthTests(unittest.TestCase):
         token = "fixture-job-token"
         env = SDK.git_fetch_environment(
             SDK.TAK_GOV_SDK_REPOSITORY,
-            {"PATH": "fixture-path", "CI_JOB_TOKEN": token, "GIT_CONFIG_VALUE_9": "old"},
+            self.git_home.name,
+            {
+                "PATH": "fixture-path",
+                "CI_JOB_TOKEN": token,
+                "GIT_CONFIG_VALUE_9": "old",
+                "GIT_CONFIG_PARAMETERS": "'credential.helper=ambient'",
+            },
         )
 
-        self.assertEqual("5", env["GIT_CONFIG_COUNT"])
+        parameters = shlex.split(env["GIT_CONFIG_PARAMETERS"])
+        credentials = base64.b64encode(
+            f"gitlab-ci-token:{token}".encode("utf-8")
+        ).decode("ascii")
         self.assertEqual(
-            f"http.{SDK.TAK_GOV_SDK_REPOSITORY}/.extraHeader",
-            env["GIT_CONFIG_KEY_4"],
+            [
+                "credential.helper=",
+                "http.extraHeader=",
+                "http.followRedirects=false",
+                f"core.hooksPath={os.devnull}",
+                f"http.{SDK.TAK_GOV_SDK_REPOSITORY}/.extraHeader="
+                f"Authorization: Basic {credentials}",
+            ],
+            parameters,
         )
-        header_parts = env["GIT_CONFIG_VALUE_4"].split(" ", 2)
-        self.assertEqual(["Authorization:", "Basic"], header_parts[:2])
         self.assertEqual(
-            "gitlab-ci-token:" + token,
-            base64.b64decode(header_parts[2]).decode("utf-8"),
+            " ".join("'" + parameter + "'" for parameter in parameters),
+            env["GIT_CONFIG_PARAMETERS"],
         )
         self.assertNotIn("CI_JOB_TOKEN", env)
+        self.assertNotIn("GIT_CONFIG_COUNT", env)
         self.assertNotIn("GIT_CONFIG_VALUE_9", env)
+        self.assertNotIn("ambient", env["GIT_CONFIG_PARAMETERS"])
         self.assertEqual("0", env["GIT_TERMINAL_PROMPT"])
-        self.assertNotIn(token, " ".join(env.values()).replace(env["GIT_CONFIG_VALUE_4"], ""))
+        self.assertNotIn(token, " ".join(env.values()))
 
     def test_auth_header_is_scoped_to_the_exact_sdk_repository(self):
         repository = SDK.TAK_GOV_SDK_REPOSITORY
         env = SDK.git_fetch_environment(
             repository,
+            self.git_home.name,
             {"PATH": os.environ["PATH"], "CI_JOB_TOKEN": "fixture-job-token"},
         )
         sdk_url = repository + "/info/refs?service=git-upload-pack"
@@ -186,20 +208,154 @@ class PluginSdkAuthTests(unittest.TestCase):
         self.assertIn("Authorization: Basic ", sdk_header)
         self.assertEqual("", other_header)
 
+    def test_git_receives_legacy_config_resets(self):
+        env = SDK.git_fetch_environment(
+            SDK.TAK_GOV_SDK_REPOSITORY,
+            self.git_home.name,
+            {"PATH": os.environ["PATH"], "CI_JOB_TOKEN": "fixture-job-token"},
+        )
+        for key, expected in (
+            ("credential.helper", ""),
+            ("http.extraHeader", ""),
+            ("http.followRedirects", "false"),
+            ("core.hooksPath", os.devnull),
+        ):
+            with self.subTest(key=key):
+                result = subprocess.run(
+                    ["git", "config", "--get", key],
+                    env=env, capture_output=True, text=True, check=True,
+                )
+                self.assertEqual(expected, result.stdout.strip())
+
+    def test_isolated_home_blocks_ambient_global_config_without_global_override(self):
+        repository = SDK.TAK_GOV_SDK_REPOSITORY
+        with tempfile.TemporaryDirectory() as directory:
+            ambient = Path(directory) / "ambient"
+            ambient.mkdir()
+            (ambient / ".gitconfig").write_text(
+                '[credential]\n\thelper = fixture-ambient-helper\n'
+                f'[http "{repository}"]\n'
+                '\textraHeader = Ambient: fixture-header\n'
+                '\tfollowRedirects = true\n',
+                encoding="utf-8",
+            )
+            (ambient / "git").mkdir()
+            (ambient / "git" / "config").write_text(
+                "[credential]\n\thelper = fixture-xdg-helper\n", encoding="utf-8"
+            )
+            ambient_env = {
+                "PATH": os.environ["PATH"],
+                "HOME": str(ambient),
+                "XDG_CONFIG_HOME": str(ambient),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_TERMINAL_PROMPT": "0",
+            }
+            if "SystemRoot" in os.environ:
+                ambient_env["SystemRoot"] = os.environ["SystemRoot"]
+
+            def git_config(env, *args):
+                return subprocess.run(
+                    ["git", "config", *args], cwd=directory, env=env,
+                    capture_output=True, text=True, check=True,
+                ).stdout.strip()
+
+            self.assertEqual(
+                "Ambient: fixture-header",
+                git_config(
+                    ambient_env, "--get-urlmatch", "http.extraHeader",
+                    repository + "/info/refs",
+                ),
+            )
+            self.assertIn(
+                "fixture-xdg-helper",
+                git_config(ambient_env, "--get-all", "credential.helper"),
+            )
+            self.assertIn(
+                "fixture-ambient-helper",
+                git_config(ambient_env, "--get-all", "credential.helper"),
+            )
+            self.assertEqual(
+                "true",
+                git_config(
+                    ambient_env, "--get-urlmatch", "http.followRedirects",
+                    repository + "/info/refs",
+                ),
+            )
+            env = SDK.git_fetch_environment(
+                repository, self.git_home.name,
+                {**ambient_env, "CI_JOB_TOKEN": "fixture-job-token"},
+            )
+            env.pop("GIT_CONFIG_GLOBAL")
+            self.assertEqual(self.git_home.name, env["HOME"])
+            self.assertEqual(self.git_home.name, env["XDG_CONFIG_HOME"])
+            self.assertEqual(
+                "Authorization: Basic " + base64.b64encode(
+                    b"gitlab-ci-token:fixture-job-token"
+                ).decode("ascii"),
+                git_config(
+                    env, "--get-urlmatch", "http.extraHeader",
+                    repository + "/info/refs",
+                ),
+            )
+            self.assertEqual("", git_config(env, "--get-all", "credential.helper"))
+            self.assertEqual(
+                "false",
+                git_config(
+                    env, "--get-urlmatch", "http.followRedirects",
+                    repository + "/info/refs",
+                ),
+            )
+
+    def test_fetch_uses_temporary_home_only_for_git(self):
+        with tempfile.TemporaryDirectory() as checkout:
+            seen = {}
+
+            def fake_fetch(*args, **kwargs):
+                env = kwargs["env"]
+                seen["home"] = env["HOME"]
+                self.assertTrue(Path(seen["home"]).is_dir())
+                self.assertEqual(seen["home"], env["XDG_CONFIG_HOME"])
+                self.assertNotIn("CI_JOB_TOKEN", env)
+                return mock.Mock(returncode=0)
+
+            with mock.patch.dict(
+                os.environ, {"HOME": "fixture-original-home", "CI_JOB_TOKEN": "fixture-token"}
+            ), mock.patch.object(SDK.subprocess, "run", side_effect=fake_fetch):
+                SDK.fetch_source(Path(checkout), SDK.TAK_GOV_SDK_REPOSITORY, "f" * 40)
+                self.assertEqual("fixture-original-home", os.environ["HOME"])
+            self.assertFalse(Path(seen["home"]).exists())
+
+    def test_legacy_config_quotes_apostrophes_in_values(self):
+        path = "fixture path O'Brien"
+        with mock.patch.object(SDK.os, "devnull", path):
+            env = SDK.git_fetch_environment(
+                "https://github.com/example/plugin-sdk.git",
+                self.git_home.name,
+                {"PATH": os.environ["PATH"]},
+            )
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        result = subprocess.run(
+            ["git", "config", "--get", "core.hooksPath"],
+            env=env, capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(path, result.stdout.strip())
+
     def test_github_fetch_does_not_inherit_job_token_or_auth_config(self):
         env = SDK.git_fetch_environment(
             "https://github.com/example/plugin-sdk.git",
+            self.git_home.name,
             {"PATH": "fixture-path", "CI_JOB_TOKEN": "fixture-job-token"},
         )
 
         self.assertNotIn("CI_JOB_TOKEN", env)
         self.assertFalse(any("fixture-job-token" in value for value in env.values()))
-        self.assertEqual("4", env["GIT_CONFIG_COUNT"])
+        self.assertEqual(4, len(shlex.split(env["GIT_CONFIG_PARAMETERS"])))
+        self.assertNotIn("GIT_CONFIG_COUNT", env)
 
     def test_tak_gov_fetch_fails_closed_without_job_token(self):
         with self.assertRaisesRegex(RuntimeError, "CI_JOB_TOKEN"):
             SDK.git_fetch_environment(
-                SDK.TAK_GOV_SDK_REPOSITORY, {"PATH": "fixture-path"}
+                SDK.TAK_GOV_SDK_REPOSITORY, self.git_home.name, {"PATH": "fixture-path"}
             )
 
     def test_sanitizer_redacts_at_and_colon_in_passwords(self):
@@ -361,7 +517,7 @@ class PluginSdkAuthTests(unittest.TestCase):
                 RuntimeError, "HTTPS|canonical"
             ):
                 SDK.git_fetch_environment(
-                    repository, {"CI_JOB_TOKEN": "fixture-job-token"}
+                    repository, self.git_home.name, {"CI_JOB_TOKEN": "fixture-job-token"}
                 )
 
     def test_untrusted_children_do_not_receive_gitlab_token_or_auth_configuration(self):
@@ -371,13 +527,18 @@ class PluginSdkAuthTests(unittest.TestCase):
                 "CI_JOB_TOKEN": "fixture-job-token",
                 "GIT_CONFIG_COUNT": "5",
                 "GIT_CONFIG_VALUE_4": "JOB-TOKEN: fixture-job-token",
+                "GIT_CONFIG_PARAMETERS": "'http.extraHeader=Authorization: Basic fixture-secret'",
                 "GRADLE_OPTS": "-Xmx1g",
+                "HOME": "fixture-original-home",
+                "XDG_CONFIG_HOME": "fixture-original-xdg",
             }
         )
 
         self.assertNotIn("CI_JOB_TOKEN", env)
         self.assertFalse(any(key.startswith("GIT_CONFIG_") for key in env))
         self.assertEqual("-Xmx1g", env["GRADLE_OPTS"])
+        self.assertEqual("fixture-original-home", env["HOME"])
+        self.assertEqual("fixture-original-xdg", env["XDG_CONFIG_HOME"])
 
 
 if __name__ == "__main__":
