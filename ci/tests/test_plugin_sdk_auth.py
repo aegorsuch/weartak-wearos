@@ -202,6 +202,104 @@ class PluginSdkAuthTests(unittest.TestCase):
                 SDK.TAK_GOV_SDK_REPOSITORY, {"PATH": "fixture-path"}
             )
 
+    def test_sanitizer_redacts_at_and_colon_in_passwords(self):
+        message = SDK.sanitize_git_stderr(
+            "fatal: unable to access "
+            "'https://user:p@ss:word@proxy.example:8443/sdk.git': "
+            "authentication failed"
+        )
+
+        self.assertIn("https://[REDACTED]@proxy.example:8443/sdk.git", message)
+        self.assertNotIn("p@ss:word", message)
+
+    def test_sanitizer_redacts_percent_encoded_credentials(self):
+        message = SDK.sanitize_git_stderr(
+            "https://user%40domain:p%40ss%3Aword@proxy.example:8443/sdk.git"
+        )
+
+        self.assertIn("https://[REDACTED]@proxy.example:8443/sdk.git", message)
+        self.assertNotIn("user%40domain", message)
+        self.assertNotIn("p%40ss%3Aword", message)
+
+    def test_sanitizer_redacts_socks_proxy_credentials(self):
+        message = SDK.sanitize_git_stderr(
+            "Could not resolve proxy: "
+            "socks5h://user:pa@ss:word@proxy.example:1080"
+        )
+
+        self.assertIn("socks5h://[REDACTED]@proxy.example:1080", message)
+        self.assertNotIn("pa@ss:word", message)
+
+    def test_sanitizer_redacts_multiple_urls_on_one_line(self):
+        message = SDK.sanitize_git_stderr(
+            "proxies https://alice:one@proxy-a.example:8080/path and "
+            "socks4a://bob:two@proxy-b.example:1081/path"
+        )
+
+        self.assertIn("https://[REDACTED]@proxy-a.example:8080/path", message)
+        self.assertIn("socks4a://[REDACTED]@proxy-b.example:1081/path", message)
+        self.assertNotIn("alice:one", message)
+        self.assertNotIn("bob:two", message)
+
+    def test_sanitizer_redacts_scheme_less_proxy_credentials(self):
+        message = SDK.sanitize_git_stderr(
+            "Could not resolve proxy: user:p@ss:word@proxy.example:1080"
+        )
+
+        self.assertIn("proxy: [REDACTED]@proxy.example:1080", message)
+        self.assertNotIn("p@ss:word", message)
+
+    def test_sanitizer_preserves_url_query_fragment_host_path_and_error(self):
+        message = SDK.sanitize_git_stderr(
+            "fatal: unable to access "
+            "'https://user:password@proxy.example:8443/group/sdk.git"
+            "?mode=read#release': TLS certificate verify failed"
+        )
+
+        self.assertIn("fatal: unable to access", message)
+        self.assertIn(
+            "https://[REDACTED]@proxy.example:8443/group/sdk.git"
+            "?mode=read#release",
+            message,
+        )
+        self.assertIn("TLS certificate verify failed", message)
+        self.assertNotIn("user:password", message)
+
+    def test_sanitizer_redacts_auth_header_and_job_token(self):
+        token = "fixture-job-token-that-must-not-leak"
+        encoded = base64.b64encode(
+            f"gitlab-ci-token:{token}".encode("utf-8")
+        ).decode("ascii")
+        message = SDK.sanitize_git_stderr(
+            f"fatal: Authorization: Basic {encoded}\njob_token={token}",
+            token,
+        )
+
+        self.assertIn("Authorization: [REDACTED]", message)
+        self.assertIn("job_token=[REDACTED]", message)
+        self.assertNotIn(token, message)
+        self.assertNotIn(encoded, message)
+
+    def test_fetch_failure_reports_exit_code_and_sanitized_stderr(self):
+        token = "fixture-job-token-that-must-not-leak"
+        stderr = f"fatal: authentication failed for token {token}".encode()
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.dict(os.environ, {"CI_JOB_TOKEN": token}), \
+             mock.patch.object(SDK, "run", return_value="git version 2.45.0.windows.1"), \
+             mock.patch.object(
+                 SDK.subprocess, "run",
+                 return_value=mock.Mock(returncode=128, stderr=stderr),
+             ):
+            with self.assertRaisesRegex(
+                RuntimeError, "git version 2.45.0.windows.1; exit 128"
+            ) as error:
+                SDK.fetch_source(
+                    Path(directory), SDK.TAK_GOV_SDK_REPOSITORY, "f" * 40
+                )
+
+        self.assertIn("authentication failed", str(error.exception))
+        self.assertNotIn(token, str(error.exception))
+
     def test_local_source_fetches_only_the_requested_commit(self):
         if shutil.which("git") is None:
             self.skipTest("Git is required")

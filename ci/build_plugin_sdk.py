@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import platform as platform_info
+import re
 import subprocess
 import sys
 import tempfile
@@ -102,6 +103,51 @@ def credential_free_environment(source_env=None):
     return env
 
 
+def sanitize_git_stderr(stderr, token=None):
+    if isinstance(stderr, bytes):
+        text = stderr.decode("utf-8", errors="replace")
+    else:
+        text = str(stderr or "")
+    if token:
+        text = text.replace(token, "[REDACTED]")
+        encoded_token = base64.b64encode(
+            f"gitlab-ci-token:{token}".encode("utf-8")
+        ).decode("ascii")
+        text = text.replace(encoded_token, "[REDACTED]")
+    text = re.sub(
+        r"(?i)\b(?:proxy-)?authorization\s*:\s*[^\r\n]*",
+        "Authorization: [REDACTED]",
+        text,
+    )
+
+    def redact_url_userinfo(match):
+        authority = match.group(2)
+        if "@" not in authority:
+            return match.group(0)
+        host = authority.rsplit("@", 1)[1]
+        return f"{match.group(1)}://[REDACTED]@{host}"
+
+    text = re.sub(
+        r"(?i)\b(https?|socks(?:4a?|5h?)?)://([^/?#\s]+)",
+        redact_url_userinfo,
+        text,
+    )
+    text = re.sub(
+        r"(?i)(?<![A-Za-z0-9+./:?=#-])([^/@\s/?#]+:[^/?#\s]*@)"
+        r"([^/?#\s,;|)\]}]+)",
+        lambda match: "[REDACTED]@" + match.group(2),
+        text,
+    )
+    text = re.sub(
+        r"(?i)([?&](?:access_token|token|private_token|job_token|password|secret)=)"
+        r"[^&#\s]+",
+        r"\1[REDACTED]",
+        text,
+    )
+    text = " ".join(text.split())[:1000]
+    return text or "[no stderr output]"
+
+
 def fetch_source(checkout, repository, ref, local_source=None):
     if local_source is None:
         env = git_fetch_environment(repository)
@@ -117,15 +163,21 @@ def fetch_source(checkout, repository, ref, local_source=None):
         cwd=checkout,
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         check=False,
     )
     if result.returncode:
         if local_source is not None:
             raise RuntimeError("Pinned plugin SDK commit unavailable in local source")
+        token = (
+            os.environ.get("CI_JOB_TOKEN")
+            if repository == TAK_GOV_SDK_REPOSITORY else None
+        )
+        git_version = run("git", "--version", cwd=checkout)
+        details = sanitize_git_stderr(result.stderr, token)
         raise RuntimeError(
-            "Plugin SDK source fetch failed; verify the pinned ref and repository "
-            "read settings for the current CI_JOB_TOKEN"
+            f"Plugin SDK source fetch failed ({git_version}; "
+            f"exit {result.returncode}): {details}"
         )
 
 
